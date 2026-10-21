@@ -1,7 +1,7 @@
 import { Fragment } from 'react'
 import type { ProjectDto } from '@/api-client/types'
 import { evaluatePermission } from '@/core/permissions'
-import { Auth } from '@/modules/auth/Auth.store'
+import { Session } from '@/modules/session/Session.store'
 import { projectExtensionRegistry } from './registry'
 import type { ProjectNavContribution } from './types'
 
@@ -12,7 +12,7 @@ import type { ProjectNavContribution } from './types'
  * the detail shell's section nav.
  */
 export function useProjectNavEntries(): Array<ProjectNavContribution & { extensionName: string }> {
-  const { user, permissions } = Auth
+  const { user, permissions } = Session
   return projectExtensionRegistry
     .navEntries()
     .filter(e => !e.permission || evaluatePermission(user, permissions, e.permission))
@@ -22,7 +22,7 @@ export function useProjectNavEntries(): Array<ProjectNavContribution & { extensi
  * The permission-filtered, ordered `detail_panels` for the current session.
  */
 export function useProjectDetailPanels() {
-  const { user, permissions } = Auth
+  const { user, permissions } = Session
   return projectExtensionRegistry
     .detailPanels()
     .filter(p => !p.permission || evaluatePermission(user, permissions, p.permission))
@@ -35,7 +35,7 @@ export function useProjectDetailPanels() {
  * empty, so the seam exists before any consumer registers.
  */
 export function ProjectCardTagsSlot({ project }: { project: ProjectDto }) {
-  const { user, permissions } = Auth
+  const { user, permissions } = Session
   const tags = projectExtensionRegistry
     .cardTags()
     .filter(c => !c.permission || evaluatePermission(user, permissions, c.permission))

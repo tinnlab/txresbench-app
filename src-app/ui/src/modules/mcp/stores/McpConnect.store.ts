@@ -1,7 +1,7 @@
 import { ApiClient } from '@/api-client'
 import { Permissions } from '@/api-client/permissions'
 import { hasPermissionNow } from '@/core/permissions'
-import { useAuthStore } from '@/modules/auth/Auth.store'
+import { useSessionStore } from '@/modules/session/Session.store'
 import { defineStore, registerLazyStore } from '@ziee/framework/store-kit'
 
 /**
@@ -77,8 +77,8 @@ const McpConnectDef = defineStore('McpConnect', {
     // watcher itself observed — is what catches a transition that happened
     // while this store instance was torn down (ref-count decay).
     watch(
-      useAuthStore,
-      authState => (authState.isAuthenticated ? (authState.user?.id ?? null) : null),
+      useSessionStore,
+      session => (session.user?.id ?? null),
       identity => {
         if (lastAuthIdentity !== undefined && identity !== lastAuthIdentity) {
           actions.reset()

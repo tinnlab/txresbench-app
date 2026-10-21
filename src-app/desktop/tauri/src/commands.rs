@@ -1,4 +1,5 @@
 //! Tauri IPC commands + the single-owner provisioning seam.
+//! TxResBench desktop — the owner identity mirrors the server's localsession module.
 //!
 //! The harness owns the readable/mint half of single-user (via
 //! `SingleUserStrategy`); owner *creation* stays app-side (the SDK design keeps
@@ -9,9 +10,7 @@
 use std::sync::{Arc, OnceLock};
 
 use sqlx::PgPool;
-use ziee_auth::auth::password::hash_password;
 use ziee_auth::auth::JwtService;
-use ziee_auth::user::{GroupRepository, UserRepository};
 use ziee_desktop_harness::single_user::{OwnerLogin, SingleUserStrategy};
 
 /// Set once in the boot→window `on_ready` closure.
@@ -42,63 +41,12 @@ pub async fn auto_login() -> Result<OwnerLogin, String> {
         .map_err(|e| e.to_string())
 }
 
-/// Create the single desktop owner (admin) on first run. Idempotent — no-ops
-/// once an admin exists.
+/// Create the single desktop owner (admin) on first run. Idempotent — no-ops once
+/// an admin exists. Shared with the HTTP server's local-session mint
+/// (`cytoanalyst::modules::localsession::ensure_owner`), so the desktop and the
+/// web-service mode provision the SAME owner.
 pub async fn ensure_owner(pool: &PgPool) -> anyhow::Result<()> {
-    let strat = SingleUserStrategy::desktop_default();
-    if !strat.owner_missing(pool).await? {
-        return Ok(());
-    }
-
-    let user_repo = UserRepository::new(pool.clone());
-    let group_repo = GroupRepository::new(pool.clone());
-
-    let hash = hash_password(&strat.owner_password)
-        .map_err(|e| anyhow::anyhow!("password hash failed: {e}"))?;
-    let user = user_repo
-        .create(
-            &strat.owner_username,
-            &strat.owner_email,
-            Some(hash),
-            Some("Owner".to_string()),
-            None,
-        )
-        .await
-        .map_err(|e| anyhow::anyhow!("create owner failed: {e}"))?;
-
-    // SDK_GAPS D-1: no `is_admin` on create + no setter → raw UPDATE.
-    sqlx::query("UPDATE users SET is_admin = true WHERE id = $1")
-        .bind(user.id)
-        .execute(pool)
-        .await?;
-
-    // Grant the owner-`*` model: membership in the Administrators group (seeded
-    // by ziee-auth's migration with the `"*"` wildcard permission).
-    if let Some(admins) = group_repo
-        .get_by_name("Administrators")
-        .await
-        .map_err(|e| anyhow::anyhow!("lookup Administrators group failed: {e}"))?
-    {
-        user_repo
-            .assign_to_group(user.id, admins.id, None)
-            .await
-            .map_err(|e| anyhow::anyhow!("assign owner to Administrators failed: {e}"))?;
-    }
-
-    // A5 ITEM-3: the single desktop owner owns EXACTLY ONE personal account
-    // (INV-4 / AC-INV-7 — the desktop degenerate: single-valued, no switcher). Runs
-    // once on first boot, idempotently (A1 `ON CONFLICT`), guarded by the
-    // `owner_missing` short-circuit above. Name = `owner_username` (DEC-4).
-    cytoanalyst::modules::account::AccountRepository::new(pool.clone())
-        .ensure_personal_account(user.id, &strat.owner_username)
-        .await
-        .map_err(|e| anyhow::anyhow!("ensure owner personal account failed: {e}"))?;
-
-    tracing::info!(
-        "desktop owner '{}' provisioned (admin)",
-        strat.owner_username
-    );
-    Ok(())
+    Ok(cytoanalyst::modules::localsession::ensure_owner(pool).await?)
 }
 
 // A5 TEST-6 [acceptance, INV-4] — the DESKTOP path.

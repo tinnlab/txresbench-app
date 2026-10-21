@@ -9,7 +9,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { useStore } from 'zustand'
 import { Button, Popover, ScrollArea, Tooltip } from '@ziee/kit'
 import { X, Plus, ExternalLink, ChevronsLeft, ChevronsRight, PanelLeftClose, PanelRightClose, PanelLeftOpen, PanelRightOpen } from 'lucide-react'
-import { Auth } from '@/modules/auth/Auth.store'
+import { Session } from '@/modules/session/Session.store'
 import { evaluatePermission } from '@/core/permissions'
 import { cn } from '@/lib/utils'
 import { workbenchDockStore } from '@/modules/workbench/core/shell/dock/WorkbenchDock.store'
@@ -39,7 +39,7 @@ import { attributeAtPoint, reorderBefore, startPointerDrag } from './pointerDrag
  * 6d231748 and the filter did not move with it).
  */
 function usePermittedAddablePaneKinds(): readonly PaneKind[] {
-  const { user, permissions } = Auth
+  const { user, permissions } = Session
   return ADDABLE_PANE_KINDS.filter(k => {
     const required = PANE_KIND_PERMISSION[k]
     return !required || evaluatePermission(user, permissions, required)

@@ -5,26 +5,17 @@
 
 pub mod permissions;
 
+// TxResBench: the account/user-management/admin/billing SaaS modules were removed
+// along with their registrations (single-user local app — see dev/docs/app-build-strip.md).
 pub mod account;
-// `admin` — the cross-account admin surface (Tier-0 of the Admin Console epic). NOT
-// saas-gated: accounts + `is_admin` exist in every build, so cross-account admin does
-// too (the cross-account BILLING key lives in the saas-gated `billing` module).
-pub mod admin;
-pub mod app;
-// `billing` (B2) is the self-serve Stripe payments layer. `#[cfg(feature = "saas")]`
-// so it compiles OUT of the desktop/default build (INV-5 / §8): the module, the
-// Stripe client, the routes and the `MODULE_ENTRIES` registration are all physically
-// absent without the feature. The `accounts` billing COLUMNS its migration adds exist
-// in BOTH builds (build.rs scans the migration tree regardless of the feature).
-#[cfg(feature = "saas")]
-pub mod billing;
 pub mod datatype;
+pub mod localsession;
 pub mod dataset;
 pub mod drafts;
 pub mod extensions;
-// `features` — the runtime feature-flags subsystem (Admin Console epic #40). NOT
-// saas-gated: runtime toggles are a general admin capability in every build (mirrors
-// `admin`). Its `feature_flags` migration is discovered by build.rs like every module's.
+// The runtime toggles subsystem (Admin Console epic #40) — a general admin
+// capability in every build (mirrors `admin`). Its migration is discovered by
+// build.rs like every other module's.
 pub mod features;
 pub mod file;
 pub mod health;
@@ -41,7 +32,6 @@ pub mod jobs;
 pub mod provenance;
 pub mod project;
 pub mod sync;
-pub mod user;
 pub mod workstore;
 
 #[cfg(test)]

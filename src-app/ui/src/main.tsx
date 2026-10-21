@@ -4,13 +4,7 @@ import ReactDOM from 'react-dom/client'
 import App from '@/App'
 import { AppErrorBoundary } from '@ziee/shell'
 import { installChunkLoadRecovery } from '@ziee/framework/chunk-recovery'
-import { installAccountHeaderStamping } from '@/core/sync/installAccountHeader'
 import '@/index.css'
-
-// Stamp the active-account header (X-Account-Id) on same-origin requests when an org
-// has been switched to (app-side; the SDK exposes no header hook). A pure no-op for
-// solo/desktop users, whose switcher never sets the holder. See its module header.
-installAccountHeaderStamping()
 
 // Code-split chunk failure recovery. A deploy while this tab is open invalidates
 // every hashed chunk URL the loaded page still holds, so a lazy surface 404s.

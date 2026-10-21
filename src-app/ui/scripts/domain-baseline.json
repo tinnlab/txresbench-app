@@ -1183,44 +1183,6 @@
         "note": "Runtime feature-flags admin subsystem (issues 40/48/53 — per-account overrides + clear). Software product flag, not a genomic feature; the feature-flags module/page/store/actions/routes are the mandated public surface."
       }
     },
-    "ui/src/api-client-saas/apiEndpoints.ts": {
-      "features": {
-        "count": 6,
-        "finding": "GENERIC",
-        "note": "Runtime feature-flags admin subsystem (issues 40/48/53 — per-account overrides + clear). Software product flag, not a genomic feature; the feature-flags module/page/store/actions/routes are the mandated public surface."
-      }
-    },
-    "ui/src/api-client-saas/permissionDescriptions.ts": {
-      "features": {
-        "count": 1,
-        "finding": "GENERIC",
-        "note": "saas-ON generated api-client twin (#50) — the SAME software feature-flags tokens as ui/src/api-client/permissionDescriptions.ts. A product flag, not a genomic feature; GENERATED."
-      },
-      "feature": {
-        "count": 1,
-        "finding": "GENERIC",
-        "note": "saas-ON generated api-client twin (#50) — the SAME software feature-flags tokens as ui/src/api-client/permissionDescriptions.ts. A product flag, not a genomic feature; GENERATED."
-      }
-    },
-    "ui/src/api-client-saas/permissions.ts": {
-      "features": {
-        "count": 2,
-        "finding": "GENERIC",
-        "note": "saas-ON generated api-client twin (#50) — the SAME software feature-flags tokens as ui/src/api-client/permissions.ts. A product flag, not a genomic feature; GENERATED."
-      }
-    },
-    "ui/src/api-client-saas/types.ts": {
-      "feature": {
-        "count": 6,
-        "finding": "GENERIC",
-        "note": "Runtime feature-flags admin subsystem (issues 40/48/53 — per-account overrides + clear). Software product flag, not a genomic feature; the feature-flags module/page/store/actions/routes are the mandated public surface."
-      },
-      "features": {
-        "count": 9,
-        "finding": "GENERIC",
-        "note": "Runtime feature-flags admin subsystem (issues 40/48/53 — per-account overrides + clear). Software product flag, not a genomic feature; the feature-flags module/page/store/actions/routes are the mandated public surface."
-      }
-    },
     "ui/src/modules/features/FeatureFlags.store.ts": {
       "feature": {
         "count": 11,
@@ -1247,12 +1209,12 @@
     },
     "ui/src/modules/features/pages/FeatureFlagsPage.tsx": {
       "feature": {
-        "count": 64,
+        "count": 33,
         "finding": "GENERIC",
         "note": "Runtime feature-flags admin subsystem (issues 40/48/53 — per-account overrides + clear). Software product flag, not a genomic feature; the feature-flags module/page/store/actions/routes are the mandated public surface."
       },
       "features": {
-        "count": 6,
+        "count": 3,
         "finding": "GENERIC",
         "note": "Runtime feature-flags admin subsystem (issues 40/48/53 — per-account overrides + clear). Software product flag, not a genomic feature; the feature-flags module/page/store/actions/routes are the mandated public surface."
       }
@@ -1262,6 +1224,13 @@
         "count": 9,
         "finding": "GENERIC",
         "note": "Runtime feature-flags admin subsystem (issue 40). The word here is a software product flag, not a genomic feature; the module name, table, permission and routes are the mandated public surface of that subsystem."
+      }
+    },
+    "server/src/modules/mod.rs": {
+      "features": {
+        "count": 1,
+        "finding": "GENERIC",
+        "note": "Module REGISTRATION line (`pub mod features;`) of the retained runtime toggles subsystem (issue 40), whose own files are admitted below. The word is a software product flag, not a genomic feature; the module name is the mandated public surface of that subsystem."
       }
     },
     "server/src/modules/mcp/frontend-actions.json": {
@@ -1290,19 +1259,12 @@
     },
     "ui/src/modules/features/gallery.tsx": {
       "feature": {
-        "count": 42,
+        "count": 31,
         "finding": "GENERIC",
         "note": "Runtime feature-flags admin subsystem (issues 40/48/53 — per-account overrides + clear). Software product flag, not a genomic feature; the feature-flags module/page/store/actions/routes are the mandated public surface."
       },
       "features": {
-        "count": 2,
-        "finding": "GENERIC",
-        "note": "Runtime feature-flags admin subsystem (issues 40/48/53 — per-account overrides + clear). Software product flag, not a genomic feature; the feature-flags module/page/store/actions/routes are the mandated public surface."
-      }
-    },
-    "ui/src/modules/features/stores/FeatureFlagAccounts.store.ts": {
-      "feature": {
-        "count": 7,
+        "count": 1,
         "finding": "GENERIC",
         "note": "Runtime feature-flags admin subsystem (issues 40/48/53 — per-account overrides + clear). Software product flag, not a genomic feature; the feature-flags module/page/store/actions/routes are the mandated public surface."
       }
@@ -1730,19 +1692,6 @@
     "ui/src/api-client/types.ts": {
       "finding": "W7",
       "note": "GENERATED from the server OpenAPI: every prose hit here is a MIRROR of a server-side `#[derive(JsonSchema)]` doc comment (schemars carries them into the spec, `emit_ts.rs` into the JSDoc). Editing this file is meaningless — it is regenerated. Fixed at the SERVER doc-comment or not at all. RE-MEASURED after the run-supersedes-its-own-output change (2026-08-08): all 12 prose hits (cells 2 / de 1 / gene 1 / genes 2 / obs 2 / sample 2 / features 2 — the last is the #40 software feature-flags subsystem JSDoc, a product flag not a genomic feature), previously 10 before #40 — the `qc` hit was a mirror of the `ListedArtifact` doc comment, which stopped naming an analysis by name when the row gained its producer field. The previous note claimed \"all 88 … the largest single prose entry in the ledger\", which was false in the same object that disproved it — its own tokens map summed to 11, and the largest is `criteria.ts` at 58. The 88 was a real measurement of an earlier tree that four rounds of server-side doc fixes had since taken down; a prune moves counts and never re-reads prose.",
-      "tokens": {
-        "cells": 2,
-        "de": 1,
-        "gene": 1,
-        "genes": 2,
-        "obs": 2,
-        "sample": 2,
-        "features": 2
-      }
-    },
-    "ui/src/api-client-saas/types.ts": {
-      "finding": "W7",
-      "note": "saas-ON generated api-client twin (#50), GENERATED from the server OpenAPI (--features saas). Every prose hit MIRRORS a server `#[derive(JsonSchema)]` doc comment — the SAME set as ui/src/api-client/types.ts (cells 2 / de 1 / gene 1 / genes 2 / obs 2 / sample 2 / features 2, the last being the #40 software feature-flags JSDoc). Editing this file is meaningless — it is regenerated; fixed at the SERVER doc-comment or not at all.",
       "tokens": {
         "cells": 2,
         "de": 1,
@@ -2564,7 +2513,7 @@
     "ui/src/modules/features/pages/FeatureFlagsPage.tsx": {
       "tokens": {
         "feature": 2,
-        "features": 5
+        "features": 3
       },
       "finding": "GENERIC",
       "note": "Runtime feature-flags admin subsystem (issue 40). The word here is a software product flag, not a genomic feature; the module name, table, permission and routes are the mandated public surface of that subsystem."
@@ -2592,14 +2541,6 @@
       },
       "finding": "GENERIC",
       "note": "Runtime feature-flags admin subsystem (issue 48 — global enable/disable toggle). The word here is a software product flag, not a genomic feature; the feature-flags module/page/action are the mandated public surface of that subsystem."
-    },
-    "ui/src/modules/features/stores/FeatureFlagAccounts.store.ts": {
-      "finding": "GENERIC",
-      "note": "Runtime feature-flags admin subsystem (issues 40/48/53 — per-account overrides + clear). The word here is a software product flag, not a genomic feature; the feature-flags module/page/store/actions/routes are the mandated public surface of that subsystem.",
-      "tokens": {
-        "feature": 1,
-        "features": 1
-      }
     },
     "server/src/modules/workstore/settings.rs": {
       "tokens": {
@@ -7333,7 +7274,7 @@
     },
     "ui/src/modules/features/FeatureFlags.store.test.ts": {
       "feature": {
-        "count": 20,
+        "count": 12,
         "finding": "FALSE-POSITIVE",
         "note": "Runtime feature-flags admin subsystem (issues 40/48/53 — per-account overrides + clear). Software product flag, not a genomic feature; the feature-flags module/page/store/actions/routes are the mandated public surface."
       },
@@ -7345,7 +7286,7 @@
     },
     "ui/src/modules/features/gallery.test.ts": {
       "feature": {
-        "count": 6,
+        "count": 5,
         "finding": "FALSE-POSITIVE",
         "note": "Runtime feature-flags admin subsystem (issues 40/48/53 — per-account overrides + clear). Software product flag, not a genomic feature; the feature-flags module/page/store/actions/routes are the mandated public surface."
       }

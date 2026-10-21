@@ -46,7 +46,9 @@ function RoutePermissionGate({
 }
 
 export default createRouterModule({
-  loginPath: '/auth',
+  // No login screen: the router's fail-closed redirect (no guards registered)
+  // now points at the app home; the session guard registers the real gate.
+  loginPath: '/',
   homePath: '/',
   fallback: <Loading />,
   permissionGate: ({ permission, children }) => (

@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { createModule } from '@ziee/framework'
-import { Auth } from '@/modules/auth/Auth.store'
+import { Session } from '@/modules/session/Session.store'
 import { usePermission } from '@/core/permissions'
 import { Permissions } from '@/api-client/permissions'
 import { RouterBridge } from '@/core/actions/navigateBridge'
@@ -53,16 +53,16 @@ const MCP_USE_PERMISSION = Permissions.McpUse
  * connection on/off.
  */
 function ActionsEngineController(): null {
-  const { isAuthenticated } = Auth
+  const { ready, user } = Session
   const canUseAgent = usePermission(MCP_USE_PERMISSION)
 
   useEffect(() => {
-    if (isAuthenticated && canUseAgent) {
+    if (ready && user && canUseAgent) {
       startActionsEngine()
     } else {
       stopActionsEngine()
     }
-  }, [isAuthenticated, canUseAgent])
+  }, [ready, user, canUseAgent])
 
   // Unmount safety net (module unload / HMR) — the effect above already
   // covers the normal logout path via `isAuthenticated` flipping false.
@@ -76,7 +76,7 @@ export default createModule({
     name: 'actions',
     version: '1.0.0',
     description:
-      "AI-controllable actions: the global action registry + agent engine that let a paired ziee assistant drive CytoAnalyst on the user's behalf.",
+      "AI-controllable actions: the global action registry + agent engine that let a paired ziee assistant drive TxResBench on the user's behalf.",
   },
   dependencies: ['router'],
   components: [

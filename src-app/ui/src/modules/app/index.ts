@@ -1,2 +1,1 @@
-export { useAppStore } from './App.store'
-export { default as SetupPage } from './SetupPage'
+export { useAppModeStore } from './AppMode.store'

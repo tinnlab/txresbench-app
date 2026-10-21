@@ -16,7 +16,6 @@ vi.mock('@/core/permissions', () => ({ hasPermissionNow: () => perm() }))
 const list = vi.fn()
 const set = vi.fn()
 const clear = vi.fn()
-const listAccounts = vi.fn()
 vi.mock('@/api-client', () => ({
   ApiClient: {
     Features: {
@@ -24,16 +23,11 @@ vi.mock('@/api-client', () => ({
       set: (...a: unknown[]) => set(...a),
       clear: (...a: unknown[]) => clear(...a),
     },
-    Admin: {
-      listAccounts: (...a: unknown[]) => listAccounts(...a),
-    },
   },
 }))
 
 const { useFeatureFlagsStore } = await import('./FeatureFlags.store')
-const { useFeatureFlagAccountsStore } = await import('./stores/FeatureFlagAccounts.store')
 const state = () => useFeatureFlagsStore.getState()
-const accountsState = () => useFeatureFlagAccountsStore.getState()
 
 const OFF: FeatureFlagView = {
   flag_key: 'demo.runtime_flag',
@@ -66,7 +60,6 @@ beforeEach(() => {
   list.mockReset()
   set.mockReset()
   clear.mockReset()
-  listAccounts.mockReset()
   useFeatureFlagsStore.setState({
     flags: [{ ...OFF }],
     loading: false,
@@ -79,12 +72,6 @@ beforeEach(() => {
     accountLoading: false,
     accountError: null,
     accountPending: {},
-  })
-  useFeatureFlagAccountsStore.setState({
-    accounts: [],
-    isInitialized: false,
-    loading: false,
-    error: null,
   })
 })
 
@@ -200,32 +187,5 @@ describe('TEST-6 — per-account overrides (#53)', () => {
     await state().selectAccount('acct-B')
     expect(state().selectedAccountId).toBe('acct-B')
     expect(state().accountFlags).toEqual([ACCOUNT_OVERRIDE_OFF]) // B's rows, not A's
-  })
-})
-
-describe('TEST-7 — FeatureFlagAccounts picker store', () => {
-  it('loads via Admin.listAccounts (bounded page) and maps options to human labels, not UUIDs', async () => {
-    listAccounts.mockResolvedValueOnce({
-      accounts: [
-        { account: { id: 'acct-1', name: 'Nebula Diagnostics' }, member_count: 3, owner_label: 'Dr. Raman' },
-      ],
-      page: 1,
-      per_page: 100,
-      total: 1,
-    })
-    await accountsState().loadAccounts()
-    expect(listAccounts).toHaveBeenCalledWith({ page: 1, per_page: 100 })
-    const { featureFlagAccountLabel } = await import('./stores/FeatureFlagAccounts.store')
-    const label = featureFlagAccountLabel(accountsState().accounts[0])
-    expect(label).toContain('Nebula Diagnostics')
-    // The visible label is the name (+ owner), never the raw UUID.
-    expect(label).not.toContain('acct-1')
-    expect(accountsState().isInitialized).toBe(true)
-  })
-
-  it('does NOT call listAccounts without admin::accounts (read-guarded)', async () => {
-    perm.mockReturnValue(false)
-    await accountsState().loadAccounts()
-    expect(listAccounts).not.toHaveBeenCalled()
   })
 })

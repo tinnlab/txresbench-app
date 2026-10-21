@@ -14,9 +14,6 @@ export * from '@ziee/framework'
 export { loadModules } from './modules/loader'
 export { createModule } from '@ziee/framework/module'
 
-// Auth guard for protected routes
-export { AuthGuard } from './modules/auth'
-
 // API Client
 export * from './api-client'
 

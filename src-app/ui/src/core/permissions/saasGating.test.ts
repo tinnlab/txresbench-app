@@ -8,12 +8,13 @@ import { isKnownPermission, useHasPermission } from './saasGating'
 // TEST-1 / TEST-2 (#42 admin-console-shell, ITEM-3) — the saas-gating seam.
 //
 // The seam gates a saas admin page on the PRESENCE of its backend-generated
-// permission: `admin::accounts` is generated in this build (a real
-// `Permissions` member), `billing::manage` stands in for a saas permission
-// STRIPPED from the OpenAPI spec in an OSS/desktop build (absent from the enum).
+// permission: `account::manage` is generated in this build (a real
+// `Permissions` member), `admin::accounts` stands in for a permission
+// STRIPPED from the OpenAPI spec in this desktop build (absent from the enum —
+// the account-management surface was removed with the SaaS modules).
 
-const KNOWN = 'admin::accounts' // a real member of the generated Permissions enum
-const STRIPPED = 'billing::manage' // absent from this build's enum (saas-only)
+const KNOWN = 'account::manage' // a real member of the generated Permissions enum
+const STRIPPED = 'admin::accounts' // absent from this build's enum (removed surface)
 
 // A mutable fake Auth view injected into the permission seam (the app normally
 // calls `setAuthView(Auth)` once at startup). A plain object is enough — the

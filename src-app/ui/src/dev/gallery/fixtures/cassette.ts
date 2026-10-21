@@ -390,26 +390,25 @@ export const galleryCassette: Cassette = {
 }
 
 /**
- * Seed the Auth store so an authenticated surface renders. The gallery calls
+ * Seed the Session store so an authenticated surface renders. The gallery calls
  * this with the `?auth=` mode BEFORE loadModules(): 'admin' = full-perm owner,
- * 'limited' = a user with no permissions, 'none' = logged out.
+ * 'limited' = a user with no permissions, 'none' = logged out (the app itself
+ * has no login screen; this is a gallery-only test mode).
  */
 export async function seedAuth(auth: 'admin' | 'limited' | 'none'): Promise<void> {
-  const { useAuthStore } = await import('@/modules/auth/Auth.store')
+  const { useSessionStore } = await import('@/modules/session/Session.store')
   if (auth === 'none') {
-    useAuthStore.setState({
+    useSessionStore.setState({
       user: null,
-      token: null,
       permissions: [],
-      isAuthenticated: false,
-    } as any)
+      ready: true,
+    } as never)
     return
   }
   const user = auth === 'admin' ? adminUser : researcher
-  useAuthStore.setState({
-    user: user as any,
-    token: 'gallery-mock-token',
+  useSessionStore.setState({
+    user: user as never,
     permissions: user.permissions,
-    isAuthenticated: true,
-  } as any)
+    ready: true,
+  } as never)
 }

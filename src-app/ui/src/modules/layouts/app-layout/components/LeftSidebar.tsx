@@ -7,7 +7,7 @@ import { useWindowMinSize } from '@ziee/shell'
 import { SidebarHeaderSpacer } from '@/modules/layouts/app-layout/components/SidebarHeaderSpacer'
 import { ModuleSystem } from '@ziee/framework/stores'
 import { AppLayout } from '@/modules/layouts/app-layout/AppLayout.store'
-import { Auth } from '@/modules/auth/Auth.store'
+import { Session } from '@/modules/session/Session.store'
 import { LazyComponentRenderer } from '@ziee/shell'
 import { evaluatePermission } from '@/core/permissions'
 import type {
@@ -68,7 +68,7 @@ export function LeftSidebar({ rootStyle, rootClassName }: LeftSidebarProps = {})
   const windowMinSize = useWindowMinSize()
   const { slots } = ModuleSystem
   const { isSidebarCollapsed } = AppLayout
-  const { user, permissions } = Auth
+  const { user, permissions } = Session
 
   const isAllowed = (item: { permission?: SidebarNavItem['permission'] }) =>
     !item.permission || evaluatePermission(user, permissions, item.permission)

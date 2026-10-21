@@ -326,91 +326,11 @@ export type ActionFidelity = 'declarative' | 'identity' | 'view_only'
  */
 export type ActionRecipeDialect = 'criteria' | 'column_compare' | 'label_set' | 'id_list' | 'polygon' | 'set_op'
 
-/**
- * `POST /api/admin/accounts/{account_id}/members` request — add a user to an
- *  account with a coarse role (#35). Gated `account::manage` (+ `admin::accounts`).
- */
-export interface AddMemberRequest {
-  role: AccountRole
-  user_id: string
-}
-
-/**
- * The admin-suspension status of an account (#37) — the response of
- *  `POST …/suspend`, `POST …/reactivate`, and `GET …/status`. `admin_suspended` is the
- *  admin-set flag OR-ed into `check_quota`'s suspension gate (independent of the derived
- *  billing suspension). The audit fields are populated only while suspended. The FE admin
- *  Accounts page (#44) binds this. NOT saas — the column + routes ride desktop.
- */
-export interface AdminAccountStatusResponse {
-  /** The account the status belongs to (echoes the resolved path id). */
-  account_id: string
-  /** The admin's reason for the hold (`null` when not suspended or none given). */
-  admin_suspend_reason?: string
-  /** The admin-set suspension flag (independent of the derived billing suspension). */
-  admin_suspended: boolean
-  /** When the current admin-suspension was applied (`null` when not suspended). */
-  admin_suspended_at?: string
-  /** The admin (user id) who applied it (`null` when not suspended). */
-  admin_suspended_by?: string
-}
-
-/**
- * One row of the cross-account admin list (#33): the account plus its member count
- *  and (cheap) owner user id — the shape the frontend Accounts page (#44) renders.
- */
-export interface AdminAccountSummary {
-  account: Account
-  member_count: number
-  /**
-   * The owner's human label — `COALESCE(display_name, username)` of the same
-   *  earliest `owner`-role member `owner_user_id` resolves. `None` **iff**
-   *  `owner_user_id` is `None`. The admin list renders this, never the UUID
-   *  (#51 defect #2).
-   */
-  owner_label?: string
-  /**
-   * The account's owner (the `Owner`-role member; the personal user for a
-   *  personal account). `None` only for an account with no owner member.
-   */
-  owner_user_id?: string
-}
-
-/**
- * `GET /api/admin/accounts` response — one page of ALL accounts (membership-free),
- *  with `total` for the "Showing N of M" affordance.
- */
-export interface AdminAccountsListResponse {
-  accounts: AdminAccountSummary[]
-  page: number
-  per_page: number
-  total: number
-}
-
-/**
- * `GET /api/admin/accounts` query — page + optional `kind` filter (#33). (A
- *  `status` filter is deferred to #36, which adds the account status column.)
- */
-export interface AdminAccountsQuery {
-  kind?: AccountKind
-  page?: number
-  per_page?: number
-}
-
 /** Admin forced change of a project's owner (immediate, no accept — DEC-2/3). */
 export interface AdminChangeOwnerRequest {
   /** Keep the previous owner as an accepted editor share (default false — DEC-3). */
   keep_old_as_editor?: boolean
   new_owner_id: string
-}
-
-/**
- * Paging for the staff ledger read. Same shape and same clamp as the account-scoped twin
- *  (`page`/`per_page`, default 10, cap 100) so a client pages both surfaces identically.
- */
-export interface AdminMemberEventsQuery {
-  page?: number
-  per_page?: number
 }
 
 /** Full admin drill-down for one project. */
@@ -488,51 +408,6 @@ export interface AdminReassignRequest {
 export interface AdminShareRequest {
   permission_level: string
   recipient_id: string
-}
-
-/**
- * One row of the admin user list (#43): the frozen `ziee_auth::User` (flattened, so every existing
- *  user key is preserved at the top level — an additive, backward-compatible superset) PLUS the
- *  admin projections. `ziee_auth::User`/`UserListResponse` are SDK types we cannot extend, so we
- *  wrap. `personal_account_id` is a plain account concept (unconditional); `billing` is
- *  `saas`-gated (absent on desktop, INV-1) and populated only for a `billing::admin` caller.
- */
-export interface AdminUserListItem {
-  avatar_url?: string
-  created_at: string
-  display_name?: string
-  email: string
-  email_verified: boolean
-  id: string
-  is_active: boolean
-  is_admin: boolean
-  last_login_at?: string
-  /**
-   * When the user last rotated their password. NULL means the
-   *  account is still using the bootstrap-issued password (only
-   *  meaningful for the desktop `admin` user). The Remote Access
-   *  module refuses to enable password authentication unless this
-   *  is non-NULL for the admin.
-   */
-  password_changed_at?: string
-  permissions: string[]
-  /** The user's personal account id, or `null` if none exists yet (read-only; never ensured). */
-  personal_account_id?: string
-  updated_at: string
-  username: string
-}
-
-/**
- * The admin user-list response (#43) — the app-local augmentation of the frozen
- *  `ziee_auth::UserListResponse`: identical pagination envelope, `users` widened to
- *  [`AdminUserListItem`].
- */
-export interface AdminUserListResponse {
-  page: number
-  per_page: number
-  total: number
-  total_pages: number
-  users: AdminUserListItem[]
 }
 
 /** A user option for the admin change-owner / share / reassign pickers. */
@@ -932,11 +807,6 @@ export interface ArtifactNodeDto {
   run_id?: string
 }
 
-export interface AssignUserToGroupRequest {
-  group_id: string
-  user_id: string
-}
-
 /**
  * Admin-view summary of an auth provider. The `config` JSONB is
  *  returned with `client_secret` and any sensitive key contents
@@ -1275,12 +1145,6 @@ export interface CreateDraftRequest {
   project_id: string
 }
 
-export interface CreateGroupRequest {
-  description?: string
-  name: string
-  permissions: string[]
-}
-
 /** `POST /api/accounts/{account_id}/invitations` request. */
 export interface CreateInvitationRequest {
   /**
@@ -1368,14 +1232,6 @@ export interface CreateShareRequest {
 
 export interface CreateTransferRequest {
   email: string
-}
-
-export interface CreateUserRequest {
-  display_name?: string
-  email: string
-  password: string
-  permissions?: string[]
-  username: string
 }
 
 /**
@@ -2441,26 +2297,6 @@ export interface GraphQuery {
   target?: string
 }
 
-export interface Group {
-  description?: string
-  created_at: string
-  id: string
-  is_active: boolean
-  is_default: boolean
-  is_system: boolean
-  name: string
-  permissions: string[]
-  updated_at: string
-}
-
-export interface GroupListResponse {
-  groups: Group[]
-  page: number
-  per_page: number
-  total: number
-  total_pages: number
-}
-
 export interface HealthResponse {
   status: string
 }
@@ -3025,6 +2861,17 @@ export interface ListedArtifact {
   updated_at: string
 }
 
+/**
+ * The minted session for the single local owner, shape-compatible with the
+ *  desktop `auto_login` command's return.
+ */
+export interface LocalSession {
+  access_token: string
+  expires_in: number
+  refresh_token: string
+  user: User
+}
+
 export interface LoginRequest {
   password: string
   /**
@@ -3405,14 +3252,8 @@ export interface PackageLoadStatus {
  */
 export type PackageOrigin = 'first-party' | 'dropped-in'
 
-/** Pagination query (`?page=&per_page=`). Defaults 1 / 20; clamped on read. */
-export interface PaginationQuery {
-  page?: number
-  per_page?: number
-}
-
 /** Pagination query params */
-export interface PaginationQuery2 {
+export interface PaginationQuery {
   page?: number
   per_page?: number
 }
@@ -3881,11 +3722,6 @@ export interface ResendInvitationResponse {
   invite_token: string
 }
 
-export interface ResetPasswordRequest {
-  new_password: string
-  user_id: string
-}
-
 /** Body for `POST /files/{id}/restore`. */
 export interface RestoreVersionRequest {
   /** The version number to restore (a new head is appended with its bytes). */
@@ -4214,17 +4050,6 @@ export interface SetRoleRequest {
   role: AccountRole
 }
 
-export interface SetupAdminRequest {
-  display_name?: string
-  email: string
-  password: string
-  username: string
-}
-
-export interface SetupStatusResponse {
-  needs_setup: boolean
-}
-
 /** Share-dataset request body. */
 export interface ShareDatasetRequest {
   principal_id: string
@@ -4275,16 +4100,6 @@ export interface StorageSpec {
   format: string
   file_layout: FileLayout
   layout: LayoutKind
-}
-
-/**
- * `POST /api/admin/accounts/{account_id}/suspend` body (#37) — admin suspend/disable an
- *  account. `reason` is the admin's optional human note (audit); the acting admin + instant are
- *  recorded server-side. Admin-gated (`admin::accounts`).
- */
-export interface SuspendAccountRequest {
-  /** The admin's optional reason for the hold (audit — `accounts.admin_suspend_reason`). */
-  reason?: string
 }
 
 /** What happened to the entity. */
@@ -4392,13 +4207,6 @@ export interface UpdateDraftRequest {
   data: unknown
 }
 
-export interface UpdateGroupRequest {
-  description?: string
-  is_active?: boolean
-  name?: string
-  permissions?: string[]
-}
-
 /** Partial update to `job_settings`. */
 export interface UpdateJobSettingsRequest {
   admission_poll_ms?: number
@@ -4494,12 +4302,6 @@ export interface UpdateSessionSettingsRequest {
   refresh_token_expiry_days?: number
 }
 
-export interface UpdateUserRequest {
-  display_name?: string
-  is_active?: boolean
-  username?: string
-}
-
 /** PUT body — every field optional (absent = leave unchanged). */
 export interface UpdateWorkstoreSettings {
   gc_enabled?: boolean
@@ -4575,19 +4377,6 @@ export interface User {
   permissions: string[]
   updated_at: string
   username: string
-}
-
-export interface UserActiveStatusResponse {
-  is_active: boolean
-  user_id: string
-}
-
-export interface UserListResponse {
-  page: number
-  per_page: number
-  total: number
-  total_pages: number
-  users: User[]
 }
 
 /**
@@ -4770,17 +4559,6 @@ export type ApiEndpointParameters = {
   'Account.resendInvitation': { account_id: string; invitation_id: string }
   'Account.revokeInvitation': { account_id: string; invitation_id: string }
   'Account.setMemberRole': { account_id: string; user_id: string } & SetRoleRequest
-  'Admin.addMember': { account_id: string } & AddMemberRequest
-  'Admin.getAccount': { account_id: string }
-  'Admin.getAccountStatus': { account_id: string }
-  'Admin.listAccountMemberEvents': { account_id: string } & PaginationQuery
-  'Admin.listAccounts': { kind?: AccountKind; page?: number; per_page?: number }
-  'Admin.reactivateAccount': { account_id: string }
-  'Admin.removeMember': { account_id: string; user_id: string }
-  'Admin.setMemberRole': { account_id: string; user_id: string } & SetRoleRequest
-  'Admin.suspendAccount': { account_id: string } & SuspendAccountRequest
-  'App.getSetupStatus': void
-  'App.setupAdmin': SetupAdminRequest
   'Auth.changePassword': ChangePasswordRequest
   'Auth.getSessionSettings': void
   'Auth.linkAccount': LinkAccountRequest
@@ -4862,6 +4640,7 @@ export type ApiEndpointParameters = {
   'Jobs.stop': { id: string }
   'Jobs.stream': { id: string }
   'Jobs.updateSettings': UpdateJobSettingsRequest
+  'LocalSession.create': void
   'Mcp.agentCapabilities': AgentCapabilitiesBody
   'Mcp.agentPong': AgentPongBody
   'Mcp.agentProgress': AgentProgressBody
@@ -4928,21 +4707,6 @@ export type ApiEndpointParameters = {
   'Sandbox.getStatus': void
   'Sandbox.updateSettings': UpdateSandboxResourceLimits
   'Sync.subscribe': void
-  'User.create': CreateUserRequest
-  'User.delete': { user_id: string }
-  'User.get': { user_id: string }
-  'User.list': PaginationQuery
-  'User.resetPassword': ResetPasswordRequest
-  'User.toggleActive': { user_id: string }
-  'User.update': { user_id: string } & UpdateUserRequest
-  'UserGroup.assignUser': AssignUserToGroupRequest
-  'UserGroup.create': CreateGroupRequest
-  'UserGroup.delete': { group_id: string }
-  'UserGroup.get': { group_id: string }
-  'UserGroup.getMembers': { group_id: string } & PaginationQuery
-  'UserGroup.list': PaginationQuery
-  'UserGroup.removeUser': { user_id: string; group_id: string }
-  'UserGroup.update': { group_id: string } & UpdateGroupRequest
   'Workstore.deleteArtifact': { project_id: string; id: string }
   'Workstore.getArtifact': { id: string }
   'Workstore.getArtifactBytesPresence': { project_id: string }
@@ -4970,17 +4734,6 @@ export type ApiEndpointResponses = {
   'Account.resendInvitation': ResendInvitationResponse
   'Account.revokeInvitation': void
   'Account.setMemberRole': AccountMember
-  'Admin.addMember': AccountMember
-  'Admin.getAccount': Account
-  'Admin.getAccountStatus': AdminAccountStatusResponse
-  'Admin.listAccountMemberEvents': AccountMemberEventsResponse
-  'Admin.listAccounts': AdminAccountsListResponse
-  'Admin.reactivateAccount': AdminAccountStatusResponse
-  'Admin.removeMember': void
-  'Admin.setMemberRole': AccountMember
-  'Admin.suspendAccount': AdminAccountStatusResponse
-  'App.getSetupStatus': SetupStatusResponse
-  'App.setupAdmin': AuthResponse
   'Auth.changePassword': void
   'Auth.getSessionSettings': SessionSettings
   'Auth.linkAccount': AuthResponse
@@ -5062,6 +4815,7 @@ export type ApiEndpointResponses = {
   'Jobs.stop': Job
   'Jobs.stream': SSEJobEvent
   'Jobs.updateSettings': JobSettings
+  'LocalSession.create': LocalSession
   'Mcp.agentCapabilities': AckResponse
   'Mcp.agentPong': AckResponse
   'Mcp.agentProgress': AckResponse
@@ -5128,21 +4882,6 @@ export type ApiEndpointResponses = {
   'Sandbox.getStatus': SandboxStatus
   'Sandbox.updateSettings': SandboxResourceLimits
   'Sync.subscribe': SyncSseEvent
-  'User.create': User
-  'User.delete': void
-  'User.get': User
-  'User.list': AdminUserListResponse
-  'User.resetPassword': void
-  'User.toggleActive': UserActiveStatusResponse
-  'User.update': User
-  'UserGroup.assignUser': void
-  'UserGroup.create': Group
-  'UserGroup.delete': void
-  'UserGroup.get': Group
-  'UserGroup.getMembers': UserListResponse
-  'UserGroup.list': GroupListResponse
-  'UserGroup.removeUser': void
-  'UserGroup.update': Group
   'Workstore.deleteArtifact': void
   'Workstore.getArtifact': Artifact
   'Workstore.getArtifactBytesPresence': BytesPresenceReport

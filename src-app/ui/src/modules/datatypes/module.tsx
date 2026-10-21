@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { createModule } from '@ziee/framework'
-import { Auth } from '@/modules/auth/Auth.store'
+import { Session } from '@/modules/session/Session.store'
 import { populateDatatypeRegistry, resetDatatypeRegistry, seedBootstrap } from '@/core/datatypes'
 
 /**
@@ -14,17 +14,12 @@ import { populateDatatypeRegistry, resetDatatypeRegistry, seedBootstrap } from '
 seedBootstrap()
 
 function DatatypeRegistryBoot() {
-  const isAuthenticated = Auth.isAuthenticated
+  const { ready, user } = Session
   useEffect(() => {
-    if (isAuthenticated) {
+    if (ready && user) {
       void populateDatatypeRegistry()
-    } else {
-      // Logout / not-yet-authed: drop the authoritative lattice back to the
-      // non-sensitive bootstrap so a subsequent (possibly restricted) login never
-      // inherits the prior account's viewers/capabilities.
-      resetDatatypeRegistry()
     }
-  }, [isAuthenticated])
+  }, [ready, user])
   return null
 }
 

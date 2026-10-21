@@ -28,13 +28,10 @@ describe('TEST-8 — feature-flags gallery', () => {
     expect(slugs).toContain('feature-flags-error')
   })
 
-  // TEST-11 (#53) — the per-account section has a populated seed (a selected account
-  // with mixed inherited + overridden rows) so the gate:ui crawl + 390px review covers
-  // the inherited-vs-overridden distinction and the "Clear override" control.
-  it('includes the per-account overrides state', () => {
-    const slugs = (gallery.seeded ?? []).map(s => s.slug)
-    expect(slugs).toContain('feature-flags-per-account')
-  })
+  // TEST-11 (#53) — the per-account section had a populated seed (a selected account
+  // with mixed inherited + overridden rows). TxResBench strip: the per-account
+  // overrides surface was removed with the account-management modules, so this seed
+  // no longer exists.
 
   it('each seed setup runs without throwing', () => {
     for (const s of gallery.seeded ?? []) {

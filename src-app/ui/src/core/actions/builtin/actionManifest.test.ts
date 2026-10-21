@@ -1,9 +1,12 @@
 // TEST-10 + TEST-16 (#49) — the committed frontend-actions.json manifest (baked into the server
-// via include_str!) carries all 14 new actions with the right permission (proves the regen ran /
-// ITEM-17), AND each migrated surface file is listed in the action-coverage allowlist (proves
-// coverage enforcement was turned on for the migrated files / ITEM-16). This is the executable
-// counterpart of the `collect-actions --check` + `action-coverage` gate steps that run inside
-// `npm run check`.
+// via include_str!) carries all the settings actions with the right permission (proves the regen
+// ran / ITEM-17), AND each migrated surface file is listed in the action-coverage allowlist
+// (proves coverage enforcement was turned on for the migrated files / ITEM-16). This is the
+// executable counterpart of the `collect-actions --check` + `action-coverage` gate steps that
+// run inside `npm run check`.
+//
+// TxResBench strip: the user/group/session-settings actions were removed with the auth and
+// account-management modules they served; the settings actions that remain are asserted here.
 
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -14,40 +17,22 @@ const manifest = JSON.parse(
 ) as { actions: { id: string; permission: string; mutating: boolean }[] }
 
 const EXPECTED: Record<string, string> = {
-  'user.create': 'users::create',
-  'user.update': 'users::edit',
-  'user.resetPassword': 'users::reset_password',
-  'user.toggleActive': 'users::toggle_status',
-  'user.delete': 'users::delete',
-  'group.assignUser': 'groups::assign_users',
-  'group.removeUser': 'groups::assign_users',
-  'group.create': 'groups::create',
-  'group.update': 'groups::edit',
-  'group.delete': 'groups::delete',
   'sandbox.updateSettings': 'sandbox::settings::manage',
   'jobs.updateSettings': 'jobs::settings::manage',
   'provenance.updateSettings': 'provenance::settings::manage',
-  'auth.updateSessionSettings': 'auth::session_settings::manage',
+  'workstore.updateSettings': 'workstore::settings::manage',
+  'mcp.updateSettings': 'mcp::settings::manage',
 }
 
 const ALLOWLISTED = [
-  'modules/user/components/user/UsersSettings.tsx',
-  'modules/user/components/user/CreateUserDrawer.tsx',
-  'modules/user/components/user/EditUserDrawer.tsx',
-  'modules/user/components/user/ResetPasswordDrawer.tsx',
-  'modules/user/components/user/UserGroupsDrawer.tsx',
-  'modules/user/components/user/AssignGroupDrawer.tsx',
-  'modules/user/components/group/UserGroupsSettings.tsx',
-  'modules/user/components/group/EditUserGroupDrawer.tsx',
   'modules/sandbox/components/ResourceLimitsCard.tsx',
   'modules/jobs/pages/JobSettingsPage.tsx',
   'modules/provenance/components/ProvenanceSettingsCard.tsx',
-  'modules/auth/SessionSettingsPage.tsx',
 ]
 
-describe('TEST-10 / TEST-16 — manifest carries the new actions and coverage is enforced on migrated files', () => {
-  it('manifest has at least 70 actions (56 baseline + 14 new)', () => {
-    expect(manifest.actions.length).toBeGreaterThanOrEqual(70)
+describe('TEST-10 / TEST-16 — manifest carries the settings actions and coverage is enforced on migrated files', () => {
+  it('manifest carries the TxResBench action surface (46 actions)', () => {
+    expect(manifest.actions.length).toBeGreaterThanOrEqual(46)
   })
 
   for (const [id, permission] of Object.entries(EXPECTED)) {

@@ -58,18 +58,6 @@ const NAV_PAGES = [
     path: '/settings/projects',
     permission: Permissions.ProjectAdminRead,
   },
-  {
-    id: 'nav.users',
-    title: 'Go to Users settings',
-    path: '/settings/users',
-    permission: Permissions.UsersRead,
-  },
-  {
-    id: 'nav.userGroups',
-    title: 'Go to User Groups settings',
-    path: '/settings/user-groups',
-    permission: Permissions.GroupsRead,
-  },
 ] as const
 
 for (const page of NAV_PAGES) {

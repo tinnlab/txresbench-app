@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { Navigate, useParams } from 'react-router-dom'
 import { createModule } from '@ziee/framework'
 import { Permissions } from '@/api-client/permissions'
-import { Auth } from '@/modules/auth/Auth.store'
+import { Session } from '@/modules/session/Session.store'
 import { AppLayoutDef } from '@/modules/layouts/app-layout'
 import { lazyWithPreload } from '@/utils/lazyWithPreload'
 import {
@@ -58,10 +58,10 @@ function LegacyResultDetailRedirect() {
  * so it runs exactly once per page session rather than on every auth transition.
  */
 function RuntimeProcessorsBoot(): null {
-  const isAuthenticated = Auth.isAuthenticated
+  const { ready, user } = Session
   useEffect(() => {
-    if (isAuthenticated) void loadRuntimeProcessorsOnce()
-  }, [isAuthenticated])
+    if (ready && user) void loadRuntimeProcessorsOnce()
+  }, [ready, user])
   return null
 }
 
