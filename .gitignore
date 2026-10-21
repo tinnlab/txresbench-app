@@ -9,6 +9,8 @@ src-app/server/migrations-merged/
 # Per-machine config (seeded from dev.example.yaml; carries jwt.secret + db creds)
 config/dev.yaml
 src-app/server/config/dev.yaml
+config/web.yaml
+src-app/server/config/web.yaml
 # Per-machine local-run config (carries a real jwt.secret — never commit)
 config/live.yaml
 src-app/server/config/live.yaml
@@ -21,6 +23,7 @@ src-app/server/config/live.yaml
 src-app/desktop/tauri/gen/
 
 # Node
+node_modules
 node_modules/
 **/node_modules/
 dist/

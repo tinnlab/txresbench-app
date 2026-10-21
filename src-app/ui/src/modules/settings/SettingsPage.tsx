@@ -10,11 +10,11 @@ import { BookOpen, ExternalLink } from 'lucide-react'
 // Help destination: the app's GitHub repo README is the de-facto operator
 // documentation. (`ziee-ai/ziee` — renamed from `phibya/ziee-chat-new` in the
 // org migration.)
-const HELP_DOCS_URL = 'https://github.com/ziee-ai/cytoanalyst#readme'
+const HELP_DOCS_URL = 'https://github.com/tinnlab/txresbench-app#readme'
 import { useEffect, useRef, useState } from 'react'
 import { AppLayout } from '@/modules/layouts/app-layout/AppLayout.store'
 import { ModuleSystem } from '@ziee/framework/stores'
-import { Auth } from '@/modules/auth/Auth.store'
+import { Session } from '@/modules/session/Session.store'
 import { evaluatePermission } from '@/core/permissions'
 import type { SettingsPageSlot } from '@/modules/settings/types/SettingsSlots'
 import { Menu } from '@ziee/kit'
@@ -48,7 +48,7 @@ export default function SettingsPage() {
   const useMobileLayout = minSize.sm
 
   const { slots } = ModuleSystem
-  const { user, permissions } = Auth
+  const { user, permissions } = Session
 
   const isAllowed = (item: SettingsPageSlot) =>
     !item.permission || evaluatePermission(user, permissions, item.permission)

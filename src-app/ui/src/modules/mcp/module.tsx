@@ -21,7 +21,7 @@ export default createModule({
     name: 'mcp',
     version: '1.0.0',
     description:
-      'AI Assistant Access: pair an external AI assistant (e.g. ziee chat) to CytoAnalyst.',
+      'AI Assistant Access: pair an external AI assistant (e.g. ziee chat) to TxResBench.',
   },
   dependencies: ['router'],
   routes: [

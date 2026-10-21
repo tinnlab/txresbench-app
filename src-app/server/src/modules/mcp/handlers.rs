@@ -666,7 +666,7 @@ async fn invoke_frontend(
         Err(DispatchError::NotConnected) => frontend_error_result(
             entry,
             "FRONTEND_NOT_CONNECTED",
-            "no controlled CytoAnalyst window is currently connected; ask the user to open CytoAnalyst and reconnect",
+            "no controlled TxResBench window is currently connected; ask the user to open TxResBench and reconnect",
         ),
         Err(DispatchError::Reloaded) => frontend_error_result(
             entry,

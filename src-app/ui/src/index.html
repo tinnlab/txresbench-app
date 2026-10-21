@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content, viewport-fit=cover"/>
     <!-- matches asurascans.com's setup for the immersive-scroll experiment -->
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
-    <title>CytoAnalyst</title>
+    <title>TxResBench</title>
     <!-- Ship a favicon so /favicon.ico is never auto-requested (it 404s on the
          backend-less preview/prod host); a real SVG icon, theme-agnostic. -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg"/>
@@ -34,8 +34,7 @@
           document.documentElement.classList.toggle('dark', dark)
           // Blank/login routes paint --background; everything else is the app
           // shell (--card). Keep this list in sync with the BlankLayout routes.
-          var blank = /^\/(auth|setup|onboarding|link-account|login)/.test(location.pathname)
-          var color = !dark ? '#ffffff' : blank ? '#0a0a0a' : '#1a1a1a'
+          var color = !dark ? '#ffffff' : '#1a1a1a'
           var m = document.querySelector('meta[name="theme-color"]')
           if (m) m.setAttribute('content', color)
         } catch (e) {}

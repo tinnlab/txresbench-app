@@ -530,7 +530,7 @@ impl AppModule for ExtensionsModule {
     }
 
     fn description(&self) -> &'static str {
-        "Backend-owned extension-manifest registry (converters + views), baked from src-app/packages/ and served over GET /api/extensions (CytoAnalyst)."
+        "Backend-owned extension-manifest registry (converters + views), baked from src-app/packages/ and served over GET /api/extensions (TxResBench)."
     }
 
     fn init(&mut self, _ctx: &ModuleContext) -> Result<(), Box<dyn std::error::Error>> {
@@ -592,6 +592,6 @@ static EXTENSIONS: ModuleEntry = ModuleEntry {
     // free (datatype/mod.rs notes 17/18/19 are open). No handler consults it before
     // request time, so exact order past datatype is not load-bearing.
     order: 18,
-    description: "Backend-owned extension-manifest registry (CytoAnalyst).",
+    description: "Backend-owned extension-manifest registry (TxResBench).",
     constructor: || Box::new(ExtensionsModule),
 };

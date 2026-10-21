@@ -40,7 +40,7 @@ pub fn register_invoke_handler<R: tauri::Runtime>(
 /// lives in the harness Rust layer.
 pub(crate) fn desktop_window_config() -> WindowConfig {
     WindowConfig {
-        title: "CytoAnalyst".to_string(),
+        title: "TxResBench".to_string(),
         inner_size: (1200.0, 800.0),
         min_inner_size: (400.0, 600.0),
         effect_radius: 8.0,
@@ -52,7 +52,7 @@ pub(crate) fn desktop_window_config() -> WindowConfig {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     init_tracing();
-    tracing::info!("Starting CytoAnalyst Desktop…");
+    tracing::info!("Starting TxResBench…");
 
     let boot: Arc<dyn ServerBoot> = Arc::new(CytoServerBoot::new(config::desktop_config()));
 
@@ -81,7 +81,7 @@ pub fn run() {
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running CytoAnalyst desktop");
+        .expect("error while running TxResBench desktop");
 }
 
 fn init_tracing() {

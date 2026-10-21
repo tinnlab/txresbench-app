@@ -20,7 +20,7 @@ impl PermissionCheck for McpUse {
     const NAME: &'static str = "McpUse";
     const PERMISSION: &'static str = "mcp::use";
     const DESCRIPTION: &'static str =
-        "Let an external AI assistant (e.g. ziee chat) operate CytoAnalyst on your behalf.";
+        "Let an external AI assistant (e.g. ziee chat) operate TxResBench on your behalf.";
     const MODULE: &'static str = "mcp";
 }
 

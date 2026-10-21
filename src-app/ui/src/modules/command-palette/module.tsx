@@ -67,7 +67,7 @@ export default createModule({
     name: 'command-palette',
     version: '1.0.0',
     description:
-      'Human command palette (⌘/Ctrl-K) over the global AI-controllable action registry, plus the registration of CytoAnalyst\'s real user actions.',
+      'Human command palette (⌘/Ctrl-K) over the global AI-controllable action registry, plus the registration of TxResBench\'s real user actions.',
   },
   dependencies: ['router'],
   slots: {

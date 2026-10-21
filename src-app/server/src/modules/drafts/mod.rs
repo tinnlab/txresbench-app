@@ -74,6 +74,6 @@ impl AppModule for DraftsModule {
 static DRAFTS: ModuleEntry = ModuleEntry {
     name: "drafts",
     order: 26,
-    description: "Draftable entities (CytoAnalyst).",
+    description: "Draftable entities (TxResBench).",
     constructor: || Box::new(DraftsModule),
 };

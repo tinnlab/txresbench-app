@@ -1,9 +1,9 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "CytoAnalyst",
-  "mainBinaryName": "cytoanalyst-desktop",
+  "productName": "TxResBench",
+  "mainBinaryName": "txresbench-desktop",
   "version": "0.1.0",
-  "identifier": "ai.ziee.cytoanalyst",
+  "identifier": "org.tinnlab.txresbench",
   "build": {
     "beforeDevCommand": "npm run dev --workspace=@cytoanalyst/ui",
     "devUrl": "http://localhost:5173",

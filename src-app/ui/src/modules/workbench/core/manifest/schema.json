@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://cyto.ai/schemas/extension-manifest/1.0.0",
-  "title": "CytoAnalyst extension manifest",
+  "title": "TxResBench extension manifest",
   "description": "The versioned, published extension.yaml contract (ITEM-14). The host indexes an extension from this WITHOUT executing its code.",
   "type": "object",
   "required": ["id", "name", "version", "apiVersion"],

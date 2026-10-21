@@ -63,6 +63,6 @@ impl AppModule for FeaturesModule {
 static FEATURES: ModuleEntry = ModuleEntry {
     name: "features",
     order: 46,
-    description: "Runtime feature-flags subsystem (CytoAnalyst admin console).",
+    description: "Runtime feature-flags subsystem (TxResBench admin console).",
     constructor: || Box::new(FeaturesModule),
 };

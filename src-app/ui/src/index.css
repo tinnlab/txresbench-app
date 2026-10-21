@@ -7,6 +7,8 @@
 /* The kit ships a self-contained shadcn token layer — import it directly
    (SDK_GAPS FE-3: app#1 inlines its own copy instead of consuming this). */
 @import "@ziee/kit/styles/tokens.css";
+/* TxResBench local fonts (Source Sans 3 / Source Serif 4 / Source Code Pro — no CDN). */
+@import "./assets/fonts.css";
 
 /* Tailwind v4 only auto-scans THIS app's tree; the SDK's component classes live
    under the workspace-linked @ziee/* packages, so scan them explicitly or those

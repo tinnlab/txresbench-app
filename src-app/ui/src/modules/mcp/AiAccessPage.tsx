@@ -7,7 +7,7 @@ import { isDesktop } from '@/core/platform'
 import { type ConnectionStatus, useConnectionStatus } from '@/core/actions/engine'
 
 const SUBTITLE =
-  'Connect an external AI assistant (e.g. ziee chat) to operate CytoAnalyst on your behalf — ' +
+  'Connect an external AI assistant (e.g. ziee chat) to operate TxResBench on your behalf — ' +
   'open projects, run analyses, and drive the app while you watch.'
 
 const STATUS_LABEL: Record<ConnectionStatus, string> = {
@@ -52,7 +52,7 @@ async function copyToClipboard(value: string, label: string) {
  *  code/URL copy below is the always-available fallback — this is purely
  *  a convenience shortcut when it works. */
 function attemptDeepLink(code: string, mcpUrl: string) {
-  const deepLink = `ziee://connect-mcp?code=${encodeURIComponent(code)}&url=${encodeURIComponent(mcpUrl)}&name=CytoAnalyst`
+  const deepLink = `ziee://connect-mcp?code=${encodeURIComponent(code)}&url=${encodeURIComponent(mcpUrl)}&name=TxResBench`
   try {
     window.location.href = deepLink
   } catch {
@@ -86,7 +86,7 @@ export default function AiAccessPage() {
         >
           <Paragraph className="mb-3 text-sm text-muted-foreground">
             Click connect to mint a one-time pairing code, then add it in ziee as an MCP server. Once
-            paired, your assistant can drive CytoAnalyst as you — every change it makes shows up live
+            paired, your assistant can drive TxResBench as you — every change it makes shows up live
             in this app.
           </Paragraph>
 
