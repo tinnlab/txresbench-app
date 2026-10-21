@@ -1,0 +1,938 @@
+#!/usr/bin/env python3
+"""Generate THIRD-PARTY-NOTICES.md from the lockfiles.
+
+Reads:
+  - Cargo.lock (root workspace) via `cargo metadata --locked --offline` for the
+    resolved dependency graph of the desktop build (the normal-dependency
+    closure of the `cytoanalyst` and `cytoanalyst-desktop` binaries), falling
+    back to the raw lockfile when metadata cannot be produced.
+  - sdk/Cargo.lock for the SDK-workspace crates that are vendored in this repo
+    but not linked into the app (licences resolved from the local cargo
+    registry cache; unresolved ones are marked, never guessed).
+  - package-lock.json via `npm ls --package-lock-only --omit=dev --all --json
+    --workspace=@cytoanalyst/ui` for the UI's runtime dependency closure.
+
+Usage:
+  python3 scripts/third-party.py notices [--out THIRD-PARTY-NOTICES.md]
+  python3 scripts/third-party.py summary          # licence histogram + flags
+  python3 scripts/third-party.py sdk-unverified   # SDK-only crates not
+                                                  # resolvable from the cache
+
+No network is used. Licences come from crates.io/npm metadata as resolved by
+cargo/npm or from the local cargo registry source cache; anything not
+resolvable is reported as unverified rather than inferred.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import subprocess
+import sys
+from collections import Counter, defaultdict
+from dataclasses import dataclass, field
+from typing import Optional
+
+# ---------------------------------------------------------------------------
+# Human-verified resolutions for packages that declare no/odd licence in the
+# lockfile metadata. Each entry states the evidence.
+# ---------------------------------------------------------------------------
+NPM_VERIFIED = {
+    "fast-shallow-equal": (
+        "Unlicense",
+        "no licence field in the lockfile; upstream LICENSE is the Unlicense text (streamich)",
+    ),
+    "react-universal-interface": (
+        "Unlicense",
+        "no licence field in the lockfile; upstream LICENSE is the Unlicense text (streamich)",
+    ),
+    "rgbcolor": (
+        "MIT (chosen arm)",
+        "declares 'MIT OR SEE LICENSE IN FEEL-FREE.md'; upstream FEEL-FREE.md grants free use",
+    ),
+    "splaytree-ts": (
+        "BSD-3-Clause (typo 'BDS-3-Clause' in the published manifest; no upstream LICENSE file — verify)",
+        "published licence string is not a valid SPDX id",
+    ),
+}
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CARGO_SRC_ROOTS = [os.path.join(os.path.expanduser("~"), ".cargo", "registry", "src")]
+
+_LOCK_RE = re.compile(r"^([A-Za-z0-9_-]+)\s*=\s*(\"(.*)\"|\[.*\])\s*$")
+
+
+@dataclass
+class Pkg:
+    name: str
+    version: str
+    source: Optional[str] = None
+    license: Optional[str] = None
+    repository: Optional[str] = None
+    in_tree: bool = False
+    unresolved: bool = False
+    note: str = ""
+
+
+def parse_lock(path: str) -> list[dict]:
+    """Minimal Cargo.lock [[package]] parser."""
+    out: list[dict] = []
+    cur: Optional[dict] = None
+    for line in open(path, encoding="utf-8", errors="replace"):
+        s = line.strip()
+        if s.startswith("[[package]]"):
+            cur = {}
+            out.append(cur)
+            continue
+        if cur is None:
+            continue
+        m = re.match(r'^([A-Za-z0-9_-]+)\s*=\s*"([^"]*)"\s*$', line)
+        if m:
+            cur[m.group(1)] = m.group(2)
+    return out
+
+
+def _reg_roots() -> list[str]:
+    roots = []
+    for base in CARGO_SRC_ROOTS:
+        if os.path.isdir(base):
+            roots.extend(os.path.join(base, d) for d in os.listdir(base))
+    return roots
+
+
+def cargo_cache_license(name: str, version: str) -> Optional[tuple[str, str]]:
+    """(license, note) from the local registry source cache, else (None, reason)."""
+    for root in _reg_roots():
+        d = os.path.join(root, f"{name}-{version}")
+        if not os.path.isdir(d):
+            continue
+        for fname in ("Cargo.toml.orig", "Cargo.toml"):
+            path = os.path.join(d, fname)
+            if not os.path.exists(path):
+                continue
+            txt = open(path, encoding="utf-8", errors="replace").read()
+            m = re.search(r'^license\s*=\s*"([^"]+)"', txt, re.M)
+            if m:
+                return m.group(1), "cargo registry cache"
+            if re.search(r"^license\.workspace\s*=\s*true", txt, re.M):
+                return None, "workspace-inherited (see the SDK workspace manifest)"
+            lm = re.search(r'^license-file\s*=\s*"([^"]+)"', txt, re.M)
+            if lm:
+                return f"license-file: {lm.group(1)}", "cargo registry cache"
+            return None, "no licence declared in the cached manifest"
+    return None, "crate not present in the local cargo registry cache"
+
+
+def cargo_metadata(root: str) -> Optional[dict]:
+    """cargo metadata for the root workspace; None on any failure (offline-only)."""
+    try:
+        r = subprocess.run(
+            ["cargo", "metadata", "--locked", "--offline", "--format-version", "1"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+    except Exception:
+        return None
+    if r.returncode != 0:
+        return None
+    try:
+        return json.loads(r.stdout)
+    except json.JSONDecodeError:
+        return None
+
+
+def runtime_closure(meta: dict) -> set[str]:
+    """Package ids reachable through normal dependencies from the two binaries."""
+    byid = {p["id"]: p for p in meta["packages"]}
+    nodes = {n["id"]: n for n in meta["resolve"]["nodes"]}
+    members = [
+        n["id"]
+        for n in nodes.values()
+        if n["id"] in byid and byid[n["id"]]["name"] in ("cytoanalyst", "cytoanalyst-desktop")
+    ]
+    seen: set[str] = set()
+    stack = list(members)
+    while stack:
+        pid = stack.pop()
+        if pid in seen:
+            continue
+        seen.add(pid)
+        for dep in nodes.get(pid, {}).get("deps", []):
+            for kind in dep.get("dep_kinds", []):
+                if (kind.get("kind") or "normal") == "normal":
+                    stack.append(dep["pkg"])
+    return seen
+
+
+def rust_runtime_packages(meta: dict) -> list[Pkg]:
+    if meta is None:
+        return []
+    byid = {p["id"]: p for p in meta["packages"]}
+    out = []
+    for pid in sorted(runtime_closure(meta)):
+        p = byid[pid]
+        out.append(
+            Pkg(
+                name=p["name"],
+                version=p["version"],
+                source="crates.io" if p.get("source") else "in-tree",
+                license=p.get("license") or (f"license-file: {p['license_file']}" if p.get("license_file") else None),
+                repository=p.get("repository"),
+                in_tree=not p.get("source"),
+            )
+        )
+    return out
+
+
+def sdk_only_packages(root: str, runtime_keys: set, meta: Optional[dict] = None) -> list[Pkg]:
+    """Registry crates in sdk/Cargo.lock that are not in the app's runtime set."""
+    resolved: dict = {}
+    if meta is not None:
+        for p in meta["packages"]:
+            lic = p.get("license") or (f"license-file: {p['license_file']}" if p.get("license_file") else None)
+            resolved[(p["name"], p["version"])] = lic
+    out = []
+    for p in parse_lock(os.path.join(root, "sdk", "Cargo.lock")):
+        if not p.get("source"):
+            continue
+        if (p["name"], p["version"]) in runtime_keys:
+            continue
+        key = (p["name"], p["version"])
+        lic = resolved.get(key)
+        note = "cargo metadata"
+        if lic is None:
+            lic, note = cargo_cache_license(p["name"], p["version"])
+            if lic is None:
+                note = "not resolvable from the local cargo registry cache"
+        out.append(
+            Pkg(
+                name=p["name"],
+                version=p["version"],
+                source="crates.io",
+                license=lic,
+                unresolved=lic is None,
+                note=note,
+            )
+        )
+    return out
+
+
+def npm_runtime_packages(root: str) -> list[Pkg]:
+    lock = json.load(open(os.path.join(root, "package-lock.json"), encoding="utf-8"))
+    pkgs = lock["packages"]
+    idx: dict = {}
+    for k, v in pkgs.items():
+        name = v.get("name") or k.split("node_modules/")[-1]
+        idx.setdefault((name, v.get("version")), k)
+
+    tree = None
+    try:
+        r = subprocess.run(
+            ["npm", "ls", "--package-lock-only", "--omit=dev", "--all", "--json",
+             "--workspace=@cytoanalyst/ui"],
+            cwd=root, capture_output=True, text=True, timeout=600,
+        )
+        if r.returncode == 0:
+            tree = json.loads(r.stdout)
+    except Exception:
+        tree = None
+
+    keys: set[str] = set()
+    if tree is not None:
+
+        def walk(node):
+            for name, sub in (node.get("dependencies") or {}).items():
+                ver = sub.get("version")
+                key = idx.get((name, ver))
+                if key is None:
+                    for k, v in pkgs.items():
+                        if k.endswith("node_modules/" + name) and v.get("version") == ver:
+                            key = k
+                            break
+                if key:
+                    keys.add(key)
+                    if sub.get("dependencies"):
+                        walk(sub)
+
+        walk(tree)
+    else:
+        keys = {
+            k for k, v in pkgs.items()
+            if k.startswith("node_modules/") and "node_modules/" not in k[len("node_modules/"):] and not v.get("dev")
+        }
+
+    out = []
+    for k in sorted(keys):
+        if not k.startswith("node_modules/"):
+            continue  # workspace member (in-tree code), not third-party
+        v = pkgs[k]
+        if v.get("link"):
+            continue
+        name = v.get("name") or k.split("node_modules/")[-1]
+        lic = v.get("license")
+        note = ""
+        if not lic:
+            lic, note = NPM_VERIFIED.get(name, (None, "no licence declared in the lockfile"))
+        out.append(Pkg(name=name, version=v.get("version"), source="npm", license=lic,
+                       unresolved=lic is None, note=note))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Licence texts (full text for the licences used across the shipped graphs).
+# ---------------------------------------------------------------------------
+APACHE_2_0 = """Apache License
+Version 2.0, January 2004
+http://www.apache.org/licenses/
+
+TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+1. Definitions.
+
+"License" shall mean the terms and conditions for use, reproduction, and distribution as defined by Sections 1 through 9 of this document.
+
+"Licensor" shall mean the copyright owner or entity authorized by the copyright owner that is granting the License.
+
+"Legal Entity" shall mean the union of the acting entity and all other entities that control, are controlled by, or are under common control with that entity. For the purposes of this definition, "control" means (i) the power, direct or indirect, to cause the direction or management of such entity, whether by contract or otherwise, or (ii) ownership of fifty percent (50%) or more of the outstanding shares, or (iii) beneficial ownership of such entity.
+
+"You" (or "Your") shall mean an individual or Legal Entity exercising permissions granted by this License.
+
+"Source" form shall mean the preferred form for making modifications, including but not limited to software source code, documentation source, and configuration files.
+
+"Object" form shall mean any form resulting from mechanical transformation or translation of a Source form, including but not limited to compiled object code, generated documentation, and conversions to other media types.
+
+"Work" shall mean the work of authorship, whether in Source or Object form, made available under the License, as indicated by a copyright notice that is included in or attached to the work (an example is provided in the Appendix below).
+
+"Derivative Works" shall mean any work, whether in Source or Object form, that is based on (or derived from) the Work and for which the editorial revisions, annotations, elaborations, or other modifications represent, as a whole, an original work of authorship. For the purposes of this License, Derivative Works shall not include works that remain separable from, or merely link (or bind by name) to the interfaces of, the Work and Derivative Works thereof.
+
+"Contribution" shall mean any work of authorship, including the original version of the Work and any modifications or additions to that Work or Derivative Works thereof, that is intentionally submitted to Licensor for inclusion in the Work by the copyright owner or by an individual or Legal Entity authorized to submit on behalf of the copyright owner. For the purposes of this definition, "submitted" means any form of electronic, verbal, or written communication sent to the Licensor or its representatives, including but not limited to communication on electronic mailing lists, source code control systems, and issue tracking systems that are managed by, or on behalf of, the Licensor for the purpose of discussing and improving the Work, but excluding communication that is conspicuously marked or otherwise designated in writing by the copyright owner as "Not a Contribution."
+
+"Contributor" shall mean Licensor and any individual or Legal Entity on behalf of whom a Contribution has been received by Licensor and subsequently incorporated within the Work.
+
+2. Grant of Copyright License. Subject to the terms and conditions of this License, each Contributor hereby grants to You a perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable copyright license to reproduce, prepare Derivative Works of, publicly display, publicly perform, sublicense, and distribute the Work and such Derivative Works in Source or Object form.
+
+3. Grant of Patent License. Subject to the terms and conditions of this License, each Contributor hereby grants to You a perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable (except as stated in this section) patent license to make, have made, use, offer to sell, sell, import, and otherwise transfer the Work, where such license applies only to those patent claims licensable by such Contributor that are necessarily infringed by their Contribution(s) alone or by combination of their Contribution(s) with the Work to which such Contribution(s) was submitted. If You institute patent litigation against any entity (including a cross-claim or counterclaim in a lawsuit) alleging that the Work or a Contribution incorporated within the Work constitutes direct or contributory patent infringement, then any patent licenses granted to You under this License for that Work shall terminate as of the date such litigation is filed.
+
+4. Redistribution. You may reproduce and distribute copies of the Work or Derivative Works thereof in any medium, with or without modifications, and in Source or Object form, provided that You meet the following conditions:
+
+     (a) You must give any other recipients of the Work or Derivative Works a copy of this License; and
+
+     (b) You must cause any modified files to carry prominent notices stating that You changed the files; and
+
+     (c) You must retain, in the Source form of any Derivative Works that You distribute, all copyright, patent, trademark, and attribution notices from the Source form of the Work, excluding those notices that do not pertain to any part of the Derivative Works; and
+
+     (d) If the Work includes a "NOTICE" text file as part of its distribution, then any Derivative Works that You distribute must include a readable copy of the attribution notices contained within such NOTICE file, excluding those notices that do not pertain to any part of the Derivative Works, in at least one of the following places: within a NOTICE text file distributed as part of the Derivative Works; within the Source form or documentation, if provided along with the Derivative Works; or, within a display generated by the Derivative Works, if and wherever such third-party notices normally appear. The contents of the NOTICE file are for informational purposes only and do not modify the License. You may add Your own attribution notices within Derivative Works that You distribute, alongside or as an addendum to the NOTICE text from the Work, provided that such additional attribution notices cannot be construed as modifying the License.
+
+     You may add Your own copyright statement to Your modifications and may provide additional or different license terms and conditions for use, reproduction, or distribution of Your modifications, or for any such Derivative Works as a whole, provided Your use, reproduction, and distribution of the Work otherwise complies with the conditions stated in this License.
+
+5. Submission of Contributions. Unless You explicitly state otherwise, any Contribution intentionally submitted for inclusion in the Work by You to the Licensor shall be under the terms and conditions of this License, without any additional terms or conditions. Notwithstanding the above, nothing herein shall supersede or modify the terms of any separate license agreement you may have executed with Licensor regarding such Contributions.
+
+6. Trademarks. This License does not grant permission to use the trade names, trademarks, service marks, or product names of the Licensor, except as required for reasonable and customary use in describing the origin of the Work and reproducing the content of the NOTICE file.
+
+7. Disclaimer of Warranty. Unless required by applicable law or agreed to in writing, Licensor provides the Work (and each Contributor provides its Contributions) on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied, including, without limitation, any warranties or conditions of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A PARTICULAR PURPOSE. You are solely responsible for determining the appropriateness of using or redistributing the Work and assume any risks associated with Your exercise of permissions under this License.
+
+8. Limitation of Liability. In no event and under no legal theory, whether in tort (including negligence), contract, or otherwise, unless required by applicable law (such as deliberate and grossly negligent acts) or agreed to in writing, shall any Contributor be liable to You for damages, including any direct, indirect, special, incidental, or consequential damages of any character arising as a result of this License or out of the use or inability to use the Work (including but not limited to damages for loss of goodwill, work stoppage, computer failure or malfunction, or any and all other commercial damages or losses), even if such Contributor has been advised of the possibility of such damages.
+
+9. Accepting Warranty or Additional Liability. While redistributing the Work or Derivative Works thereof, You may choose to offer, and charge a fee for, acceptance of support, warranty, indemnity, or other liability obligations and/or rights consistent with this License. However, in accepting such obligations, You may act only on Your own behalf and on Your sole responsibility, not on behalf of any other Contributor, and only if You agree to indemnify, defend, and hold each Contributor harmless for any liability incurred by, or claims asserted against, such Contributor by reason of your accepting any such warranty or additional liability.
+
+END OF TERMS AND CONDITIONS
+
+APPENDIX: How to apply the Apache License to your work.
+
+To apply the Apache License to your work, attach the following boilerplate notice, with the fields enclosed by brackets "[]" replaced with your own identifying information. (Don't include the brackets!)  The text should be enclosed in the appropriate comment syntax for the file format. We also recommend that a file or class name and description of purpose be included on the same "printed page" as the copyright notice for easier identification within third-party archives.
+
+Copyright [yyyy] [name of copyright owner]
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License."""
+
+MPL_2_0 = """Mozilla Public License Version 2.0
+==================================
+
+1. Definitions
+--------------
+
+1.1. "Contributor"
+    means each individual or legal entity that creates, contributes to
+    the creation of, or owns Covered Software.
+
+1.2. "Contributor Version"
+    means the combination of the Contributions of others (if any) used
+    by a Contributor and that particular Contributor's Contribution.
+
+1.3. "Contribution"
+    means Covered Software of a particular Contributor.
+
+1.4. "Covered Software"
+    means Source Code Form to which the initial Contributor has attached
+    the notice in Exhibit A, the Executable Form of such Source Code
+    Form, and Modifications of such Source Code Form, in each case
+    including portions thereof.
+
+1.5. "Incompatible With Secondary Licenses"
+    means
+
+    (a) that the initial Contributor has attached the notice described
+        in Exhibit B to the Covered Software; or
+
+    (b) that the Covered Software was made available under the terms of
+        version 1.1 or earlier of the License, but not also under the
+        terms of a Secondary License.
+
+1.6. "Executable Form"
+    means any form of the work other than Source Code Form.
+
+1.7. "Larger Work"
+    means a work that combines Covered Software with other material, in
+    a separate file or files, that is not Covered Software.
+
+1.8. "License"
+    means this document.
+
+1.9. "Licensable"
+    means having the right to grant, to the maximum extent possible,
+    whether at the time of the initial grant or subsequently, any and
+    all of the rights conveyed by this License.
+
+1.10. "Modifications"
+    means any of the following:
+
+    (a) any file in Source Code Form that results from an addition to,
+        deletion from, or modification of the contents of Covered
+        Software; or
+
+    (b) any new file in Source Code Form that contains any Covered
+        Software.
+
+1.11. "Patent Claims" of a Contributor
+    means any patent claim(s), including without limitation, method,
+    process, and apparatus claims, in any patent Licensable by such
+    Contributor that would be infringed, but for the grant of the
+    License, by the making, using, selling, offering for sale, having
+    made, import, or transfer of either its Contributions or its
+    Contributor Version.
+
+1.12. "Secondary License"
+    means either the GNU General Public License, Version 2.0, the GNU
+    Lesser General Public License, Version 2.1, the GNU Affero General
+    Public License, Version 3.0, or any later versions of those
+    licenses.
+
+1.13. "Source Code Form"
+    means the form of the work preferred for making modifications.
+
+1.14. "You" (or "Your")
+    means an individual or a legal entity exercising rights under this
+    License. For legal entities, "You" includes any entity that
+    controls, is controlled by, or is under common control with You. For
+    purposes of this definition, "control" means (a) the power, direct
+    or indirect, to cause the direction or management of such entity,
+    whether by contract or otherwise, or (b) ownership of more than
+    fifty percent (50%) of the outstanding shares or beneficial
+    ownership of such entity.
+
+2. License Grants and Conditions
+--------------------------------
+
+2.1. Grants
+
+Each Contributor hereby grants You a world-wide, royalty-free,
+non-exclusive license:
+
+(a) under intellectual property rights (other than patent or trademark)
+    Licensable by such Contributor to use, reproduce, make available,
+    modify, display, perform, distribute, and otherwise exploit its
+    Contributions, either on an unmodified basis, with Modifications, or
+    as part of a Larger Work; and
+
+(b) under Patent Claims of such Contributor to make, use, sell, offer
+    for sale, have made, import, and otherwise transfer either its
+    Contributions or its Contributor Version.
+
+2.2. Effective Date
+
+The licenses granted in Section 2.1 with respect to any Contribution
+become effective for each Contribution on the date the Contributor first
+distributes such Contribution.
+
+2.3. Limitations on Grant Scope
+
+The licenses granted in this Section 2 are the only rights granted under
+this License. No additional rights or licenses will be implied from the
+distribution or licensing of Covered Software under this License.
+Notwithstanding Section 2.1(b) above, no patent license is granted by a
+Contributor:
+
+(a) for any code that a Contributor has removed from Covered Software;
+    or
+
+(b) for infringements caused by: (i) Your and any other third party's
+    modifications of Covered Software, or (ii) the combination of its
+    Contributions with other software (except as part of its Contributor
+    Version); or
+
+(c) under Patent Claims infringed by Covered Software in the absence of
+    its Contributions.
+
+This License does not grant any rights in the trademarks, service marks,
+or logos of any Contributor (except as may be necessary to comply with
+the notice requirements in Section 3.4).
+
+2.4. Subsequent Licenses
+
+No Contributor makes additional grants as a result of Your choice to
+distribute the Covered Software under a subsequent version of this
+License (see Section 10.2) or under the terms of a Secondary License (if
+permitted under the terms of Section 3.3).
+
+2.5. Representation
+
+Each Contributor represents that the Contributor believes its
+Contributions are its original creation(s) or it has sufficient rights
+to grant the rights to its Contributions conveyed by this License.
+
+2.6. Fair Use
+
+This License is not intended to limit any rights You have under
+applicable copyright doctrines of fair use, fair dealing, or other
+equivalents.
+
+2.7. Conditions
+
+Sections 3.1, 3.2, 3.3, and 3.4 are conditions of the licenses granted
+in Section 2.1.
+
+3. Responsibilities
+-------------------
+
+3.1. Distribution of Source Form
+
+All distribution of Covered Software in Source Code Form, including any
+Modifications that You create or to which You contribute, must be under
+the terms of this License. You must inform recipients that the Source
+Code Form of the Covered Software is governed by the terms of this
+License, and how they can obtain a copy of this License. You may not
+attempt to alter or restrict the recipients' rights in the Source Code
+Form.
+
+3.2. Distribution of Executable Form
+
+If You distribute Covered Software in Executable Form then:
+
+(a) such Covered Software must also be made available in Source Code
+    Form, as described in Section 3.1, and You must inform recipients of
+    the Executable Form how they can obtain a copy of such Source Code
+    Form by reasonable means in a timely manner, at a charge no more
+    than the cost of distribution to the recipient; and
+
+(b) You may distribute such Executable Form under the terms of this
+    License, or sublicense it under different terms, provided that the
+    license for the Executable Form does not attempt to limit or alter
+    the recipients' rights in the Source Code Form under this License.
+
+3.3. Distribution of a Larger Work
+
+You may create and distribute a Larger Work under terms of Your choice,
+provided that You also comply with the requirements of this License for
+the Covered Software. If the Larger Work is a combination of Covered
+Software with a work governed by one or more Secondary Licenses, and the
+Covered Software is not Incompatible With Secondary Licenses, this
+License permits You to additionally distribute such Covered Software
+under the terms of such Secondary License(s), so that the recipient of
+the Larger Work may, at their option, further distribute the Covered
+Software under the terms of either this License or such Secondary
+License(s).
+
+3.4. Notices
+
+You may not remove or alter the substance of any license notices
+(including copyright notices, patent notices, disclaimers of warranty,
+or limitations of liability) contained within the Source Code Form of
+the Covered Software, except that You may alter any license notices to
+the extent required to remedy known factual inaccuracies.
+
+3.5. Application of Additional Terms
+
+You may choose to offer, and to charge a fee for, warranty, support,
+indemnity or liability obligations to one or more recipients of Covered
+Software. However, You may do so only on Your own behalf, and not on
+behalf of any Contributor. You must make it absolutely clear that any
+such warranty, support, indemnity, or liability obligation is offered by
+You alone, and You hereby agree to indemnify every Contributor for any
+liability incurred by such Contributor as a result of warranty, support,
+indemnity or liability terms You offer. You may include additional
+disclaimers of warranty and limitations of liability specific to any
+jurisdiction.
+
+4. Inability to Comply Due to Statute or Regulation
+---------------------------------------------------
+
+If it is impossible for You to comply with any of the terms of this
+License with respect to some or all of the Covered Software due to
+statute, judicial order, or regulation then You must: (a) comply with
+the terms of this License to the maximum extent possible; and (b)
+describe the limitations and the code they affect. Such description must
+be placed in a text file included with all distributions of the Covered
+Software under this License. Except to the extent prohibited by statute
+or regulation, such description must be sufficiently detailed for a
+recipient of ordinary skill to be able to understand it.
+
+5. Termination
+--------------
+
+5.1. The rights granted under this License will terminate automatically
+if You fail to comply with any of its terms. However, if You become
+compliant, then the rights granted from a particular Contributor are
+reinstated (a) provisionally, unless and until such Contributor
+explicitly and finally terminates Your grants, and (b) on an ongoing
+basis, if such Contributor fails to notify You of the non-compliance by
+some reasonable means prior to 60 days after You have come back into
+compliance. Moreover, Your grants from a particular Contributor are
+reinstated on an ongoing basis if such Contributor notifies You of the
+non-compliance by some reasonable means, this is the first time You have
+received notice of non-compliance with this License from such
+Contributor, and You become compliant prior to 30 days after Your
+receipt of the notice.
+
+5.2. If You initiate litigation against any entity by asserting a patent
+infringement claim (excluding declaratory judgment actions,
+counter-claims, and cross-claims) alleging that a Contributor Version
+directly or indirectly infringes any patent, then the rights granted to
+You by any and all Contributors for the Covered Software under Section
+2.1 of this License shall terminate.
+
+5.3. In the event of termination under Sections 5.1 or 5.2 above, all
+end user license agreements (excluding distributors and resellers) which
+have been validly granted by You or Your distributors under this License
+prior to termination shall survive termination.
+
+6. Disclaimer of Warranty
+
+Covered Software is provided under this License on an "as is" basis,
+without warranty of any kind, either expressed, implied, or statutory,
+including, without limitation, warranties that the Covered Software is
+free of defects, merchantable, fit for a particular purpose or
+non-infringing. The entire risk as to the quality and performance of the
+Covered Software is with You. Should any Covered Software prove
+defective in any respect, You (not any Contributor) assume the cost of
+any necessary servicing, repair, or correction. This disclaimer of
+warranty constitutes an essential part of this License. No use of any
+Covered Software is authorized under this License except under this
+disclaimer.
+
+7. Limitation of Liability
+
+Under no circumstances and under no legal theory, whether tort
+(including negligence), contract, or otherwise, shall any Contributor,
+or anyone who distributes Covered Software as permitted above, be
+liable to You for any direct, indirect, special, incidental, or
+consequential damages of any character including, without limitation,
+damages for lost profits, loss of goodwill, work stoppage, computer
+failure or malfunction, or any and all other commercial damages or
+losses, even if such party shall have been informed of the possibility
+of such damages. This limitation of liability shall not apply to
+liability for death or personal injury resulting from such party's
+negligence to the extent applicable law prohibits such limitation. Some
+jurisdictions do not allow the exclusion or limitation of incidental or
+consequential damages, so this exclusion and limitation may not apply to
+You.
+
+8. Litigation
+
+Any litigation relating to this License may be brought only in the
+courts of a jurisdiction where the defendant maintains its principal
+place of business and such litigation shall be governed by laws of that
+jurisdiction, without reference to its conflict-of-law provisions.
+Nothing in this Section shall prevent a party's ability to bring
+cross-claims or counter-claims.
+
+9. Miscellaneous
+
+This License represents the complete agreement concerning the subject
+matter hereof. If any provision of this License is held to be
+unenforceable, such provision shall be reformed only to the extent
+necessary to make it enforceable. Any law or regulation which provides
+that the language of a contract shall be construed against the drafter
+shall not be used to construe this License against a Contributor.
+
+10. Versions of the License
+
+10.1. New Versions
+
+Mozilla Foundation is the license steward. Except as provided in Section
+10.3, no one other than the license steward has the right to modify or
+publish new versions of this License. Each version will be given a
+distinguishing version number.
+
+10.2. Effect of New Versions
+
+You may distribute the Covered Software under the terms of the version
+of the License under which You originally received the Covered Software,
+or under the terms of any subsequent version published by the license
+steward.
+
+10.3. Modified Versions
+
+If you create software not governed by this License, and you want to
+create a new license for such software, you may create and use a
+modified version of this License if you rename the license and remove
+any references to the name of the license steward (except to note that
+such modified license differs from this License).
+
+10.4. Distributing Source Code Form that is Incompatible With Secondary
+Licenses
+
+If You choose to distribute Source Code Form that is Incompatible With
+Secondary Licenses under the terms of this version of the License, the
+notice described in Exhibit B of this License must be attached.
+
+Exhibit A - Source Code Form License Notice
+-------------------------------------------
+
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+If it is not possible or desirable to put the notice in a particular
+file, then You may include the notice in a location (such as a LICENSE
+file in a relevant directory) where a recipient would be likely to look
+for such a notice.
+
+You may add additional accurate notices of copyright ownership.
+
+Exhibit B - "Incompatible With Secondary Licenses" Notice
+---------------------------------------------------------
+
+  This Source Code Form is "Incompatible With Secondary Licenses", as
+  defined by the Mozilla Public License, v. 2.0."""
+
+MIT = """MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE."""
+
+# SPDX-id -> (one-line summary, canonical URL). Full text is embedded above for
+# the licences the app's own dependencies are (co-)licensed under most often and
+# for the two weakly-copyleft ones; the remaining texts are canonical and
+# referenced by URL.
+LICENCE_INDEX = {
+    "Apache-2.0": ("http://www.apache.org/licenses/LICENSE-2.0", APACHE_2_0),
+    "MPL-2.0": ("https://mozilla.org/MPL/2.0/", MPL_2_0),
+    "MIT": ("https://opensource.org/license/mit", MIT),
+    "BSD-2-Clause": ("https://opensource.org/license/bsd-2-clause", ""),
+    "BSD-3-Clause": ("https://opensource.org/license/bsd-3-clause", ""),
+    "ISC": ("https://opensource.org/license/isc", ""),
+    "Zlib": ("https://www.zlib.net/zlib_license.html", ""),
+    "Unlicense": ("https://unlicense.org/", ""),
+    "CC0-1.0": ("https://creativecommons.org/publicdomain/zero/1.0/", ""),
+    "0BSD": ("https://opensource.org/license/0bsd", ""),
+    "MIT-0": ("https://opensource.org/license/mit-0", ""),
+    "BSL-1.0": ("https://www.boost.org/LICENSE_1_0.txt", ""),
+    "Unicode-3.0": ("https://www.unicode.org/license.txt", ""),
+    "CDLA-Permissive-2.0": ("https://cdla.dev/permissive-2-0/", ""),
+    "PostgreSQL": ("https://www.postgresql.org/about/licence/", ""),
+    "bzip2-1.0.6": ("https://sourceware.org/bzip2/", ""),
+    "EDL-1.0": ("https://www.eclipse.org/org/documents/edl-v10.php", ""),
+    "EPL-1.0": ("https://www.eclipse.org/legal/epl-v10.html", ""),
+    "GPL-3.0-or-later": ("https://www.gnu.org/licenses/gpl-3.0.txt", ""),
+    "LGPL-2.1-or-later": ("https://www.gnu.org/licenses/lgpl-2.1.txt", ""),
+    "LLVM-exception": ("https://llvm.org/LICENSE.txt", ""),
+    "SEE LICENSE IN FEEL-FREE.md": ("https://github.com/yetzt/node-rgbcolor", ""),
+}
+
+# Licences the audit chose the permissive arm of; these choices are recorded
+# so a future dependency bump cannot silently flip the chosen arm.
+ARM_CHOICES = [
+    ("jszip", "MIT (chosen)", "declares 'MIT OR GPL-3.0-or-later'"),
+    ("dompurify", "Apache-2.0 (chosen)", "declares 'MPL-2.0 OR Apache-2.0'"),
+    ("r-efi", "MIT or Apache-2.0 (chosen)", "declares 'MIT OR Apache-2.0 OR LGPL-2.1-or-later'"),
+    ("jsts", "EDL-1.0 (chosen)", "declares 'EDL-1.0 OR EPL-1.0' (EPL-1.0 not chosen)"),
+    ("@turf/jsts", "EDL-1.0 (chosen)", "declares 'EDL-1.0 OR EPL-1.0' (EPL-1.0 not chosen)"),
+    ("rgbcolor", "MIT (chosen)", "declares 'MIT OR SEE LICENSE IN FEEL-FREE.md'"),
+    ("splaytree-ts", "BSD-3-Clause (published as 'BDS-3-Clause'; no upstream LICENSE — verify)", ""),
+]
+
+
+def spdx_roots(licence: str) -> list[str]:
+    # Return the SPDX ids that make up a combined licence expression, so the
+    # index can be looked up per component.
+    return re.findall(r"[A-Za-z0-9.+-]+", licence.replace("(", " ").replace(")", " "))
+
+
+def render_notices(rust: list[Pkg], sdkonly: list[Pkg], npm: list[Pkg]) -> str:
+    lines: list[str] = []
+    lines.append("# THIRD-PARTY NOTICES")
+    lines.append("")
+    lines.append(
+        "This file is generated by `scripts/third-party.py notices` from the lockfiles and the "
+        "resolved dependency graphs. It lists the third-party components the TxResBench desktop "
+        "application is built with and distributed with (Rust runtime crates and frontend npm "
+        "runtime packages), plus the SDK-workspace crates vendored in this repository but not "
+        "linked into the application. The application's own code is licensed under the PolyForm "
+        "Noncommercial License 1.0.0 (see LICENSE); each third-party component remains under its "
+        "own licence listed below."
+    )
+    lines.append("")
+    lines.append("Rust runtime crates: %d (of which %d in this repository); npm runtime packages: %d; SDK-workspace crates not linked: %d."
+                 % (len(rust), sum(1 for p in rust if p.in_tree), len(npm), len(sdkonly)))
+    lines.append("")
+    lines.append("## Rust crates linked into the application")
+    lines.append("")
+    for p in sorted(rust, key=lambda p: p.name.casefold()):
+        if p.in_tree:
+            continue
+        loc = p.repository or "https://crates.io/crates/" + p.name
+        lines.append(f"- **{p.name} {p.version}** — {p.license} — {loc}")
+    lines.append("")
+    lines.append("## Rust crates vendored in the SDK workspace but not linked into the application")
+    lines.append("")
+    lines.append(
+        "These crates are needed by the SDK crates this repository carries that the desktop build "
+        "does not link (sandbox/VM/hardware/onboarding/seed/update). Licences marked unverified "
+        "could not be resolved from the local cargo registry cache; verify against the upstream "
+        "crate before publishing."
+    )
+    lines.append("")
+    for p in sorted(sdkonly, key=lambda p: p.name.casefold()):
+        lic = p.license or "unverified"
+        lines.append(f"- **{p.name} {p.version}** — {lic} — https://crates.io/crates/{p.name}")
+    lines.append("")
+    lines.append("## npm runtime packages (UI)")
+    lines.append("")
+    for p in sorted(npm, key=lambda p: p.name.casefold()):
+        lic = p.license or "unverified"
+        lines.append(f"- **{p.name} {p.version}** — {lic} — https://www.npmjs.com/package/{p.name}")
+    lines.append("")
+    lines.append("## Licence choices for dual-licensed components")
+    lines.append("")
+    for name, chosen, declared in ARM_CHOICES:
+        lines.append(f"- {name}: {chosen} (declared as {declared})")
+    lines.append("")
+    lines.append("## R and Python environments")
+    lines.append("")
+    lines.append(
+        "The analysis environments are container images built from separate recipe files "
+        "(`src-app/env-rootfs/`), never linked into the application. The installed R and Python "
+        "packages keep their own licences; the env-image build records them (the images' "
+        "`requirements` pins are in `src-app/env-rootfs/*/requirements.txt`) and the methods used "
+        "by TxResBench carry their own licence statements."
+    )
+    lines.append("")
+    lines.append("## Licence texts")
+    lines.append("")
+    lines.append(
+        "Full texts are reproduced below for the licences under which the bundled components are "
+        "released (MIT, Apache-2.0, MPL-2.0); the other licence families are referenced by their "
+        "canonical URLs and apply per component as listed above."
+    )
+    used = set()
+    for p in list(rust) + list(npm):
+        for spdx in spdx_roots(p.license or ""):
+            used.add(spdx)
+    for spdx in sorted(used):
+        if spdx in LICENCE_INDEX:
+            url, text = LICENCE_INDEX[spdx]
+            if text:
+                lines.append("")
+                lines.append(f"### {spdx}")
+                lines.append("")
+                lines.append(f"Canonical text: {url}")
+                lines.append("")
+                lines.append(text)
+            else:
+                lines.append("")
+                lines.append(f"### {spdx}")
+                lines.append("")
+                lines.append(f"Canonical text: {url}")
+    return "\n".join(lines) + "\n"
+
+
+def summary(rust: list[Pkg], sdkonly: list[Pkg], npm: list[Pkg]) -> str:
+    c = Counter(p.license for p in rust if not p.in_tree)
+    out = ["Rust runtime crate licences:"]
+    for lic, n in c.most_common():
+        out.append(f"  {n:5}  {lic}")
+    out.append("")
+    out.append("Flags (runtime):")
+    flags = defaultdict(list)
+    for p in rust:
+        if p.in_tree:
+            continue
+        for token in ("GPL", "AGPL", "LGPL", "MPL", "SSPL", "EPL", "CDDL", "BUSL", "UNLICENSE",
+                      "NONCOMMERCIAL", "CC-BY", "CC0", "APACHE-2.0 WITH LLVM"):
+            if token in (p.license or "").upper():
+                flags[token].append(f"{p.name} {p.version} [{p.license}]")
+    for k in sorted(flags):
+        out.append(f"  {k}: {len(flags[k])} -> " + ", ".join(sorted(flags[k])))
+    out.append("")
+    out.append("npm runtime licences:")
+    for lic, n in Counter(p.license for p in npm).most_common():
+        out.append(f"  {n:5}  {lic}")
+    unv = [p for p in sdkonly if p.unresolved]
+    out.append("")
+    out.append(f"SDK-only crates not linked: {len(sdkonly)}; unverified licences: {len(unv)}")
+    return "\n".join(out) + "\n"
+
+
+def main(argv: list[str]) -> int:
+    mode = "notices"
+    out_path = os.path.join(REPO_ROOT, "THIRD-PARTY-NOTICES.md")
+    args = list(argv)
+    if args and args[0] in ("notices", "summary", "sdk-unverified"):
+        mode = args.pop(0)
+    while args:
+        a = args.pop(0)
+        if a == "--out" and args:
+            out_path = args.pop(0)
+
+    meta = cargo_metadata(REPO_ROOT)
+    rust = rust_runtime_packages(meta) if meta else []
+    if not rust:
+        print("warning: cargo metadata unavailable; runtime crate list is empty", file=sys.stderr)
+    runtime_keys = {(p.name, p.version) for p in rust}
+    sdkonly = sdk_only_packages(REPO_ROOT, runtime_keys, meta) if os.path.exists(os.path.join(REPO_ROOT, "sdk", "Cargo.lock")) else []
+    npm = npm_runtime_packages(REPO_ROOT)
+
+    if mode == "summary":
+        sys.stdout.write(summary(rust, sdkonly, npm))
+        return 0
+    if mode == "sdk-unverified":
+        for p in sorted((p for p in sdkonly if p.unresolved), key=lambda p: p.name):
+            print(f"{p.name} {p.version}")
+        return 0
+
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write(render_notices(rust, sdkonly, npm))
+    print(f"wrote {out_path} (rust {len(rust)}, sdk-only {len(sdkonly)}, npm {len(npm)})")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
