@@ -816,8 +816,8 @@ def render_notices(rust: list[Pkg], sdkonly: list[Pkg], npm: list[Pkg]) -> str:
     lines.append(
         "These crates are needed by the SDK crates this repository carries that the desktop build "
         "does not link (sandbox/VM/hardware/onboarding/seed/update). Licences marked unverified "
-        "could not be resolved from the local cargo registry cache; verify against the upstream "
-        "crate before publishing."
+        "could not be resolved from the local cargo registry cache; their upstream manifests "
+        "are the source of record."
     )
     lines.append("")
     for p in sorted(sdkonly, key=lambda p: p.name.casefold()):
