@@ -771,7 +771,7 @@ Rust runtime crates: 774 (of which 12 in this repository); npm runtime packages:
 
 ## Rust crates vendored in the SDK workspace but not linked into the application
 
-These crates are needed by the SDK crates this repository carries that the desktop build does not link (sandbox/VM/hardware/onboarding/seed/update). Licences marked unverified could not be resolved from the local cargo registry cache; verify against the upstream crate before publishing.
+These crates are needed by the SDK crates this repository carries that the desktop build does not link (sandbox/VM/hardware/onboarding/seed/update). Licences marked unverified could not be resolved from the local cargo registry cache; their upstream manifests are the source of record.
 
 - **arrayvec 0.7.8** — unverified — https://crates.io/crates/arrayvec
 - **ash 0.38.0+1.3.281** — unverified — https://crates.io/crates/ash
