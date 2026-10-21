@@ -18,20 +18,10 @@ path = "src/main.rs"
 # (`--seccomp <fd>`). See DEC-7.
 sandbox_seccomp = ["dep:sandbox-seccomp"]
 
-# SaaS (cloud elastic compute + storage) build-time gate — epic compute-storage.
-# DEFINED here by T1 (the epic leaf, built first) per DE-INV-13/DE-INV-10: the
-# feature key must exist before any downstream item can gate Rust behind it.
-# EMPTY on purpose — T1 ships no runtime Rust (INV-2: the desktop binary is
-# byte-identical to pre-cloud). The S3/GCS `ObjectStore` bodies (T2), the k8s
-# compute backend (T3), and multi-worker/metering (T4) attach their `dep:` and
-# `cfg(feature = "saas")` code onto this key. OFF by default so SaaS compiles OUT
-# of the desktop build.
+# TxResBench: the `saas` cloud feature (S3/GCS ObjectStore, k8s compute backend,
+# Stripe billing/metering) was REMOVED with the billing module — this is a
+# single-user local app with no cloud code in any build.
 #
-# T2 attaches the cloud `ObjectStore` bodies here: enabling `saas` pulls the optional
-# `object_store` dep (S3 + native GCS) that `object_store/s3.rs`'s real backend uses.
-# OFF ⇒ `object_store` is not in the graph and `s3.rs` is the compiled stub (INV-4).
-saas = ["dep:object_store", "dep:kube", "dep:k8s-openapi", "dep:hmac"]
-
 # NOTE (artifact-model ITEM-13): the opt-in `tiledb_serve` feature — which linked a
 # prebuilt core `libtiledb` from the `CYTO_TILEDB_LIB` env var to drive a native
 # in-process array reader — was DELETED with its module. INV-1: the server links no
@@ -126,20 +116,6 @@ async-trait = "0.1"
 bytes = "1"
 memchr = "2"
 tokio-util = { version = "0.7", features = ["io"] }
-# Cloud object-store client (S3 + native GCS) for the SaaS `ObjectStore` backend
-# (epic compute-storage, T2). OPTIONAL — pulled ONLY by the `saas` feature, so the
-# desktop/default build never links it (INV-4). Reachable exclusively behind the
-# `object_store/s3.rs` seam (INV-1; asserted by the import-graph guard). Version +
-# features (`aws`,`gcp`) are pinned in the workspace table. It is NOT a format-parsing
-# crate — it moves opaque bytes — so it is outside `check-no-format-crates.sh`.
-object_store = { workspace = true, optional = true }
-# Kubernetes client for the SaaS `ComputeBackend::Kubernetes` job-per-run fallback
-# (epic compute-storage, T3). OPTIONAL — pulled ONLY by the `saas` feature, so the
-# desktop/default build links neither `kube` nor `k8s-openapi` (INV-3). Reachable
-# exclusively behind the `sandbox/backend/kubernetes.rs` seam (asserted by the
-# import-graph guard, TEST-6). Versions are the matched pair pinned in the workspace table.
-kube = { workspace = true, optional = true }
-k8s-openapi = { workspace = true, optional = true }
 # Per-process CPU% + RSS sampling for the per-job resource charts (cross-platform;
 # version matched to ziee-hardware so the single Cargo.lock unifies it).
 sysinfo = "0.37.2"
@@ -191,11 +167,6 @@ base64 = "0.22"
 # extensions to MIME strings and parses no array/table format, so it is outside
 # `scripts/check-no-format-crates.sh`'s denylist.
 mime_guess = "2.0"
-# B3 (billing webhooks) — Stripe's real `t=,v1=` HMAC-SHA256 signature verify
-# (`billing/webhook.rs`, DEC-1). OPTIONAL, pulled ONLY by the `saas` feature so no
-# Stripe signature symbol enters the desktop/default binary (INV-5); the verify code is
-# itself `#[cfg(feature = "saas")]`. `sha2`/`hex` above are already unconditional deps.
-hmac = { version = "0.12", optional = true }
 
 # --- the ONE decode allowance (INV-1 as amended, DEC-23) ----------------------
 # `flate2` inflates the gzip member of the writer's chunk chain, in

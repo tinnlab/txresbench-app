@@ -82,20 +82,6 @@ const DEFINE_ACTION_PATH = path.join(SRC_ROOT, 'core', 'actions', 'defineAction.
 // generator split the client into four files; `permissions.ts` is its home now
 // (see `readKnownPermissions`).
 const PERMISSIONS_PATH = path.join(SRC_ROOT, 'api-client', 'permissions.ts')
-// The SAAS permission enum (#50 seam). It carries the saas-only permissions
-// (`billing::admin`, …) that the default `api-client/permissions.ts` — generated
-// saas-OFF — does not. A saas admin action (e.g. the Billing Console's
-// `billing.grantCredit` on `billing::admin`) is a REAL permissioned action that
-// must live in the SINGLE committed `frontend-actions.json` (the server bakes it
-// via `include_str!`; there is no saas-specific manifest), so it is AI-drivable on
-// the hosted build. To let it validate here in the DEFAULT build, the known-
-// permission set is the UNION of both committed generated enums. The Rust side
-// parses `permission` as a plain string and filters by the caller's HELD
-// permissions at request time, so a desktop user never surfaces a billing action.
-// Optional: absent on a build that never generated the saas client — union is a
-// no-op then, preserving the default-only behavior.
-const SAAS_PERMISSIONS_PATH = path.join(SRC_ROOT, 'api-client-saas', 'permissions.ts')
-
 const CHECK_MODE = process.argv.includes('--check')
 
 /** Recursively list every `.ts`/`.tsx` file under `dir` (skips
@@ -495,13 +481,6 @@ function readKnownPermissions() {
   const values = parsePermissionsEnum(PERMISSIONS_PATH)
   if (values.size === 0) {
     throw new Error(`[collect-actions] parsed zero Permissions values from ${PERMISSIONS_PATH}`)
-  }
-  // Union the SAAS-only permissions when the saas client is present (#50 seam):
-  // a saas-only-permission action is still a real permissioned action and must
-  // validate + live in the single committed manifest. A no-op when the saas
-  // client was never generated (desktop-only build).
-  if (existsSync(SAAS_PERMISSIONS_PATH)) {
-    for (const v of parsePermissionsEnum(SAAS_PERMISSIONS_PATH)) values.add(v)
   }
   return values
 }

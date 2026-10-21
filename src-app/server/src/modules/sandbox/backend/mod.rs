@@ -21,11 +21,6 @@ use super::types::ExtraMount;
 
 pub mod local_bwrap;
 
-// The Kubernetes job-per-run backend (T3 / ITEM-6). `saas`-gated so the desktop/default
-// build links neither this module nor the `kube`/`k8s-openapi` crates (INV-3).
-#[cfg(feature = "saas")]
-pub mod kubernetes;
-
 // ───────────────────────────── scheduling vocabularies ──────────────────────
 
 /// Scheduling priority class (text-stored on `jobs.priority_class`). Governs
@@ -287,41 +282,6 @@ pub fn backend_unavailable(detail: impl Into<String>) -> AppError {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // TEST-6 (saas-gate guard, T3 / ITEM-6 / INV-3): the `kubernetes` module declaration is
-    // reachable ONLY under `#[cfg(feature = "saas")]`, so the desktop/default build links
-    // neither it nor the `kube`/`k8s-openapi` crates. A structural anchor over THIS file:
-    // an edit that un-gates the module (drops the cfg) fails here. The compile itself is the
-    // stronger proof — a `--no-default-features` build with an unconditional `use` of the
-    // gated crate would not compile — but this pins the intent against a silent regression.
-    // TEST-10 (INV-5): the `kubernetes` module + its `kube`/`k8s-openapi` deps are physically
-    // absent from a `--no-default-features` build. This structural anchor guards the cfg on the
-    // module decl; the both-profile compile (phase 8) is the stronger proof that the new
-    // data-plane code added no always-on kube dependency.
-    #[test]
-    fn kubernetes_module_is_saas_gated() {
-        let src = include_str!("mod.rs");
-        let lines: Vec<&str> = src.lines().collect();
-        let decl = lines
-            .iter()
-            .position(|l| l.trim_start().starts_with("pub mod kubernetes;"))
-            .expect("the kubernetes module is declared in backend/mod.rs");
-        // Scan upward past comment lines to the nearest attribute/code line: it must be the
-        // saas cfg.
-        let prior = lines[..decl]
-            .iter()
-            .rev()
-            .find(|l| {
-                let t = l.trim_start();
-                !t.is_empty() && !t.starts_with("//")
-            })
-            .copied()
-            .unwrap_or("");
-        assert!(
-            prior.contains("cfg(feature = \"saas\")"),
-            "`pub mod kubernetes;` must be immediately gated by #[cfg(feature = \"saas\")] (found preceding code line: {prior:?})"
-        );
-    }
 
     // TEST-1: PriorityClass + ResourceClass serde round-trip + from_str defaults.
     #[test]

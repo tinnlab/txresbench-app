@@ -27,7 +27,7 @@ enum Mode {
 #[derive(Parser, Debug)]
 #[command(
     name = "cytoanalyst",
-    about = "CytoAnalyst server — analysis platform on the ziee SDK"
+    about = "TxResBench server — treatment response from blood markers (ziee SDK)"
 )]
 struct Cli {
     /// Run mode. Omit for `serve` (default). `worker` runs the job scheduler loop only.
@@ -42,14 +42,6 @@ struct Cli {
     /// (emitting `<DIR>/../src/api-client/*`), then exit. Consumed by the desktop/OSS build.
     #[arg(long, value_name = "DIR")]
     generate_openapi: Option<String>,
-
-    /// Generate the saas-ON OpenAPI spec + TypeScript client into <DIR>
-    /// (emitting `<DIR>/../src/api-client-saas/*`), then exit. Requires the binary to be
-    /// built `--features saas` so the `billing`/saas modules compile in; consumed by the
-    /// hosted-web build. Same driver as `--generate-openapi`, only the api-client subdir
-    /// differs — this is the second half of the two-spec seam (#50).
-    #[arg(long, value_name = "DIR")]
-    generate_openapi_saas: Option<String>,
 
     /// Report what the artifact→dataset backfill (ITEM-45) WOULD change, then exit.
     ///
@@ -72,23 +64,8 @@ async fn main() {
     cytoanalyst::init_tracing();
     let cli = Cli::parse();
 
-    // Two-spec seam (#50): the api-client subdir is the only thing that differs.
-    // `--generate-openapi` → default client (`api-client`); `--generate-openapi-saas`
-    // → the saas-ON client (`api-client-saas`), which only carries billing/saas symbols
-    // when this binary was built `--features saas`. Rejecting both-at-once keeps each
-    // regen pass a single deterministic write (just openapi-regen runs them in sequence).
-    if cli.generate_openapi.is_some() && cli.generate_openapi_saas.is_some() {
-        eprintln!(
-            "OpenAPI generation: pass only one of --generate-openapi / --generate-openapi-saas \
-             per invocation (they emit to different api-client subdirs)."
-        );
-        std::process::exit(2);
-    }
-    if let Some((dir, subdir)) = cli
-        .generate_openapi
-        .map(|d| (d, "api-client"))
-        .or_else(|| cli.generate_openapi_saas.map(|d| (d, "api-client-saas")))
-    {
+    if let Some(dir) = cli.generate_openapi {
+        let subdir = "api-client";
         match cytoanalyst::openapi::generate_openapi_spec(&dir, subdir, cli.config_file).await {
             Ok(()) => std::process::exit(0),
             Err(e) => {

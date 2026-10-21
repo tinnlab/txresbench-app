@@ -152,18 +152,6 @@ pub const SEAT_NO_TRANSACTION: &str = "SEAT_NO_TRANSACTION";
 /// predate a competing committed add. See [`assert_serializable_context`].
 pub const SEAT_UNSERIALIZED_ISOLATION: &str = "SEAT_UNSERIALIZED_ISOLATION";
 
-/// Refusal code: the account's `plan_id` names no catalog tier, so there is no allowance to
-/// enforce and the guard fails CLOSED.
-///
-/// Distinct from [`SEAT_LIMIT_REACHED`](crate::modules::billing::seat::SEAT_LIMIT_REACHED)
-/// because it is a different problem with a different remedy, and conflating them produced a
-/// refusal that actively misdirected the reader: an unknown plan used to report "using 3 of
-/// its 0 included seats on plan `bogus` — upgrade the plan to add more members", which names
-/// an upgrade as the fix when the actual fix is to give the account a plan the catalog knows
-/// (FIX_ROUND-3, R3-3).
-#[cfg(feature = "saas")]
-pub const SEAT_PLAN_UNKNOWN: &str = "SEAT_PLAN_UNKNOWN";
-
 /// Refuse unless this connection is inside a transaction at an isolation level under which
 /// the count that follows can see a competing committed add.
 ///
@@ -336,31 +324,10 @@ pub(crate) async fn enforce_member_seat(
     lock_account_for_seat_count(&mut *conn, account_id).await?;
     assert_serializable_context(&mut *conn).await?;
 
-    #[cfg(feature = "saas")]
-    {
-        let members = member_ids(&mut *conn, account_id).await?;
-        if members.contains(&joining_user_id) {
-            // Already a member: the INSERT will be a no-op, so no seat is consumed and the
-            // caller's own duplicate handling (409) must be what answers.
-            return Ok(());
-        }
-        // Members only. There is exactly one enforcement point and it counts membership rows
-        // (the module doc's DEC-3 CORRECTION). A `pending_invitations` parameter existed
-        // here and was removed with the mint check that would have produced it — a
-        // parameter every caller passes 0 for is a branch nothing can reach (FIX_ROUND-4,
-        // R4-6).
-        crate::modules::billing::seat::enforce_on(&mut *conn, account_id, members.len() as i64)
-            .await
-    }
-    #[cfg(not(feature = "saas"))]
-    {
-        // Desktop/OSS: no billing module, so no seat LIMIT — but the transaction-context
-        // guard above still ran, because it protects R-1, not seats. Explicitly consumed so
-        // the signature is identical in both builds and no `unused` warning is silenced by a
-        // blanket allow.
-        let _ = joining_user_id;
-        Ok(())
-    }
+    // No billing module, so no seat LIMIT — but the transaction-context guard above
+    // still ran, because it protects R-1, not seats.
+    let _ = joining_user_id;
+    Ok(())
 }
 
 /// Take the account row's `FOR NO KEY UPDATE` lock — the serialization point EVERY
@@ -394,34 +361,6 @@ async fn lock_account_for_seat_count(
     .map_err(AppError::database_error)?
     .map(|_| ())
     .ok_or_else(|| AppError::not_found("Account"))
-}
-
-/// The account's member user ids, on the caller's connection, behind the account-row lock
-/// [`lock_account_for_seat_count`] just took.
-///
-/// The IDS rather than a `count(*)`, because [`enforce_member_seat`] must EXCLUDE a user who
-/// is already a member and the list makes that exact and free.
-///
-/// **A plain read, not `FOR UPDATE` (FIX_ROUND-2, R2-9.)** An earlier version locked every
-/// member row, argued from making research §5's wording ("after locking the account's member
-/// rows") literally true. A blind audit established that motivation was cosmetic and the cost
-/// was not: the accounts-row lock ALREADY serializes every membership mutation — all five
-/// member-row-touching paths take it first, so ordering is uniformly `accounts →
-/// account_members` — and it verified there are no foreign keys INTO `account_members`, so
-/// nothing else needed the row locks either. What the `FOR UPDATE` did buy was an O(n) `xmax`
-/// write to every member row on every add and a new contention edge against the user
-/// hard-delete cascade (which takes no accounts-row lock, in a deployment where
-/// `lock_timeout` is 0). Serialization comes from the account row; this read only has to be
-/// behind it.
-#[cfg(feature = "saas")]
-async fn member_ids(conn: &mut PgConnection, account_id: Uuid) -> Result<Vec<Uuid>, AppError> {
-    sqlx::query_scalar!(
-        r#"SELECT user_id FROM account_members WHERE account_id = $1"#,
-        account_id,
-    )
-    .fetch_all(&mut *conn)
-    .await
-    .map_err(AppError::database_error)
 }
 
 // There is deliberately NO `count_members` here (FIX_ROUND-3, R3-6). One already exists —

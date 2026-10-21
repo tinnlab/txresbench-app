@@ -88,11 +88,6 @@ pub mod cutover;
 /// Persistence for an object-store data migration (the `object_store_migration` table) —
 /// survives a restart / resumable / drives the admin progress + verify + confirm-retire UI.
 pub mod migration_repo;
-/// The admin migration + round-trip-test endpoints (#61 §2/§3) + the in-process orchestrator
-/// (copy+verify background task, the fully-gated retire-source step). `saas`-only (the cloud
-/// destination it builds is itself `saas`-only), mirroring `infra_object_store`.
-#[cfg(feature = "saas")]
-pub mod migration_api;
 /// The READ half of the conformance gate (ITEM-18 / DEC-12): the type every path that
 /// serves, stages or promotes an artifact's bytes must hold, and which a `failed` row
 /// cannot be turned into.
@@ -104,11 +99,6 @@ pub mod ingest;
 /// The virtual-dataset MASK: its `role='mask'` tier, the source-recording meta the finalize
 /// sink links a VD through, and the identity rule (an all-ones mask is never materialised).
 pub mod mask;
-// T5 / INV-3 / DE-INV-10: the storage byte-delta meter is a CLOUD metering export — it
-// compiles out of the desktop/default build entirely (like compute's NoopComputeMeter), so a
-// desktop server writes NO storage_meter row and pays no metering cost. Only `saas` builds emit.
-#[cfg(feature = "saas")]
-pub mod meter;
 pub mod object_store;
 /// Blob-store partitioning by CATALOG identity — the guard that stops one server
 /// instance's GC from freeing another instance's live blobs (see its module doc).
@@ -121,11 +111,6 @@ pub mod range;
 pub mod routes;
 /// Workstore module permissions (`workstore::settings::{read,manage}`) — issue #54.
 pub mod permissions;
-/// Admin object-store backend config (#63) — encrypted-at-rest S3/GCS config +
-/// test-connection. `saas`-only (mirrors billing's integration surface): the S3
-/// backend it configures is itself `saas`-only.
-#[cfg(feature = "saas")]
-pub mod infra_object_store;
 /// The workstore admin settings singleton (GC policy + ingest size caps) — issue #54.
 pub mod settings;
 /// In-process read-at-use cache of the workstore settings singleton.
@@ -243,23 +228,11 @@ pub(crate) fn build_store(cfg: &WorkstoreConfig) -> Result<Arc<dyn ObjectStore>,
             Ok(Arc::new(LocalFsStore::new(cfg.root())))
         }
         crate::modules::workstore::config::ObjectStoreKind::S3 => {
-            #[cfg(feature = "saas")]
-            {
-                let s3 = cfg.s3.as_ref().ok_or_else(|| {
-                    AppError::internal_error(
-                        "workstore: s3 backend selected but no S3 connection config resolved",
-                    )
-                })?;
-                Ok(Arc::new(object_store::s3::S3Store::from_conn(s3)?))
-            }
-            #[cfg(not(feature = "saas"))]
-            {
-                let _ = cfg;
-                Err(AppError::internal_error(
-                    "workstore: CYTO_WORKSTORE_BACKEND=s3 requires a build with the `saas` \
-                     cargo feature; the desktop/default build ships only the local-fs backend",
-                ))
-            }
+            let _ = cfg;
+            Err(AppError::internal_error(
+                "workstore: CYTO_WORKSTORE_BACKEND=s3 requires a build with the `saas` \
+                 cargo feature; the desktop/default build ships only the local-fs backend",
+            ))
         }
     }
 }
@@ -318,7 +291,7 @@ impl AppModule for WorkstoreModule {
     }
 
     fn description(&self) -> &'static str {
-        "Content-addressed working store + artifacts catalog + typed-binary data plane (CytoAnalyst P1)."
+        "Content-addressed working store + artifacts catalog + typed-binary data plane (TxResBench P1)."
     }
 
     fn init(&mut self, ctx: &ModuleContext) -> Result<(), Box<dyn std::error::Error>> {
@@ -334,18 +307,7 @@ impl AppModule for WorkstoreModule {
     }
 
     fn register_routes(&self, router: ApiRouter) -> ApiRouter {
-        #[allow(unused_mut)]
-        let mut router = router.merge(routes::workstore_routes());
-        // Admin object-store backend config (#63): mounted UNCONDITIONALLY in a saas
-        // binary (an admin must reach it to perform the first DB config even with no
-        // env set). saas-only + `infra::settings::manage`-gated at the handler.
-        #[cfg(feature = "saas")]
-        {
-            router = router.merge(infra_object_store::routes());
-            // #61: the round-trip test + data-migration (start/status/cost-ack/retire) surface.
-            router = router.merge(migration_api::routes());
-        }
-        router
+        router.merge(routes::workstore_routes())
     }
 }
 
@@ -376,6 +338,6 @@ impl AppModule for WorkstoreModule {
 static WORKSTORE: ModuleEntry = ModuleEntry {
     name: "workstore",
     order: 24,
-    description: "Content-addressed working store + artifacts catalog (CytoAnalyst P1).",
+    description: "Content-addressed working store + artifacts catalog (TxResBench P1).",
     constructor: || Box::new(WorkstoreModule),
 };

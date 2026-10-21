@@ -176,47 +176,26 @@ impl ComputeBackend for LocalBwrapBackend {
     }
 }
 
-/// Selects a `ComputeBackend` by resource class. `cpu-sandbox` → local bwrap always;
-/// under `#[cfg(feature = "saas")]` the `{gpu, highmem, cluster-batch}` classes route to
-/// the job-per-run `KubernetesBackend` (T3 / ITEM-6), else they stay typed-unavailable.
+/// Selects a `ComputeBackend` by resource class. `cpu-sandbox` → local bwrap; the
+/// `{gpu, highmem, cluster-batch}` classes stay typed-unavailable (no cloud backend
+/// in this build).
 pub struct BackendRegistry {
     local: Arc<dyn ComputeBackend>,
-    /// The remote job-per-run backend (T3). `saas`-only — physically absent otherwise (INV-3).
-    #[cfg(feature = "saas")]
-    remote: Arc<dyn ComputeBackend>,
 }
 
 impl BackendRegistry {
-    /// Build the registry over the local bwrap backend (+ the Kubernetes remote under `saas`).
+    /// Build the registry over the local bwrap backend.
     pub fn new(pool: PgPool) -> Self {
         Self {
-            #[cfg(feature = "saas")]
-            remote: Arc::new(super::kubernetes::KubernetesBackend::with_pool(pool.clone())),
-            local: Arc::new(LocalBwrapBackend::new(pool)),
-        }
-    }
-
-    /// Build the registry over the local bwrap backend + an EXPLICIT remote backend (saas). The
-    /// injection seam for the job-per-run remote — a deployment (or a test) can supply an
-    /// alternate `ComputeBackend` for the `{gpu, highmem, cluster-batch}` classes without editing
-    /// `select`.
-    #[cfg(feature = "saas")]
-    pub fn new_with_remote(pool: PgPool, remote: Arc<dyn ComputeBackend>) -> Self {
-        Self {
-            remote,
             local: Arc::new(LocalBwrapBackend::new(pool)),
         }
     }
 
     /// The backend for a resource class, or a typed `BACKEND_UNAVAILABLE` for a class no
-    /// built backend serves. `cpu-sandbox` → local; under `saas`, `{gpu, highmem,
-    /// cluster-batch}` → the Kubernetes job-per-run backend; otherwise unavailable.
+    /// built backend serves. `cpu-sandbox` → local; otherwise unavailable.
     pub fn select(&self, class: ResourceClass) -> Result<Arc<dyn ComputeBackend>, AppError> {
         match class {
             ResourceClass::CpuSandbox => Ok(self.local.clone()),
-            // SEAM: RemoteWorkerBackend / HpcBackend / Gpu registration lands here (T3 / ITEM-6).
-            #[cfg(feature = "saas")]
-            other if self.remote.supports(other) => Ok(self.remote.clone()),
             other => Err(backend_unavailable(format!(
                 "no backend for resource class {:?} (only cpu-sandbox is built)",
                 other
@@ -362,8 +341,6 @@ mod tests {
         }
         let reg = BackendRegistry {
             local: Arc::new(Dummy),
-            #[cfg(feature = "saas")]
-            remote: Arc::new(Dummy),
         };
         let local = reg.local_backend();
         assert!(local.supports(ResourceClass::CpuSandbox), "local serves cpu-sandbox");
@@ -395,47 +372,14 @@ mod tests {
                 matches!(class, ResourceClass::CpuSandbox)
             }
         }
-        // Under saas the remote is a Dummy supporting the remote classes, so the select
-        // routing below exercises the real saas arm.
-        #[cfg(feature = "saas")]
-        struct RemoteDummy;
-        #[cfg(feature = "saas")]
-        #[async_trait]
-        impl ComputeBackend for RemoteDummy {
-            async fn launch(
-                &self,
-                _s: ComputeSpec,
-                _k: Arc<dyn ProgressSink>,
-            ) -> Result<LaunchedCompute, AppError> {
-                Err(backend_unavailable("remote dummy"))
-            }
-            fn probe(&self) -> BackendAvailability {
-                BackendAvailability::Available
-            }
-            fn supports(&self, class: ResourceClass) -> bool {
-                matches!(
-                    class,
-                    ResourceClass::Gpu | ResourceClass::Highmem | ResourceClass::ClusterBatch
-                )
-            }
-        }
         let reg = BackendRegistry {
             local: Arc::new(Dummy),
-            #[cfg(feature = "saas")]
-            remote: Arc::new(RemoteDummy),
         };
 
         assert!(reg.select(ResourceClass::CpuSandbox).is_ok(), "cpu-sandbox → local");
         for c in [ResourceClass::Gpu, ResourceClass::Highmem, ResourceClass::ClusterBatch] {
-            #[cfg(not(feature = "saas"))]
-            {
-                let err = reg.select(c).err().expect("unbuilt class → error");
-                assert_eq!(err.error_code(), "BACKEND_UNAVAILABLE", "{c:?} unbuilt → typed error");
-            }
-            #[cfg(feature = "saas")]
-            {
-                assert!(reg.select(c).is_ok(), "{c:?} → remote backend (saas)");
-            }
+            let err = reg.select(c).err().expect("unbuilt class → error");
+            assert_eq!(err.error_code(), "BACKEND_UNAVAILABLE", "{c:?} unbuilt → typed error");
         }
         assert_eq!(reg.local_probe(), BackendAvailability::Available);
         assert!(reg.local.supports(ResourceClass::CpuSandbox));

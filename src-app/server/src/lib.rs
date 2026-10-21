@@ -4,7 +4,7 @@
 //! (`main.rs`) and the desktop harness consume. Uses the SDK batteries: the
 //! framework's `serve` (connect-info + graceful shutdown; was SDK_GAPS G7) and
 //! `ServerConfig::load*` (via `config`; was G2). The identity resolver is now
-//! the SDK's turnkey `AuthModule` (ziee-auth `module` feature, gap N-3) — it
+//! the SDK's turnkey `AuthModule` (ziee-auth module support, gap N-3) — it
 //! self-registers via `MODULE_ENTRIES` and mounts `/api/auth/*` + the whole-app
 //! auth extensions, so the app carries no hand-written auth module.
 
@@ -91,17 +91,8 @@ async fn build_app(
     // it may only ever run against a store this catalog owns.
     // Then spawn the standing blob-GC union sweep (ITEM-14); the loop self-gates on
     // the live `gc_enabled` setting (issue #54).
-    // Effective object-store config (#63): under `saas`, the admin DB row
-    // (`infra_object_store`) is layered over the env resolution so an admin PUT takes
-    // effect at THIS construction seam; an unconfigured row is byte-identical to
-    // env-only (INV-5). Desktop/default keeps the pure env resolution unchanged.
     // FAIL-CLOSED (#69): an unrecognized CYTO_WORKSTORE_BACKEND makes resolution return Err, so
     // the server REFUSES TO BOOT here rather than silently running on the local-fs backend.
-    #[cfg(feature = "saas")]
-    let workstore_cfg =
-        modules::workstore::infra_object_store::resolve_effective_object_store(&pool, config)
-            .await?;
-    #[cfg(not(feature = "saas"))]
     let workstore_cfg = modules::workstore::config::WorkstoreConfig::resolve_for(config)?;
     let workstore_store = modules::workstore::init_working_store(&workstore_cfg)?;
     // #61 fail-safe boot reaper: an object-store migration left `copying`/`verifying` by a
@@ -113,39 +104,10 @@ async fn build_app(
         Ok(_) => {}
         Err(e) => tracing::warn!(error = %e, "workstore: could not reap interrupted migrations at boot"),
     }
-    // #64 boot-resume (ITEM-7 / DEC-5): if a migration to the current store is still un-retired,
-    // the OLD store holds blobs the NEW copy may not (pre-switch data + write-during-migration
-    // blobs) — so re-establish the live cutover state `DualRead(new, old)` for THIS restart, for
-    // ANY store pair: reads try NEW then fall back to OLD (nothing stranded), writes go to NEW. OLD
-    // is rebuilt from its ENCRYPTED preserved config (cloud creds decrypted here) or the local root
-    // (local source). Only a manual retire (which proves every blob is in NEW) drops the fallback.
-    // FAIL-CLOSED: if OLD cannot be rebuilt (undecryptable/missing config), we stay on NEW only and
-    // log LOUDLY rather than silently serving a store that may 404 a straggler.
-    #[cfg(feature = "saas")]
-    match modules::workstore::migration_repo::latest_unretired(&pool).await {
-        Ok(Some(row)) => {
-            match modules::workstore::migration_repo::decrypt_preserved_old_config(&pool, &row).await {
-                Some(old_cfg) => {
-                    match modules::workstore::cutover::build_store_from_preserved(&old_cfg, workstore_cfg.root()) {
-                        Ok(old) => {
-                            let new = modules::workstore::get_object_store();
-                            let dual = modules::workstore::cutover::build_dual_read(new, old);
-                            modules::workstore::swap_object_store(dual);
-                            tracing::warn!(migration = %row.id, src = %row.src_backend, "workstore: boot re-established DualRead(new→old) for an un-retired object-store migration (#64); reads fall back to the retained OLD store until an explicit retire");
-                        }
-                        Err(e) => tracing::error!(error = %e, migration = %row.id, "workstore: could NOT rebuild the OLD store fallback at boot (#64) — staying on the NEW store only; a write-window straggler could read as absent until the migration is re-run. Investigate."),
-                    }
-                }
-                None => tracing::error!(migration = %row.id, src = %row.src_backend, "workstore: un-retired migration has no reconstructable OLD config at boot (#64) — staying on the NEW store only; investigate (missing/undecryptable preserved config)."),
-            }
-        }
-        Ok(None) => {}
-        Err(e) => tracing::warn!(error = %e, "workstore: could not check for an un-retired object-store migration at boot (#64)"),
-    }
     // Byte-preservation for env-configured deployments (INV-1 / DEC-8): the legacy
     // GC env overrides (`CYTO_WORKSTORE_GC_ENABLED` / `_INTERVAL_HOURS`) seed the
     // settings row while it has never been admin-modified, so a deployment that tuned
-    // GC via env and never PUTs behaves exactly as before this feature. A later admin
+    // GC via env and never PUTs behaves exactly as before this change. A later admin
     // PUT (which stamps `updated_by`) supersedes env for good. Runs AFTER migrations
     // (initialize_database above) so the singleton row exists.
     let env_ov = modules::workstore::settings::gc_env_overrides();
@@ -187,33 +149,6 @@ async fn build_app(
         workstore_cfg.claim.clone(),
     ));
     sweeper.spawn_loop();
-
-    // Spawn the standing billing usage-rollup fold+report loop (B1 / PROV-B1-1) if
-    // enabled. `saas`-only (the billing MODULE compiles out of desktop, INV-5) AND
-    // gated on the `billing.rollup_enabled` kill-switch (DEC-4), exactly like the GC
-    // sweep above is gated on `gc_enabled`.
-    // The billing loops spawn only when billing is CONFIGURED for this deployment
-    // (§16 / B5 ITEM-5: the `Option<BillingConfig>` deploy kill-switch). No Stripe
-    // secret ⇒ `from_env_opt()` is `None` ⇒ no fold job, no alert loop — the runtime
-    // second side that matches the `register_routes` mount guard. (Desktop compiles
-    // the whole block out; this is the belt for a saas binary left unconfigured.)
-    #[cfg(feature = "saas")]
-    if modules::billing::config::BillingConfig::from_env_opt().is_some() {
-        let billing_limits = modules::billing::config::BillingLimits::from_env();
-        if billing_limits.rollup_enabled {
-            let sweeper = std::sync::Arc::new(modules::billing::rollup::RollupSweeper::new(
-                (*pool).clone(),
-            ));
-            sweeper.spawn_loop(billing_limits.rollup_interval_hours);
-        }
-        // B4 (ITEM-4 / DEC-6): the standing usage-alert ladder loop, gated on
-        // `billing.alert_enabled` exactly like the rollup loop above.
-        if billing_limits.alert_enabled {
-            let alerts =
-                std::sync::Arc::new(modules::billing::alerts::AlertSweeper::new((*pool).clone()));
-            alerts.spawn_loop(billing_limits.alert_interval_hours);
-        }
-    }
 
     // The per-request handle the mountable `file_routes` handlers pull from
     // `Extension<FileContext>` (severs them from app globals). Installed as a
@@ -291,7 +226,7 @@ async fn build_app(
         build_api_router(&modules, &config.server.api_prefix, (*pool).clone());
     // Auth routes (`/api/auth/*`) + the whole-app resolver/JWT/AuthContext
     // extensions are installed by the SDK's turnkey `AuthModule` (ziee-auth
-    // `module` feature, gap N-3) — a MODULE_ENTRIES module that registers LAST
+    // module support, gap N-3) — a MODULE_ENTRIES module that registers LAST
     // and layers those extensions over every module's routes. No app-side
     // `install_auth_layers` needed. `jwt` here is still built for `BootParts`
     // (the desktop harness mints tokens with it; same secret ⇒ interoperable).

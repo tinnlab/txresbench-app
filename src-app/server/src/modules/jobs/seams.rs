@@ -501,145 +501,15 @@ impl ComputeMeter for NoopComputeMeter {
     }
 }
 
-/// The REAL meter T3 owns: lands each reading as an append-only `job_id`-keyed row in
-/// `compute_meter` (idempotent via `ON CONFLICT (job_id) DO NOTHING`). Resolves the run's
-/// project scope from the single-source `job_scope` table (mirrors `WorkstoreIngestSink`).
-/// The pool is baked in at construction (installed once from `JobsModule::init`). NEVER
-/// fails a run — a metering write error is logged, not propagated (a lost usage row must
-/// not cost a finished run its terminal state).
-pub struct DbComputeMeter {
-    pool: PgPool,
-}
-
-impl DbComputeMeter {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
-    }
-}
-
-#[async_trait]
-impl ComputeMeter for DbComputeMeter {
-    async fn record_usage(&self, job: &Job, usage: ComputeUsage) {
-        // Best-effort scope resolution: a lookup error degrades project_id to NULL rather
-        // than failing the finalize (the raw row is still worth landing job-keyed).
-        let scope = match super::repository::JobRepository::job_scope(&self.pool, job.id).await {
-            Ok(scope) => scope,
-            Err(e) => {
-                tracing::warn!(job_id = %job.id, error = %e, "compute meter: scope lookup failed; recording project_id/account_id=NULL");
-                None
-            }
-        };
-        let project_id = scope.and_then(|s| s.split().0);
-
-        // T5 (INV-2 / DEC-2): resolve the TENANT as account_of(project|dataset) with a LIVE
-        // read at finalize (never an enqueue snapshot — a re-parented project meters to its
-        // account AT FINALIZE). A None scope, an absent project/dataset, or a resolve error
-        // all degrade to account_id=NULL (fail-safe, DEC-1) — the run's terminal state is
-        // never held hostage to a metering write, and B1 simply does not fold a NULL row.
-        let account_id = self.resolve_account(scope).await;
-
-        // finished_at: the run's terminal time — the high-water mark B1's fold advances
-        // (DEC-2). Fall back to now() if the job row carries none (a defensive default;
-        // finalize normally stamps finished_at before this emit).
-        let finished_at = job.finished_at.unwrap_or_else(chrono::Utc::now);
-
-        let res = sqlx::query(
-            "INSERT INTO compute_meter \
-             (job_id, project_id, account_id, resource_class, cpu_secs, wall_secs, gpu_secs, \
-              ram_peak_bytes, exit_code, finished_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) \
-             ON CONFLICT (job_id) DO NOTHING",
-        )
-        .bind(job.id)
-        .bind(project_id)
-        .bind(account_id)
-        .bind(&job.resource_class)
-        .bind(usage.cpu_secs)
-        .bind(usage.wall_secs)
-        .bind(usage.gpu_secs)
-        .bind(usage.ram_peak_bytes)
-        .bind(usage.exit_code)
-        .bind(finished_at)
-        .execute(&self.pool)
-        .await;
-        match res {
-            Ok(r) if r.rows_affected() == 0 => {
-                tracing::debug!(job_id = %job.id, "compute meter: row already present (idempotent no-op)");
-            }
-            Ok(_) => tracing::info!(
-                job_id = %job.id, ?project_id, ?account_id, resource_class = %job.resource_class,
-                cpu_secs = usage.cpu_secs, wall_secs = usage.wall_secs, gpu_secs = usage.gpu_secs,
-                "compute usage recorded (teardown metrics, account-keyed)"
-            ),
-            Err(e) => {
-                tracing::warn!(job_id = %job.id, error = %e, "compute meter: insert failed (usage row lost, run unaffected)")
-            }
-        }
-    }
-}
-
-impl DbComputeMeter {
-    /// Resolve the job's billing tenant (INV-2): a project-scoped run → the project's
-    /// account; a dataset-scoped run → the dataset's account; a scope-less run → `None`.
-    /// A resolve error degrades to `None` (fail-safe, DEC-1) — never fails the finalize.
-    async fn resolve_account(&self, scope: Option<super::repository::JobScope>) -> Option<Uuid> {
-        use super::repository::JobScope;
-        let res = match scope {
-            Some(JobScope::Project(p)) => {
-                crate::modules::account::scope::account_of_project(&self.pool, p).await
-            }
-            Some(JobScope::Dataset(d)) => {
-                crate::modules::account::scope::account_of_dataset(&self.pool, d).await
-            }
-            None => return None,
-        };
-        match res {
-            Ok(account_id) => account_id,
-            Err(e) => {
-                tracing::warn!(error = %e, "compute meter: account resolution failed; recording account_id=NULL");
-                None
-            }
-        }
-    }
-}
+// TxResBench: the DbComputeMeter (cloud metering export) was REMOVED with the
+// SaaS feature; the runner still emits through the ComputeMeter seam (Noop).
 
 static COMPUTE_METER: OnceLock<Arc<dyn ComputeMeter>> = OnceLock::new();
 
-/// Install the process-wide compute meter (called once from `JobsModule::init` with the
-/// real `DbComputeMeter`; the deferred T5 can install its aggregating impl in its own
-/// module init). Idempotent — a second install is ignored (`OnceLock`).
+/// Install the process-wide compute meter. Idempotent — a second install is
+/// ignored (`OnceLock`).
 pub fn install_compute_meter(meter: Arc<dyn ComputeMeter>) {
     let _ = COMPUTE_METER.set(meter);
-}
-
-/// The SINGLE compute-metering gate (T5 / ITEM-4 / INV-3): install the process-wide compute
-/// meter with the deploy-appropriate impl and return it. This is the one place the
-/// `saas`/desktop split lives, so `JobsModule::init` and the gate test call the SAME code:
-///
-///  * `saas` build (cloud) — install the real `DbComputeMeter`; a finished run lands an
-///    account-keyed `compute_meter` row.
-///  * desktop / default build — install NOTHING (leave the `NoopComputeMeter` seam default),
-///    so the desktop server writes NO `compute_meter` row and pays no metering DB round-trip
-///    (DE-INV-10: metering export compiles out of desktop). Byte-identical to pre-T5 desktop
-///    behaviour EXCEPT that the row is no longer written — which is the intended correction.
-///
-/// Returns the installed `Arc<dyn ComputeMeter>` so a test can observe the gate's behaviour in
-/// BOTH profiles without a fragile process-global read (DEC-10). Idempotent (`OnceLock`).
-#[cfg(feature = "saas")]
-pub fn install_process_compute_meter(pool: PgPool) -> Arc<dyn ComputeMeter> {
-    let meter: Arc<dyn ComputeMeter> = Arc::new(DbComputeMeter::new(pool));
-    install_compute_meter(meter.clone());
-    meter
-}
-
-/// Desktop / default build: metering export compiles out (INV-3). No `DbComputeMeter` is
-/// installed; the seam stays the `NoopComputeMeter` default (records nothing).
-#[cfg(not(feature = "saas"))]
-pub fn install_process_compute_meter(_pool: PgPool) -> Arc<dyn ComputeMeter> {
-    tracing::debug!(
-        "compute metering export disabled (desktop / non-saas build) — NoopComputeMeter"
-    );
-    Arc::new(NoopComputeMeter)
 }
 
 /// The installed compute meter (no-op default — nothing recorded until installed, INV-5).

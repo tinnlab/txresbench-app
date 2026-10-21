@@ -72,43 +72,17 @@ impl PreservedStoreConfig {
 }
 
 /// Reconstruct the OLD store from its preserved config (#64 DEC-5). `local_root` is the local
-/// workstore dir, used ONLY for the local backend (no secret needed). A cloud backend is rebuilt
-/// from the decrypted connection config, and only in a `saas` build — the only build where a cloud
-/// store (and thus a preserved cloud config) can exist.
+/// workstore dir, used ONLY for the local backend (no secret needed). A cloud backend
+/// cannot be rebuilt — no cloud backend exists in this build.
 pub fn build_store_from_preserved(
     cfg: &PreservedStoreConfig,
     local_root: &std::path::Path,
 ) -> Result<Arc<dyn ObjectStore>, AppError> {
     match cfg.backend.as_str() {
         "local" => Ok(Arc::new(LocalFsStore::new(local_root))),
-        "s3" => {
-            #[cfg(feature = "saas")]
-            {
-                use super::config::{CloudProvider, S3ConnConfig};
-                let conn = S3ConnConfig {
-                    provider: match cfg.provider.as_deref() {
-                        Some("gcs") | Some("gcp") => CloudProvider::Gcs,
-                        _ => CloudProvider::S3,
-                    },
-                    bucket: cfg.bucket.clone().unwrap_or_default(),
-                    region: cfg.region.clone().filter(|s| !s.is_empty()).unwrap_or_else(|| "us-east-1".to_string()),
-                    endpoint: cfg.endpoint.clone().filter(|s| !s.is_empty()),
-                    access_key_id: cfg.access_key_id.clone().filter(|s| !s.is_empty()),
-                    secret_access_key: cfg.secret_access_key.clone().filter(|s| !s.is_empty()),
-                    path_style: cfg.path_style.unwrap_or(false),
-                    multipart_threshold: 16 * 1024 * 1024,
-                    part_size: 8 * 1024 * 1024,
-                };
-                Ok(Arc::new(super::object_store::s3::S3Store::from_conn(&conn)?))
-            }
-            #[cfg(not(feature = "saas"))]
-            {
-                let _ = (cfg, local_root);
-                Err(AppError::internal_error(
-                    "workstore: cannot rebuild a cloud OLD store in a non-saas build (no cloud backend compiled)",
-                ))
-            }
-        }
+        "s3" => Err(AppError::internal_error(
+            "workstore: cannot rebuild a cloud OLD store (no cloud backend in this build)",
+        )),
         other => Err(AppError::internal_error(format!(
             "workstore: unknown preserved OLD-store backend '{other}'"
         ))),

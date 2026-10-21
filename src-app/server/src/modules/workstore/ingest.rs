@@ -49,33 +49,6 @@ pub type ArtifactRef = Artifact;
 /// OF the workspace at four independent sites, so this function was in fact reading
 /// the dir it claimed to be independent of.
 ///
-/// Resolve the billing tenant for a run's storage deltas (T5 / INV-2 / DEC-2): a
-/// project-scoped run → the project's account; else a dataset-scoped run → the dataset's
-/// account; else (scope-less) or on a resolve error → `None` (fail-safe, DEC-1 — a lost
-/// account must not fail ingest). A LIVE read at ingest, never an enqueue snapshot.
-/// Cloud-only (INV-3): the storage meter compiles out of desktop, so does its resolver.
-#[cfg(feature = "saas")]
-async fn resolve_ingest_account(
-    pool: &PgPool,
-    project_id: Option<Uuid>,
-    dataset_id: Option<Uuid>,
-) -> Option<Uuid> {
-    let res = if let Some(p) = project_id {
-        crate::modules::account::scope::account_of_project(pool, p).await
-    } else if let Some(d) = dataset_id {
-        crate::modules::account::scope::account_of_dataset(pool, d).await
-    } else {
-        return None;
-    };
-    match res {
-        Ok(account_id) => account_id,
-        Err(e) => {
-            tracing::warn!(error = %e, "storage meter: ingest account resolution failed; recording account_id=NULL");
-            None
-        }
-    }
-}
-
 /// ITEM-23: the run's tenancy scope is a project OR a dataset (owner) — exactly one
 /// is `Some`. A project-scoped run tags its artifacts with `project_id`; a
 /// dataset-scoped processing run tags them with `dataset_id`. Callers must pass at
@@ -235,66 +208,10 @@ pub async fn ingest_run_outputs(
         });
     }
 
-    // T5 / INV-2 / DEC-2: resolve the storage tenant ONCE for this run's scope (all of a
-    // run's artifacts share the run's project/dataset). A project-scoped run → the project's
-    // account; a dataset-scoped run → the dataset's account; scope-less / unresolvable →
-    // None (fail-safe, DEC-1). Resolved on the pool BEFORE the ingest txn opens (a plain PK
-    // read, not part of the atomic artifact-insert txn). Cloud-only (INV-3): compiled out of
-    // desktop, so a desktop ingest neither resolves an account nor writes a storage_meter row.
-    #[cfg(feature = "saas")]
-    let account_id = resolve_ingest_account(pool, project_id, dataset_id).await;
-
-    // Compute T6 — the storage quota pre-check (design §4.2b / §7.3). One check for the run's TOTAL
-    // output bytes (all a run's artifacts share the run's tenant), BEFORE the ingest txn opens.
-    // Reuses the account resolved just above (INV-4). On a positive `BlockOverQuota` for a resolved
-    // account → refuse with 507 `STORAGE_QUOTA_EXCEEDED` (INV-1/INV-2); the already-stored blobs are
-    // reclaimed by the GC sweep, exactly as for a mid-ingest failure (DEC-6). Fail-open on a
-    // scope-less/unresolvable account or a `check_quota` DB read error (DEC-1) — a lost tenant must
-    // not fail a run's finalize. saas-gated (INV-3): a desktop ingest has no quota check.
-    #[cfg(feature = "saas")]
-    if let Some(account_id) = account_id {
-        // logical_bytes == stored_bytes for a file-owning ingested artifact; sum the figure B1
-        // folds into GB-months. `saturating_add` so a pathological multi-exabyte run cannot wrap the
-        // i64 negative → be treated as a 0-byte ask and slip through (blind-audit F5): an overflow
-        // saturates to i64::MAX, i.e. blocks, the safe direction for an admission guard.
-        let add_bytes: i64 = pending
-            .iter()
-            .map(|a| a.logical_bytes.unwrap_or(a.stored_bytes))
-            .fold(0i64, |acc, n| acc.saturating_add(n));
-        match crate::modules::billing::quota::check_quota(
-            pool,
-            account_id,
-            crate::modules::billing::quota::QuotaAsk::Storage { add_bytes },
-        )
-        .await
-        {
-            Ok(verdict) => crate::modules::jobs::quota::map_storage_verdict(verdict)?,
-            Err(e) => {
-                tracing::warn!(error = %e, %account_id, "storage quota: check_quota read failed; admitting ingest (fail-open)");
-            }
-        }
-    }
-
     let mut tx = pool.begin().await.map_err(AppError::database_error)?;
     let mut out = Vec::with_capacity(pending.len());
     for a in &pending {
         out.push(CatalogRepository::insert_artifact_in_tx(&mut tx, a).await?);
-        // ITEM-5 / PROV-T2-2: the storage +delta lands in the SAME txn as the artifact row
-        // (INV-6), keyed by the artifact's content_hash + stored_bytes, account-keyed (T5).
-        // logical_bytes = a.logical_bytes (the artifact's declared logical size; == stored_bytes
-        // for a file-owning artifact, but larger for a virtual artifact) — the figure billing
-        // B1 folds into GB-months.
-        #[cfg(feature = "saas")]
-        super::meter::record_delta_in_tx(
-            &mut tx,
-            a.project_id,
-            account_id,
-            &a.content_hash,
-            a.stored_bytes,
-            a.logical_bytes,
-            super::meter::MeterReason::Ingest,
-        )
-        .await?;
     }
     tx.commit().await.map_err(AppError::database_error)?;
 

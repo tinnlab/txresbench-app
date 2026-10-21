@@ -167,12 +167,15 @@ use ziee_auth::auth::DefaultIdentityResolver;
 use ziee_core::AppError;
 use ziee_framework::permissions::IdentityResolver;
 
-use crate::modules::admin::ACCOUNT_PATH_PARAM;
 use crate::modules::permissions::{principal_holds, PermissionCheck};
 
 use super::models::{Account, AccountKind, AccountRole};
 use super::permissions::AccountMembersManage;
 use super::repository::{AccountRepository, PERSONAL_ACCOUNT_NOT_MANAGEABLE};
+
+/// The path parameter account-scoped routes declare and `AccountScope` keys on.
+/// (The `admin` module that used to own this constant is gone — single-user app.)
+pub const ACCOUNT_PATH_PARAM: &str = "account_id";
 
 /// Refusal code for step 2 — the capability is absent (self-service is off for this
 /// principal, or deployment-wide). Distinct from [`INSUFFICIENT_ACCOUNT_ROLE`]: this

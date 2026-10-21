@@ -21,19 +21,7 @@ edition = "2021"
 # `scripts/check-no-format-crates.sh` (ITEM-20) asserts the resolved graph stays free of
 # the whole family set; that guard, not this comment, is the enforcement.
 #
-# `object_store` (Arrow) is the S3/GCS/Azure object-store client (epic compute-storage,
-# T2 / DEC-1). It is NOT a format-parsing crate (it moves opaque bytes; it never parses
-# array/tabular formats), so it is outside `check-no-format-crates.sh`'s family set. It is
-# pulled ONLY by the `saas` feature of `cytoanalyst` (server), so the desktop/default build
-# never links it (INV-4). Features `aws` + `gcp` = native S3 + native GCS (DEC-7: no Azure).
-#
-# `kube` + `k8s-openapi` (epic compute-storage, T3 / DEC-5) are the Kubernetes client the
-# `saas`-gated `ComputeBackend::Kubernetes` (job-per-run fallback) uses to mint + watch a
-# k8s Job. Like `object_store`, they are pulled ONLY by the `saas` feature of `cytoanalyst`
-# (server), so the desktop/default build links neither (INV-3). Not format-parsing crates
-# (they speak the k8s API), so outside `check-no-format-crates.sh`'s family set. The two
-# versions are a matched pair (kube 0.96 ⇄ k8s-openapi 0.23); bump them together.
+# TxResBench: the `saas` feature + the cloud dependencies (`object_store`, `kube`,
+# `k8s-openapi`) were REMOVED with the billing module — no cloud code links in any
+# build of this single-user local app.
 [workspace.dependencies]
-object_store = { version = "0.13.2", features = ["aws", "gcp"] }
-kube = { version = "0.96.0", default-features = false, features = ["client", "runtime", "openssl-tls"] }
-k8s-openapi = { version = "0.23.0", features = ["latest"] }

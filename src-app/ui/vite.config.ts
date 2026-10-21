@@ -3,7 +3,6 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { gallerySentinelPlugin } from '@ziee/gallery/vite/vite-plugin-gallery-sentinel.js'
 import path from 'node:path'
-import { saasClientAlias } from './scripts/saas-client-alias'
 
 const srcDir = path.resolve(__dirname, './src')
 
@@ -34,16 +33,7 @@ export default defineConfig({
     // `@ziee/*` resolve via npm-workspace symlinks in node_modules + each
     // package's `exports` map (handles subpaths like @ziee/framework/store-kit
     // + @ziee/kit/styles/tokens.css). Only the app-local '@' alias is set here.
-    //
-    // Array form (ordered, first-match-wins) so the two-spec seam (#50) can PREPEND
-    // more-specific saas-only entries BEFORE the general `@` catch-all: on a hosted-web
-    // (`VITE_SAAS`) build `saasClientAlias` redirects the presence-gate enum client
-    // (`@/api-client/permissions` + `permissionDescriptions`) to `api-client-saas`; on the
-    // desktop/default build it returns [] so `@/api-client/*` resolves to the default client
-    // and `billing::admin` stays absent. `@` matches `@/…` but NOT `@ziee/…` (the char after
-    // `@` must be `/`), so the `@ziee/*` workspace resolution is unaffected.
     alias: [
-      ...saasClientAlias(srcDir),
       { find: '@', replacement: srcDir },
     ],
   },

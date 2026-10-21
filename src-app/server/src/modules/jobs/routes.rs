@@ -221,19 +221,10 @@ async fn create_job(
     // For an analysis job, validate the spec up front (reject a bad spec at
     // create, not at dispatch) + derive the priority from its schedule.class.
     let mut spec_class: Option<String> = None;
-    // Requested CPU cores from the analysis spec — feeds the T6 compute-quota estimate (DEC-3).
-    // saas-only (INV-3): absent in the default/desktop build, so `create_job` is byte-identical
-    // there. `None` for a non-analysis job (defaults to 1 core in `est_core_hours`).
-    #[cfg(feature = "saas")]
-    let mut spec_cpu: Option<i64> = None;
     if req.job_type == "analysis" {
         let params = req.params.clone().unwrap_or_else(|| serde_json::json!({}));
         let spec = AnalysisSpec::parse(&params).map_err(|e| e.to_api_error())?;
         spec_class = spec.schedule.class.clone();
-        #[cfg(feature = "saas")]
-        {
-            spec_cpu = spec.schedule.cpu;
-        }
         // #189 / DEC-4 — the env-id is DERIVED SERVER-SIDE, never trusted from the
         // request body. This endpoint takes a caller-supplied `AnalysisSpec`, and the
         // env registry is OPEN (any well-formed id resolves to its own image repo, with
@@ -323,28 +314,6 @@ async fn create_job(
             .require_can_edit(dataset_id, auth.user.id, &active_group_ids(&auth.groups))
             .await
             .map_err(|e| e.to_api_error())?;
-    }
-
-    // Compute T6 — the quota pre-check (design §4.2a). Placed AFTER the scope-authz blocks and
-    // BEFORE draft freeze-job resolution + `repo.create`, so a quota refusal enqueues NOTHING
-    // (a later placement would leak orphan freeze PRODUCER jobs). Resolves the tenant via
-    // `account_of(project|dataset)` (INV-4), builds the frozen `QuotaAsk::Compute` (INV-5), and
-    // switches B4's three-arm verdict: Allow/AllowMeteredOverage → proceed; BlockOverQuota → 402
-    // `QUOTA_EXCEEDED` (INV-1/INV-2). Fail-open on a scope-less/unresolvable account or a DB read
-    // error (DEC-1). saas-gated (INV-3): a desktop build has no quota check and this is byte-
-    // identical without the feature.
-    #[cfg(feature = "saas")]
-    {
-        let class = resolve_resource_class(req.resource_class.as_deref());
-        super::quota::enforce_compute_quota(
-            &pool,
-            req.project_id,
-            req.dataset_id,
-            class.as_str(),
-            spec_cpu,
-        )
-        .await
-        .map_err(|e| e.to_api_error())?;
     }
 
     // Auto-freeze-on-consume (draftable-entity ITEM-8 / INV-4 / DEC-2 final: async

@@ -51,11 +51,6 @@ pub mod settings;
 mod sse;
 pub mod verify;
 
-// Compute T6 — the quota-enforcement seam at `create_job` (design §4.2a). saas-gated with the
-// rest of `billing`: a desktop build links zero quota code (INV-3 / BQ-INV-8).
-#[cfg(feature = "saas")]
-pub mod quota;
-
 use std::sync::Arc;
 
 use aide::axum::ApiRouter;
@@ -91,19 +86,6 @@ impl AppModule for JobsModule {
         // (P4, order 35, after jobs) so jobs never imports provenance; until
         // then the `run_recorder()` getter falls back to the Noop.
         seams::install_ingest_sink(Arc::new(seams::WorkstoreIngestSink::new(pool.clone())));
-
-        // Install the REAL compute meter (T3 / G3 / ITEM-5): the child-exit teardown-metrics
-        // seam lands an append-only `job_id`-keyed row in `compute_meter` per finished run
-        // (idempotent). Owned by T3; the deferred T5 aggregates the raw signal (§9). Installed
-        // like the ingest sink so both `serve` (single-box) and `worker` pods emit the raw
-        // per-job cpu/gpu-seconds signal; the `NoopComputeMeter` default (nothing recorded) is
-        // the seam's pre-install behaviour a unit test drives (INV-5).
-        // T5 / ITEM-4 / INV-3: the SINGLE compute-metering gate. On the `saas` (cloud) build
-        // this installs the real account-keyed `DbComputeMeter`; on the desktop/default build
-        // it installs NOTHING (the `NoopComputeMeter` seam default), so desktop writes no
-        // `compute_meter` row and pays no metering overhead (DE-INV-10). One gate, tested in
-        // both profiles by tests/metering/saas_gating_test.rs.
-        let _ = seams::install_process_compute_meter(pool.clone());
 
         // Build the compute backend registry (local bwrap only today) + the
         // job-type dispatcher (analysis → sandbox, else → stub). If the sandbox

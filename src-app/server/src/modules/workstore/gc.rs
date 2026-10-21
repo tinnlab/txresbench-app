@@ -431,20 +431,6 @@ impl GcSweeper {
         // a peer catalog's live blob can carry the very same one.
         self.verify_ownership().await?;
         let keep = self.collect_keep().await?;
-        // T5 / INV-2 / DEC-2: resolve the storage tenant ONCE for this project-scoped manifest
-        // (a GcManifest is project-scoped). None / unresolvable → account_id=NULL (fail-safe,
-        // DEC-1). A LIVE read at GC, never a snapshot. Cloud-only (INV-3): compiled out of
-        // desktop, so a desktop GC neither resolves an account nor writes a storage_meter row.
-        #[cfg(feature = "saas")]
-        let account_id = match manifest.project_id {
-            Some(p) => crate::modules::account::scope::account_of_project(&self.pool, p)
-                .await
-                .unwrap_or_else(|e| {
-                    tracing::warn!(error = %e, "storage meter: gc account resolution failed; recording account_id=NULL");
-                    None
-                }),
-            None => None,
-        };
         let mut report = GcReport::default();
         for r in &manifest.refs {
             if r.source != "catalog" {
@@ -473,18 +459,6 @@ impl GcSweeper {
                 if let Some(len) = len {
                     report.freed += 1;
                     report.freed_bytes += len;
-                    // ITEM-5 / PROV-T2-2: the storage −delta lands at the refcount-gated unlink,
-                    // keyed by the freed blob's hash + its byte length. Metering only — a failed
-                    // meter write is logged, never allowed to fail the sweep.
-                    #[cfg(feature = "saas")]
-                    super::meter::record_gc_delta(
-                        &self.pool,
-                        manifest.project_id,
-                        account_id,
-                        &r.hash,
-                        len,
-                    )
-                    .await;
                 }
             }
         }

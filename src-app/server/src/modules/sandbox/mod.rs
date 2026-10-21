@@ -39,10 +39,6 @@ pub mod env_image;
 pub mod inputs;
 pub mod outputs;
 pub mod permissions;
-/// Admin compute-backend config (#63) — encrypted-at-rest Kubernetes config +
-/// test-connection. `saas`-only (mirrors the K8s backend it configures).
-#[cfg(feature = "saas")]
-pub mod infra_compute;
 pub mod processors;
 pub mod probes;
 pub mod routes;
@@ -132,15 +128,7 @@ impl AppModule for SandboxModule {
     }
 
     fn register_routes(&self, router: ApiRouter) -> ApiRouter {
-        #[allow(unused_mut)]
-        let mut router = router.merge(routes::sandbox_routes());
-        // Admin compute backend config (#63): mounted UNCONDITIONALLY in a saas binary,
-        // saas-only + `infra::settings::manage`-gated at the handler.
-        #[cfg(feature = "saas")]
-        {
-            router = router.merge(infra_compute::routes());
-        }
-        router
+        router.merge(routes::sandbox_routes())
     }
 }
 

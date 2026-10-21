@@ -69,32 +69,8 @@ use super::repository::{
 /// asked for a mode-dependent LIMIT POLICY, not for a mode-dependent upload path,
 /// and everything downstream of here — staging, group planning, ingest, the typed
 /// refusals — is byte-identical in both builds.
-#[cfg(not(feature = "saas"))]
 pub fn upload_body_ceiling(_settings: &WorkstoreSettings) -> Option<u64> {
     None
-}
-
-/// Resolve the ceiling on an upload request body for THIS deployment mode.
-///
-/// Under SaaS a ceiling is kept, but as the admin setting
-/// `workstore_settings.max_upload_body_bytes` (default 64 GiB — byte-equal to the
-/// `UPLOAD_BODY_LIMIT` const this replaces) rather than as a compiled constant, so
-/// an operator can move it without a rebuild and a PUT takes effect on the very next
-/// upload (INV-2).
-///
-/// **It returns `Some` for every possible input, and that is the point** (INV-3).
-/// The caller hands in whatever `workstore::settings_cache` currently holds, and
-/// that cache is documented to return `WorkstoreSettings::defaults()` before its
-/// first successful load and after a failed one — so an absent or unreadable
-/// settings row yields the compiled 64 GiB default, which is exactly the ceiling the
-/// deployment had before this change. There is no arm that yields `None`, because
-/// "unlimited" must not be reachable by misconfiguration; fail-closed (refusing every
-/// upload) was rejected for the opposite reason — this is a capacity knob answered
-/// with `413`, not a security boundary answered with `403`, and a transient DB error
-/// must not become a deployment-wide upload outage. See DEC-3.
-#[cfg(feature = "saas")]
-pub fn upload_body_ceiling(settings: &WorkstoreSettings) -> Option<u64> {
-    Some(settings.max_upload_body_bytes_u64())
 }
 
 /// The per-request upload limits, read AT USE from the settings cache.
@@ -3171,51 +3147,9 @@ mod tests {
     // This asserts the DESIGN's promise rather than the code's behaviour: flipping
     // the resolver to fail open would turn it red at the first assertion, which is
     // the property an implementation-shaped test would not have.
-    #[cfg(feature = "saas")]
-    #[test]
-    fn uncapped_uploads_test3_saas_ceiling_never_degrades_to_unlimited() {
-        // The cache-fallback row (an absent/unreadable settings row).
-        let fallback = WorkstoreSettings::defaults();
-        assert_eq!(
-            upload_body_ceiling(&fallback),
-            Some(68_719_476_736),
-            "an unreadable settings row falls back to the compiled 64 GiB ceiling — \
-             the value the deployment already had — not to unlimited"
-        );
-
-        // ...and for every other row shape too: the floor, the ceiling, and a
-        // degenerate 0/-1 that the DB CHECK excludes but a hand-edited row could hold.
-        //
-        // `is_some()` alone is NOT enough to prove INV-3 and it is worth saying why:
-        // `Some(u64::MAX)` is `is_some()`, and a ceiling of 16 exabytes is
-        // "unlimited" by any operational meaning of the word — the exact accident
-        // INV-3 forbids. So each row is asserted to resolve to a ceiling that is
-        // actually ENFORCEABLE: at or below the validated 256 GiB range ceiling.
-        const RANGE_CEILING: u64 = 256 * 1024 * 1024 * 1024;
-        for stored in [1024 * 1024, 256i64 * 1024 * 1024 * 1024, 0, -1] {
-            let row = WorkstoreSettings { max_upload_body_bytes: stored, ..fallback.clone() };
-            let resolved = upload_body_ceiling(&row)
-                .unwrap_or_else(|| panic!("the saas resolver must never yield None (stored={stored})"));
-            assert!(
-                resolved <= RANGE_CEILING,
-                "a stored value must resolve to an ENFORCEABLE ceiling, not an \
-                 effectively-unlimited one: stored={stored} resolved={resolved} \
-                 exceeds the validated range ceiling {RANGE_CEILING}"
-            );
-            // A degenerate row floors at 1 rather than 0. Note what this does and does
-            // NOT buy: a 1-byte ceiling refuses every non-empty upload just as a
-            // 0-byte one would, so the floor is NOT a mitigation that keeps uploads
-            // working — an earlier version of this test claimed it was. What it
-            // actually prevents is an unsigned underflow when a negative i64 is cast,
-            // which is the real hazard of a hand-edited row.
-            assert!(resolved >= 1, "no underflow to 0 on a degenerate row (stored={stored})");
-        }
-    }
-
     // uncapped-uploads: the desktop arm of the same resolver — no input yields a
     // ceiling. Paired with TEST-3 so both arms of the cfg are asserted somewhere that
     // compiles in the build that has them.
-    #[cfg(not(feature = "saas"))]
     #[test]
     fn uncapped_uploads_desktop_ceiling_is_none_for_every_row() {
         let base = WorkstoreSettings::defaults();

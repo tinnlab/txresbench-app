@@ -5,7 +5,8 @@
 //! content hash `sha256:<hex>` (DEC-2), so the store gives free dedup + cache +
 //! the immutability the provenance/verification path needs. The `get_range`
 //! primitive is S3-byte-range-shaped from day one (DEC-10); the whole data plane
-//! rides it. `local_fs` is the only impl built; `s3` is a compiled stub/seam.
+//! rides it. `local_fs` is the only impl (the S3/GCS cloud backends and the
+//! saas cargo feature were removed — single-user local app).
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -15,7 +16,6 @@ use ziee_core::AppError;
 
 pub mod dual_read;
 pub mod local_fs;
-pub mod s3;
 
 pub use dual_read::DualReadStore;
 pub use local_fs::LocalFsStore;
@@ -450,77 +450,9 @@ pub(crate) fn decode_manifest(bytes: &[u8]) -> Result<BTreeMap<String, String>, 
 mod tests {
     use super::*;
 
-    /// TEST-7 [invariant: INV-1] — the `object_store` CRATE (the cloud SDK) is USED ONLY by
-    /// `object_store/s3.rs`. No bucket handle / cloud builder leaks into handlers, ingest, gc,
-    /// sandbox or jobs, so "no cloud SDK outside the ObjectStore seam" holds STRUCTURALLY (the
-    /// half of DE-INV-13 that keeps T1's no-cloud-creds guard meaningful). A leak into any
-    /// other file fails the build here rather than at review.
-    ///
-    /// The markers are TYPE NAMES unique to the external crate (`AmazonS3Builder`,
-    /// `GoogleCloudStorageBuilder`, …) — NOT the bare path `object_store::`, because our OWN
-    /// submodule is also called `object_store`, so `use object_store::s3` is an internal
-    /// import, not a leak. Comment lines are stripped before scanning, so a doc comment that
-    /// merely MENTIONS a builder (the design discusses them) is not a false positive — only
-    /// CODE that constructs the SDK counts. Two files are exempt: `s3.rs` (the seam that
-    /// legitimately uses it) and THIS file (the seam's module root — it names the markers in
-    /// this very test's table). Everything else in `src/` is scanned.
-    #[test]
-    fn the_cloud_sdk_is_confined_to_the_s3_seam() {
-        // Types the external `object_store` crate exposes that nothing internal re-exports —
-        // they can appear only where a file actually drives the SDK.
-        const MARKERS: &[&str] = &[
-            "AmazonS3Builder",
-            "GoogleCloudStorageBuilder",
-            "ObjectStoreExt",
-            "MultipartUpload",
-        ];
-        // Ignore full-line comments so PROSE naming a builder is not a leak; only code counts.
-        let code_only = |text: &str| -> String {
-            text.lines()
-                .filter(|l| !l.trim_start().starts_with("//"))
-                .collect::<Vec<_>>()
-                .join("\n")
-        };
-        let src_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-        let seam_file = src_root.join("modules/workstore/object_store/s3.rs");
-        // The seam's module root holds this test's marker literals, so exempt it too.
-        let guard_file = src_root.join("modules/workstore/object_store/mod.rs");
-
-        let mut offenders: Vec<String> = Vec::new();
-        let mut stack = vec![src_root.clone()];
-        while let Some(dir) = stack.pop() {
-            let rd = std::fs::read_dir(&dir).expect("read src dir");
-            for entry in rd.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    stack.push(path);
-                    continue;
-                }
-                if path.extension().and_then(|e| e.to_str()) != Some("rs") {
-                    continue;
-                }
-                if path == seam_file || path == guard_file {
-                    continue;
-                }
-                let text = code_only(&std::fs::read_to_string(&path).unwrap_or_default());
-                if MARKERS.iter().any(|m| text.contains(m)) {
-                    offenders.push(path.display().to_string());
-                }
-            }
-        }
-        assert!(
-            offenders.is_empty(),
-            "INV-1 breach: the `object_store` cloud SDK is used outside `object_store/s3.rs` — \
-             a cloud handle must never leak past the ObjectStore seam. Offending files: {offenders:?}"
-        );
-        // Positive control: the seam file itself DOES reach the SDK (so the guard is not
-        // vacuously green because the markers never appear anywhere).
-        let seam = std::fs::read_to_string(&seam_file).expect("read s3.rs");
-        assert!(
-            MARKERS.iter().any(|m| seam.contains(m)),
-            "the s3.rs seam must actually use the cloud SDK, or this guard proves nothing"
-        );
-    }
+    // TxResBench: the `object_store` cloud SDK seam (s3.rs) was REMOVED with the SaaS
+    // feature — the local-fs store is the only object store. Keeping this test would be
+    // vacuous (no seam to confine the SDK to), so it is gone with the seam.
 
     #[test]
     fn content_key_roundtrips_prefix_and_hex() {
