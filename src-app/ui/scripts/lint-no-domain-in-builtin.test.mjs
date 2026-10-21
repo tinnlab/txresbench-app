@@ -1340,7 +1340,10 @@ test('[TEST-43][ITEM-30] the server scan set reaches every `server/src/modules/*
   //   but did NOT bump this assert (base main sits at 19 dirs against a stale 18), and the
   //   feature-flags epic (#40) adds the `features` module (the runtime feature-flags subsystem).
   //   Both are consciously admitted here: admin (the missed +1) and features (+1) = 20.
-  assert.equal(modules.length, 20, 'the module count is a POSITIVE expectation: a new module must be consciously admitted, and a deleted one consciously retired')
+  //   TXRBENCH STRIP retired 4 (billing, admin, user, app — the SaaS/auth surfaces) and added
+  //   1 (`localsession`, the single-owner local session) = 17, consciously, in lockstep with
+  //   the Rust twin's EXPECT_MODULES.
+  assert.equal(modules.length, 17, 'the module count is a POSITIVE expectation: a new module must be consciously admitted, and a deleted one consciously retired')
   const covered = new Set(
     scanned
       .map(p => path.relative(serverRoot, p).split(path.sep)[0])

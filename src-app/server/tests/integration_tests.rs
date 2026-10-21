@@ -9,18 +9,10 @@ mod account;
 mod admin;
 mod analysis;
 mod auth;
-mod billing;
-// Compute T6 — quota-enforcement acceptance tests. saas-gated with the enforcement arms it binds
-// (billing's `check_quota` + the saas helpers); compiled out of the default build (INV-3).
-#[cfg(feature = "saas")]
-mod compute_quota;
+// The account-management/admin/billing/quota/metering suites were removed with the
+// modules they exercised (TxResBench strip — single local owner, no SaaS surface).
 mod dataset;
 mod datatype;
-// Infra admin config acceptance tests (#63) — object-store + compute encrypted config +
-// test-connection. saas-gated with the routes/permission it exercises (compiled out of
-// the default build, like `compute_quota`).
-#[cfg(feature = "saas")]
-mod infra;
 mod domain_surface;
 mod drafts;
 mod geneset;
@@ -35,14 +27,12 @@ mod health;
 mod sandbox;
 mod jobs;
 mod mcp;
-mod metering;
 mod model_coverage;
 mod notification;
 mod predicate_removed;
 mod provenance;
 mod project;
 mod sync;
-mod user;
 mod workstore;
 
 // TEST-19 (artifact-model ITEM-13) — the INVERTED suite: this module used to hold the

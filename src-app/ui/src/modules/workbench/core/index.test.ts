@@ -27,7 +27,7 @@ test('TEST-1: the public barrel exports the full surface', () => {
 })
 
 test('TEST-1: the published manifest schema is importable JSON', () => {
-  assert.equal((MANIFEST_SCHEMA as { title: string }).title, 'CytoAnalyst extension manifest')
+  assert.equal((MANIFEST_SCHEMA as { title: string }).title, 'TxResBench extension manifest')
 })
 
 // TEST-1's second + third clauses (ITEM-1 / ITEM-22), which the spot-checks above do not

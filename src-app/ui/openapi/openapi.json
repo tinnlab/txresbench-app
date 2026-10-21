@@ -17375,11 +17375,6 @@
             "const": "account_member"
           },
           {
-            "description": "An account's usage rollup changed (a billing fold advanced a billable\n figure). Owner-scoped: fanned to the account's members (owner ∪ members) via\n `billing::sync::publish_account_usage_changed`, so a member's usage dashboard\n refetches `GET /api/billing/usage` live. `id` is the ACCOUNT id (the client\n refetches that account's rollup rows). Emitted from the detached rollup loop\n (`origin = None`); the FE self-gates the refetch on `billing::read`\n (no-403-on-reconnect). **`saas`-only surface** — no billing routes exist in a\n desktop build, so the `sync:account_usage` subscription is inert there.\n B4's usage dashboard + spend-alert UI bind this (PROV-B1-2). Notify-and-\n refetch only.",
-            "type": "string",
-            "const": "account_usage"
-          },
-          {
             "description": "A draftable entity (`drafts` row) changed (created/edited/frozen/deleted).\n Project-scoped: emitted to the project audience (owner ∪ accepted shares) via\n the drafts write path, so a shared workbench refetches live. The FE subscribes\n to `sync:draft` and refetches via the `drafts::use`-gated `GET /api/drafts`.\n Notify-and-refetch only.",
             "type": "string",
             "const": "draft"

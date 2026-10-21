@@ -81,17 +81,6 @@ pub enum SyncEntity {
     /// by A4; the FE `sync:account_member` subscription refetches the member list.
     /// `id` is the account id (the changed membership's account).
     AccountMember,
-    /// An account's usage rollup changed (a billing fold advanced a billable
-    /// figure). Owner-scoped: fanned to the account's members (owner ∪ members) via
-    /// `billing::sync::publish_account_usage_changed`, so a member's usage dashboard
-    /// refetches `GET /api/billing/usage` live. `id` is the ACCOUNT id (the client
-    /// refetches that account's rollup rows). Emitted from the detached rollup loop
-    /// (`origin = None`); the FE self-gates the refetch on `billing::read`
-    /// (no-403-on-reconnect). **`saas`-only surface** — no billing routes exist in a
-    /// desktop build, so the `sync:account_usage` subscription is inert there.
-    /// B4's usage dashboard + spend-alert UI bind this (PROV-B1-2). Notify-and-
-    /// refetch only.
-    AccountUsage,
     /// A draftable entity (`drafts` row) changed (created/edited/frozen/deleted).
     /// Project-scoped: emitted to the project audience (owner ∪ accepted shares) via
     /// the drafts write path, so a shared workbench refetches live. The FE subscribes

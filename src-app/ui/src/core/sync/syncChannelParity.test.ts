@@ -84,19 +84,39 @@ const ALLOW_LIST: { entity: string; side: 'published' | 'subscribed'; reason: st
       'symmetry is the same dishonesty as a publisher with no subscriber. Remove this entry ' +
       'when an admin auth-providers page lands and subscribes to `sync:auth_provider`.',
   },
+  // TxResBench strip: the auth-membership and account UI modules are gone, so the
+  // server-side publishes below have no client half. The publishes are KEPT —
+  // they come from the SDK auth sink (total-by-construction mapping) and the
+  // account module's own sync wiring, both of which still run — with a NAMED
+  // entry each, per the ratchet above.
+  ...(['profile', 'session', 'session_settings', 'user', 'group'] as const).map(entity => ({
+    entity,
+    side: 'published' as const,
+    reason:
+      'PUBLISH-ONLY after the TxResBench strip: `modules/sync/auth_sink.rs` maps ' +
+      '`ziee-auth`\'s `AuthSyncEntity` for this channel onto the app wire, but the ' +
+      'client stores that subscribed (`Auth.store`, `Profile.store`, `Users.store`, ' +
+      '`UserGroups.store`, `SessionSettings.store`) were removed with the auth/account ' +
+      'UI modules. The desktop build has one local session and no multi-device sync; ' +
+      'subscribe and remove this entry when a UI for this channel ships.',
+  })),
   {
-    entity: 'account_usage',
+    entity: 'account',
     side: 'published',
     reason:
-      'PUBLISH-ONLY, deliberately (billing epic / B1). The saas-only rollup fold emits ' +
-      '`SyncEntity::AccountUsage` to the account owner on each fold that changes a billable ' +
-      'figure (`modules/billing/sync.rs::publish_account_usage_changed`), and ' +
-      '`server/tests/billing/rollup_test.rs::fold_emits_account_usage_sync` asserts the frame ' +
-      'arrives on the owner stream end-to-end. The CLIENT half does not exist yet: B1 ships ' +
-      'NO billing UI (backend-only); the usage dashboard that subscribes to ' +
-      '`sync:account_usage` (self-gated on `billing::read`) is a downstream billing-UI ' +
-      'increment (B4/B5). Adding a subscriber now would be a listener with no page to update. ' +
-      'Remove this entry when the usage dashboard lands and subscribes to `sync:account_usage`.',
+      'PUBLISH-ONLY after the TxResBench strip: the account module (kept, degenerate ' +
+      'single-owner tenancy) still emits `sync:account` / `sync:account_member` from ' +
+      'its write paths, but the FE account stores that subscribed were removed with ' +
+      'the account UI. Remove when an account UI subscribes.',
+  },
+  {
+    entity: 'account_member',
+    side: 'published',
+    reason:
+      'PUBLISH-ONLY after the TxResBench strip: the account module (kept, degenerate ' +
+      'single-owner tenancy) still emits `sync:account_member` from its membership ' +
+      'write paths, but the FE account stores that subscribed were removed with the ' +
+      'account UI. Remove when an account UI subscribes.',
   },
   {
     entity: 'provenance_verification',

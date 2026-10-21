@@ -7316,6 +7316,13 @@
         "finding": "FALSE-POSITIVE",
         "note": "Runtime feature-flags admin subsystem (issues 40/48/53 — per-account overrides + clear). Software product flag, not a genomic feature; the feature-flags module/page/store/actions/routes are the mandated public surface."
       }
+    },
+    "server/tests/integration_tests.rs": {
+      "features": {
+        "count": 1,
+        "finding": "R4-TESTS-RS",
+        "note": "the suite's `mod features;` registration of the runtime feature-flags subsystem (software product flag, not a genomic feature). Visible to the scan only after the strip removed the file's own `#[cfg(feature = \"saas\")]` lines that carried it under the WS-R9 file-context rule."
+      }
     }
   },
   "testProse": {

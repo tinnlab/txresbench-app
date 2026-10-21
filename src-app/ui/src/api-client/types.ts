@@ -4121,7 +4121,7 @@ export interface SyncConnectedData {
  *  `publish` call site (there is no central audience table — an owner-scoped
  *  entity broadcast to everyone would be a leak).
  */
-export type SyncEntity = 'project' | 'project_share' | 'project_transfer' | 'notification' | 'dataset' | 'dataset_folder' | 'profile' | 'job' | 'artifact' | 'provenance' | 'provenance_verification' | 'account' | 'account_member' | 'account_usage' | 'draft' | 'project_settings' | 'session_settings' | 'job_settings' | 'user' | 'group' | 'auth_provider' | 'provenance_settings' | 'session'
+export type SyncEntity = 'project' | 'project_share' | 'project_transfer' | 'notification' | 'dataset' | 'dataset_folder' | 'profile' | 'job' | 'artifact' | 'provenance' | 'provenance_verification' | 'account' | 'account_member' | 'draft' | 'project_settings' | 'session_settings' | 'job_settings' | 'user' | 'group' | 'auth_provider' | 'provenance_settings' | 'session'
 
 /** The change notification pushed to clients. Notify-and-refetch only. */
 export interface SyncEvent {

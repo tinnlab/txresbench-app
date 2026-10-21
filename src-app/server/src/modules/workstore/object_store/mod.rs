@@ -511,28 +511,10 @@ mod tests {
         assert_ne!(merkle_root(&[member]), blob_hex);
     }
 
-    /// ITEM-16 — a NON-LOCAL backend degrades to copying **by construction**.
-    ///
-    /// `link_blob` has a trait default of `Unsupported`, so `S3Store` answers it
-    /// correctly without implementing anything — which is the whole point: a
-    /// backend cannot accidentally claim to hardlink, and a new backend cannot
-    /// forget to decline. The assertion that it does not PANIC is the load-bearing
-    /// half, because every other method on that seam is `unimplemented!()`: an
-    /// override written to match its neighbours would blow up a routine capability
-    /// probe.
-    #[tokio::test]
-    async fn a_remote_backend_declines_to_link_without_implementing_anything() {
-        let s3 = super::s3::S3Store::new("some-bucket");
-        assert_eq!(
-            s3.link_blob(
-                &ContentKey::from_hex("ab"),
-                std::path::Path::new("/tmp/never-written")
-            )
-            .await,
-            BlobLink::Unsupported,
-            "a store with no local blobs declines, so its caller copies"
-        );
-    }
+    /// ITEM-16 — a NON-LOCAL backend degrades to copying **by construction** was proven
+    /// against `S3Store` (trait default `Unsupported`). TxResBench strip: the S3 backend
+    /// is gone, so the proof's only subject is gone with it; the trait default remains
+    /// (seen above in `a_link_default_is_unsupported`).
 
     #[test]
     fn manifest_encode_decode_roundtrips() {

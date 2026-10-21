@@ -659,7 +659,9 @@ fn is_test_tier_key(key: &str) -> bool {
 /// the feature-flags merge (#40): +2 — the admin-authz-foundation merge (#31/#32) added the
 /// `admin` module without bumping this (base sat at 19 against a stale 18), and #40 adds the
 /// `features` module (the runtime feature-flags subsystem). Both consciously admitted = 20.
-const EXPECT_MODULES: usize = 20;
+/// TXRBENCH STRIP retired 4 (billing, admin, user, app) and added 1 (`localsession`, the
+/// single-owner local session) = 17 — consciously, in lockstep with the FE twin.
+const EXPECT_MODULES: usize = 17;
 
 // ── POSITIVE-COUNT FLOORS ───────────────────────────────────────────────────
 //
