@@ -1,0 +1,180 @@
+# The PINNED direct dependency set of the `single-cell` analysis env (#80 / DEC-2).
+#
+# THIS FILE IS THE SOURCE OF TRUTH for "what is installed in the analysis env". It is
+# read by three consumers, so its shape is a contract, not a style:
+#
+#   1. the recipe — `Dockerfile` installs `uv pip install --no-cache -r requirements.txt`;
+#   2. the BUILD GATE — `server/build_helper/processor_manifest.rs` resolves every
+#      `run.dependencies[]` a package manifest declares against these pins, so a package
+#      declaring a library that is absent here, or a version range these pins fall
+#      outside, fails `cargo check` rather than a user's sandbox job (#80 defect 3);
+#   3. the smoke-line gate — `sandbox::env_image::every_env_recipe_smoke_verifies_every_pinned_import`
+#      asserts every line below is covered by the Dockerfile's build-time import smoke
+#      line ("an install the smoke line does not verify silently ships absent"). It runs
+#      over EVERY recipe `discover_env_recipes` finds, not this one, and it locates the
+#      smoke line by the `# cyto:env-smoke` marker the Dockerfile puts above it — which is
+#      why the `# import=` token below is required of every pin in every recipe: it is the
+#      key the check is made on. (#196 moved this claim here from one analysis package's
+#      test directory, where it named a single recipe and left any second one unguarded.)
+#
+# ── LINE FORMAT (enforced by the gate, not by convention) ────────────────────────────
+#     <pypi-distribution>==<exact version>   # import=<module> — <why it is here>
+# EXACT pins only. A bare name, a range, a duplicate distribution or a missing
+# `import=` token is a BUILD ERROR. `import=` names the module the smoke line must
+# import, because a distribution name is not an import name (`scikit-learn`→`sklearn`,
+# `scikit-misc`→`skmisc`, `umap-learn`→`umap`).
+#
+# ── WHY EXACT PINS (the position, in one paragraph) ──────────────────────────────────
+# Before #80 exactly one package here was pinned — `harmonypy==2.0.0` — with a comment
+# explaining that its defaults are version-unstable, so the consuming analysis passes
+# every parameter explicitly AND pins AND records the resolved version. That reasoning is
+# not specific to harmonypy; it is the general case. Everything else resolved to whatever
+# PyPI served on the day the image was built, which means a published result rested on a
+# dependency version that appears in NO diff in this repo. A range would not fix it (two
+# builds a month apart still land on different versions inside the range); only an exact
+# pin does. The full TRANSITIVE closure is not pinned here — it is frozen INTO the image
+# at `/opt/venv/.cyto-env-lock.txt` (148 distributions as built) and recorded per run, so
+# transitive drift is visible in the provenance record of the run it affected instead of
+# being invisible. The escalation conditions for promoting that freeze to a committed
+# hash-pinned lockfile are in the runbook.
+#
+# ── UPGRADING A PIN ─────────────────────────────────────────────────────────────────
+# Do NOT edit a version here without following `docs/runbooks/env-image-republish.md`
+# §"Upgrading a pin". A pin change is invisible to every deployment until the image is
+# REPUBLISHED (the runtime lazy-fetches the moving `schema<N>-latest-<arch>` tag), and it
+# can invalidate a version range some package already declares — the build gate tells you
+# which, mechanically, but only if you run it.
+#
+# Resolved by `uv pip compile --python-version 3.11` on 2026-09-02 (DEC-3). Pinning to the
+# resolution of the day makes the pin a NO-OP for a fresh build: it freezes what was
+# already shipping rather than moving anything.
+#
+# ── THE PACKAGING ECOSYSTEM AND THE PIN SOURCE, DECLARED (#192) ─────────────────────
+# The two directives below say, machine-readably, what this file already said in prose:
+# which packaging ecosystem it is (from which the gate derives BOTH the PEP 503
+# distribution-name fold and the PEP 440 version grammar), and what its pins were
+# resolved against.
+#
+# They are here even though nothing about this recipe's behaviour changes, and that is the
+# point. "Every recipe declares its ecosystem and its pin source" is only a floor against
+# a DELETED declaration if it is required of every recipe; an exemption for the one that
+# happens to match the old default is exactly the silent case it exists to catch
+# (`docs/design/derived-guards.md` §4). It also makes visible that the regime is not
+# R-specific — the R recipe differs in its ANSWERS, not in being asked.
+#
+# `immutable-index`: a PyPI release is immutable and stays fetchable, so `<name>==<version>`
+# denotes one artifact forever. That is the strongest of the classes the regime knows
+# apart from a dated snapshot, and it is why the transitive-closure caveat below is about
+# what was NOT pinned rather than about what a pin means.
+# cyto:ecosystem=python
+# cyto:pin-source=immutable-index:https://pypi.org/simple
+
+# ── the numerical floor ──────────────────────────────────────────────────────────────
+numpy==2.4.6                # import=numpy — the array floor every module below stands on
+scipy==1.17.1               # import=scipy — sparse + stats
+pandas==2.3.3               # import=pandas — the tabular frame the column library emits
+scikit-learn==1.9.0         # import=sklearn — decompositions, neighbours, metrics
+
+# ── the core single-cell stack ───────────────────────────────────────────────────────
+scanpy==1.11.5              # import=scanpy — the analysis toolkit; DEFAULTS ARE VERSION-UNSTABLE
+anndata==0.12.19            # import=anndata — the in-memory annotated-matrix container
+leidenalg==0.12.0           # import=leidenalg — community detection
+igraph==1.0.0               # import=igraph — the graph backend leidenalg runs on
+umap-learn==0.5.12          # import=umap — 2-D layout
+numba==0.67.0               # import=numba — the JIT umap/liana compile through
+llvmlite==0.49.0            # import=llvmlite — numba's LLVM binding; pinned WITH numba or it breaks
+zarr==3.1.6                 # import=zarr — the on-disk chunked store the artifact format writes
+h5py==3.16.0                # import=h5py — HDF5 reads on the import path
+
+# ── libraries whose DEFAULTS a published result depends on ───────────────────────────
+harmonypy==2.0.0            # import=harmonypy — PRE-EXISTING PIN; 0.0.10 vs 2.x changed five defaults
+scikit-misc==0.5.2          # import=skmisc — the loess fit behind seurat_v3 variable-gene selection
+
+# ── statistics / differential testing ────────────────────────────────────────────────
+pydeseq2==0.5.4             # import=pydeseq2 — negative-binomial differential testing
+decoupler==2.2.0            # import=decoupler — enrichment scoring
+statsmodels==0.15.0         # import=statsmodels — multiple-testing correction, GLMs
+
+# ── spatial ──────────────────────────────────────────────────────────────────────────
+squidpy==1.8.2              # import=squidpy — spatial neighbourhood statistics
+spatialdata==0.7.3          # import=spatialdata — the spatial container
+
+# ── added by #80: the libraries the blocked analyses need ────────────────────────────
+# NOT YET CONSUMED by a shipped package — the analyses that need them are the ones #80
+# was blocking, and they land as their own packages. The gate is deliberately
+# one-directional (DEC-10): a DECLARED library must be installed, but an installed
+# library needs no declaration. These two comments are the review trail that keeps an
+# unconsumed pin from becoming the next TileDB-SOMA (installed, smoked, shipped for
+# nobody). If the consuming analysis is abandoned, REMOVE the pin.
+celltypist==1.7.1           # import=celltypist — reference-model cell annotation (blocked analysis 1)
+liana==1.10.0               # import=liana — ligand-receptor inference; its resource is bundled in the wheel (blocked analysis 2)
+
+# ── added by #181: the image-IO stack the spatial importer stands on ─────────────────
+# SHIPPED-BUT-UNDECLARED until now, which is the whole point of the fix. Both were
+# already in the image as TRANSITIVE dependencies of scikit-image/squidpy — verified by
+# inspecting the published rootfs (`unsquashfs -l
+# .cyto-cache/env-rootfs/single-cell-schema5-amd64.squashfs` lists
+# `tifffile-2026.3.3.dist-info` and `imagecodecs-2025.11.11.dist-info`) — so these pins
+# freeze what ALREADY SHIPS and need NO rootfs republish. What they change is that the
+# two libraries are now inside the build-time gate instead of outside it: an unrelated
+# dependency bump that dropped either one would have surfaced first as a USER'S import
+# failing inside a sandbox, with no build-time signal at all. That is exactly the failure
+# #80 exists to prevent, and it was about to be built on (#154).
+#
+# NOT YET CONSUMED by a shipped package — the same one-directional-gate situation as the
+# celltypist/liana block above (DEC-10: a DECLARED library must be installed; an
+# INSTALLED library needs no declaration). The named consumer is #154, the spatial
+# importer, which ALWAYS emits OME-TIFF (#176 makes it a downsampled display derivative,
+# lossless only). `imagecodecs` is not optional decoration there: it supplies the
+# deflate/LZW codecs tifffile calls out to, and lossless compression is the codec policy
+# #176 mandates. If #154 is abandoned, REMOVE both pins.
+#
+tifffile==2026.3.3          # import=tifffile — OME-TIFF read/write; the only pyramidal-TIFF writer here
+imagecodecs==2025.11.11     # import=imagecodecs — the deflate/LZW codec backend tifffile calls out to
+
+# ── added by #155: the PNG reader the block above predicted ──────────────────────────
+# The paragraph that stood here said pillow was NOT pinned because "no path in
+# `src-app/packages/**` imports `PIL` directly", and predicted: "#176's below-cap
+# pass-through (Visium's `tissue_hires_image.png`) is the path that will need a PNG
+# reader — tifffile is not one — so expect it to be declared alongside #154, not before
+# it." That path now exists, so the pin is added and the prediction retired.
+#
+# The named consumer is `spatial-import-visium` (#155), whose `compute/ome_writer.py`
+# imports `PIL.Image` to read `tissue_hires_image.png`. That tifffile cannot do the job
+# is VERIFIED, not assumed: `tifffile.imread()` on that fixture raises `TiffFileError`.
+#
+# Like the two pins above, this FREEZES WHAT ALREADY SHIPS — pillow is already in the
+# image at 12.3.0 as a transitive of scikit-image/scanpy — so it needs NO rootfs
+# republish. What it changes is that the library is now inside the build-time gate
+# (`processor_manifest.rs` resolves every declared `run.dependencies[]` against this
+# file), instead of a user's sandbox being the first place its absence would show up.
+pillow==12.3.0              # import=PIL — PNG decode for the Visium tissue image (#155)
+
+# ── added by #163: the parquet reader the Xenium boundaries importer stands on ───────
+# THE THIRD INSTANCE OF THE SAME SITUATION as the tifffile/imagecodecs block (#181) and the
+# pillow block (#155), and it is worth stating because #162 predicted the opposite. That
+# item's DEC-3 chose `cells.csv.gz` over `cells.parquet` precisely because "no parquet
+# reader is pinned anywhere in this tree", and design §10 predicted the republish this pin
+# would force. It does not force one: `pyarrow` is ALREADY IN THE SHIPPED IMAGE at exactly
+# this version, as a HARD transitive of the already-pinned `spatialdata==0.7.3`
+# (`Requires-Dist: pyarrow`, unconditional — read out of the image's own
+# `spatialdata-0.7.3.dist-info/METADATA`). VERIFIED the same way #181 verified its two:
+# `unsquashfs -l .cyto-cache/env-rootfs/single-cell-schema5-amd64.squashfs` lists
+# `pyarrow-25.0.0.dist-info`. So this pin FREEZES WHAT ALREADY SHIPS.
+#
+# What it changes is that the library is now inside the build-time gate
+# (`processor_manifest.rs` resolves every declared `run.dependencies[]` against this file)
+# instead of a user's sandbox being the first place its absence would show up — which is
+# what would happen the day a dependency bump dropped `spatialdata`, taking a library four
+# analyses away with it.
+#
+# The named consumer is `spatial-import-xenium`, whose `compute/boundaries.py` reads
+# `cell_boundaries.parquet` (#163). `fastparquet` was rejected: it is NOT in the image, so
+# it would be the only pin here that genuinely forces a republish.
+pyarrow==25.0.0             # import=pyarrow — parquet decode for the Xenium cell boundaries (#163)
+
+# ── the version-comparison reference implementation ──────────────────────────────────
+# Promoted from a transitive dependency to an explicit pin because `_lib/cyto_deps.py`
+# imports it to compare a RESOLVED version against a DECLARED range. A reproducibility
+# gate must not itself rest on an unpinned dependency.
+packaging==26.3             # import=packaging — PEP 440 specifier comparison

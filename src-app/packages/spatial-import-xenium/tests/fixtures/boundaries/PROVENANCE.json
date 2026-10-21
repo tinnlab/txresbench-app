@@ -1,0 +1,20 @@
+{
+  "prime-staged.parquet": {
+    "cell_id_type": "binary",
+    "cells": 23,
+    "source": "xenium-prime-outs ids + human-lung-cancer vertices",
+    "vertices": 217
+  },
+  "real-breast.parquet": {
+    "cell_id_type": "int32",
+    "cells": 120,
+    "source": "breast-cancer-preview",
+    "vertices": 1516
+  },
+  "real-lung.parquet": {
+    "cell_id_type": "binary",
+    "cells": 200,
+    "source": "human-lung-cancer",
+    "vertices": 2474
+  }
+}

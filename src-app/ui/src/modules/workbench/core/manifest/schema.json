@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cyto.ai/schemas/extension-manifest/1.0.0",
+  "title": "CytoAnalyst extension manifest",
+  "description": "The versioned, published extension.yaml contract (ITEM-14). The host indexes an extension from this WITHOUT executing its code.",
+  "type": "object",
+  "required": ["id", "name", "version", "apiVersion"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+    "name": { "type": "string", "minLength": 1 },
+    "publisher": { "type": "string" },
+    "version": { "type": "string" },
+    "apiVersion": { "type": "string", "description": "semver range compatible with the host WORKBENCH_API_VERSION" },
+    "activation": { "type": "array", "items": { "type": "string" } },
+    "dependencies": { "type": "array", "items": { "type": "string" } },
+    "contributes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "analyses": { "type": "array" },
+        "sections": { "type": "array", "description": "Visualize-pane sections (ITEM-1) — declarative blocks in a pane's stack. NOT views: a section never docks and never opens a pane." },
+        "views": { "type": "array" },
+        "statusBarItems": { "type": "array" },
+        "settings": { "type": "array" },
+        "jobs": { "type": "array" },
+        "artifactKinds": { "type": "array" },
+        "sidecar": { "type": "object" }
+      }
+    }
+  }
+}

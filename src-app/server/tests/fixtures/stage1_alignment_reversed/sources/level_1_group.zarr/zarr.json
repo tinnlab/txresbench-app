@@ -1,0 +1,35 @@
+{
+  "zarr_format": 3,
+  "node_type": "group",
+  "attributes": {
+    "cyto": {
+      "encoding": "zarr_v3",
+      "kind": "table",
+      "axis": "rows",
+      "n": 2,
+      "columns": [
+        {
+          "path": "values",
+          "kind": "categorical",
+          "dtype": "uint8",
+          "shape": [
+            2
+          ],
+          "inner_chunk": 4096,
+          "chunks_per_shard": 1,
+          "shards": 1,
+          "stored_bytes": 59,
+          "name": "values",
+          "axis": "rows",
+          "levels_digest": "15351e7f3be858b8c79541d333db19ca4049de1fdd034c2c402cfd697b4fec3d",
+          "n_levels": 2,
+          "ordered": false,
+          "vocab_digest": "ff197622f76d1438bae19d3b9fe74430e2820fdaf2c3338850d8b0182e003f33",
+          "vocab_sketch": "R/+YDq9Gkqha4vGGSU94ug=="
+        }
+      ],
+      "arrays": [],
+      "aligned_to": "c57531512e9d0be3af4982da3c36c988b7f59baf1dc90283a300d0edd599d0df"
+    }
+  }
+}

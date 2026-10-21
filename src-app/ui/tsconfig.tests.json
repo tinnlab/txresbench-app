@@ -1,0 +1,17 @@
+{
+  // Typecheck the TESTS tree, which `tsconfig.json` does not: its `include` is `src` +
+  // `vite.config.ts`, so every e2e spec and helper was outside the compiler entirely.
+  //
+  // That is not a hygiene point. `cell-filter-scatter-thins.spec.ts` shipped a bare
+  // `ReferenceError: CFRow is not defined` and no gate could see it — it surfaced only when that
+  // spec was finally run, and a second identical break was sitting undiscovered in
+  // `provenance/filter-save-records-recipe.spec.ts`. Two more defects hid the same way: a
+  // failure diagnostic passed as a function where a string was required, so it never ran; and a
+  // `reducedMotion` pin that was not a `test.use` option at all, so the determinism it claimed
+  // to enforce never applied.
+  //
+  // `src` is included as well because the specs import from it — checking `tests` alone would
+  // resolve those imports as `any` and report nothing.
+  "extends": "./tsconfig.json",
+  "include": ["src", "tests"]
+}

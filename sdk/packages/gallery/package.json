@@ -1,0 +1,38 @@
+{
+  "name": "@ziee/gallery",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:node": "node ../../scripts/run-node-tests.mjs --min 12",
+    "test": "npm run typecheck && vitest run && npm run test:node"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./scripts/*": "./scripts/*",
+    "./vite/*": "./vite/*",
+    "./playwright/*": "./playwright/*",
+    "./*": "./src/*"
+  },
+  "bin": {
+    "ziee-gallery": "scripts/cli.mjs"
+  },
+  "peerDependencies": {
+    "@ziee/framework": "*",
+    "@ziee/kit": "*",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "react-router-dom": "^7.15.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "ts-morph": "^28.0.0",
+    "typescript": "~6.0.3",
+    "vitest": "^4.0.0"
+  }
+}

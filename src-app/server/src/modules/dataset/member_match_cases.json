@@ -1,0 +1,422 @@
+{
+  "_readme": [
+    "The declared-depth member-matching rule, as CASES \u2014 the one authority FOUR",
+    "implementations answer to.",
+    "",
+    "The rule is implemented in Rust (`dataset/repository.rs::matches_member`, which the",
+    "server actually runs), mirrored in TypeScript so the upload wizard can tell the user",
+    "which member bound to which file BEFORE transferring anything",
+    "(`ui/src/modules/datasets/components/memberMatch.ts`), mirrored again in Python by a",
+    "contributed package's own container test, and a FOURTH time \u2014 basename-only \u2014 by a",
+    "sibling package's. Nothing made those agree.",
+    "",
+    "A mirror that drifts WIDER promises an upload the server then refuses; a mirror that",
+    "drifts NARROWER silently blocks a valid upload in the panel, with no server-side",
+    "signal at all. This file makes either one a RED test on every side.",
+    "",
+    "It lives beside the Rust source because that is where the authority is: a change to",
+    "the core that this file does not describe fails the core's own unit test first.",
+    "Every fixture here is deliberately vendor-neutral \u2014 the rule is generic over NESTING,",
+    "and a case table full of one vendor's filenames would be a claim about more than that.",
+    "",
+    "`cases` pins the per-(file, member) PREDICATE. `groups` pins the DECISION \u2014 the whole",
+    "member set against a whole upload, which is where the one-bundle-root rule lives and",
+    "where a mirror that implements only the predicate is silently WIDER than the core.",
+    "That gap was real: the client mirror shipped without the root rule and would have",
+    "promised an upload the server then refused, for a bundle whose size is the reason the",
+    "folder picker exists."
+  ],
+  "cases": [
+    {
+      "file": "counts.h5",
+      "member": "counts.h5",
+      "matches": true,
+      "why": "the depth-1 base case"
+    },
+    {
+      "file": "outs/deep/er/counts.h5",
+      "member": "counts.h5",
+      "matches": true,
+      "why": "a depth-1 member matches anywhere in the path"
+    },
+    {
+      "file": "counts.h5.gz",
+      "member": "counts.h5",
+      "matches": true,
+      "why": "ONE compression suffix comes off the last segment"
+    },
+    {
+      "file": "counts.h5.gz.gz",
+      "member": "counts.h5",
+      "matches": false,
+      "why": "exactly one suffix, never two"
+    },
+    {
+      "file": "COUNTS.H5",
+      "member": "counts.h5",
+      "matches": true,
+      "why": "ASCII case folding"
+    },
+    {
+      "file": "\u212a.h5",
+      "member": "k.h5",
+      "matches": false,
+      "why": "ASCII-only folding: U+212A is not lowered"
+    },
+    {
+      "file": "bin_b/counts.h5",
+      "member": "bin_b/counts.h5",
+      "matches": true,
+      "why": "a K=2 member, exactly"
+    },
+    {
+      "file": "run/x/bin_b/counts.h5",
+      "member": "bin_b/counts.h5",
+      "matches": true,
+      "why": "anchored at the SUFFIX, so the run root is irrelevant"
+    },
+    {
+      "file": "run/x/bin_a/counts.h5",
+      "member": "bin_b/counts.h5",
+      "matches": false,
+      "why": "a sibling directory is not the declared one"
+    },
+    {
+      "file": "counts.h5",
+      "member": "bin_b/counts.h5",
+      "matches": false,
+      "why": "fewer segments than the member declares"
+    },
+    {
+      "file": "run/bin_b/geo/positions.parquet",
+      "member": "bin_b/geo/positions.parquet",
+      "matches": true,
+      "why": "K=3"
+    },
+    {
+      "file": "run/bin_b/positions.parquet",
+      "member": "bin_b/geo/positions.parquet",
+      "matches": false,
+      "why": "a missing intermediate segment is not skipped"
+    },
+    {
+      "file": "a\\b\\counts.h5",
+      "member": "b/counts.h5",
+      "matches": true,
+      "why": "both separators are honoured"
+    },
+    {
+      "file": "a//b//counts.h5",
+      "member": "b/counts.h5",
+      "matches": true,
+      "why": "interior empty segments are dropped"
+    },
+    {
+      "file": "outs/counts.h5/",
+      "member": "counts.h5",
+      "matches": false,
+      "why": "a name ending in a separator names a DIRECTORY"
+    },
+    {
+      "file": "archive.gz/",
+      "member": "archive",
+      "matches": false,
+      "why": "and a directory never has a compression suffix stripped"
+    },
+    {
+      "file": "a.gz/b.tsv.gz",
+      "member": "a.gz/b.tsv",
+      "matches": true,
+      "why": "the suffix comes off the LAST segment only"
+    },
+    {
+      "file": "geo/positions.csv",
+      "member": "positions.csv|geo/positions.parquet",
+      "matches": true,
+      "why": "the first alternative, at its own depth"
+    },
+    {
+      "file": "geo/positions.parquet",
+      "member": "positions.csv|geo/positions.parquet",
+      "matches": true,
+      "why": "the second alternative, at ITS own depth"
+    },
+    {
+      "file": "positions.parquet",
+      "member": "positions.csv|geo/positions.parquet",
+      "matches": false,
+      "why": "the deeper alternative is not satisfied by a bare name"
+    },
+    {
+      "file": "anything.h5",
+      "member": "",
+      "matches": false,
+      "why": "an empty declaration matches nothing, never everything"
+    },
+    {
+      "file": "anything.h5",
+      "member": "/",
+      "matches": false,
+      "why": "a separator-only declaration is empty too"
+    },
+    {
+      "file": "anything.h5",
+      "member": "|",
+      "matches": false,
+      "why": "and so is an alternation of nothing"
+    }
+  ],
+  "groups": [
+    {
+      "name": "one bundle, members at one depth",
+      "files": [
+        "run/bin_a/counts.h5",
+        "run/bin_a/geo/positions.parquet",
+        "run/bin_b/counts.h5",
+        "run/bin_b/geo/positions.parquet"
+      ],
+      "members": [
+        "bin_a/counts.h5",
+        "bin_a/geo/positions.parquet",
+        "bin_b/counts.h5",
+        "bin_b/geo/positions.parquet"
+      ],
+      "grouped": true,
+      "why": "every member resolves once, all under one root"
+    },
+    {
+      "name": "one bundle, members at DIFFERENT depths inside it",
+      "files": [
+        "outs/sub/counts.h5",
+        "outs/sub2/positions.csv"
+      ],
+      "members": [
+        "counts.h5",
+        "sub2/positions.csv"
+      ],
+      "grouped": true,
+      "why": "roots are ['outs','sub'] and ['outs'] \u2014 a CHAIN, which is one bundle with a loosely-declared member sitting deeper. Equality would refuse this."
+    },
+    {
+      "name": "members gathered from TWO different bundles",
+      "files": [
+        "runA/bin_a/counts.h5",
+        "runB/bin_b/counts.h5"
+      ],
+      "members": [
+        "bin_a/counts.h5",
+        "bin_b/counts.h5"
+      ],
+      "grouped": false,
+      "gap": "scattered_roots",
+      "why": "each member resolves once and nothing is ambiguous; only WHERE they came from is wrong"
+    },
+    {
+      "name": "members gathered from THREE different bundles",
+      "files": [
+        "runA/b1/counts.h5",
+        "runB/b2/counts.h5",
+        "runC/b3/counts.h5"
+      ],
+      "members": [
+        "b1/counts.h5",
+        "b2/counts.h5",
+        "b3/counts.h5"
+      ],
+      "grouped": false,
+      "gap": "scattered_roots",
+      "why": "the motivating case: three resolutions of three different specimens"
+    },
+    {
+      "name": "the root rule does NOT apply to a bare-basename declaration",
+      "files": [
+        "a/counts.h5",
+        "b/positions.csv"
+      ],
+      "members": [
+        "counts.h5",
+        "positions.csv"
+      ],
+      "grouped": true,
+      "why": "every container that shipped before #160 declares basenames; gathering those from different directories is behaviour nothing asked to change"
+    },
+    {
+      "name": "a member with two candidates",
+      "files": [
+        "a/counts.h5",
+        "b/counts.h5",
+        "positions.csv"
+      ],
+      "members": [
+        "counts.h5",
+        "positions.csv"
+      ],
+      "grouped": false,
+      "gap": "ambiguous",
+      "why": "two files claim one member"
+    },
+    {
+      "name": "a missing member",
+      "files": [
+        "run/bin_a/counts.h5"
+      ],
+      "members": [
+        "bin_a/counts.h5",
+        "bin_a/geo/positions.parquet"
+      ],
+      "grouped": false,
+      "gap": "missing",
+      "why": "nothing satisfies the second member"
+    },
+    {
+      "name": "one file claiming two members",
+      "files": [
+        "counts.h5"
+      ],
+      "members": [
+        "counts.h5",
+        "counts.h5|other.h5"
+      ],
+      "grouped": false,
+      "gap": "multi_claim",
+      "why": "an ambiguous DECLARATION, not a bad upload"
+    },
+    {
+      "name": "extra files beside a complete set are ignored",
+      "files": [
+        "run/bin_a/counts.h5",
+        "run/notes.txt",
+        "run/bin_a/geo/positions.parquet"
+      ],
+      "members": [
+        "bin_a/counts.h5",
+        "bin_a/geo/positions.parquet"
+      ],
+      "grouped": true,
+      "why": "a file matching no member is not a member and is not an error"
+    },
+    {
+      "name": "a BARE member is not held to the bundle root",
+      "files": [
+        "run/meta/params.json",
+        "run/data/bin_a/counts.h5",
+        "run/data/bin_b/positions.csv"
+      ],
+      "members": [
+        "params.json",
+        "bin_a/counts.h5",
+        "bin_b/positions.csv"
+      ],
+      "grouped": true,
+      "why": "the deep members chain; the bare one declared that it does not care where it sits, so holding it to the root would refuse a legitimate bundle"
+    },
+    {
+      "name": "ONE deep member cannot disagree with itself",
+      "files": [
+        "runA/counts.h5",
+        "runB/sub/positions.csv"
+      ],
+      "members": [
+        "counts.h5",
+        "sub/positions.csv"
+      ],
+      "grouped": true,
+      "why": "a stated LIMIT of the rule, not an oversight: with a single path-carrying member there is nothing to compare it against"
+    },
+    {
+      "name": "two deep members under a COMMON PARENT are still two bundles",
+      "files": [
+        "shared/runA/bin_a/counts.h5",
+        "shared/runB/bin_b/positions.csv"
+      ],
+      "members": [
+        "bin_a/counts.h5",
+        "bin_b/positions.csv"
+      ],
+      "grouped": false,
+      "gap": "scattered_roots",
+      "why": "a rule comparing only the first segment would group them"
+    },
+    {
+      "name": "a mixed-depth alternation roots at its DEEPEST match, not its first",
+      "files": [
+        "run/geo/positions.csv",
+        "run/geo/counts.h5"
+      ],
+      "members": [
+        "positions.csv|geo/positions.csv",
+        "geo/counts.h5"
+      ],
+      "grouped": true,
+      "why": "the first alternative also matches; taking it would root at [run,geo] vs [run] and make the verdict depend on declaration order"
+    },
+    {
+      "name": "one compression suffix comes off, in a group",
+      "files": [
+        "run/bin_a/counts.h5.gz",
+        "run/bin_a/geo/positions.parquet.zst"
+      ],
+      "members": [
+        "bin_a/counts.h5",
+        "bin_a/geo/positions.parquet"
+      ],
+      "grouped": true,
+      "why": "the suffix list is shared by four implementations and is otherwise unpinned at the group level"
+    },
+    {
+      "name": "a declaration with an EMPTY alternative claims nothing",
+      "files": [
+        "run/counts.h5",
+        "run/positions.csv"
+      ],
+      "members": [
+        "|counts.h5",
+        "positions.csv"
+      ],
+      "grouped": true,
+      "why": "the empty alternative must be dropped, not treated as a zero-length suffix that every path ends with \u2014 a matcher that kept it would have one member claim BOTH files"
+    },
+    {
+      "name": "a whitespace-only declaration claims nothing",
+      "files": [
+        "run/counts.h5"
+      ],
+      "members": [
+        "   ",
+        "counts.h5"
+      ],
+      "grouped": false,
+      "gap": "missing",
+      "why": "the blank member has no candidate; it must not silently match the file the real member wants"
+    },
+    {
+      "name": "a COMPLETE backup copy of the bundle is refused",
+      "files": [
+        "run/bin_a/counts.h5",
+        "run/bin_b/counts.h5",
+        "run/backup/bin_a/counts.h5",
+        "run/backup/bin_b/counts.h5"
+      ],
+      "members": [
+        "bin_a/counts.h5",
+        "bin_b/counts.h5"
+      ],
+      "grouped": false,
+      "gap": "ambiguous",
+      "why": "the declaration-level ambiguity check refuses BEFORE the root rule is consulted \u2014 two candidates per member"
+    },
+    {
+      "name": "a PARTIAL backup copy still groups \u2014 the root rule's stated LIMIT",
+      "files": [
+        "run/bin_a/counts.h5",
+        "run/backup/bin_b/counts.h5"
+      ],
+      "members": [
+        "bin_a/counts.h5",
+        "bin_b/counts.h5"
+      ],
+      "grouped": true,
+      "why": "roots [run] and [run,backup] CHAIN, so the live and backed-up parts group together. Recorded as a measured fact rather than a comment: the chain is a NECESSARY condition, and tightening it would need the declaration to say what the bundle root is"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+# TEST-12 fixture (B2) — SELF-EXTEND. `demo/loop` extends ITSELF; its id is in
+# `known`, so the dangling check passes it — pass 2's cycle walk catches the
+# self-referential chain at BUILD (the runtime lattice validator otherwise only
+# catches it at boot).
+id: badpkg
+name: Bad Package
+publisher: cyto
+version: 0.1.0
+apiVersion: "1.0"
+contributes:
+  datatypes:
+    - id: demo/loop
+      extends: demo/loop   # <-- self-extend
+      title: Self loop
+      storage:
+        layout: { kind: opaque_as_is }
+        format: json

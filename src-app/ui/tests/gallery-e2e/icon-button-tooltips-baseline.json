@@ -1,0 +1,6 @@
+{
+  "$comment": "Visible icon-only controls rendered with NOTHING that explains them on hover, keyed by the CONTROL and counted across every gallery surface it renders on. SHRINK-ONLY: a new one fails, a stale entry fails. Regenerate with ICON_BUTTON_TOOLTIPS_WRITE=1 after a genuine fix — never to make a red run green. EMPTY as of the kit fix that retired the last four rows (Dialog/Sheet close, Alert dismiss, PasswordInput reveal, Tag remove): every one of them was drawn by sdk/packages/kit and is now drawn with a tooltip, so the guard gates them again.",
+  "surfaces": 94,
+  "total": 0,
+  "entries": {}
+}

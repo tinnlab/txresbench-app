@@ -1,0 +1,47 @@
+# TEST-E1-1 fixture (#189) — an analysis DECLARING `env:`, which the build-lint
+# `Analysis` struct must ACCEPT.
+#
+# Before #189 that struct was `deny_unknown_fields` with no `env` field, so this
+# manifest failed the lint and the whole package was SKIPPED — an analysis that
+# silently vanished from the workbench, with the cause reported only as an unknown
+# key. The converter below declares the same key at the level it already existed,
+# so the fixture pins BOTH contribution kinds accepting one spelling.
+#
+# The env-ids here are fixture-local names, deliberately NOT any env this repo
+# ships: the point is that the registry is open and the lint validates the GRAMMAR,
+# never a list of known names.
+id: envpkg
+name: Env Package
+publisher: cyto
+version: 0.1.0
+apiVersion: "1.0"
+contributes:
+  analyses:
+    - id: envpkg.declared
+      category: demo
+      title: Analysis declaring an env
+      env: fixture-env-a
+      appliesTo: []
+      produces: [demo/widget]
+      run: { kind: sandbox, runtime: rscript, entry: compute/demo.R }
+    - id: envpkg.undeclared
+      category: demo
+      title: Analysis declaring no env
+      appliesTo: []
+      produces: [demo/widget]
+      run: { kind: sandbox, runtime: python, entry: compute/demo.py }
+  converters:
+    - id: envpkg.conv
+      title: Converter declaring an env
+      trigger: on-ingest
+      env: fixture-env-b
+      accepts: []
+      produces: []
+      run: { kind: sandbox, runtime: python, entry: compute/conv.py }
+  datatypes:
+    - id: demo/widget
+      extends: data
+      title: Demo widget
+      storage:
+        layout: { kind: opaque_as_is }
+        format: json

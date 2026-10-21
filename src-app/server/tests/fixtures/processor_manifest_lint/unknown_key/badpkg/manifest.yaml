@@ -1,0 +1,16 @@
+# TEST-12 fixture — UNKNOWN/typo'd key. The datatype declares `titel:` (a typo of
+# `title:`); `deny_unknown_fields` on the lint's `DatatypeContribution` mirror must
+# reject it at parse time (`unknown field \`titel\``).
+id: badpkg
+name: Bad Package
+publisher: cyto
+version: 0.1.0
+apiVersion: "1.0"
+contributes:
+  datatypes:
+    - id: demo/widget
+      extends: data
+      titel: Demo widget   # <-- typo: should be `title`
+      storage:
+        layout: { kind: opaque_as_is }
+        format: json

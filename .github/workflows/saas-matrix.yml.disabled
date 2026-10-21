@@ -1,0 +1,56 @@
+# saas-matrix — the billing epic dual-config build+test gate (epic billing #7, B5 #23).
+#
+# The `saas` cargo-feature compile-out is only honest if BOTH configs are built AND
+# tested per-commit — desktop (`--no-default-features` / `saas` OFF) and hosted
+# (`--features saas`) — or the saas leg silently bit-rots (design §8 / INV-5 /
+# DE-INV-12). This workflow is the CI carrier of that matrix: the desktop leg proves
+# billing/metering/quota (and the Stripe/hmac deps) are ABSENT from the default build,
+# and the hosted leg proves the whole `#[cfg(feature = "saas")]` billing tier still
+# compiles + runs against the local Stripe sim.
+#
+# ENFORCEMENT IS EXTERNALLY BLOCKED (GRAPH external-blocker #1): ziee-ai Actions
+# billing is dark org-wide, so this workflow does not execute in CI yet. The binding
+# gate until it is restored is LOCAL: `just check-saas-both` (+ the pre-push hook).
+# This file is authored now so the gate turns on the moment CI is back — a recorded
+# external blocker, not a descope. Mirrors cloud-sim.yml.disabled's shape.
+
+name: saas-matrix
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  dual-config:
+    runs-on: ubuntu-latest
+    services:
+      # The dev/test Postgres the build.rs sqlx verification + harness read (:54321).
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: postgres
+        ports:
+          - "54321:5432"
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install just
+        run: curl -fsSL https://just.systems/install.sh | bash -s -- --tag 1.36.0 --to /usr/local/bin
+      - name: Dual-config build + test (desktop-off AND --features saas)
+        # `check-saas-both` runs, fail-closed:
+        #   1. DESKTOP/DEFAULT — workspace + tests compile saas-OFF + the compile-out
+        #      gate tests run in that build.
+        #   2. desktop crate — the embedded server it compiles is saas-OFF (ITEM-7).
+        #   3. HOSTED/saas — the entire billing tier COMPILES (anti-bit-rot), then RUNS
+        #      against the local Stripe sim (the no-real-Stripe guard runs first — the
+        #      runner has no Stripe identity, so a real cred present is itself a fail).
+        run: just check-saas-both

@@ -1,0 +1,27 @@
+{
+  "attributes": {
+    "cyto": {
+      "arrays": [],
+      "axis": "rows",
+      "columns": [
+        {
+          "axis": "rows",
+          "dtype": "uint8",
+          "kind": "categorical",
+          "n": 5,
+          "name": "values",
+          "path": "values",
+          "shape": [
+            5
+          ]
+        }
+      ],
+      "data_type": "uint8",
+      "encoding": "zarr_v3",
+      "kind": "table",
+      "n": 5
+    }
+  },
+  "node_type": "group",
+  "zarr_format": 3
+}

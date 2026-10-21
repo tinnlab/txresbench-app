@@ -1,0 +1,297 @@
+# embedding-integrate — the alignment PRODUCER (virtual-dataset-alignment, DEC-6).
+#
+# ┌───────────────────────────────────────────────────────────────────────────────────┐
+# │ THE COMPUTE AND THE FORM ARE BOTH IMPLEMENTED, AND THE FORM IS REACHABLE.         │
+# │                                                                                    │
+# │ `compute/embedding_integrate.py` runs: it reads the staged source artifacts, calls │
+# │ the `_helpers/alignment.py` engine, and writes a real `dataset-alignment` artifact │
+# │ plus its coverage sidecar. Proven by a suite that invokes it AS A SUBPROCESS over  │
+# │ artifacts written by the real `cyto_zarr.Table`, then conforms the output with the │
+# │ real framework gate (`tests/test_producer_end_to_end.py`).                          │
+# │                                                                                    │
+# │ `ui/embedding-integrate.yaml` is the real form (stage 3's ITEM-34…ITEM-37): the key │
+# │ picker with its join-quality table, the compatible-column list, the conflict-mode  │
+# │ choice. It is no longer a placeholder, this analysis no longer declares            │
+# │ `launchable: false`, and it is therefore IN the launcher and IN the pane-form      │
+# │ conformance tier.                                                                  │
+# │                                                                                    │
+# │ (This block said `form_placeholder: true` until the slot rework. That key never    │
+# │ existed — it is the invented key that broke the server build, and the fix was to   │
+# │ use `launchable: false` from the declared vocabulary. Then the prose outlived THAT  │
+# │ fix too, which is exactly how an invented key gets reintroduced by the next        │
+# │ reader — so it is rewritten here rather than left to describe a past tree.)        │
+# └───────────────────────────────────────────────────────────────────────────────────┘
+#
+# What it will do: given several datasets and a user-chosen join key, emit ONE
+# `dataset-alignment` artifact (registered in `single-cell-types/manifest.yaml`) holding
+# the row vector + segment table, the unified-entity vector (an INTERSECTION, never a
+# union — INV-2), and the per-source level lookups, plus the metadata that makes a later
+# read checkable: each source's `key_sequence_digest`, the conflict mode, the join key,
+# the measured join-quality counts and the per-entity evidence.
+#
+# Modelled on `annotation-integrate` (align by a key, record what matched, emit a
+# full-axis column with `NA`, put coverage on a sidecar) — that package is the closest
+# sibling and ITEM-5/ITEM-15 are literally its shape. It differs in being an ANALYSIS
+# (user-launched over several datasets) rather than an `on-integrate` converter.
+id: embedding-integrate
+name: Embedding Integrate
+publisher: cyto
+# 0.2.0 — the compute landed (0.1.0 was the declaration, whose entry point raised). The
+# bump is required, not tidiness: an already-provisioned deployment skips re-extraction
+# at an unchanged version and would keep running the raising stub
+# (`scripts/check-processor-seed-versions.sh` enforces it).
+# 0.5.0 — the SLOT REWORK. The input shape changed (a dataset × column grid carried by slot
+# families + a literal `rows` slot, replacing the unsatisfiable `datasets` slot), so a host
+# still running 0.4.0's compute would fail every launch the new form produces. The bump is
+# what makes an already-provisioned deployment re-extract. `check-processor-seed-versions.sh`
+# exempts this package as branch-born, so the gate would NOT have caught the omission.
+# 0.6.0 — REACHABILITY. Two declarations changed, both of which a provisioned deployment must
+# re-extract to pick up: the `integration_grid` slice now declares its two axes (without them
+# the resolver refuses rather than guessing, so the binding plan was the EMPTY one on every
+# real input and `ei.run` would have launched a run with no mounts at all), and the analysis
+# no longer declares `launchable: false`, so it appears in the launcher. A host still serving
+# 0.5.0's form would keep the unlaunchable one.
+version: 0.6.2
+apiVersion: "1.0"
+contributes:
+  analyses:
+    - id: embedding.integrate
+      category: integration
+      title: Integrate datasets
+      description: >-
+        Build one integrated dataset from several, by joining their shared entities on a
+        key the user chooses. The claim that two datasets' columns are "the same thing" is
+        made HERE, when the analysis is run — not inferred later from digests and previews
+        when someone opens a plot.
+      whenHint: >-
+        the user wants to analyse several datasets together as one — a joint embedding,
+        a shared clustering, or one plot over all of them
+      examples:
+        - integrate these two datasets
+        - run a joint embedding over all samples
+        - combine these datasets into one
+      safety: read-run
+
+      # ── IT IS NO LONGER `launchable: false`, AND THE LINE THAT SAID SO IS GONE ───────
+      #
+      # `launchable: false` did double duty here and both halves were harmful: the analysis
+      # stayed out of the launcher, so the form was unreachable by a person; and
+      # `shippedFormConformance` EXCLUDES a non-launchable analysis, so the pane-form tier
+      # never ran against it. The exclusion hid the gaps it exists to catch.
+      #
+      # The line's recorded reason was measured and correct: `completeRequiredPickers()`
+      # filtered to `isSinglePicker(el)`, so a `multiple: true` picker was never answered at
+      # all — and this form's FIRST required control is `datasetsPicker` (`multiple`,
+      # `min_items: 2`). The harness could not complete the form's first field.
+      #
+      # That gap was GENERAL, not this analysis' peculiarity, and it has been closed in the
+      # shared harness rather than worked around here: `completeRequiredPickers()` now answers
+      # a `multiple` picker up to its declared `min_items`, `requiredControls()` reads
+      # `required` and `min_items` TOGETHER (it took `required` as an early branch and reported
+      # this control as needing one), and the fixture seeds a candidate per required item and a
+      # DATASET per anchor when a view declares a binding plan — a plan dedupes by dataset, so
+      # a one-dataset fixture would have measured its "a dataset cannot be integrated with
+      # itself" refusal instead of the form.
+      #
+      # Omitting the key means launchable, which is the default and is now the truth. Do not
+      # re-add it to make a failing conformance run go quiet: this analysis has a real form,
+      # and the tier's verdict on it is the point.
+
+      # ── APPLICABILITY ────────────────────────────────────────────────────────
+      #
+      # THE `datasets` SLOT IS GONE, AND ITS REMOVAL IS NOT COSMETIC.
+      #
+      # `datasets` + `subtypes_of: single-cell/expression` was unsatisfiable by any real
+      # artifact, and measurement says so twice over:
+      #
+      #   * a `single-cell/expression` artifact is `kind: sparse_csc` — `nnz`/`data`/
+      #     `indptr`/`indices`/`shape`. It carries NO key member and NO identifier column,
+      #     so it could never have supplied a join key;
+      #   * the compute expected each mount to be a DIRECTORY holding two stores, and the
+      #     runner stages one artifact per mount (`unique_mount_name` exists to keep them
+      #     distinct), so no mount can ever present that shape.
+      #
+      # A real run died at the first source. The join runs over ENTITY-AXIS IDENTIFIER
+      # COLUMNS, which real ingest emits as one `metadata-column` artifact each — so that
+      # is what the slot accepts.
+      #
+      # `multiple: true` is still the point: an alignment over ONE dataset is not an
+      # alignment. The minimum-count rule stays the compute's (it has the sources).
+      #
+      # ── WHAT `appliesTo` CANNOT SAY, and where the rest lives ────────────────
+      #
+      # `appliesTo` is a list of STATIC selectors, and most of this analysis' input shape is
+      # a dataset × column GRID whose extent is data (N datasets × a RAGGED set of identifier
+      # columns each). No literal key can spell those slots, so they are a slot FAMILY
+      # carried in the slot NAME — `entity:<dataset_index>:<column>` and
+      # `level:<dataset_index>:<column>` — bound by the view's `run_processor.inputs_from`
+      # repeater, exactly as `cell-filter` binds `column:<name>` and for the identical
+      # reason (a `metadata-column` store's member is the constant `values`; the display
+      # name is a catalog fact that is never staged). Their prefixes are `*_SLOT_PREFIX`
+      # constants in the compute, which is the form the view↔compute gate reads a family in.
+      #
+      # `rows` below IS statically nameable, because it is ONE artifact per dataset rather
+      # than a grid: each dataset's obs axis index, aligned by binding order (the relay `qc`
+      # uses for `matrix_modalities`), and MANDATORILY cross-checked against
+      # `params.dataset_content_hashes` so that order is verified rather than trusted.
+      # A ragged dimension could not be carried this way — a relayed partition mis-attributes
+      # silently — which is why the two shapes differ and why that is not inconsistency.
+      #
+      # It is also what keeps this analysis inside the shipped convention: every `appliesTo`
+      # selector in the tree (all seven analyses) names a real, required, compute-resolved
+      # slot, and the view↔compute gate's arm A requires one. A family-only analysis would
+      # have none and would be the first.
+      appliesTo:
+        - slot: rows
+          multiple: true
+          subtypes_of: metadata-column
+
+      # The GRAPH EDGE for the family-bound inputs, which `appliesTo` cannot express and
+      # which is not an availability condition. Same key and same reasoning as
+      # `cell-filter`'s: `chaining.ts` reads it to answer "which analysis yields this view's
+      # input?". Never a precondition.
+      consumes: [metadata-column]
+
+      # ── UI ───────────────────────────────────────────────────────────────────
+      #
+      # STAGE 3 OWNS THE CONTENTS of the file below. It is committed as a minimal,
+      # parseable placeholder so this manifest loads; it declares no controls and states
+      # its own unfinished status to anyone who opens the pane. Stage 3's ITEM-34…ITEM-37
+      # replace it (the key picker with its join-quality table, the compatible-column
+      # list, the conflict-mode choice). The `ui:` KEY is what they were blocked on, so it
+      # is here and named; the file's contents are not stage 1's to write.
+      ui:
+        - ui/embedding-integrate.yaml
+
+      # ── OUTPUTS ──────────────────────────────────────────────────────────────
+      #
+      # The datatypes it emits, and nothing finer — the manifest may not enumerate the
+      # individual columns, which is data that does not exist until a run produces it.
+      produces: [dataset-alignment, report/qc]
+
+      # The env image this contribution runs inside (#191 / E3). DECLARED, not inferred,
+      # so the #80 dependency gate resolves its `run.dependencies` against THIS env's pin
+      # set only. An env-LESS declaration is resolved against EVERY recipe on disk
+      # (`server/build_helper/processor_manifest.rs`) — the fail-closed reading, and
+      # exactly right while one recipe exists; with a second, deliberately narrower env
+      # (`single-cell-r`) it would demand these python pins be installed there too. The
+      # gate's own doc-comment prescribes this fix in writing: "the right relaxation is
+      # for a contribution to DECLARE the env it targets, not for this gate to guess".
+      env: single-cell
+      run:
+        kind: sandbox
+        runtime: python
+        entry: compute/embedding_integrate.py
+        # The libraries THIS entry's code imports, with the version range it is
+        # supported against (#80). A minor-pinned range where the library's DEFAULTS decide a published
+        # number; a wider one where it is a stable numerical floor.
+        dependencies:
+          - { library: numpy, version: ">=2.0,<3" }
+
+      schedule:
+        class: batch
+
+    # ── the join-quality PREFLIGHT (ITEM-1, DEC-20) ───────────────────────────────
+    #
+    # A separate, cheap analysis whose only job is to MEASURE the candidate join keys so the
+    # integration form can show them. It exists as a run rather than as an inline
+    # computation because the `data:` source vocabulary a view may bind is a CLOSED dispatch
+    # table with no compute-on-demand kind — so "measure automatically on key selection"
+    # (the owner's choice) has to arrive as an artifact the form reads via `job.result`.
+    #
+    # `interactive`, not `batch`: a user is waiting on it, and it fires on every key change.
+    - id: embedding.join-quality
+      category: integration
+      title: Measure join keys
+      description: >-
+        Measure how well each candidate identifier joins the selected datasets — how many
+        entities match, how many match but carry disagreeing secondary identifiers, how many
+        are duplicated or blank, and whether the key can be joined on at all.
+      whenHint: >-
+        the user has selected several datasets and is choosing which identifier to join them
+        on
+      examples:
+        - which key should I join these datasets on
+        - how well do these datasets overlap
+      safety: read-run
+
+      # ── R3C6 — NOT LAUNCHABLE, and this is a user-facing fix ─────────────────
+      #
+      # This analysis has no `ui:` and never will: it is READ BY the integration form
+      # through `job.result`, not opened by a person. Without this line it appeared in the
+      # launcher as an ordinary entry, so a user could launch "Measure join keys" and be
+      # presented with NOTHING — no form, no controls, and an artifact they have no surface
+      # to read. `launchable: false` keeps it REGISTERED (the integration form can still run
+      # it) while removing it from the launcher ("omitted ⇒ launchable; `false` keeps it
+      # registered-but-not-in-launcher" — `launcherAvailability.ts:97`).
+      #
+      # It is the same declaration `embedding.integrate` carries above, for a DIFFERENT
+      # reason, and the difference matters: that one is TEMPORARY (delete it when stage 3's
+      # form lands), this one is PERMANENT. A preflight read by another form has no user
+      # surface by design, so this line never comes out.
+      launchable: false
+      # The SAME grid the integrator reads, minus the halves join quality never consults.
+      # It shares `load_grid` with the producer (`with_rows=False, with_levels=False`), so
+      # the two entry points cannot drift about what a binding means — they did before,
+      # through two separate loaders that each agreed with itself.
+      #
+      # ── THE ONE SLOT-LESS `appliesTo` SELECTOR IN THE TREE, and why ──────────
+      #
+      # This entry point reads ONLY `entity:<i>:<column>` bindings — a slot FAMILY. It has
+      # no statically-nameable slot at all: it never opens the `rows` axis (that would
+      # multiply a per-keystroke run by the cell count — ITEM-1 / INV-11) and never opens a
+      # `level:` column.
+      #
+      # So it declares applicability WITHOUT a slot. `slot` is optional by construction —
+      # `TypeSelector` (`ui/src/core/datatypes/types.ts:124-133`) has no `slot` field at
+      # all; it is read defensively as `{slot?: string}` where a caller wants one, and
+      # availability (`computeAvailabilityWithArch` / `selectorLabel`) never consults it.
+      # Verified: `subtypes_of` alone drives the verdict.
+      #
+      # Naming `rows` here instead would have been the shape this package just removed — a
+      # declaration asserting an input the compute ignores, which stages artifacts for
+      # nothing and reads to a future maintainer as a contract. A selector that claims less
+      # is better than one that claims something untrue.
+      #
+      # KNOWN GAP, for stage 3: the view↔compute gate's arm A asserts every analysis in a
+      # `run_processor` pair has ≥1 `appliesTo` slot, and arm B's vacuity guard counts only
+      # `slot_path`/`slot_paths` literal NAMES, not `*_SLOT_PREFIX` families. Neither fires
+      # today (no view declares a `run_processor` for this analysis yet), and both will the
+      # moment stage 3's form lands. The gate, not this manifest, is what needs the fix:
+      # a family-only compute is a legitimate shape it cannot currently express.
+      appliesTo:
+        - multiple: true
+          subtypes_of: metadata-column
+      consumes: [metadata-column]
+      # No `ui:` — this analysis has no form of its own. It is READ BY the integration
+      # form's `job.result` binding, which is why it is not in the pane-form tier and needs
+      # no placeholder view.
+      produces: [data/opaque, report/qc]
+      # The env image this contribution runs inside (#191 / E3). DECLARED, not inferred,
+      # so the #80 dependency gate resolves its `run.dependencies` against THIS env's pin
+      # set only. An env-LESS declaration is resolved against EVERY recipe on disk
+      # (`server/build_helper/processor_manifest.rs`) — the fail-closed reading, and
+      # exactly right while one recipe exists; with a second, deliberately narrower env
+      # (`single-cell-r`) it would demand these python pins be installed there too. The
+      # gate's own doc-comment prescribes this fix in writing: "the right relaxation is
+      # for a contribution to DECLARE the env it targets, not for this gate to guess".
+      env: single-cell
+      run:
+        kind: sandbox
+        runtime: python
+        entry: compute/join_quality_preflight.py
+        # This entry imports its SIBLING (`from embedding_integrate import …`) to share the
+        # package's I/O idioms rather than keeping a second copy of them. `helpers` resolves
+        # against the entry's OWN package, so a sibling is exactly what it can name — and
+        # without the declaration the import is `ModuleNotFoundError` at process start, not
+        # a degraded run. (`alignment.py` cannot come through here: it lives in the reserved
+        # `_helpers` package, so it is staged app-wide via `PY_HELPER_FILES` instead.)
+        helpers:
+          - compute/embedding_integrate.py
+        # The libraries THIS entry's code imports, with the version range it is
+        # supported against (#80). A minor-pinned range where the library's DEFAULTS decide a published
+        # number; a wider one where it is a stable numerical floor.
+        dependencies:
+          - { library: numpy, version: ">=2.0,<3" }
+      schedule:
+        class: interactive

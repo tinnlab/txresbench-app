@@ -1,0 +1,18 @@
+/* showcase.css — Tailwind + @ziee/kit design tokens for the STANDALONE viz showcase (dev/e2e only).
+   The CytoAnalyst app already provides this pipeline when it renders <Viz>; this file gives the
+   backend-free showcase the same so the kit-based in-cell controls render here too. Never in a prod
+   build (only viz-showcase.html imports it). Mirrors @cytoanalyst/ui's src/index.css. */
+@import "tailwindcss";
+/* enter/exit utilities the kit overlays (Select/Popover) animate with. */
+@import "tw-animate-css";
+/* the kit's self-contained shadcn token layer (light + dark OKLCH variables). */
+@import "@ziee/kit/styles/tokens.css";
+
+/* Tailwind v4 auto-scans only THIS package's tree by default; the kit's component classes live under
+   the workspace-linked @ziee/kit source, so scan it (+ the viz src where the kit-using controls live)
+   explicitly or the kit components render with MISSING utility classes. Paths are relative to this file
+   (src-app/libs/viz/src/showcase/). */
+@source "../../../../../sdk/packages/kit/src/**/*.{ts,tsx}";
+@source "../**/*.{ts,tsx}";
+
+@custom-variant dark (&:is(.dark *));

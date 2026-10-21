@@ -1,0 +1,29 @@
+{
+  "zarr_format": 3,
+  "node_type": "group",
+  "attributes": {
+    "cyto": {
+      "encoding": "zarr_v3",
+      "kind": "table",
+      "axis": "entries",
+      "n": 10,
+      "columns": [
+        {
+          "path": "values",
+          "kind": "numeric",
+          "dtype": "float32",
+          "shape": [
+            10
+          ],
+          "inner_chunk": 4096,
+          "chunks_per_shard": 1,
+          "shards": 1,
+          "stored_bytes": 115,
+          "name": "values",
+          "axis": "entries"
+        }
+      ],
+      "arrays": []
+    }
+  }
+}

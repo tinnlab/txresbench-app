@@ -1,0 +1,247 @@
+# The PINNED direct package set of the `single-cell-r` analysis env (#191 / epic #169).
+#
+# THIS FILE IS THE SOURCE OF TRUTH for "what is installed in the R analysis env". Like its
+# python sibling (`../single-cell/requirements.txt`) it has THREE machine consumers, so
+# its shape is a contract, not a style:
+#
+#   1. the recipe — `Dockerfile` installs EXACTLY this set (it names no package itself)
+#      and then ASSERTS every installed version against these pins;
+#   2. the BUILD GATE — `server/build_helper/processor_manifest.rs` resolves every
+#      `run.dependencies[]` a package manifest declaring `env: single-cell-r` makes
+#      against these pins, so a package declaring an absent library or an out-of-range
+#      version fails `cargo check`, not a user's sandbox job;
+#   3. the build-time smoke — every line below must `library()`-load at its pinned
+#      version inside the image, or the IMAGE build fails.
+#
+# ── LINE FORMAT (enforced by three parsers, not by convention) ───────────────────────
+#     <package>==<exact version>   # import=<library> — why it is here
+# EXACT pins only. A bare name, a range, a duplicate or a missing `import=` token is a
+# BUILD ERROR. For R the `import=` token equals the package name (unlike PyPI, where a
+# distribution name is not an import name); it is kept because the grammar is shared with
+# the python recipe and because the smoke line is checked against it.
+#
+# ── THE PACKAGING ECOSYSTEM IS DECLARED, NOT SNIFFED ────────────────────────────────
+# ONE directive tells the build gate which packaging ecosystem this recipe is, and BOTH
+# of the rules the gate needs follow from it (#192):
+#
+#   * the VERSION GRAMMAR — R `DESCRIPTION` versions: integers separated by `.` **or**
+#     `-`, which R's own `numeric_version` treats identically. Four of the pins below are
+#     in that shape (`Matrix 1.7-6`, `spatstat 3.6-2`, `lme4 2.0-6`, `refund 0.1-40`), and
+#     read as PEP 440 they parse to nothing: the first contribution to declare
+#     `env: single-cell-r` with a range over any of those would fail `cargo check` with
+#     "not a plain dotted-numeric release" — a build error about a grammar, for a
+#     perfectly well-formed R declaration.
+#   * the DISTRIBUTION-NAME RULE — EXACT and CASE-PRESERVING. See the note on case below.
+#
+# It is DECLARED rather than inferred because both facets have a case where guessing is
+# wrong in the dangerous direction. On versions, the two grammars genuinely disagree on
+# one string: `1.0-1` is R's `1.0.1` and PEP 440's `1.0.post1`, and `1.0.post1 < 1.0.1`,
+# so a gate that guessed would accept a declaration the python run time rejects — the one
+# direction `version_satisfies` may never take. On names, a guess that lowercased could
+# match a declaration to the WRONG package and report green.
+#
+# There is NO DEFAULT. A recipe that declares nothing fails the build, because a default
+# would make a DELETED declaration indistinguishable from a python recipe — and for this
+# file that mistake silently restores both failures above.
+# cyto:ecosystem=r
+#
+# ── WHERE THESE PINS WERE RESOLVED, AND WHAT THAT SOURCE GUARANTEES ─────────────────
+# The two coordinates below are the ONLY place the resolution sources are written down;
+# the recipe reads them from here rather than carrying its own copy, so the header and
+# the build cannot drift apart (#192). Each declares a CLASS, and the class is what says
+# whether `<name>==<version>` is an identity at all:
+#
+#   dated-snapshot   — name→version AND version→tree both fixed. Fully reproducible.
+#   release-channel  — version→tree fixed, but the channel serves new patch versions
+#                      continuously and DROPS old ones, so a rebuild months from now goes
+#                      RED naming the package that moved. Fail-loud, not a lie.
+#   immutable-index  — releases are immutable and stay fetchable (PyPI; the python recipe).
+#   vcs-head         — NEITHER. REFUSED by the build; see the exclusions at the foot of
+#                      this file and #209.
+#
+# cyto:pin-source=dated-snapshot:https://packagemanager.posit.co/cran/__linux__/noble/2026-09-01
+# cyto:pin-source=release-channel:bioconductor-3.23
+#
+# ── HOW EXACTNESS IS ACHIEVED WITHOUT A WHEEL INDEX ──────────────────────────────────
+# R has no PyPI. Exactness comes from the two coordinates declared above plus one
+# assertion:
+#   * CRAN  — the `dated-snapshot` coordinate: a DATE-PINNED Posit Package Manager binary
+#             snapshot. A dated snapshot is a function from name to version, and it serves
+#             Ubuntu-noble BINARIES, so the CRAN half of this file compiles nothing.
+#   * Bioc  — the `release-channel` coordinate: a FIXED Bioconductor release, in
+#             lockstep with R 4.6.1. Bioconductor has no binary channel, so its half
+#             compiles from source; that is why the recipe installs (and then purges) a
+#             build toolchain.
+#             NOT A SNAPSHOT, and the two coordinates above are NOT symmetric. A release
+#             channel serves new patch versions continuously and drops old ones, so nobody
+#             has to move it for it to move: a rebuild a month from now does not reproduce
+#             this image — it goes RED naming the package that moved, and you reconcile to
+#             a DIFFERENT one. Fail-loud, strictly better than a range, and still not the
+#             reproducibility INV-5 states. See docs/runbooks/env-image-republish.md 4a.
+#   * the assertion — the recipe compares every installed version against these lines and
+#             FAILS THE BUILD on a mismatch. That is what makes these pins rather than
+#             wishes: if an upstream moves under the coordinates, the build goes red and
+#             names the package instead of silently shipping a different version into a
+#             published result's provenance.
+# The full TRANSITIVE closure is not pinned here — it is frozen INTO the image at
+# `/usr/local/lib/R/.cyto-env-lock.txt`, one line per package as
+# `<name>==<version>  # source=<repository>`, so transitive drift is RECOVERABLE for the
+# run it affected instead of being lost.
+#
+# SAID EXACTLY, because the python sibling's wording does not transfer and copying it
+# would make this paragraph false. The python recipe says its lock "is recorded per run",
+# and it is: `_lib/cyto_deps.py` is staged into the sandbox and writes the resolved
+# versions into the run's `run-environment` record, which the server lifts into
+# `provenance_run_repro.lockfile_json`. **Helper staging is Python-gated**
+# (`sandbox/processors/mod.rs`), so an R run records its image's content DIGEST and
+# nothing else. The versions are recoverable from that digest — the image is
+# content-addressed and carries this lock — but they are recovered, not recorded. That is
+# by-reference, it is weaker than the python lane, and closing it is #194's (E6's).
+# The procedure, and the reader that performs it, are in
+# `docs/runbooks/env-image-republish.md` §4b.
+#
+# ── A NOTE ON CASE, WHICH MATTERS HERE AND NOT IN THE PYTHON RECIPE ──────────────────
+# R package names are CASE-SENSITIVE (`Matrix`, `scDblFinder`). The build gate used to
+# normalize PEP 503-style, i.e. to LOWERCASE, so two R packages differing only in case
+# would collide into one pin and a declaration could match the WRONG one and report
+# green — strictly worse than no pin, because an absent pin is visible and a false one is
+# not. **#192 fixed that at the mechanism:** the `cyto:ecosystem=r` declaration above
+# selects an EXACT, case-preserving name rule, applied to BOTH sides of every comparison
+# (the pin side and the `run.dependencies[]` side alike, because both are folded from
+# this one recipe). A declaration differing only in case is now REFUSED, with a message
+# naming both spellings and the correct one.
+# The interim data-level guard this file used to point at
+# (`test_no_two_r_package_names_collide_under_the_gates_lowercasing`, whose own docstring
+# named #192 as its retirement condition) is retired accordingly, and replaced by
+# `test_the_r_recipe_declares_the_case_preserving_ecosystem` — the property that now
+# makes the file safe is a property of the mechanism, not of which names happen to be in
+# it. Two names differing only in case are, correctly, two pins.
+#
+# ── UPGRADING A PIN ─────────────────────────────────────────────────────────────────
+# Do NOT edit a version here without following `docs/runbooks/env-image-republish.md`
+# §"Upgrading a pin". A pin change is invisible to every deployment until the image is
+# REPUBLISHED (the runtime lazy-fetches the moving `schema<N>-latest-<arch>` tag), and it
+# can invalidate a version range some package already declares — the build gate tells you
+# which, mechanically, but only if you run it.
+#
+# ── A NOTE ON R'S VERSION SEPARATOR, WHICH IS NOT A TYPO ────────────────────────────
+# Several lines below read `1.7-6`, not `1.7.6`. R's `DESCRIPTION` treats `-` and `.` as
+# equivalent separators, and `installed.packages()` reports the RAW string — so `Matrix`
+# is `1.7-6` and comparing it against `1.7.6` fails. The recipe's assertion compares raw
+# strings, so these MUST be the raw upstream spelling. (This was found the direct way: the
+# first build recorded the normalized form and the assertion rejected all eighteen pins.)
+# `parse_env_pins` accepts a `-`; it forbids only range/wildcard characters.
+#
+# THIS PARAGRAPH USED TO END: "the build gate's `version_satisfies` compares DOTTED-NUMERIC
+# releases only, so a manifest declaring a range against one of these `-` versions will be
+# REFUSED rather than guessed at — which is the fail-closed direction, and the reason to
+# declare ranges only against pins whose upstream uses dots." That was accurate and it was
+# not survivable: FOUR of the eighteen lines below are `-` versions, including `Matrix`,
+# which every R entry needs to read this app's own CSC artifacts. "Declare ranges only
+# against pins whose upstream uses dots" is not advice anyone can follow — it makes the
+# substrate of this image undeclarable, and the first contribution to try would have hit a
+# `cargo check` error about a grammar. The gate now reads the grammar this file DECLARES
+# above, so a range against `Matrix >=1.7,<2.0` resolves correctly. A recipe that declares
+# no grammar still gets the dotted-numeric reading, unchanged.
+#
+# ── SCOPE: WHY THIS IS EIGHTEEN LINES AND NOT ALL OF BIOCONDUCTOR ────────────────────
+# An unbounded image is a build nobody can maintain and a fetch nobody tolerates. Every
+# line below names its consumer. The exclusions are as load-bearing as the inclusions and
+# are recorded at the foot of this file, by name, with the reason.
+
+# ── THE BIOCONDUCTOR RESOLVER ────────────────────────────────────────────────────────
+#
+# Pinned rather than treated as untracked build tooling, because it is what turns
+# `BIOC_VERSION` into the actual repository URLs the Bioc half of this file resolves
+# against — i.e. it is an input to WHICH VERSIONS get installed, which is exactly the
+# class of thing this file exists to fix in place. It is bootstrapped from the CRAN
+# snapshot before the main install (chicken-and-egg: the repo list cannot be built
+# without it) and then asserted like every other line.
+BiocManager==1.30.27        # import=BiocManager — resolves BIOC_VERSION to the Bioconductor repository URLs
+
+# ── TIER A — the doublet substrate (#191 PROV-E3-2; the epic's acceptance evidence) ──
+#
+# `feat/doublet-analysis` is BUILT and HELD at 8/9 because Scrublet cannot reach #130's
+# ground-truth floors at any parameterisation (measured recall 0.673 / AUPRC 0.585 vs
+# floors 0.75 / 0.80). #101 chose Scrublet ONLY because R was unavailable. These four
+# lines are what unblock it.
+scDblFinder==1.26.7         # import=scDblFinder — the benchmark-winning doublet caller; the concrete consumer (#195/E7)
+BiocParallel==1.46.0        # import=BiocParallel — scDblFinder's `BPPARAM`/`samples` path, and the control point the recipe pins to ONE worker (INV-6)
+SingleCellExperiment==1.34.0 # import=SingleCellExperiment — the container scDblFinder takes and returns; an R entry constructs one from the wire format
+
+# ── TIER A — the matrix/IO substrate an R entry needs to read THIS APP's artifacts ───
+#
+# Chosen against the tree, not against a generic single-cell recipe. Every artifact a
+# processor reads or writes here is a Zarr v3 SHARDED store, not `.h5ad`
+# (`packages/_lib/cyto_zarr.py`: "There is no Parquet, no TileDB, no SOMA and no Arrow IPC
+# on the wire"; `qc/manifest.yaml`: "a `single-cell/expression` artifact in a real project
+# is a MULTIFILE ZARR store, not an `.h5ad` blob"). HDF5 appears ONLY in the two import
+# converters. So the substrate is JSON + sparse matrices + int64 + sha256 — and NOT an
+# HDF5 stack, which is why `rhdf5`/`HDF5Array` are absent (see the exclusions).
+Matrix==1.7-6               # import=Matrix — the sparse container the store's CSC trio (indptr/indices/data) decodes into
+jsonlite==2.0.0             # import=jsonlite — the entire control plane: /inputs/inputs.json, /inputs/params.json, every zarr.json, and the REQUIRED /outputs/manifest.json
+bit64==4.8.4                # import=bit64 — the store's shard offsets and `indptr` are int64; base R has no 64-bit integer type, so reading them without this silently loses precision
+digest==0.6.39              # import=digest — sha256 for the `key_sequence_digest` the conformance job RECOMPUTES and compares (`_lib/cyto_zarr.py`); a mismatch marks the artifact failed
+
+# ── TIER B — the spatial set (#191 PROV-E3-3; the forward contract for #151) ─────────
+#
+# The epic's argument for R is that "a python-only stack systematically selects for the
+# less rigorous half of this field". These are the entries the research corpus on
+# `docs/research-spatial-analysis` names AND that resolve to a RELEASE channel, so each
+# can be pinned exactly. Two named entries do not, and are deferred — see the exclusions.
+SpatialExperiment==1.22.0   # import=SpatialExperiment — the spatial container the rest of this tier reads and writes
+spacexr==1.4.0              # import=spacexr — RCTD (cell-type deconvolution) and C-SIDE (cell-type-specific DE); two of the five methods the epic names by name
+DESpace==2.4.0              # import=DESpace — spatially variable gene detection framed as differential expression across spatial clusters
+edgeR==4.10.4               # import=edgeR — DESpace's inference engine; pinned explicitly because a published number depends on its version, not left to be a transitive
+spicyR==1.24.0              # import=spicyR — spatial cell-type co-localization testing with mixed-effects inference
+Statial==1.14.0             # import=Statial — Kontextual: state/relationship measures conditioned on tissue context
+spatialFDA==1.4.0           # import=spatialFDA — functional-data analysis of spatial point patterns. NOTE: the method's paper is a PREPRINT; any analysis narrating a result from it must say so
+spatstat==3.6-2             # import=spatstat — the point-pattern engine spicyR and spatialFDA both stand on; pinned directly because their results move with it
+lme4==2.0-6                 # import=lme4 — the mixed-model fitter spicyR's inference uses
+refund==0.1-40              # import=refund — functional regression, spatialFDA's inference layer
+
+# ── EXCLUDED, BY NAME, WITH THE REASON ───────────────────────────────────────────────
+#
+# DEFERRED (shape is unchanged; adding them is a pin edit + a republish, no code change):
+#   * SPARK / SPARK-X — the corpus (`09` §4, `02` §2b) gives the LANGUAGE but not the
+#     channel, and the answer is: neither CRAN nor Bioconductor 3.23 carries it. Its only
+#     upstream is an unversioned GitHub HEAD. Installing from one is strictly WORSE than
+#     a range for INV-5's purpose: two builds a day apart land on different trees while
+#     recording the SAME version string, so the provenance record would lie. It ships the
+#     day it has a release channel, or behind a pinned commit + a source-hash check
+#     recorded as its own decision — not silently.
+#     SINCE #192 THIS IS ENFORCED RATHER THAN REMEMBERED: adding
+#     `# cyto:pin-source=vcs-head:<url>` to this file FAILS the build, naming #209 and the
+#     reason. The regime cannot express an identity that does not distinguish two trees,
+#     so nobody can add one by forgetting this paragraph.
+#   * PANORAMIC — same finding, same reason: absent from CRAN and from Bioconductor 3.23.
+#
+# EXCLUDED — CELINA, STANCE, CTSV, spVC: the corpus marks all four "R (assumed; not
+#   individually verified)" (`09` §4). An unverified claim is not a licence to add four
+#   packages to an image somebody has to maintain. `07` §2c also records CELINA/STANCE
+#   hitting "exponential resource demands above ~20,000 cells".
+#
+# EXCLUDED — SingleR / celldex: the corpus contains ZERO mentions of SingleR
+#   (epic `GRAPH.md` §5b.4), and #85's shipped tool (`celltypist==1.7.1`) is already
+#   pinned and Python. The forward contract there is EXTENSIBILITY — that an
+#   annotation-side R set can be added by a pin edit and a republish — not installation.
+#
+# EXCLUDED — the domain/clustering set (BayesSpace, SpatialPCA, DR.SC, PRECAST, BASS,
+#   Giotto): no consumer in this epic, `SpatialPCA` is "R (GitHub only)" (`03` §2a), and
+#   `10` §4 orders the spatial epics with R gating epic 6 only. Adding them now is exactly
+#   the unbounded-image drift this file exists to refuse.
+#
+# EXCLUDED — zellkonverter / basilisk: it embeds an ENTIRE private Python environment
+#   inside the R image — a second copy of the stack the `single-cell` image already is.
+#   It would roughly double this image to buy `.h5ad` reading, which this app's processors
+#   do not do (see the Tier-A IO note above).
+#
+# EXCLUDED — rhdf5 / HDF5Array / Rhdf5lib: HDF5 is an IMPORT-boundary format in this tree,
+#   not the analysis wire format. Verified against the code rather than inherited from an
+#   external recipe: `h5py`/`read_h5ad` appear only in `anndata-import` and `import-h5ad`.
+#   An R ANALYSIS never sees HDF5, so this would be ~90 MB installed, smoke-tested and
+#   shipped for nobody — the exact standard `artifact-model` ITEM-38 applied when it
+#   dropped the TileDB-SOMA wheel.
+#
+# EXCLUDED — Seurat: no shipped analysis needs it, and this app's wire format is not a
+#   Seurat object and never becomes one.

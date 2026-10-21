@@ -1,0 +1,131 @@
+# r-skeleton — the WALKING SKELETON for the R analysis environment (epic #169 / E6 / #194).
+#
+# ── WHAT THIS IS, AND WHAT IT IS NOT ────────────────────────────────────────────────
+# This is a TRACER BULLET. It is the FIRST R code this platform has ever executed, and
+# its entire job is to prove that one declaration — `env: single-cell-r` — travels the
+# whole production path: manifest -> build lint -> env-scoped dependency gate ->
+# `AnalysisSpec` -> `ComputeSpec` -> `env_image::provide()` -> mount -> bwrap ->
+# `Rscript /code/entry.R` -> `/outputs` -> ingest -> provenance carrying the R image's
+# content digest.
+#
+# It is deliberately the smallest SCIENTIFICALLY MEANINGLESS thing that produces a
+# kind-typed artifact. It is not a doublet analysis, not a spatial analysis, and E7
+# (#195, `scDblFinder`) MUST NOT build on its internals — only on E6's declared
+# `Provides`. Nothing here is the final architecture (E6/INV-5).
+#
+# ── WHY IT IS A REAL PACKAGE AND NOT A TEST FIXTURE (E6/DEC-1) ──────────────────────
+# A fixture would bypass `lint_processor_package`, the build gate and the registry —
+# the three places this epic's hazards live. A tracer bullet that does not travel the
+# production path proves nothing.
+#
+# ── WHAT IT DELIBERATELY DOES NOT DO ────────────────────────────────────────────────
+#   * NO new datatype (E6/DEC-5). It emits the CORE BUILTIN `report/html`
+#     (`datatype/builtin.rs::report_html_dt`) — a domain-agnostic opaque report kind, so
+#     a meaningless probe does not overclaim a domain's semantics the way `report/qc`
+#     ("pre/post filtering distributions + threshold cutlines") would.
+#   * NO `ui:` view (E6/DEC-6). An analysis with no view falls back to the generic form;
+#     keeping the FE out keeps the tracer bullet's diff inside the seams it tests.
+#   * NO input DECODING (E6/DEC-11). Reading a Zarr/CSC store from R needs an R
+#     substrate this item deliberately refuses to build (E6/DEC-2 — an R entry stages NO
+#     app helpers and must be self-contained). Inputs are still MATERIALIZED by the host
+#     exactly as for a python run; this entry simply reads only `/inputs/params.json`.
+#   * `launchable: false` (E6/DEC-12). It stays fully registered and fully runnable on
+#     the real job path — which is what E6 proves — but a deliberately meaningless probe
+#     offered against every dataset in every user's launcher is a product defect.
+#     `appliesTo` is still non-empty, because an EMPTY `appliesTo` means UNIVERSALLY
+#     available, not unavailable (`availability.ts` — `[].every(...)` is vacuously true).
+id: r-skeleton
+name: R walking skeleton
+publisher: cyto
+# 0.1.0 — the package's introducing version. `scripts/check-processor-seed-versions.sh`
+# requires this to move FORWARD whenever any file under `src-app/packages/r-skeleton/`
+# changes on a later branch (a provisioned deployment skips re-extraction at an unchanged
+# version and would keep running the old package). A NEW package has no base version to
+# compare against, so the guard reports it as `new`; the number below is this package's
+# first, and the next change takes the number that guard NAMES.
+version: 0.1.0
+apiVersion: "1.0"
+contributes:
+  analyses:
+    - id: r-skeleton.probe
+      category: diagnostics
+      title: R environment probe
+      description: >-
+        Runs a minimal R script inside the R analysis environment and commits what it
+        observed there — the interpreter's own version string, a product computed from
+        the run's parameters, and a draw from R's own random-number generator for the
+        run's seed. It reads no data and computes nothing scientific: it exists so that
+        "the R environment works end to end" is a thing the platform can DEMONSTRATE
+        rather than assert.
+      whenHint: >-
+        someone needs to confirm that the R analysis environment is really reachable and
+        really executing R for this deployment
+      examples:
+        - check that the R environment works
+        - probe the R analysis image
+      safety: read-run
+
+      # NON-EMPTY on purpose (E6/DEC-12): an empty `appliesTo` is UNIVERSALLY available,
+      # not unavailable. `data` is the lattice ROOT, so this is "applies to anything",
+      # stated rather than implied — and `launchable: false` below is what actually keeps
+      # it out of the launcher.
+      appliesTo:
+        - subtypes_of: data
+
+      # Registered and runnable, but not advertised in the analysis picker (E6/DEC-12).
+      launchable: false
+
+      # The CORE BUILTIN opaque report kind. No datatype is contributed (E6/DEC-5).
+      produces: [report/html]
+
+      # ── THE DECLARATION THIS WHOLE ITEM EXISTS TO PROVE (#189 / E1) ────────────────
+      # The env image this contribution runs inside, DECLARED one level above `run:`,
+      # exactly as `geneset.collection.freeze` declares `env: single-cell`. It is the
+      # first shipped analysis to name `single-cell-r`. (Declaring an env also scopes the #80
+      # dependency gate to THAT env's pin set — which matters for a package that declares
+      # libraries. This one declares none; see the `run:` block below.)
+      env: single-cell-r
+      run:
+        kind: sandbox
+        runtime: rscript
+        entry: compute/skeleton.R
+        # ── NO `dependencies:`, AND THAT IS THE TRUTHFUL DECLARATION ────────────────
+        #
+        # This entry loads `jsonlite`, which the env recipe pins, so declaring a contract
+        # for it looks obviously right — and a cut of this manifest did. The BUILD gate
+        # resolved it happily; the tree's RUN-TIME guard then refused it, because the
+        # thing that would enforce such a contract (`_lib/cyto_deps.py`) is a python
+        # helper an R entry does not receive (E6/DEC-2). A contract nothing can enforce
+        # claims an enforcement that does not exist.
+        #
+        # This comment is where the DECISION is stated, because it ships with the key it
+        # governs. How it was REACHED — decided three times, measured twice — is recorded
+        # in `.lifecycle/r-walking-skeleton/DECISIONS.md` DEC-8. Nothing else in this tree
+        # restates either: four audit rounds each found a different stale copy, and the
+        # remedy was to stop making copies.
+        #
+        # What is NOT lost: the entry records the resolved version of what it loads, in
+        # its artifact. Two tests keep that from being dropped along with the claim, and
+        # they are split because neither can do the other's half — TEST-9 pins the MAPPING
+        # (every library the entry loads is one it names a field for), TEST-2 pins the
+        # EMISSION (a library-version field is in the bytes the platform served back). A
+        # single source-level check was mutation-proven satisfiable with the field gone.
+      # A probe that reads nothing and writes ~1 KiB. The Normal envelope is ample.
+      schedule:
+        class: normal
+      arch: [x86_64, aarch64]
+      methodsText: >-
+        Executed a minimal R script inside the pinned R analysis environment and recorded
+        the interpreter version, a value computed from the run parameters, and a draw
+        from R's random-number generator at the run's seed. No data were read and no
+        scientific quantity was estimated; the artifact is a record of the environment,
+        not a result.
+      methods:
+        subject: { singular: R environment probe, plural: R environment probes }
+        action: recorded
+        commits: "one R environment record"
+        commits_unlabeled: an R environment record
+        note: >-
+          The record is a statement about the execution environment, not about any
+          dataset. It carries the interpreter's own version string and a draw from R's
+          generator, both of which are properties of the image the run mounted.

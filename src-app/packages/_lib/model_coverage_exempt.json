@@ -1,0 +1,219 @@
+{
+  "_readme": [
+    "The MODEL-COVERAGE guard's committed register + exempt list — machine-readable, and read",
+    "by the guard (`server/tests/model_coverage/`) at every run.",
+    "",
+    "It lives under `packages/` rather than beside the Rust guard for a sharp reason:",
+    "`packages/` is the DOMAIN tree. Every entry below necessarily names a datatype and an",
+    "axis, and `server/tests/**` is domain-scanned. The guard itself spells no id — it derives",
+    "them and compares against this file as opaque strings.",
+    "",
+    "`lattice`: datatypes whose declared ENTITY AXIS is not an original dataset entity axis.",
+    "An axis is ORIGINAL when its `key_label` is one a datatype at the dataset UPLOAD boundary",
+    "declares (a datatype carrying `ingest:`). Anything here rests on an axis nothing anchors,",
+    "until a producer exists to decide it; an entry is a stated undecidable, never a waiver.",
+    "",
+    "Artifacts with NO row space (opaque) are exempt BY THE RULE, not by enumeration — they",
+    "declare no entity axis to be measured against. Do not list them here; the list would",
+    "churn on every new report until nobody read it.",
+    "",
+    "`producer`: the REGISTER of every (producer x row-bearing datatype) pair the manifests",
+    "declare, and what that pair states about its ROW SPACE. Unlike `lattice` this is not a",
+    "list of exceptions — it is complete, and the guard asserts it against the derived pair",
+    "set in BOTH directions, so a new producer (or a new row-bearing output on an existing",
+    "one) goes red until somebody decides what it states.",
+    "",
+    "`disposition` is a CLOSED vocabulary of two values:",
+    "  `rows-declared`   — the producer states WHICH rows of its entity axis the output",
+    "                      describes, so a consumer has a denominator rather than an",
+    "                      assumption.",
+    "  `rows-undeclared` — it does not. A reason is REQUIRED, and states what the output",
+    "                      actually covers and what it would take to declare it.",
+    "",
+    "Most entries are `rows-undeclared`. The exceptions are the anndata-import producers",
+    "(anndata.import / h5ad-import, embedding + metadata-column), whose compute now PASSES a",
+    "full membership to the writer (dimension-membership ITEM-4, via cyto_zarr membership=),",
+    "and embedding.integrate's dataset-alignment, which declares its own row space through its",
+    "extents — those are `rows-declared`. The guard cannot verify a disposition (the evidence",
+    "lives in Python compute, and reading it mechanically means a source-text scan, the guard",
+    "class this tree refuses), so what it buys is that nothing NEW joins the set unnoticed."
+  ],
+  "producer": [
+    {
+      "producer": "anndata.import",
+      "datatype": "embedding",
+      "disposition": "rows-declared",
+      "reason": "Emits one value per entry of the whole axis it declares, and the anndata-import compute PASSES that membership to the writer (kind=full, with n_members via cyto_zarr membership=), so the consumer has a denominator to measure \"describes N of M rows\" against — which the scalar aligned_to alone never supplied. rows-declared: the whole axis is the declared row space."
+    },
+    {
+      "producer": "anndata.import",
+      "datatype": "metadata-column",
+      "disposition": "rows-declared",
+      "reason": "Emits one value per entry of the whole axis it declares, and the anndata-import compute PASSES that membership to the writer (kind=full, with n_members via cyto_zarr membership=), so the consumer has a denominator to measure \"describes N of M rows\" against — which the scalar aligned_to alone never supplied. rows-declared: the whole axis is the declared row space."
+    },
+    {
+      "producer": "anndata.import",
+      "datatype": "single-cell/expression",
+      "disposition": "rows-undeclared",
+      "reason": "A matrix whose entity axis is its row axis; its column axis is a second axis, not a second row space. Undeclared, and harder than the others: the CSC store is not written through cyto_zarr.Table, so stating its rows would mean hand-writing the entry into structure_extra, bypassing the writer refusals that make a declaration checked rather than claimed."
+    },
+    {
+      "producer": "annotation-integrate",
+      "datatype": "metadata-column",
+      "disposition": "rows-undeclared",
+      "reason": "Emits one value per entry of the whole axis it declares, so what it covers is the WHOLE axis — the cheapest statement there is to make. Undeclared only because the compute states nothing to the writer; nothing about the artifact is ambiguous."
+    },
+    {
+      "producer": "cell.filter",
+      "datatype": "metadata-column",
+      "disposition": "rows-undeclared",
+      "reason": "Emits values over a SELECTED population — the case where the missing statement is expensive: its `aligned_to` matches the parent's while its rows are a strict subset, so on declarations alone the two are INDISTINGUISHABLE. Undeclared until the compute states the selected positions."
+    },
+    {
+      "producer": "cellranger.count",
+      "datatype": "single-cell/expression",
+      "disposition": "rows-undeclared",
+      "reason": "A matrix whose entity axis is its row axis; its column axis is a second axis, not a second row space, so one statement about the entity axis would be the whole declaration. Undeclared because the compute states nothing to the writer."
+    },
+    {
+      "producer": "da.clusters",
+      "datatype": "da/result",
+      "disposition": "rows-undeclared",
+      "reason": "Rows are the POPULATIONS tested in one comparison — the levels of the categorical column the run was handed — and the table writes each one out by name in its `population` key column, so what the output covers is stated ON THE ARTIFACT. Undeclared in the register's sense for the same reason as `trajectory.paga`: a partition's level set is not an axis the writer can be handed a membership against, because the platform's membership channel takes positions on a dataset axis and nothing in the tree mints an axis identity for levels. Note the row set is the populations SURVIVING `min_cells`, not every level of the input column; the dropped samples and their counts are recorded in the run report rather than here."
+    },
+    {
+      "producer": "da.clusters",
+      "datatype": "metadata-column",
+      "disposition": "rows-undeclared",
+      "reason": "Emits one value per entry of the whole `cells` axis it declares, so what it covers is the WHOLE axis; undeclared for the ordinary reason that the compute passes no `membership=` to `write_metadata_column`. The wrinkle worth recording is the same honesty the rest of this package enforces: a cell whose population the model could not fit is written NaN rather than a filled number, so the column is defined over the whole axis but VALUED only where a fit existed. `da.neighbourhoods` deliberately emits no such column at all — a cell belongs to many overlapping neighbourhoods and inventing a reduction to fill it would be a fabrication."
+    },
+    {
+      "producer": "da.neighbourhoods",
+      "datatype": "da/result",
+      "disposition": "rows-undeclared",
+      "reason": "Rows are OVERLAPPING kNN neighbourhoods indexed by their representative cell, an axis this run derives and nothing anchors — strictly weaker than the `da.clusters` case, whose rows at least correspond to a categorical column that existed before the run. The neighbourhood index is minted inside the compute, so there is no key artifact a membership could be measured in. What the output covers is stated on the artifact via the population key column."
+    },
+    {
+      "producer": "doublet.detect",
+      "datatype": "metadata-column",
+      "disposition": "rows-undeclared",
+      "reason": "Emits its score and call columns over the WHOLE cells axis in input order — never a subset matrix, because `cell.filter` is the filtering analysis and this one only annotates. Undeclared for the ordinary reason (the compute states no membership to the writer). The wrinkle worth recording is that coverage and VALUATION come apart here by design: with an inline pre-filter bound, excluded cells occupy their original positions carrying a NaN score and the third categorical level `not_evaluated`, and a level whose threshold could not be determined is written the same way — so the artifact already distinguishes 'not a doublet' from 'never evaluated' on its face, per-cell, even though this register entry is undeclared. Note this is the opposite of the `cell.filter` case above: there the rows are a strict subset while `aligned_to` looks identical; here the rows really are the whole axis and it is the VALUES that are partial, stated in the column itself rather than needing a membership to be readable."
+    },
+    {
+      "producer": "doublet.scdblfinder",
+      "datatype": "metadata-column",
+      "disposition": "rows-undeclared",
+      "reason": "The R/Bioconductor method of the same package, and its coverage story is identical to `doublet.detect`'s above for the identical reason: it emits its score and call columns over the WHOLE cells axis in input order, never a subset matrix, because `cell.filter` is the filtering analysis and this one only annotates. Undeclared for the ordinary reason (the compute states no membership to the writer). Coverage and VALUATION come apart here the same way: a sample level too small for the method to score honestly, or one the library refused, leaves its cells at their ORIGINAL positions carrying a NaN score and the third categorical level `not_evaluated`, so the artifact distinguishes 'not a doublet' from 'never evaluated' on its face, per-cell, even though this register entry is undeclared. The one difference from the Scrublet lane is that this method accepts no inline pre-filter — it refuses the `criteria` parameter by name rather than silently ignoring it — so partial valuation here can only come from a refused sample level, never from a filter the user asked for."
+    },
+    {
+      "producer": "embedding.integrate",
+      "datatype": "dataset-alignment",
+      "disposition": "rows-declared",
+      "reason": "The alignment DECLARES its own row space: structure.n plus extents.alignment_rows/segments/sources/unified_entities, each cross-checked against the member shapes it declares. Its rows are a computed intersection over the source datasets rather than an ingest of new ones, which is exactly what the anchored-by-derivation relation (OQ-3/ITEM-33) now expresses."
+    },
+    {
+      "producer": "h5ad-import",
+      "datatype": "embedding",
+      "disposition": "rows-declared",
+      "reason": "Emits one value per entry of the whole axis it declares, and the anndata-import compute PASSES that membership to the writer (kind=full, with n_members via cyto_zarr membership=), so the consumer has a denominator to measure \"describes N of M rows\" against — which the scalar aligned_to alone never supplied. rows-declared: the whole axis is the declared row space."
+    },
+    {
+      "producer": "h5ad-import",
+      "datatype": "metadata-column",
+      "disposition": "rows-declared",
+      "reason": "Emits one value per entry of the whole axis it declares, and the anndata-import compute PASSES that membership to the writer (kind=full, with n_members via cyto_zarr membership=), so the consumer has a denominator to measure \"describes N of M rows\" against — which the scalar aligned_to alone never supplied. rows-declared: the whole axis is the declared row space."
+    },
+    {
+      "producer": "h5ad-import",
+      "datatype": "single-cell/expression",
+      "disposition": "rows-undeclared",
+      "reason": "A matrix whose entity axis is its row axis; its column axis is a second axis, not a second row space. Undeclared, and harder than the others: the CSC store is not written through cyto_zarr.Table, so stating its rows would mean hand-writing the entry into structure_extra, bypassing the writer refusals that make a declaration checked rather than claimed."
+    },
+    {
+      "producer": "import.h5ad",
+      "datatype": "metadata-column",
+      "disposition": "rows-undeclared",
+      "reason": "Emits one value per entry of the whole axis it declares, so what it covers is the WHOLE axis — the cheapest statement there is to make. Undeclared only because the compute states nothing to the writer; nothing about the artifact is ambiguous."
+    },
+    {
+      "producer": "import.h5ad",
+      "datatype": "single-cell/expression",
+      "disposition": "rows-undeclared",
+      "reason": "A matrix whose entity axis is its row axis; its column axis is a second axis, not a second row space, so one statement about the entity axis would be the whole declaration. Undeclared because the compute states nothing to the writer."
+    },
+    {
+      "producer": "qc.10x",
+      "datatype": "metadata-column",
+      "disposition": "rows-undeclared",
+      "reason": "Emits one value per entry of the whole axis it declares, so what it covers is the WHOLE axis — the cheapest statement there is to make. Undeclared only because the compute states nothing to the writer; nothing about the artifact is ambiguous."
+    },
+    {
+      "producer": "spatial.import-visium",
+      "datatype": "metadata-column",
+      "disposition": "rows-declared",
+      "reason": "Every per-spot column is one value per entry of the cells axis, with the same full membership passed to the writer as the coordinates above. The two axis-key columns are the row space rather than a description of it: they carry holds_axis_keys, so the writer emits key + key_sequence_digest and the compute REFUSES the run when that digest disagrees with the aligned_to it stamped on every other artifact."
+    },
+    {
+      "producer": "spatial.import-visium",
+      "datatype": "single-cell/counts",
+      "disposition": "rows-undeclared",
+      "reason": "A matrix whose entity axis is its row axis; its column axis is a second axis, not a second row space. Undeclared for exactly the reason anndata.import's expression output is: the CSC store is not written through cyto_zarr.Table, so stating its rows would mean hand-writing the entry into structure_extra, bypassing the writer refusals that make a declaration checked rather than claimed. It covers every cell of the filtered matrix, which is every entry of the axis this import declares."
+    },
+    {
+      "producer": "spatial.import-visium",
+      "datatype": "spatial/coordinates",
+      "disposition": "rows-declared",
+      "reason": "One position per entry of the cells axis it declares, and the compute PASSES that membership to the writer (kind=full, via cyto_columns membership=) — it has the whole barcode sequence in hand because it is writing the key artifact from it in the same pass, so declaring the row space costs nothing and is checked by the writer rather than claimed. The import additionally REFUSES a bundle in which any matrix barcode has no position, so \"the whole axis\" is a verified claim and not an assumption about the vendor's file."
+    },
+    {
+      "producer": "spatial.import-xenium",
+      "datatype": "metadata-column",
+      "disposition": "rows-declared",
+      "reason": "Every per-cell column is one value per entry of the cells axis, with the same full membership passed to the writer as the coordinates above; the gene-axis columns (gene_symbol, feature_type) carry the Gene-Expression class's own key sequence. The two axis-key columns are the row space rather than a description of it: they carry holds_axis_keys, so the writer emits key + key_sequence_digest and the compute REFUSES the run when that digest disagrees with the aligned_to it stamped on every other artifact."
+    },
+    {
+      "producer": "spatial.import-xenium",
+      "datatype": "single-cell/counts",
+      "disposition": "rows-undeclared",
+      "reason": "A matrix whose entity axis is its row axis; its column axis is a second axis, not a second row space. Undeclared for exactly the reason spatial.import-visium's and anndata.import's expression outputs are: the CSC store is not written through cyto_zarr.Table, so stating its rows would mean hand-writing the entry into structure_extra, bypassing the writer refusals that make a declaration checked rather than claimed. Every emitted feature-class store covers every cell of the matrix, which is every entry of the axis this import declares."
+    },
+    {
+      "producer": "spatial.import-xenium",
+      "datatype": "spatial/boundaries",
+      "disposition": "rows-undeclared",
+      "reason": "A vertex-axis table, and the rows it writes are NOT a subset of any axis a dataset anchors — one row is an internal coordinate of one entity's outline. `aligned_to` is deliberately not stamped on it for the same reason: one row per vertex is not one row per cell, and claiming a per-cell alignment would make every consumer that trusts the digest join it wrongly. What IS declared, and where the row-space question actually lives, is the pair of sibling metadata-columns `boundary_vertex_start`/`boundary_vertex_count` over the cells axis - registered above under this producer's `metadata-column` row with `rows-declared` and the full membership, so `[start, start + count)` addresses the vertex table from a row space that IS declared. Undeclared here is the honest answer, not a deferral: there is no membership of the vertex axis to state, because nothing else in the platform has one."
+    },
+    {
+      "producer": "spatial.import-xenium",
+      "datatype": "spatial/coordinates",
+      "disposition": "rows-declared",
+      "reason": "One position per entry of the cells axis it declares, and the compute PASSES that membership to the writer (kind=full, via cyto_columns membership=) — it has the whole cell_id sequence in hand because it is writing the key artifact from it in the same pass, so declaring the row space costs nothing and is checked by the writer rather than claimed. The import additionally REFUSES a bundle in which any matrix cell has no row in cells.csv.gz, so \"the whole axis\" is a verified claim and not an assumption about the vendor's file."
+    },
+    {
+      "producer": "trajectory.dpt",
+      "datatype": "metadata-column",
+      "disposition": "rows-undeclared",
+      "reason": "Emits one value per entry of the whole axis it declares, so what it covers is the WHOLE axis. Undeclared for the ordinary reason (the compute states nothing to the writer), with one wrinkle worth recording because it is the opposite of the cell.filter case: when the neighbour graph is disconnected this column is defined over the whole axis but VALUED only on the root's connected component, and the cells outside it are written as declared-missing with the count in the run's report — so the artifact is honest about coverage even though the register entry is undeclared."
+    },
+    {
+      "producer": "trajectory.paga",
+      "datatype": "graph/attributed",
+      "disposition": "rows-undeclared",
+      "reason": "The FIRST producer of this kind, and the one whose arrival the lattice entry below was waiting for. Its rows are the nodes of an abstracted graph, and a node is a LEVEL of the categorical column the run was handed — so the row space is that column's declared level set, in its own category order, which the artifact writes out explicitly beside the matrix. Undeclared in the register's sense because the level set is not an axis the writer can be handed a membership against: there is no key artifact for it to be measured in, and the platform's membership channel takes positions on a dataset axis. What the output covers is stated on the artifact instead, and what it would take to declare it here is an axis identity for a partition's levels, which nothing in the tree mints today."
+    }
+  ],
+  "lattice": [
+    {
+      "datatype": "graph/attributed",
+      "reason": "Open-axis kind whose first in-tree producer HAS now landed, and this entry records the decision it was waiting for rather than continuing to defer it. The earlier wording said the disposition was undecidable until a producer existed, and named the two branches: if a producer's nodes turned out to be entries of an original dataset axis it would be an ordinary row space, and otherwise it rests on an axis nothing anchors. It is the SECOND branch. The producer's nodes are levels of a categorical column — a partition OF an axis, not entries of one — so no dataset anchors them and the entity axis `node` stays outside the model. The entry therefore stays, but it is now a stated DECISION, not a stated undecidable. Its `edge` axis is a pair table, joining entries of ONE axis rather than across two datasets, so it is not a cross-dataset join either. Note this is deliberately not settled by a subtype declaration: a second candidate producer under evaluation in #118 would have nodes that ARE entries of a real axis, and one declaration cannot be honest for both."
+    },
+    {
+      "datatype": "spatial/boundaries",
+      "reason": "A long-format vertex table. Its entity axis is one row per polygon VERTEX, which no upload-boundary datatype anchors and which nothing joins on across datasets: a vertex is an internal coordinate of one entity's outline, not an entry of a dataset's row space. DECIDED (#163, the producer landed): the relationship to a real row space is carried OUTSIDE this type, as the sibling per-entity offset metadata-columns `boundary_vertex_start`/`boundary_vertex_count` on the measured-entity axis, which is exactly how the ragged structure avoids needing a framework change. Those columns are registered under `producer` with `rows-declared`, and this type stays outside the model on purpose rather than pending: a `vertex` axis is not a row space this platform joins on, and giving it one would be inventing a relation to satisfy a guard. The declaration is stated rather than hidden: omitting the entity axis would have made this guard skip the type entirely, which would answer the question by suppressing it."
+    },
+    {
+      "datatype": "da/result",
+      "reason": "Declares `entity_axis: population`, an axis no dataset anchors: a population is a level of a clustering (da.clusters) or a derived kNN neighbourhood (da.neighbourhoods), neither of which is an original dataset axis. This is the SECOND branch of the same disposition recorded for `graph/attributed` — the producers exist and their rows rest on an axis nothing anchors — so it is a decision, not a deferral. Closing it properly needs an axis identity for a partition's levels, which nothing in the tree mints today; until then the artifact names every row in its `population` key column."
+    }
+  ]
+}

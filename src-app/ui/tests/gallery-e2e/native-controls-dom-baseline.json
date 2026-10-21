@@ -1,0 +1,6 @@
+{
+  "$comment": "Native controls rendered WITHOUT a kit `data-slot`, per gallery surface. SHRINK-ONLY: a new one fails, a stale entry fails. Regenerate with NATIVE_CONTROLS_DOM_WRITE=1 after a genuine fix — never to make a red run green.",
+  "surfaces": 94,
+  "total": 0,
+  "entries": {}
+}

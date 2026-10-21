@@ -1,0 +1,17 @@
+# RETIRED-SUBSTRATE (historical stub).
+#
+# This compose file stood up the MinIO(S3) + fake-gcs-server(GCS) cloud-sim
+# substrate. It has been RETIRED. The cloud-sim is now standardized on floci +
+# floci-gcp ONLY, which are launched by their scripts (not compose):
+#
+#   * floci      (AWS): S3 :4566 + EKS→k3s   → scripts/cloud-sim-floci.sh up
+#   * floci-gcp  (GCP): GCS :4588 + GKE→k3s  → scripts/cloud-sim-floci-gcp.sh up
+#
+# floci-gcp lifts the reason this file existed: the native-GCS WRITE contract now
+# runs against a local emulator (the RETIRED-SUBSTRATE MinIO/fake-gcs stack could
+# not exercise the native-GCS write path through the product's object_store client).
+#
+# Left as a comment-only stub so any stale `docker compose -f
+# docker-compose.cloud-sim.yaml up` is an obvious no-op that points at the
+# replacement rather than resurrecting the retired services.
+name: cyto-cloud-sim-retired

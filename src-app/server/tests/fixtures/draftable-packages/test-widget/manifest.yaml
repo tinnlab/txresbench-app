@@ -1,0 +1,39 @@
+# test-widget — a TEST-ONLY draftable freeze-producer package (draftable-entity).
+#
+# It lives UNDER `server/tests/fixtures/` (NOT `src-app/packages/`) on purpose, so it does
+# NOT leak into the shipped `include_dir!` seed and is not scanned by the domain lint. The
+# freeze integration tests install it two ways:
+#   (a) merged into the TEST-process extension registry via `from_manifests` + set_global,
+#   (b) copied into the SPAWNED server's `<data_root>/processors/test-widget/` and picked up
+#       by `POST /api/processors/reload` (rebuilds the subprocess extension + datatype
+#       registries), so the freeze producer resolves and its compute stages for the sandbox.
+#
+# ONE analysis entry, `test.widget.freeze`, carrying BOTH a `run:` block (so
+# `resolve_analysis_run` finds a runnable producer) AND a `draftable:` block whose `kind`
+# (`test/frozen-widget`) is what `find_draftable_by_kind` matches. `test/frozen-widget` is
+# used deliberately INSTEAD of `test/widget` — the refusal tests keep using the UNREGISTERED
+# `test/widget`, so this package must never register it. Every id is domain-noun-free.
+id: test-widget
+name: Test Widget (freeze fixture)
+publisher: cyto-test
+version: 0.1.0
+apiVersion: "1.0"
+contributes:
+  analyses:
+    - id: test.widget.freeze
+      category: test-widget
+      title: Freeze test widget
+      description: >-
+        TEST-ONLY freeze producer for the draftable-entity acceptance tests. Reads the
+        opaque draft body from /inputs/params.json and mints ONE immutable opaque artifact
+        under /outputs + a manifest.json the ingest sink consumes.
+      safety: read-run
+      produces:
+        - { datatype: data/opaque, cardinality: one }
+      run:
+        kind: sandbox
+        runtime: python
+        entry: compute/produce.py
+      draftable:
+        kind: "test/frozen-widget"
+        freeze: test.widget.freeze

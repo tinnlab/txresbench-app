@@ -1,0 +1,16 @@
+# TEST-12 fixture — DANGLING `extends`. The datatype extends `does-not-exist`,
+# which is neither one of the 6 roots nor contributed by any package, so pass 2's
+# cross-package resolution rejects it.
+id: badpkg
+name: Bad Package
+publisher: cyto
+version: 0.1.0
+apiVersion: "1.0"
+contributes:
+  datatypes:
+    - id: demo/widget
+      extends: does-not-exist   # <-- no such root or contributed id
+      title: Demo widget
+      storage:
+        layout: { kind: opaque_as_is }
+        format: json

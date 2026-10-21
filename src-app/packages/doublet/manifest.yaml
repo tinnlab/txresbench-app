@@ -1,0 +1,486 @@
+# Doublet processor — a PURE DATA package. Same treatment as the QC and cell-filter manifests.
+#
+# NON-DESTRUCTIVE ANNOTATOR, sitting between `qc.10x` (annotate) and `cell.filter` (build a
+# keep-mask). It computes a per-cell doublet SCORE and a per-cell CALL as `metadata-column`s
+# and a `report/qc` provenance report. It never filters, never emits a subset matrix, and is
+# never the place a user removes cells — that is `cell.filter`, which needs no change and no
+# new edge (it already declares `consumes: [metadata-column]`, and its criterion picker
+# sources every column any run put on the cells axis).
+#
+# METHODS: TWO, DECLARED — one analysis id each, chosen by the user BY METHOD.
+#
+#   `doublet.detect`       Scrublet,     runtime python,  no `env` (the default image)
+#   `doublet.scdblfinder`  scDblFinder,  runtime rscript, env: single-cell-r
+#
+# THE R LANE LANDED (#195 / E7, epic #169), so the paragraph that used to stand here is GONE
+# rather than softened. It said scDblFinder "is R, and `r-base-core` was deliberately dropped
+# from the env rootfs at schema v5 with no R runtime lane", and it recorded that we were
+# "KNOWINGLY not shipping a method many consider stronger". Both halves are now false: #191
+# built the `single-cell-r` image, #194 proved the `runtime: rscript` path end to end, and
+# this package now ships that method. Leaving stale text that UNDERSTATES our own capability
+# is the mirror image of overstating it, and both are dishonest narration in an export a
+# reader trusts. (DoubletDetection and solo are still absent, and still for the original
+# reason: each needs a new pip dependency, i.e. a Dockerfile edit.)
+#
+# WHY TWO IDS AND NOT A `method` PARAMETER. The reason is technical, not aesthetic:
+# `run.runtime` is a SINGLE SCALAR PER ANALYSIS (`Language::from_runtime`) and `run.entry` a
+# single path, so ONE analysis id cannot dispatch to both a `.py` and an `.R` entry — the
+# dispatch has no branch to take. It is also the shape the owner asked for: a user searching
+# "doublet" finds the methods and picks one, rather than meeting a hidden switch. The cost is
+# real and accepted — two `methodsText` blocks, two `methods:` narrations, two readouts, and a
+# launcher showing two doublet analyses.
+#
+# The forward note this file used to carry — "if an R lane ever lands, `doublet.scdblfinder`
+# drops into this package with no migration — the output kinds are identical" — turned out to
+# be exactly HALF true, and the half it got right is the important one. The OUTPUT half was
+# free: both analyses emit the same `metadata-column` + `report/qc` kinds, so `cell.filter`,
+# the report and colour-by consume either unchanged, with no new datatype, no new axis and no
+# migration. The EXECUTION half was a whole epic: an R entry stages NO app helpers
+# (`stages_app_helpers(Rscript) == false`), so `compute/_wire.R` had to read the CSC store and
+# write the Zarr columns itself. That file's header is where this is explained.
+#
+# THE MEASUREMENT, because it is the reason this item existed. Both methods were run through
+# #101/#130's OWN ground-truth harness — the same pbmc3k fixture, the same 6% cross-lineage
+# heterotypic spike-in, the same seed, the same AUPRC estimator:
+#
+#                recall   precision   AUPRC      (#130's floors: 0.75 / 0.60 / 0.80)
+#     Scrublet     0.673     0.628     0.585      misses recall and AUPRC
+#     scDblFinder  0.964     0.667     0.858      meets all three
+#
+# That is a MEASURED result, not an assumed one: this item was planned in terms that made a
+# shortfall a legitimate outcome, and said "do NOT assume scDblFinder wins". It is also
+# CONTROLLED — on the same fixture, total-UMI-per-cell alone scores AUPRC 0.479, so the gap is
+# not a library-size artifact, and a permuted score/call vector fails every floor. The
+# controls ship beside the measurement in `tests/test_ground_truth.py`; these numbers cannot
+# move without that file moving.
+#
+# WHAT THE MEASUREMENT DOES NOT SAY. It does not say scDblFinder is the better method in
+# general — it says it is better ON THIS FIXTURE. Two limits cap BOTH methods from above here
+# and are properties of the benchmark rather than of either caller: pbmc3k's 2,638 real cells
+# contain roughly 2% NATIVE doublets that the truth vector labels `singlet` (so they score as
+# false positives, capping precision and AUPRC for anything), and homotypic doublets are
+# undetectable by any simulation-based caller, scDblFinder included. And #233 established
+# that this repository's own docs MISATTRIBUTED Xi & Li 2021: that benchmark evaluated nine
+# methods, scDblFinder was NOT among them, and DoubletFinder was best. So the default does not
+# move on this evidence — `doublet.detect` stays exactly as shipped, and which method becomes
+# the recommended one is an owner call on scientific policy, not a side effect of this change.
+#
+# NO `datatypes:` BLOCK, deliberately. A per-cell doublet score is a continuous
+# `metadata-column`; the call is a categorical one; the run report is a `report/qc`. All three
+# already exist in `single-cell-types` on the shared `cells` axis, so there is no new kind and
+# no new axis to declare — which also keeps this package out of
+# `scripts/check-derived-vocabulary.sh`'s derived forbidden-vocabulary set and out of the
+# hand-maintained `datatype/tests/lattice_golden.json`.
+#
+# Dual-parsed, like every processor manifest: the backend extensions loader parses this file
+# into an `ExtensionManifest` at boot and reads only `id` + `run` + the `methods` narration
+# below; `AnalysisContributionData` carries every other key verbatim through `rest`.
+id: doublet
+name: Doublet detection
+publisher: cyto
+# 0.1.0 — the package + `doublet.detect`'s single-batch Scrublet engine: the raw-count gate,
+# the explicit-parameter call, the 10x-loading-derived expected-doublet-rate prior, the
+# continuous score column, the CATEGORICAL call column, the `report/qc`, and the INV-3
+# refusal (no threshold determined ⇒ the call artifact is omitted entirely).
+# 0.2.0 — PER-SAMPLE execution, the correctness core. A new OPTIONAL `batch` input slot binds
+# a categorical cells-axis column; each level is scored INDEPENDENTLY — its own simulated-
+# doublet population, its own PCA, its own threshold and its own expected-rate prior derived
+# from THAT level's cell count — and reassembled in input obs order. The loop is OURS, not
+# `sc.pp.scrublet(batch_key=...)`, which does score per batch but applies ONE
+# `expected_doublet_rate` to all of them — exactly half the invariant. A level below
+# `MIN_CELLS_PER_BATCH` is a named refusal. The report gains the batching disclosure
+# (`batched` / `batch_column` / `n_batches` / the per-batch record), and an UNBATCHED run is
+# RECORDED as such rather than inferred away. Behaviour change in the kernel ⇒ a bump, so a
+# provisioned deployment re-extracts rather than keeping the un-batched one.
+# 0.3.0 — the optional INLINE PRE-FILTER: `cell-filter`'s `criteria` recipe, applied at run
+# time through a byte-for-byte VENDORED `compute/_criteria.py` (a cross-package import is
+# refused by `processors/mod.rs::confine_under_package`), so scoring runs on the QC-kept
+# subset that `cell.filter`'s non-destructive keep-mask cannot materialize as an artifact.
+# Filter FIRST, then split — filtering after the split would change each batch's cell count
+# after its rate prior had been derived. Excluded cells stay in the output at their ORIGINAL
+# positions with a `NaN` score and the THIRD categorical level `not_evaluated`, which is
+# declared only on a run that actually excluded cells. `criteria` gains the `predicate_list`
+# narration role, so a filtered run's `methods.md` states the filter in predicate prose
+# rather than describing a laxer method than the one that ran.
+# 0.4.0 — the two DECLARATIVE VIEWS land, so the analysis declares its `ui:` files instead of
+# falling back to the generic form built from `appliesTo`. `ui/doublet.yaml` is the run form
+# (the raw-count matrix picker, the SAMPLE/BATCH column picker whose options derive from the
+# chosen matrix's own cells axis and whose help text carries the per-sample rule, the
+# pre-filter criteria builder, the numeric parameters, and the Run action that binds the batch
+# column as a SLOT through `inputs_from`); `ui/doublet-report.yaml` is the readout (the
+# batching state first, the refusal when no threshold was determined, the per-sample rate and
+# threshold table, the simulated-score distribution, and the disclosures surfaced FROM the
+# report). No compute changed except the report gaining two flat lookups the readout binds.
+# 0.5.0 — the schedule class moves `normal` -> `batch`, on a MEASUREMENT. The pre-read memory
+# model was re-derived from real peak RSS after three source-counted versions were all wrong:
+# the analysis is MEMORY-bound (CPU is ~4.7 CPU-s for a 2,700-cell run against a 600 CPU-s
+# budget), and `batch`'s 8 GiB roughly doubles the admissible dataset over `normal`'s 4 GiB.
+#
+# NO CAPACITY FIGURES ARE QUOTED HERE, deliberately. They are a function of constants in
+# `compute/_shared.py`, they went stale in this comment across a model change three times, and
+# each time they were load-bearing for this very decision. They are computed from the shipped
+# constants and asserted by `tests/test_doublet_conformance.py::
+# test_the_capacity_figures_follow_from_the_shipped_constants`, which is the single source.
+#
+# WHAT `batch` DOES AND DOES NOT BUY, because an earlier version of this entry oversold it:
+# it roughly doubles the cell count this analysis can take. It does NOT make the analysis
+# large-dataset-capable. At typical 10x v3 depth BOTH classes refuse the research doc §5's own
+# 20,000-cell worked example, and both refuse §4.3's 5 x 10,000-cell merged matrix — the
+# epic's own motivating case. That is a real limitation of Scrublet in this sandbox and it is
+# stated, not implied away. (Earlier drafts justified this change on a "10,000-cell lane in
+# §5" that §5 does not contain; §5's worked examples are 2,000 and 20,000 cells.)
+#
+# This DEVIATES from #111, whose manifest block specifies `schedule: { class: normal }`. The
+# research doc specifies no schedule class at all. Recorded as a deviation from the ISSUE and
+# escalated to the epic owner, not presented as licensed. The precedent for switching on
+# evidence is `embedding/manifest.yaml`, whose own comment says `batch` "would buy memory
+# headroom at the cost of scheduling priority and is not declared without a measured need" —
+# that is EMBEDDING's standard, quoted as such. Doublet detection is genuinely batch work (a
+# preprocessing step before clustering, nobody waiting on it), so the scheduling-priority cost
+# is the right one to pay.
+# 0.6.0 — the SECOND declared method, `doublet.scdblfinder` (#195 / E7, epic #169): an R
+# entry (`runtime: rscript`, `env: single-cell-r`) running scDblFinder, plus `compute/_wire.R`
+# — the R side of this app's artifact wire format, which an R entry needs because
+# `stages_app_helpers(Rscript)` is false and none of the `cyto_*` python helpers reach it.
+# `doublet.detect`'s BEHAVIOUR IS UNCHANGED — same scores, same calls, same threshold, same
+# provenance, proven by re-running the base commit's own compute and comparing the whole
+# result. What DID change in the python lane is exactly one claim, in two places, and
+# describing it as "a removal" understated it: the sentence asserting scDblFinder is
+# unavailable is removed from `methodsText` AND from `compute/doublet.py`'s shipped
+# `DISCLOSURE` (which reaches every run's `report/qc` and is rendered by the readout), and
+# in both places it is REPLACED by what is now true, including this method's measured
+# numbers. The second of those was found by a blind audit, not by the guard meant to catch
+# it — see `tests/test_method_disclosure.py`. A behaviour ADDITION in the package ⇒ a bump, so a provisioned
+# deployment re-extracts rather than keeping a package with only one analysis in it.
+#
+# 0.6.1 — TEST-DIRECTORY ONLY, no compute, no ui, no declaration change (#299/#265/#238/
+#          #268/#282). This package's branch-diff guards are routed through
+#          `_lib/zero_core_guard`'s self-limiting gate, which derives from the diff itself
+#          whether the current branch is the one that INTRODUCES this package and SKIPS
+#          visibly with a stated reason everywhere else. Unscoped, they re-executed on every
+#          later branch and asserted that stranger's diff was also confined to a package it
+#          had nothing to do with, so they went red on six consecutive branches. No allow-set
+#          was widened and no assertion removed — `docs/design/derived-guards.md` §5 names
+#          both as not the repair; the property is real and only its SCOPE was wrong.
+#
+#          The version moves because `scripts/check-processor-seed-versions.sh` is
+#          base-relative over the whole package DIRECTORY, `tests/` included. Forward from
+#          the merge target (`origin/main` @ `20ff18e5` reads 0.6.0), never the higher of two
+#          sides — the rule `_lib`'s own manifest records at 0.3.5/0.4.2.
+version: 0.6.1
+apiVersion: "1.0"
+contributes:
+  analyses:
+    - id: doublet.detect
+      category: qc
+      title: Detect doublets
+      description: >-
+        Flag putative doublets (one barcode that captured two cells) with Scrublet: a
+        per-cell doublet score and a per-cell call, committed as metadata columns.
+        Non-destructive — the matrix is annotated, never filtered; removing cells is the
+        downstream Cell-filter analysis. When a sample column is bound, scoring runs
+        INDEPENDENTLY WITHIN EACH SAMPLE, because cells from separately captured libraries
+        cannot share a droplet; an unbatched run is permitted and the report records which
+        it was.
+      whenHint: >-
+        the user wants to find barcodes that captured two cells, before clustering or
+        differential expression
+      examples:
+        - find doublets in this dataset
+        - flag multiplets before I cluster
+        - which cells are two cells stuck together
+      safety: read-run
+
+      # ── APPLICABILITY ─────────────────────────────────────────────────────────
+      #
+      # RAW counts only, and the same reason as `qc.10x`'s: Scrublet does its own
+      # total-count normalize → HVG → PCA internally, so feeding it a normalized matrix
+      # silently produces meaningless scores. The compute re-checks this from the stored
+      # values (an agent/MCP call can reach it without ever rendering the form).
+      #
+      # SINGULAR, deliberately NOT `multiple: true`. `qc.10x` spans every modality matrix in
+      # one job because the cells axis is shared and joint filtering needs one run to write
+      # all of them; this is an RNA-COUNT method. Protein and ATAC doublets need different
+      # methods entirely (AMULET for ATAC — its binary sparsity breaks RNA-style density
+      # scoring), so one matrix, one run.
+      appliesTo:
+        - slot: matrix
+          subtypes_of: single-cell/expression
+          excludes: [single-cell/normalized]
+          # A headless (agent/MCP) launch auto-binds this single-value input when exactly one
+          # candidate exists. Note the cost: `methods.rs::auto_bound_note` appends "…was bound
+          # automatically from the only compatible candidate; no one reviewed the choice" to
+          # the exported methods paragraph, which is the honest record of an unreviewed bind.
+          auto_bind_sole_candidate: true
+
+      # ── UI — which view files this analysis renders ────────────────────────────
+      #
+      # The manifest names the FILES; it says nothing about what is in them. Paths are
+      # package-relative and MUST exist — a `ui:` entry naming a missing or unparseable file
+      # is a LOAD ERROR, not a silently shorter list. MULTIPLE files render into ONE pane,
+      # top to bottom, in the order listed: the run form, then the readout beneath it.
+      ui:
+        - ui/doublet.yaml
+        - ui/doublet-report.yaml
+
+      # A GRAPH EDGE (`chaining.ts`), never an availability input: the batch/sample column and
+      # the optional inline-filter columns are cells-axis `metadata-column`s, so this analysis
+      # is a consumer of that datatype — which is what lets the workbench offer "run Compute QC
+      # metrics first". It is never a precondition.
+      consumes: [metadata-column]
+
+      # The DATATYPES it emits, and nothing finer. `produces_annotations` is not a key here
+      # and never will be: the type of each landed column is READ from the artifact, which
+      # stamps its own kind in `attributes.cyto` and is verified against it by the conformance
+      # gate. A forecast in the manifest would be a promise checked by nothing.
+      produces: [metadata-column, report/qc]
+
+      # ── EXECUTION ─────────────────────────────────────────────────────────────
+      run:
+        kind: sandbox
+        runtime: python
+        entry: compute/doublet.py
+        # Staged into `/code` beside the entry so `import _shared` resolves off `sys.path[0]`.
+        # The platform CONFINES `run.helpers` to a package's OWN tree
+        # (`processors/mod.rs::confine_under_package` rejects any `..`), which is why the
+        # predicate kernel below is vendored rather than imported across packages.
+        # `_criteria.py` is `cell-filter`'s predicate kernel VENDORED VERBATIM — the THIRD
+        # VENDORED copy (after `embedding` and `differential-expression`), i.e. the fourth
+        # copy of the span in the tree counting cell-filter's original. A platform gap rather
+        # than a design: `confine_under_package`
+        # rejects any `..`, so the kernel cannot be imported across packages, and moving it
+        # into `_lib` is an `src-app` change that belongs in its own issue. A drift test
+        # pins this copy source-identical to cell-filter's.
+        helpers:
+          - compute/_shared.py
+          - compute/_criteria.py
+
+      # `batch` — 8 GiB (double `normal`'s), on a MEASUREMENT; see the 0.5.0 changelog entry
+      # for what it does and does not buy, and `compute/_shared.py` for the model. Cores do
+      # NOT move: `resolve_caps` (Rust, `server/src/modules/sandbox/`) clamps both classes to
+      # 2 on a default deployment. MEMORY is the binding constraint, not CPU.
+      #
+      # Anything over the Batch envelope is refused BY NAME before a byte of the matrix is
+      # read, with the arithmetic shown, rather than left to be OOM-killed mid-fit.
+      schedule:
+        class: batch
+      arch: [x86_64, aarch64]
+
+      # Rendered by `AnalysisRunPanel` and carried into the provenance methods paragraph.
+      # The accuracy trade against scDblFinder is stated here, not buried.
+      methodsText: >-
+        Flagged putative doublets with Scrublet (Wolock, Lopez & Klein 2019, Cell Systems),
+        as implemented in scanpy, recording a per-cell doublet score and a per-cell call as
+        metadata columns. When a sample column is bound, scoring runs independently within
+        each of its levels and the expected doublet rate is derived per sample from that
+        sample's own recovered-cell count — doublets cannot form across separately captured
+        libraries; an unbatched run is permitted and the run's report records which of the
+        two it was. The matrix was not modified and no cells were removed.
+        Scrublet is mid-field in the Xi & Li 2021 benchmark (Cell Systems), in which
+        DoubletFinder had the best detection accuracy; that benchmark concluded an
+        appropriate choice of method is case by case; scDblFinder is not among its nine
+        methods. scDblFinder IS available in this deployment, as the separate analysis
+        `doublet.scdblfinder` running in the R analysis environment; measured on this
+        repository's own ground-truth fixture it reached recall 0.964, precision 0.667 and
+        AUPRC 0.858, against 0.673, 0.628 and 0.585 for the method described here.
+        Homotypic doublets — two cells of
+        the same type — are largely undetectable by any simulation-based caller.
+
+      # LIVE AND LOAD-BEARING: `server/.../provenance/export/methods.rs` reads
+      # `contributes.analyses[<id>].methods` to narrate the exported `methods.md`. Without it
+      # a run exports "Step 'compute' was performed using doublet.detect v0.1.0", because the
+      # `kind` of every sandbox compute run is the literal "compute". `qc.10x` ships
+      # `methodsText` and NO `methods:` block — that is the thing not to copy.
+      #
+      # The package declares the NOUNS and which ROLE each param plays; the narrator owns the
+      # rendering, which is what carries the "never silently drop a term" guarantee — a param
+      # with no declared role is DISCLOSED BY NAME, never omitted. So
+      # `expected_doublet_rate` / `doublet_rate_per_1k` / `threshold` / `n_prin_comps` /
+      # `sim_doublet_ratio` / `batch_column` are deliberately left unmapped: they have no
+      # closed role, and name-disclosure is exactly what a publication needs to cite them.
+      #
+      # The placeholder is the literal `{label}`. `methods.rs` substitutes exactly ONE token
+      # (`c.replace("{label}", …)`) and the substitution is independent of what the
+      # output-label param is CALLED — the narrator's own test uses a param named `tag` — so
+      # naming ours `label` is for readability, not for the mechanism. Three other shipped
+      # packages spell the placeholder `{name}` (clustering, geneset, differential-expression,
+      # the last of them twice) and `embedding` uses `{n_pcs}`/`{n_hvg}`/`{method}`; all of
+      # those render LITERAL BRACES into `methods.md`. `cell-filter` is the one correct model.
+      methods:
+        subject: { singular: cell, plural: cells }
+        action: scored for doublet likelihood
+        commits: "a per-cell doublet score and call, labelled `{label}`"
+        commits_unlabeled: a per-cell doublet score and call
+        # STATED CONDITIONALLY. `methods.rs` appends this note verbatim with no batching
+        # branch, so an unconditional "scores are computed independently per sample" would
+        # assert, in the out-of-app trust deliverable, a method that did not run on any
+        # unbatched run — which is permitted, disclosed, and the DEFAULT. The recorded
+        # `batch_column` param is what tells a reader which of the two happened.
+        note: >-
+          Where a sample column was recorded, scores are computed independently within each
+          of its samples — a doublet is one droplet that captured two cells, and cells from
+          separately captured libraries cannot share a droplet; where none was recorded, the
+          matrix was scored as a single capture. Calls are FLAGS for inspection, not
+          removals: the matrix was not modified and no cells were deleted. Homotypic doublets
+          (two cells of the same type) are largely undetectable by simulation-based methods,
+          so the reported rate is a floor.
+        params:
+          # `criteria` is the inline pre-filter recipe, rendered by `methods.rs` through
+          # `criteria_phrases` into real predicate prose. Not decoration: a filtered run
+          # whose methods.md does not disclose the filter describes a DIFFERENT method than
+          # the one that ran.
+          criteria: predicate_list
+          seed: seed
+          label: output_label
+
+    # ══════════════════════════════════════════════════════════════════════════════════
+    # THE SECOND METHOD (#195 / E7). Everything above this line describes `doublet.detect`
+    # and is unchanged except for one sentence its `methodsText` could no longer claim.
+    # ══════════════════════════════════════════════════════════════════════════════════
+    - id: doublet.scdblfinder
+      category: qc
+      title: Detect doublets (scDblFinder)
+      description: >-
+        Flag putative doublets (one barcode that captured two cells) with scDblFinder, the
+        R/Bioconductor caller, running in the R analysis environment: a per-cell doublet
+        score and a per-cell call, committed as metadata columns. The OUTPUT KINDS ARE THE
+        SAME as the Scrublet method's, so the downstream Cell-filter analysis, the report
+        and colour-by consume either unchanged — this is a choice of METHOD, not a
+        different kind of result. Non-destructive: the matrix is annotated, never filtered.
+        When a sample column is bound, scoring runs INDEPENDENTLY WITHIN EACH SAMPLE,
+        because cells from separately captured libraries cannot share a droplet.
+      whenHint: >-
+        the user wants the R/Bioconductor doublet caller specifically, or wants a second
+        method's opinion on which barcodes captured two cells
+      examples:
+        - find doublets with scDblFinder
+        - run the R doublet caller on this matrix
+        - flag multiplets using scDblFinder instead of Scrublet
+      safety: read-run
+
+      # ── APPLICABILITY — IDENTICAL to `doublet.detect`'s, deliberately ─────────────
+      #
+      # Both methods answer the same question about the same input, so offering them on
+      # different inputs would make "which method" depend on which dataset the user opened.
+      # RAW counts only: scDblFinder does its own normalization and feature selection
+      # internally, so a normalized matrix silently produces meaningless scores rather than
+      # failing. The compute RE-CHECKS this from the stored values, because an agent/MCP
+      # call reaches it without ever rendering the form.
+      #
+      # SINGULAR for the same reason as the Scrublet lane: this is an RNA-COUNT method, and
+      # protein and ATAC doublets need different methods entirely.
+      appliesTo:
+        - slot: matrix
+          subtypes_of: single-cell/expression
+          excludes: [single-cell/normalized]
+          auto_bind_sole_candidate: true
+
+      ui:
+        - ui/scdblfinder.yaml
+        - ui/scdblfinder-report.yaml
+
+      consumes: [metadata-column]
+      produces: [metadata-column, report/qc]
+
+      # ── THE DECLARATION THAT MAKES THIS AN R ANALYSIS (#189 / E1, proved by #194) ──
+      # `env` and `runtime` are both PER-ANALYSIS, which is exactly why two methods can
+      # live in one package: this contribution resolves the `single-cell-r` image while
+      # `doublet.detect` above declares no `env` at all and keeps running in the default
+      # python image with no opt-in. A user WITHOUT the R env still gets doublet detection.
+      env: single-cell-r
+      run:
+        kind: sandbox
+        runtime: rscript
+        entry: compute/scdblfinder.R
+        # `_wire.R` is this package's own helper, staged by BASENAME into `/code` beside the
+        # entry. It is NOT a copy of `_lib`: an R entry receives its own package's declared
+        # helpers and nothing else, and the three shapes this analysis moves (read a CSC
+        # store, write a numeric column, write a categorical column) are written there. Its
+        # header states what it deliberately does not implement.
+        helpers:
+          - compute/_wire.R
+
+        # ── NO `dependencies:`, AND THAT IS THE TRUTHFUL DECLARATION ────────────────
+        #
+        # This entry loads `scDblFinder`, `BiocParallel`, `SingleCellExperiment`, `Matrix`,
+        # `jsonlite` and `digest`, every one of them pinned in the `single-cell-r` recipe,
+        # so declaring a contract for them looks obviously right — and the epic's own plan
+        # asked for exactly that. It is wrong on this tree, and the reason is a test rather
+        # than an opinion: `processors/mod.rs::every_dependency_declaring_entry_reaches_the_
+        # recorder` requires every dependency-DECLARING entry to reach a `cyto_deps.*` call
+        # in its own entry or a declared helper, WITH NO LANGUAGE EXEMPTION — and
+        # `cyto_deps.py` is a python helper `stages_app_helpers(Rscript) == false` never
+        # stages. The BUILD gate would resolve the declaration happily; that test refuses
+        # it. A contract nothing can enforce claims an enforcement that does not exist.
+        #
+        # This is #194's finding, reached independently here and confirmed BY MUTATION
+        # (add the block, watch that test go red) rather than by reading its comment.
+        #
+        # WHAT IS NOT LOST: the entry records the RESOLVED VERSION of every library it
+        # loads, in its report artifact (`library_versions`), and a test pins that the
+        # emitted BYTES carry them — so a published doublet number still traces to exact
+        # versions, by value rather than by contract.
+
+      # ── SCHEDULE: `batch`, ON A MEASUREMENT OF THIS METHOD, not copied ─────────────
+      #
+      # The Scrublet lane moved to `batch` on its own measurement, and its memory model in
+      # `compute/_shared.py` is Scrublet-specific — an R run's profile differs materially
+      # (copy-on-modify semantics, `SingleCellExperiment` overhead). So this was measured
+      # rather than inherited: peak RSS of a real 2,806-cell x 32,738-gene run of THIS
+      # entry inside the `single-cell-r` image was 1,536 MiB (VmHWM, polled from the host
+      # while the run executed under bwrap). That clears `normal`'s 4 GiB comfortably at
+      # this size — but the envelope has to cover the datasets users actually bring, and
+      # the growth term is the dense (1+r)*n_cells x dims embedding plus the artificial
+      # doublet set, i.e. roughly linear in cells. `batch`'s 8 GiB roughly doubles the
+      # admissible dataset over `normal`'s 4 GiB, and this is preprocessing work with
+      # nobody waiting on it, so the scheduling-priority cost is the right one to pay —
+      # the same trade, and the same reasoning, the Scrublet lane recorded at its 0.5.0.
+      #
+      # NO CAPACITY FIGURE IS QUOTED HERE. The Scrublet lane learned that the hard way:
+      # quoted figures went stale across three model revisions while remaining
+      # load-bearing for this very decision. The measurement above is a single observed
+      # number with its conditions attached, which does not go stale — it just gets old.
+      schedule:
+        class: batch
+      arch: [x86_64, aarch64]
+
+      methodsText: >-
+        Flagged putative doublets with scDblFinder (Germain, Lun, Garcia Meixide, Macnair &
+        Robinson 2021, F1000Research), run in a pinned R analysis environment, recording a
+        per-cell doublet score and a per-cell call as metadata columns. When a sample
+        column is bound, scoring runs independently within each of its levels and the
+        expected doublet rate is derived per sample from that sample's own recovered-cell
+        count — doublets cannot form across separately captured libraries; an unbatched run
+        is permitted and the run's report records which of the two it was. The matrix was
+        not modified and no cells were removed.
+        On this repository's own ground-truth fixture — real pbmc3k with 6% cross-lineage
+        heterotypic doublets spiked in — this method measured recall 0.964, precision 0.667
+        and AUPRC 0.858, against 0.673, 0.628 and 0.585 for the Scrublet method offered
+        alongside it under the same fixture, seed and estimator. Two limits cap both
+        methods on that benchmark and belong to it rather than to either caller: roughly 2%
+        of the real cells are native doublets labelled as singlets in the truth vector, and
+        homotypic doublets — two cells of the same type — are largely undetectable by any
+        simulation-based caller. scDblFinder is NOT among the nine methods compared by
+        Xi & Li 2021 (Cell Systems), in which DoubletFinder had the best detection
+        accuracy; that benchmark concluded an appropriate choice of method is case by case.
+
+      # Same narrator contract as the Scrublet lane. `criteria` is deliberately ABSENT from
+      # `params:` because this method accepts no inline pre-filter — it REFUSES the
+      # parameter by name rather than accepting and ignoring it, so there is no filter for
+      # the narration to disclose and no silently laxer method than the one that ran.
+      methods:
+        subject: { singular: cell, plural: cells }
+        action: scored for doublet likelihood
+        commits: "a per-cell doublet score and call, labelled `{label}`"
+        commits_unlabeled: a per-cell doublet score and call
+        note: >-
+          Where a sample column was recorded, scores are computed independently within each
+          of its samples — a doublet is one droplet that captured two cells, and cells from
+          separately captured libraries cannot share a droplet; where none was recorded,
+          the matrix was scored as a single capture. Calls are FLAGS for inspection, not
+          removals: the matrix was not modified and no cells were deleted. Homotypic
+          doublets (two cells of the same type) are largely undetectable by
+          simulation-based methods, so the reported rate is a floor.
+        params:
+          seed: seed
+          label: output_label

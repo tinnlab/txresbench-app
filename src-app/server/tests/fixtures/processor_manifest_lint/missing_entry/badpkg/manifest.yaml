@@ -1,0 +1,17 @@
+# S1 fixture — a converter with an EMPTY `run.entry`. A converter is only
+# reachable at runtime when its `run.entry` resolves to a baked processor, so an
+# empty entry must fail the lint (package-scoped) at BOTH the whole-tree gate and
+# the per-package runtime scan (`lint_processor_package`).
+id: badpkg
+name: Bad Package
+publisher: cyto
+version: 0.1.0
+apiVersion: "1.0"
+contributes:
+  converters:
+    - id: badpkg.conv
+      title: Bad converter
+      trigger: manual
+      accepts: []
+      produces: []
+      run: { entry: "" }   # <-- empty entry

@@ -1,0 +1,12 @@
+{
+  "zarr_format": 3,
+  "node_type": "group",
+  "attributes": {
+    "cyto": {
+      "kind": "string",
+      "name": "values",
+      "layout": "split",
+      "n": 2
+    }
+  }
+}

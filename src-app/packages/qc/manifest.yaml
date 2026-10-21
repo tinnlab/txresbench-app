@@ -1,0 +1,181 @@
+# QC processor — a PURE DATA package.
+#
+# The manifest exists so the workbench can LOAD and ENABLE the analysis, and so the
+# runner can EXECUTE it (INV-1). Nothing here is presentation, and nothing here is
+# analysis-specific knowledge that lives better in the compute or the view.
+#
+# Dual-parsed: the backend extensions loader (`server/.../extensions/loader.rs`,
+# `include_dir!("../packages")`) also parses this file into an `ExtensionManifest`
+# at boot. `ExtensionManifest`/`Contributes` do NOT `deny_unknown_fields`, and
+# `AnalysisContributionData` carries every FE key verbatim through `rest`, so the
+# backend reads only `id` + `run` + `methods` here. QC is an ANALYSIS dispatched via
+# `api.compute.run` → `code_ref` (= this analysis' `run.entry`), NOT a backend
+# converter/view.
+id: qc
+name: Compute QC metrics
+publisher: cyto
+# 0.3.0 — the manifest/UI separation: `accepts`+`when`+`params`+`defaults`+
+# `produces_annotations`+`run.inputs`+`schedule.resources`+`inStandardRecipe`/
+# `recipeOrder` are GONE (each is now a LOAD ERROR, DEC-3), `appliesTo` + `ui:` are
+# new. Seed reconciliation is version-keyed (`extensions/embedded.rs::reconcile`), so
+# WITHOUT this bump an already-provisioned deployment keeps its stale extracted
+# manifest — one still carrying the removed keys — and that package now fails to load.
+version: 0.3.3
+apiVersion: "1.0"
+contributes:
+  analyses:
+    - id: qc.10x
+      category: qc
+      title: Compute QC metrics
+      description: >-
+        Compute per-cell QC metrics as metadata columns. Non-destructive — the matrix
+        is annotated, never filtered; filtering is the downstream Cell-filter
+        analysis. MODALITY-AWARE: metric columns are modality-prefixed so RNA/protein/
+        ATAC metrics never collide in the shared obs.
+      whenHint: >-
+        the user wants to compute per-cell quality metrics on a count matrix (before
+        filtering)
+      examples:
+        - compute QC metrics
+        - add a custom %hemoglobin metric
+        - what fraction is mitochondrial
+      safety: read-run
+
+      # ── APPLICABILITY — the one thing this file says about when to offer it ───
+      #
+      # A fact about the ANALYSIS, not an instruction to the UI: "QC applies to
+      # raw-count expression matrices." True whether or not a UI exists, and whether it
+      # is launched by a person or an agent. Availability is DERIVED from it
+      # (`computeAvailability`) — the workbench offers what applies to the data present.
+      #
+      # Replaces `accepts` + `when` + `params.fields`:
+      #   * `when: has:single-cell/expression` was a weaker restatement of this and
+      #     could never independently fail (`computeAvailability` already fails an
+      #     unmatched selector).
+      #   * `params.fields` was a FORM — title, doc, type — wrapped around a copy of the
+      #     same selector. Its only non-redundant content was the slot NAME, which
+      #     survives here as `slot:`.
+      #
+      # No `required:` flag: everything in this key is required by definition. An
+      # OPTIONAL input was never an enablement condition, so it has no place here at
+      # all — it belongs in `consumes` (a graph edge) or in the view (an offered
+      # control), DEC-5.
+      #
+      # `slot` is the wire key: what a caller sends (`inputs: { matrices: <id> }`) and
+      # what the compute resolves out of `/inputs/inputs.json`. PLURAL + `multiple`
+      # because QC runs over every selected modality matrix in ONE job (DEC-6): the
+      # cells axis is SHARED, so joint filtering (`rna:pct_mito` AND
+      # `prot:total_counts`) is only meaningful if one run writes all of them onto it.
+      #
+      # This does NOT define what the UI offers. The view declares its own picker
+      # `source`; it may legitimately offer a narrower set, or a selection this key
+      # cannot express at all (the gene-name COLUMN is a choice of a sibling artifact
+      # on the genes axis of the chosen matrix — an option set that does not exist
+      # until the matrix has been picked).
+      appliesTo:
+        - slot: matrices
+          multiple: true
+          subtypes_of: single-cell/expression
+          # QC needs RAW counts: total_counts / %mito are meaningless post-normalization.
+          excludes: [single-cell/normalized]
+
+      # ── UI — which view files this analysis renders ───────────────────────────
+      #
+      # The manifest names the FILES; it says nothing about what is in them. That is a
+      # loader concern (what to load), not a UI definition — the same relationship it
+      # has with `run.entry`, which names a script without describing what the script
+      # does. Paths are package-relative and MUST exist: a `ui:` entry naming a missing
+      # (or unparseable) file is a LOAD ERROR, not a silently shorter list.
+      #
+      # Replaces two things:
+      #   * the `ui/*.yaml` GLOB — discovery by directory scan, with arbitrary ordering
+      #     and no way to say a file belongs to THIS analysis rather than a sibling.
+      #   * the view spec's `analysis:` back-pointer, which pointed the wrong way: the
+      #     view naming its analysis meant the registration file did not know its own UI.
+      #
+      # MULTIPLE files render into ONE pane, top to bottom, in the order listed (INV-3).
+      # No `ui:` key ⇒ no view ⇒ the generic fallback form built from `appliesTo` — an
+      # explicit declared state rather than an accident of an empty directory.
+      ui:
+        - ui/qc.yaml
+
+      # ── OUTPUTS — the DATATYPES it emits, and nothing finer ───────────────────
+      #
+      # This is the whole output contract. It is what chaining needs ("which analysis
+      # yields a `metadata-column`?") and it is all the manifest can honestly promise.
+      #
+      # `produces_annotations` is GONE. It enumerated the individual columns and their
+      # annotation types — `pct_mito`, `continuous`, `cells` — i.e. the manifest
+      # describing data that does not exist yet. It was a PROMISE checked by nothing:
+      # every other type claim in the system is verified (the produced artifact stamps
+      # its own kind in `attributes.cyto` and the conformance gate REFUSES a
+      # disagreeing stamp), and this one had no counterpart to be checked against. It
+      # is also undeclarable in the general case — `annotation-integrate` emits one
+      # column per column of a user-supplied table. The type of each actual column is
+      # read from the artifact that landed (INV-5).
+      produces: [metadata-column, report/qc]
+
+      # `defaults` is GONE. A default is only needed where a value can be ABSENT, and
+      # there is exactly one such boundary: `params.json`. The compute already owns it
+      # (`qc-10x.py::DEFAULT_QC_METRICS`, "used when `params.json` omits `qc_metrics`"),
+      # so the manifest copy decided nothing the compute would not have decided
+      # identically — its only possible effect was to DISAGREE, which is why the old
+      # file said the two "mirror" each other. `^MT-|^mt-` is knowledge about
+      # mitochondria; it belongs with the code that applies it and the form that shows
+      # it, not in the file that tells the workbench this analysis exists.
+
+      # ── EXECUTION ─────────────────────────────────────────────────────────────
+      #
+      # `inputs: { matrix: matrix.h5ad }` is GONE. It named a MOUNT FILENAME so
+      # `load_matrix` could sniff the format off the suffix (`name.endswith(".h5ad")`).
+      # Format is a property of the ARTIFACT, not of the analysis: the row records
+      # `datatype`, `is_multifile` and a `structure`, and the runner has all of it at
+      # mount time. It was already wrong here — a `single-cell/expression` artifact in a
+      # real project is a MULTIFILE ZARR store, not an `.h5ad` blob, so the declared
+      # `matrix.h5ad` would route a zarr store to `anndata.read_h5ad`. The runner now
+      # names each mount from the artifact it is mounting (ITEM-23); the slot name
+      # survives only where it belongs — the caller's `inputs:` map and
+      # `/inputs/inputs.json`.
+      # The env image this contribution runs inside (#191 / E3). DECLARED, not inferred,
+      # so the #80 dependency gate resolves its `run.dependencies` against THIS env's pin
+      # set only. An env-LESS declaration is resolved against EVERY recipe on disk
+      # (`server/build_helper/processor_manifest.rs`) — the fail-closed reading, and
+      # exactly right while one recipe exists; with a second, deliberately narrower env
+      # (`single-cell-r`) it would demand these python pins be installed there too. The
+      # gate's own doc-comment prescribes this fix in writing: "the right relaxation is
+      # for a contribution to DECLARE the env it targets, not for this gate to guess".
+      env: single-cell
+      run:
+        kind: sandbox
+        runtime: python
+        entry: compute/qc-10x.py
+        # The libraries THIS entry's code imports, with the version range it is
+        # supported against (#80). A minor-pinned range where the library's DEFAULTS decide a published
+        # number; a wider one where it is a stable numerical floor.
+        dependencies:
+          - { library: numpy, version: ">=2.0,<3" }
+          - { library: pandas, version: ">=2.2,<3" }
+
+      # `class` only. It is wired: `jobsCapability` maps it to the job's
+      # `priority_class`, which the scheduler orders interactive-before-batch on. That
+      # is a real property of the analysis — batch work, nobody waiting on it.
+      #
+      # `resources: { cpu: 4, mem: 16Gi }` is GONE. Nothing read it: `jobsCapability`
+      # rebuilds the spec as `{ class: opts.schedule.class }`, dropping it at the launch
+      # site, and no Rust reads it. Real limits come from the singleton
+      # `sandbox/settings.rs` row (the admin Resource-limits page, enforced by
+      # bwrap/cgroup), deployment-wide. It could not have been right anyway — need
+      # scales with the DATA (3k cells vs 100M), not with the analysis.
+      schedule:
+        class: normal
+      arch: [x86_64, aarch64]
+      # Rendered by `AnalysisRunPanel` and used for the provenance methods paragraph.
+      methodsText: >-
+        Computed per-cell QC metrics as metadata columns; the matrix was not
+        modified.
+
+      # `inStandardRecipe: true` / `recipeOrder: 2` are GONE. They encoded a canonical
+      # pipeline — import(1) → qc(2) → ?(3) → cell-filter(4) — whose gap at 3 is a step
+      # that was planned and never shipped. Neither key has a consumer in either
+      # language: every occurrence was the loader copying them into the registry, two
+      # type declarations and a test fixture. Nothing ever asked what they said.

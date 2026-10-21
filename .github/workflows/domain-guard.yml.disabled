@@ -1,0 +1,202 @@
+# The DOMAIN-PURITY gate, in CI.
+#
+# ── WHY THIS FILE EXISTS (WS-R5 §2) ─────────────────────────────────────────────────
+# Before it, `.github/workflows/` contained exactly ONE workflow (`env-images.yml`) and
+# nothing in it referenced the guard, `npm run check` or `cargo test`. Four rounds of
+# ratchet work — the shrink-only baseline, the scan floors, the MUST_SCAN witnesses, the
+# format pins, the certification ledger — were enforced only by a human choosing to run
+# them locally, on the same machine where the (now-closed) `LINT_NO_DOMAIN_*` override
+# bypass was also available.
+#
+# There is a second, sharper reason, and it is a MEASUREMENT rather than an argument. The
+# CARD-10 divergence (`sniff.spec.ts` asserting `.csv -> 'de'` against a datatype that had
+# been PRUNED) was not "green and wrong". It was UNRUN and wrong: built and executed, the
+# server returns `null` and the assertion fails outright, so it cannot have passed since
+# the prune. It survived for rounds because the two enforcers sit on runners with
+# different COSTS — `cargo test` gets run, the Playwright suite does not. A guard nobody
+# invokes is not a guard, and "somebody will run it locally" is a cost curve, not a gate.
+#
+# ── WHAT RUNS, AND IN WHICH ORDER ───────────────────────────────────────────────────
+#   1. the JS guard, with `--require-full-scan` (see the note on that flag below)
+#   2. the guard's own test suite — 116 tests, incl. the un-gameability plants
+#   3. the workspace packages' own suites (`scripts/check-package-suites.mjs`) — see the
+#      tenancy note on that step; it is not a domain check, it is here because this job
+#      is the only test-running runner and already pays for submodules + `npm ci`
+#   4. `npm run check` — the wider FE gate the guard is one link of
+#   (and, in the `rust` job) the Rust twin (`cargo test … domain_surface`)
+#
+# `--require-full-scan` is what makes step 1 an assertion rather than an invocation. The
+# three test-only overrides are honored only under `LINT_NO_DOMAIN_SELFTEST=1`, which
+# nothing here sets — and that flag additionally REJECTS the opt-in and every override
+# outright, so a `LINT_NO_DOMAIN_SELFTEST=1` smuggled into an `env:` block fails the very
+# step it was meant to soften. Step 2 is the one place the opt-in is granted, by the test
+# harness itself, per-spawn.
+#
+# ── SUBMODULES ARE LOAD-BEARING ─────────────────────────────────────────────────────
+# `sdk` and `agent-kit` are git submodules and `sdk/packages/*` is an npm workspace, so
+# `submodules: recursive` is not hygiene: without it `npm ci` cannot resolve the
+# workspace and NOTHING compiles.
+#
+# ── THE RUST HALF NEEDS A DATABASE ──────────────────────────────────────────────────
+# `domain_surface` is a source-scanning test and touches no database at run time, but the
+# integration-test BINARY links the server crate, whose `build.rs` provisions + migrates a
+# build DB on the committed `127.0.0.1:54321` sentinel so the sqlx macros can verify at
+# compile time. Hence the `postgres` service on 54321. That is a build-time dependency of
+# `cargo test --no-run`, not a runtime one of these tests.
+name: domain-guard
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: domain-guard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── The FAST half: the JS guard + its suite + the wider FE gate. No database, no
+  # Rust toolchain, so it reports in ~2 minutes and is the one that catches a baseline
+  # or vocabulary regression.
+  js:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          # `layerPlacement.test.ts` derives its inventory FROM GIT rather than from a
+          # transcribed list — `git ls-tree -r <BASE>` for the "before" and `git diff -M`
+          # for the placement — which is what makes it un-fakeable. `actions/checkout`
+          # defaults to a SHALLOW clone (fetch-depth: 1), so `BASE` (06d99c65) is not in
+          # the runner's object store and all five history-reading assertions fail. They
+          # have failed on every `main` push since the workflow landed, for this reason
+          # and not for any property of the code they assert.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install (root workspaces — sdk/packages/*, src-app/libs/*, src-app/ui)
+        run: npm ci
+
+      # `fixtureDrift.test.ts` REGENERATES the committed Zarr fixtures with the real
+      # producer (`__fixtures__/generate_zarr_fixtures.py`) and diffs the bytes, which is
+      # the whole point of it — a fixture that drifted from what the producer actually
+      # writes is a test asserting a shape nothing emits. So it needs numpy, and it
+      # ERRORS rather than skipping when numpy is absent: "install them rather than
+      # skipping this suite". A self-skip reporting ok would be exactly the unrun-and-
+      # wrong failure this workflow's header was written about (CARD-10).
+      #
+      # ubuntu-latest ships python3 but no numpy. This is the same dependency the
+      # `python3 -m pytest src-app/packages` gate needs, so it is pinned to the same
+      # floor rather than left to the runner image's defaults.
+      - name: python3 + numpy (the fixture generator's real deps)
+        run: python3 -m pip install --quiet 'numpy>=1.24'
+
+      # STEP 1. The guard over the REAL tree, asserting it scanned the real tree.
+      # `--require-full-scan` fails if ANY `LINT_NO_DOMAIN_*` override — or the self-test
+      # opt-in — is present, so this step cannot be told what to look at.
+      - name: no-domain-in-builtin (full scan, no overrides honored)
+        working-directory: src-app/ui
+        run: node scripts/lint-no-domain-in-builtin.mjs --require-full-scan
+
+      # STEP 1b. Belt and braces, and cheap: assert the bypass this round closed stays
+      # closed on a real runner. The guard must EXIT NON-ZERO when handed an empty scan
+      # set. Written as an explicit invert rather than `|| true`, so a guard that started
+      # passing here fails the job.
+      - name: the empty-scan bypass is closed
+        working-directory: src-app/ui
+        env:
+          LINT_NO_DOMAIN_SCAN_OVERRIDE: '[]'
+        run: |
+          if node scripts/lint-no-domain-in-builtin.mjs; then
+            echo "::error::the guard PASSED with an empty scan set — WS-R5 §1 has regressed"
+            exit 1
+          fi
+          echo "ok: an empty scan set is rejected"
+
+      # STEP 2. The guard's own suite. This is the one caller that sets
+      # LINT_NO_DOMAIN_SELFTEST=1, and it sets it per-spawn inside the harness — never
+      # here, so the step above and this one cannot influence each other.
+      - name: the guard's own test suite
+        working-directory: src-app/ui
+        run: node --test scripts/lint-no-domain-in-builtin.test.mjs
+
+      # STEP 3. The WORKSPACE PACKAGES' own suites (`just check-packages`).
+      #
+      # TENANCY, stated because this workflow's NAME no longer bounds its contents: this
+      # is not a domain check. It lives here because this job is already the repo's only
+      # test-running runner, it already does the `submodules: recursive` + `npm ci` that
+      # these suites need, and the header's own argument applies verbatim — "a guard
+      # nobody invokes is not a guard", and the two enforcers differ only by COST. A
+      # separate workflow would buy attribution we already get from the step name, at the
+      # price of a second checkout + `npm ci`.
+      #
+      # SUBMODULES ARE LOAD-BEARING HERE TOO, and more sharply than for the steps above:
+      # `@ziee/viz` imports `@ziee/kit`, which IS `sdk/packages/kit`. With the `sdk`
+      # submodule uninitialised, 6 of viz's 207 test files fail with
+      # `Cannot find package '@ziee/kit'` — a RED that says nothing about the code. The
+      # `submodules: recursive` on the checkout above is what keeps this step honest.
+      #
+      # Runs BEFORE `npm run check` for the same reason step 1 does: it is fast (~15s
+      # local) and specific, so a package-suite regression should be reported here rather
+      # than found at the end of the slowest chain.
+      - name: the workspace packages' own suites (check-packages)
+        run: node scripts/check-package-suites.mjs
+
+      # STEP 4. The wider FE gate the guard is one link of (tsc, the action lints, the
+      # layer-boundary guard, the unit suites). Runs LAST because it is the slowest and
+      # the least specific — a domain regression should be reported by step 1, not found
+      # at the end of a five-minute chain.
+      - name: npm run check
+        working-directory: src-app/ui
+        run: npm run check
+
+  # ── The SLOW half: the Rust twin. Split into its own job so a JS-only regression is
+  # not queued behind a Rust compile, and so the two failures are attributable at a
+  # glance in the checks list.
+  rust:
+    runs-on: ubuntu-latest
+    services:
+      # The build-DB sentinel `build.rs` expects. `postgres:18` matches
+      # `src-app/docker-compose.yaml`; the app's own runtime store is the embedded
+      # PostgreSQL the binary manages, which is not involved here.
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: postgres
+        ports:
+          - 54321:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-app
+
+      # The four source-scanning tests. `--test-threads=1` mirrors `just check-domain`.
+      # NOT filtered to a hand-listed subset: `domain_surface` selects the whole module,
+      # so a test ADDED to the twin runs here without anyone remembering to list it —
+      # which is the same "a hand-list leaks coverage" failure this round is about.
+      - name: the Rust twin (domain_surface)
+        working-directory: src-app/server
+        env:
+          CONFIG_FILE: config/dev.example.yaml
+        run: cargo test --test integration_tests domain_surface -- --test-threads=1

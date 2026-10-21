@@ -1,0 +1,35 @@
+# action-coverage allowlist (ai-actions ITEM-12 / DEC-6)
+#
+# Opt-in list of files/globs (relative to `src-app/ui/src`, forward slashes,
+# `*` = any chars except `/`, `**` = any chars incl. `/`, a trailing `/`
+# means "everything under this directory") that have been MIGRATED to the
+# actions model — i.e. their interactive user-mutation affordances are
+# expected to go through a registered `defineAction` (via `<ActionButton
+# action="...">` or `useAction`), not an inline `onClick` that calls a store
+# action directly.
+#
+# `scripts/action-coverage.mjs` only checks files listed here. An empty
+# allowlist (the default) passes trivially — enforcement grows file-by-file
+# as the codebase migrates to the actions model (DEC-6: a repo-wide inline-
+# onClick hard-fail is not statically decidable; ITEM-15 descoped it).
+#
+# One glob per line. Lines starting with `#` and blank lines are ignored.
+#
+# Example (once a directory is migrated):
+# modules/command-palette/**
+
+# --- #49 admin defineAction cleanup: surfaces migrated to the actions model ---
+# Users identity CRUD + group management (mutations dispatch runAction('user.*'/'group.*')).
+modules/user/components/user/UsersSettings.tsx
+modules/user/components/user/CreateUserDrawer.tsx
+modules/user/components/user/EditUserDrawer.tsx
+modules/user/components/user/ResetPasswordDrawer.tsx
+modules/user/components/user/UserGroupsDrawer.tsx
+modules/user/components/user/AssignGroupDrawer.tsx
+modules/user/components/group/UserGroupsSettings.tsx
+modules/user/components/group/EditUserGroupDrawer.tsx
+# Admin settings-save pages (form save dispatches runAction('*.updateSettings')).
+modules/sandbox/components/ResourceLimitsCard.tsx
+modules/jobs/pages/JobSettingsPage.tsx
+modules/provenance/components/ProvenanceSettingsCard.tsx
+modules/auth/SessionSettingsPage.tsx

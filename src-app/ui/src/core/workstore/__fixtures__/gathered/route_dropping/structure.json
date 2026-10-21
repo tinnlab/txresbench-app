@@ -1,0 +1,37 @@
+{
+  "arrays": [],
+  "axis": "rows",
+  "chunk_elements": 4,
+  "columns": [
+    {
+      "axis": "rows",
+      "dtype": "uint8",
+      "kind": "categorical",
+      "n": 5,
+      "name": "values",
+      "path": "values",
+      "shape": [
+        5
+      ]
+    }
+  ],
+  "data_type": "uint8",
+  "encoding": "zarr_v3",
+  "gathered_from": {
+    "alignment_artifact_id": "<per-run>",
+    "alignment_column": "group",
+    "column_selector": "values",
+    "sources": [
+      {
+        "artifact_id": "<per-run>",
+        "dataset_id": "ds-a"
+      },
+      {
+        "artifact_id": "<per-run>",
+        "dataset_id": "ds-b"
+      }
+    ]
+  },
+  "kind": "table",
+  "n": 5
+}

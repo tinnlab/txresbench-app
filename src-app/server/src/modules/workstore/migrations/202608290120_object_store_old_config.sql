@@ -1,0 +1,31 @@
+-- Encrypted OLD-store config preservation (#64 DEC-5) — makes a LIVE hot-cutover restart-safe for
+-- ANY store pair (cloud→cloud included), not just local→cloud.
+--
+-- THE PROBLEM: after a cutover the live handle is DualRead(new, old). Across a process RESTART the
+-- OLD store must be rebuilt to keep serving blobs the copy has not yet reached (the
+-- write-during-migration window) and to keep the retire-time re-verify honest. #63's config PUT
+-- overwrites the store config (and its credentials) with the NEW store — so the OLD store's
+-- connection config, INCLUDING its cloud credentials, would be gone at boot. Without them a
+-- cloud→cloud cutover could not rebuild the OLD fallback and a restart would strand every
+-- OLD-only blob.
+--
+-- THE FIX: preserve the OLD store's FULL connection config (backend/provider/endpoint/bucket/
+-- region/path_style + access-key-id + secret-access-key) as ONE JSON blob ENCRYPTED AT REST here,
+-- through the transition, until the migration is retired. Boot decrypts it to reconstruct
+-- DualRead(new, old) for any pair. This inherits the #60/#63 no-leak contract:
+--   * ciphertext bytea via pgcrypto pgp_sym_encrypt (`ziee_framework::secret::encrypt_secret`),
+--     NEVER plaintext; the storage_key is required to write a cloud config (encrypt_or_refuse),
+--     so a preserved cloud config always has a key available to decrypt at boot.
+--   * NO endpoint/log/error ever emits the plaintext; the masked status view carries only
+--     non-secret backend/provider/bucket labels.
+--
+-- Nullable: a local→local (or unconfigured) transition has no secret to preserve and stores NULL;
+-- boot then reconstructs the local OLD store from the known local root (no secret needed).
+-- Applied in BOTH profiles (a migration cannot be cfg-gated); only the saas routes/orchestrator
+-- that read/write it are saas-gated (cargo flag). Idempotent.
+
+ALTER TABLE public.object_store_migration
+    -- The OLD store's full connection config (JSON) ENCRYPTED AT REST — the fallback + retire
+    -- source that must survive the config switch and a restart. NULL ⇒ a local source with no
+    -- secret (reconstructed from the local root at boot). NEVER contains plaintext.
+    ADD COLUMN IF NOT EXISTS src_config_ciphertext bytea;

@@ -1,0 +1,1 @@
+/data/pbya/claude-agents/bridge-coordinator.md

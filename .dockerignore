@@ -1,0 +1,16 @@
+# Build-context hygiene for src-app/cloud-sim/worker.Dockerfile (the only Dockerfile in-tree).
+# The worker image compiles from source inside its builder stage, so none of these are needed in
+# the build context — excluding them shrinks a ~10GB context to the source tree and keeps the
+# build hermetic (no host build artifacts leak in).
+**/target
+.git
+**/node_modules
+**/dist
+*.log
+.lifecycle
+# Runtime/generated data + local caches (never inputs to the image build).
+cytoanalyst-data
+**/.cloud-sim.env
+**/.floci-sim.env
+**/.kube-config
+**/.floci-kube-config

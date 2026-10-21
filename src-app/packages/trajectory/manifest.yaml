@@ -1,0 +1,251 @@
+# trajectory — the abstracted graph + per-cell pseudotime, as ONE package (epic #125).
+#
+# TWO analyses, mirroring the `embedding` (reduce + visualize) and `differential-expression`
+# (compare + markers) shape: they share the whole neighbours/diffusion/ceiling/IO substrate
+# in `compute/_shared.py`, so one version bump moves both.
+#
+#   `trajectory.paga` — an embedding + a CATEGORICAL column -> `graph/attributed`. The FIRST
+#       in-tree producer of that already-declared open kind: a (node x node) sparse
+#       adjacency whose axis is neither of the dataset's own, which is exactly the shape
+#       `open-kinds` says it declared the kind for. Its nodes ARE the levels of the
+#       partition it was handed.
+#   `trajectory.dpt`  — an embedding + a ROOT -> a CONTINUOUS `metadata-column` (float32).
+#       Per-cell pseudotime is NOT part of the graph; it is an obs-axis column on an
+#       existing kind, which is what lets the shipped colour-by section paint it over the
+#       existing layout for free, with zero `src-app` diff. NO new kind is declared here.
+#
+# DESCOPED, on the library's own documented advice: branch detection. Its splitting
+# criterion is unstable for small branches and its own guidance is to read branching from
+# the abstracted graph instead. Shipping an unstable categorical labelled "lineage branch"
+# is exactly the authoritative-looking wrongness this epic exists to avoid.
+#
+# THE MANIFEST DECLARES ONLY WHAT THE WORKBENCH NEEDS TO LOAD, ENABLE AND EXECUTE. No
+# labels, no field order, no form schema, no forecast of produced columns — those are read
+# from the produced artifacts. The `ui:` key NAMES the view files whose CONTENTS this
+# manifest does not describe.
+id: trajectory
+name: Trajectory
+publisher: cyto
+# 0.1.0 — the package skeleton, both computes, the declarative views, the `methods:`
+# narration and the scientific-validity suite (INV-1..INV-7).
+# TEST-5 (fix/trajectory-zero-core-guard) — this `version:` line is the assertion's subject:
+# `scripts/check-processor-seed-versions.sh` requires it to move FORWARD whenever any file
+# under `src-app/packages/trajectory/` changes, because an already-provisioned deployment
+# skips re-extraction at an unchanged version and would keep running the old package. The
+# number below is the one the guard itself named (`ok trajectory — changed, version
+# 0.1.0 -> 0.1.1`), not "the next one" — the comparison is base-relative.
+# 0.1.1 — test-only: `tests/test_zero_src_app_diff.py` adopts the shared, derived
+# `_lib/zero_core_guard.py` so its two diff-scoped assertions are gated on THIS package's
+# own introducing branch instead of on whatever branch is checked out
+# (docs/design/derived-guards.md §3). No compute, view spec or contribution changed, so a
+# provisioned host's extracted package is behaviourally identical — patch.
+version: 0.1.1
+apiVersion: "1.0"
+contributes:
+  analyses:
+    # ── trajectory.paga ────────────────────────────────────────────────────────────────
+    - id: trajectory.paga
+      category: trajectory
+      title: Build an abstracted graph
+      description: >-
+        Abstract a partition of one embedding into a graph: rebuild a k-NN graph from the
+        embedding (the PCA / latent representation, never a 2-D layout), then score how
+        connected each pair of partition levels is relative to a random-connection null.
+        Commits a (node x node) attributed graph whose nodes ARE the levels of the column
+        you bind, plus a provenance report. The connectivity is a capped observed/expected
+        ratio, not a probability.
+      whenHint: >-
+        the user has an embedding and a cluster label, and wants to see how the clusters
+        connect — which groups are adjacent, and what the branching structure looks like
+      examples:
+        - build a trajectory graph from these clusters
+        - how do my clusters connect
+        - show the abstracted graph for this embedding
+      safety: read-run
+
+      # Keys on the DATATYPE, single-select. The categorical-ness of the partition is a
+      # per-ARTIFACT property (the kind declares no dtype at all), so it cannot be expressed
+      # here — the compute refuses a continuous column BY NAME instead.
+      appliesTo:
+        - slot: embedding
+          type_id: embedding
+          # A headless (agent/MCP) launch that supplied nothing auto-binds this single-value
+          # input when exactly one candidate exists. Single-select, so it is unambiguous.
+          auto_bind_sole_candidate: true
+        # REQUIRED, and an `appliesTo` entry is required BY DEFINITION: this analysis
+        # abstracts a partition, so without one there is nothing to abstract. Same opt-IN
+        # sole-candidate bind as the embedding above.
+        - slot: partition
+          type_id: metadata-column
+          auto_bind_sole_candidate: true
+
+      # A GRAPH EDGE ("which analysis yields this input?"), never an availability gate.
+      consumes: [embedding, metadata-column]
+      produces: [graph/attributed, report/qc]
+
+      ui:
+        - ui/paga.yaml
+        - ui/paga-graph.yaml
+
+      run:
+        kind: sandbox
+        runtime: python
+        entry: compute/paga.py
+        helpers:
+          - compute/_shared.py
+
+      schedule:
+        class: normal
+      arch: [x86_64, aarch64]
+
+      # Read ONLY by the frontend, and interpolated with `$param` tokens (never braces).
+      methodsText: >-
+        Abstracted the partition into a graph: rebuilt a k-NN graph over the input embedding
+        and scored each pair of partition levels by the ratio of the inter-level edges
+        observed to the number expected under a random-connection null. That ratio is a test
+        statistic capped at 1, not a probability and not a confidence, and it is not
+        comparable across different partitions or different neighbourhood sizes. The graph's
+        nodes ARE the levels of the column that was bound, so the partition is an input to
+        this result rather than a discovery of it: changing the clustering changes the
+        topology. No node positions were computed, and no test was performed of whether a
+        trajectory exists in these data at all.
+
+      # Read ONLY by the server, to narrate the exported methods document. The schema is
+      # build-gated and rejects unknown fields, and a malformed block does not degrade — it
+      # fails the manifest parse and the WHOLE package is skipped at boot.
+      #
+      # `params` maps a param to a role from a CLOSED seven-value vocabulary. This analysis
+      # applies no predicate and no threshold, so it declares only the two roles it honestly
+      # has. A param with no declared role is disclosed BY NAME by the runtime narrator.
+      #
+      # NOTE: `note:` below is currently DROPPED by the narrator for any analysis that
+      # declares no constraint-producing role, and the same branch prints a "no criteria were
+      # recorded" sentence that is FALSE here (this analysis applies no predicate). That is
+      # the shared defect #131, and the fix is landing separately. We deliberately do NOT
+      # manufacture a threshold param to force the note to render: inventing a parameter the
+      # analysis does not need, to unlock prose it does need, is a bad trade every analysis
+      # would then copy.
+      methods:
+        subject: { singular: partition level, plural: partition levels }
+        action: abstracted into a graph
+        commits: "one attributed graph over the partition's levels, labelled `{label}`"
+        commits_unlabeled: an attributed graph over the partition's levels
+        note: >-
+          The connectivity between two levels is the ratio of observed inter-level neighbour
+          edges to the number expected under a random-connection null, hard-capped at 1. It
+          is a test statistic, NOT a probability or a confidence, and it is not comparable
+          across different partitions or different neighbourhood sizes; no p-value is
+          reported, because the null model strongly overestimates the expected value. The
+          graph's nodes ARE the levels of the bound column, so the partition is an input and
+          not a discovery — a different clustering resolution is a different topology. The
+          statistic model was selected explicitly and recorded rather than defaulted, because
+          the alternative model computes a different quantity. No node positions were
+          computed, so any drawing of this graph is a layout choice made downstream. Nothing
+          here tests whether a trajectory exists in these data. This method provides no fate
+          probabilities, no per-lineage pseudotime or lineage weights, no fitted principal
+          curve, and no test of expression along an ordering; a published benchmark of 45
+          methods for this problem found no universal winner and concluded the choice should
+          depend mostly on the data's dimensions and the topology sought, with this family
+          scoring well on tree-like and complex topologies.
+        params:
+          seed: seed
+          name: output_label
+
+    # ── trajectory.dpt ─────────────────────────────────────────────────────────────────
+    - id: trajectory.dpt
+      category: trajectory
+      title: Order cells along a pseudotime
+      description: >-
+        Order the cells of one embedding along a diffusion pseudotime from a chosen root:
+        rebuild a k-NN graph from the embedding, compute a diffusion map, and assign each
+        cell a scalar distance from the root along the diffusion manifold. Commits a
+        continuous per-cell column that colours the existing layout, plus a provenance
+        report. Pseudotime is an ordering, not a time, and the root determines the entire
+        answer.
+      whenHint: >-
+        the user has an embedding and a starting population, and wants cells ordered along a
+        continuum to colour a layout by or to order genes against
+      examples:
+        - compute pseudotime for these cells
+        - order the cells from the stem cluster
+        - build a diffusion pseudotime rooted at this population
+      safety: read-run
+
+      # ONLY the embedding. An `appliesTo` entry is REQUIRED BY DEFINITION, and the root
+      # column is genuinely optional here: it is needed by the root-cluster mode and by
+      # neither of the other two, so declaring it would make this analysis un-offerable to a
+      # user who means to root by diffusion component or by barcode. It reaches the run
+      # through the view's `inputs_from` instead, and the compute refuses BY NAME when a mode
+      # is chosen whose inputs are absent — which is the right place for a per-mode
+      # requirement, since the compute is also reachable by an agent call that never rendered
+      # the form.
+      appliesTo:
+        - slot: embedding
+          type_id: embedding
+          auto_bind_sole_candidate: true
+
+      consumes: [embedding, metadata-column, graph/attributed]
+      produces: [metadata-column, report/qc]
+
+      ui:
+        - ui/dpt.yaml
+        - ui/dpt-report.yaml
+
+      run:
+        kind: sandbox
+        runtime: python
+        entry: compute/dpt.py
+        helpers:
+          - compute/_shared.py
+          - compute/_root.py
+
+      schedule:
+        class: normal
+      arch: [x86_64, aarch64]
+
+      methodsText: >-
+        Ordered the cells along a diffusion pseudotime. A k-NN graph was rebuilt over the
+        input embedding, a diffusion map was computed with an explicitly recorded number of
+        components, and each cell was assigned a scalar distance from a recorded root cell
+        along the diffusion manifold. Pseudotime is an ordering, not a time: it has no units,
+        no calibration to developmental time and no guarantee of a uniform rate, and it is
+        entirely determined by the chosen root — a different root is a different result, not
+        a different view of the same result. Cells not reachable from the root in the
+        neighbour graph are reported as unreachable rather than given a value. Branch
+        detection was not performed. Nothing here tests whether a continuum exists in these
+        data at all.
+
+      # Same #131 caveat as above: the `note:` is declared correctly and completely, and no
+      # constraint-producing param is manufactured to force it to render.
+      methods:
+        subject: { singular: cell, plural: cells }
+        action: ordered along a pseudotime
+        commits: "one per-cell pseudotime column, labelled `{label}`"
+        commits_unlabeled: a per-cell pseudotime column
+        note: >-
+          Diffusion pseudotime is a distance along the diffusion manifold from a single
+          recorded root cell. It is an ordering, not a time: no units, no calibration to
+          developmental time, no guarantee of a uniform rate, and the underlying assumption
+          that transcriptomic similarity implies developmental relation is an assumption
+          rather than an observation. The root determines the origin AND the direction of the
+          whole result, so a different root is a different result; the run records which root
+          was resolved, by which of the three offered rules, and choosing a root population
+          is a biological assertion made by the user rather than a finding. The graph must be
+          connected: cells outside the root's component are reported as unreachable and
+          recorded as missing, never given a value, because the normalisation would otherwise
+          rescale by the reachable maximum and present a partial result as a complete one.
+          The number of diffusion components computed and the number used by the distance are
+          different settings and both are recorded. Branch detection was not performed, on the
+          library's own documented guidance to read branching from the abstracted graph
+          instead. This method provides no fate probabilities or terminal-state inference, no
+          per-lineage pseudotime or lineage weights, no fitted principal curve, and no test of
+          expression along the ordering. The distance implementation still carries a
+          stationary-state contribution that other implementations omit and that its own
+          source records as likely to be removed at the next backwards-incompatible release,
+          so values are comparable within a library version rather than across one — which is
+          why the resolved versions are recorded with the result. A published benchmark of 45
+          methods for this problem found no universal winner. Nothing here tests whether a
+          continuum exists in these data.
+        params:
+          seed: seed
+          name: output_label

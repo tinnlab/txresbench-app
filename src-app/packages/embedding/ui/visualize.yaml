@@ -1,0 +1,263 @@
+# embedding.visualize declarative view_spec (Stage-0 Stage-C, ITEM-6..12, ITEM-22a).
+#
+# The MANIFEST declares `ui: [ui/visualize.yaml]`; this view names no analysis and no
+# `layout:` (INV-3). The manifest declares only load/enable/execute (INV-16); THIS file
+# owns everything the user sees + selects (INV-17); every input the run consumes is a
+# visible control passed EXPLICITLY on `run_processor` (INV-18).
+#
+# The twin of `qc/ui/qc.yaml`: one input, a handful of parameters, one Run. It PRODUCES a
+# 2-D `embedding`; it does NOT plot one — there is NO `canvas:` block (ITEM-12). §Coordinates
+# in `single-cell-viz` already renders any `{ capabilities: [plottable-xy], dims: 2 }`
+# artifact, and `embedding` declares `plottable-xy`, so the produced layout is plotted —
+# and coloured by a gene (a continuous colour via §Colour by's `metadata-column` binding) —
+# THERE. A second plotting surface here would compete (INV-19).
+id: embedding.visualize
+title: Visualize embedding
+permission: jobs::use
+
+state:
+  # The input embedding (≥3 dims) — a PCA, a Harmony latent, or an IMPORTED latent
+  # (`X_scVI`), whatever produced it (OD-2). SINGULAR. Seeded from the sole candidate when
+  # there is one; a picker otherwise.
+  embedding: { type: string, default: null }
+  # UMAP or t-SNE (ITEM-22). Default `umap`.
+  method: { type: string, default: "umap" }
+  # Neighbour / layout parameters, EXPOSED (INV-14). Text-valued (no numeric widget kind in
+  # the core vocabulary); `require.number` holds them to the grammar the compute reads.
+  nNeighbors: { type: string, default: "15" }
+  minDist: { type: string, default: "0.5" }   # UMAP min_dist — CHOSEN + recorded (INV-14)
+  metric: { type: string, default: "euclidean" }
+  seed: { type: string, default: "0" }
+  # The output 2-D embedding member NAME. `X_umap`/`X_tsne` are the compute's own fallbacks;
+  # a name has no empty answer, so it defaults to the UMAP one rather than "".
+  name: { type: string, default: "X_umap" }
+
+data:
+  # The cells-axis members already on the CHOSEN embedding's dataset — the taken-set the
+  # output-name `not_in` reads (its KEYS). Catalog-only (`as: sources`): names + ids, no
+  # bodies (INV-11). Skipped until an embedding is chosen.
+  obsSources:
+    source: axis_columns
+    args: { of: "$state.embedding", axis: cells, as: sources }
+
+const:
+  # The method vocabulary as DATA (the `methodPicker` options). VALUES are what the compute
+  # compares (`visualize.py`: `method in ("umap","tsne")`); LABELS are the user's reading.
+  methods:
+    - { value: "umap", label: "UMAP" }
+    - { value: "tsne", label: "t-SNE" }
+  # The distance metric vocabulary as DATA — an OPEN, RECORDED choice, never a recommendation
+  # (INV-13: "record the choice, do not claim one is correct"). The label below says so.
+  metrics:
+    - { value: "euclidean", label: "euclidean" }
+    - { value: "cosine", label: "cosine" }
+    - { value: "correlation", label: "correlation" }
+    - { value: "manhattan", label: "manhattan" }
+
+widgets:
+  # ── the standing HONESTY note (DEC-8 / ITEM-22a / §B.5) ───────────────────────────
+  #
+  # One calm always-visible line, not a dismissible toast and not a scare banner. It is the
+  # SAME sentence the run report records (`compute/visualize.py` `HONESTY_NOTE`) — the
+  # compute constant is the single source, and `test_view_shape.py` asserts this text equals
+  # it so the two can never drift (DRIFT-1 D2). Prose only, no `$`-ref (AlertRenderer refuses
+  # a mixed text+ref string).
+  - id: honestyNote
+    kind: alert
+    tone: info
+    text: >-
+      A 2-D embedding is a lossy summary — distances between far-apart clusters and absolute
+      positions are not meaningful. Use it to explore structure, not to measure it.
+
+  # ── the INPUT embedding ───────────────────────────────────────────────────────────
+  #
+  # Keys on the `embedding` DATATYPE regardless of producer (INV-17). It lists EVERY
+  # embedding — the ≥3-dim requirement is NOT a `source` filter: `ArtifactTypeFilter.dims`
+  # is EXACT-equality, so it cannot express "≥3", and adding a `min_dims` grammar would be
+  # an `src-app/ui` edit that breaks ITEM-29 (DEC-2). The <3-dim refusal is therefore
+  # COMPUTE-side (`visualize.py` refuses from the declared structure before reading); see
+  # the note in `checks:` and DRIFT-2.
+  - id: embeddingPicker
+    kind: artifact_ref
+    auto_bind_sole_candidate: true
+    label: Embedding
+    source: { datatype: embedding }
+    value: "$state.embedding"
+    onChange: ev.setEmbedding
+    require:
+      required: true
+      message: Choose the embedding to lay out in 2-D (a PCA, a Harmony latent, or an imported latent).
+    empty_text: >-
+      No embedding in this project yet — run a reduce (or import a latent) to produce one.
+
+  # ── METHOD + LAYOUT PARAMETERS, exposed (INV-14) ──────────────────────────────────
+  - id: methodPicker
+    kind: select
+    label: Layout method
+    options: "$const.methods"
+    value: "$state.method"
+    onChange: ev.setMethod
+
+  - id: nNeighborsInput
+    kind: text
+    label: Neighbours
+    value: "$state.nNeighbors"
+    placeholder: "15"
+    onChange: ev.setNNeighbors
+    require:
+      number: { integer: true, min: 1 }
+      message: The neighbour count must be a whole number ≥ 1.
+
+  # min_dist is UMAP-only, exposed, and its CHOSEN value is recorded, not silently inherited
+  # (INV-14). The label states the choice is the one made here.
+  - id: minDistInput
+    kind: text
+    label: Minimum distance (UMAP)
+    value: "$state.minDist"
+    placeholder: "0.5"
+    onChange: ev.setMinDist
+    require:
+      number: { min: 0 }
+      message: The minimum distance must be a number ≥ 0.
+
+  # The metric is RECORDED as the choice made, never claimed correct (INV-13). The help says
+  # so, so nothing on screen presents one metric as recommended.
+  - id: metricPicker
+    kind: select
+    label: Distance metric
+    help: >-
+      The neighbour metric is recorded as the choice you made — no metric is claimed correct
+      for every dataset.
+    options: "$const.metrics"
+    value: "$state.metric"
+    onChange: ev.setMetric
+
+  - id: seedInput
+    kind: text
+    label: Random seed
+    value: "$state.seed"
+    placeholder: "0"
+    onChange: ev.setSeed
+    require:
+      number: { integer: true, min: 0 }
+      message: The seed must be a whole number ≥ 0.
+
+  - id: nameInput
+    kind: text
+    label: Output layout name
+    value: "$state.name"
+    placeholder: "e.g. X_umap"
+    onChange: ev.setName
+    require:
+      required: true
+      not_in: "$data.obsSources"
+      message:
+        required: >-
+          The layout needs a name — it is the cells-axis member this run commits, and the
+          run refuses to invent one.
+        not_in: >-
+          "{value}" is already a column on this dataset's cells axis. Pick another name so
+          the run does not leave two columns sharing one.
+
+  - id: runBtn
+    kind: button
+    label: Visualize embedding
+    variant: primary
+    # NOT `when:` — the same deadlock rule as reduce. The disabled state DERIVES from the
+    # form's verdicts (the required embedding, the number constraints), listed underneath.
+    onClick: ev.run
+
+# NO view-side <3-dim `checks:` refusal (ITEM-0e). Like reduce's ceiling, the honest
+# predicate needs the chosen embedding's DECLARED component count as a scalar, and no
+# `data:` source in the shipped vocabulary exposes it — a `checks:` block reading it would
+# require a NEW `src-app/ui` data source, breaking ITEM-29/INV-16. The refusal is enforced
+# COMPUTE-side from the declared structure (`visualize.py`: "the input embedding declares N
+# dimension(s); embedding.visualize needs ≥3"), which an agent/MCP call reaches too. See DRIFT-2.
+
+actions:
+  - id: ev.setEmbedding
+    title: Set the input embedding
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { embedding: "$params.value" }
+
+  - id: ev.setMethod
+    title: Set the layout method
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { method: "$params.value" }
+
+  - id: ev.setNNeighbors
+    title: Set the neighbour count
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { nNeighbors: "$params.value" }
+
+  - id: ev.setMinDist
+    title: Set the minimum distance
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { minDist: "$params.value" }
+
+  - id: ev.setMetric
+    title: Set the distance metric
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { metric: "$params.value" }
+
+  - id: ev.setSeed
+    title: Set the random seed
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { seed: "$params.value" }
+
+  - id: ev.setName
+    title: Set the output layout name
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { name: "$params.value" }
+
+  # Run — DECLARED run_processor → wait_for → toast. Every input EXPLICIT (INV-18):
+  # `inputs.embedding` (the chosen embedding) + `params` (method / neighbour / layout
+  # parameters). Nothing resolved invisibly between click and job.
+  - id: ev.run
+    title: Visualize embedding
+    permission: jobs::use
+    mutating: true
+    params: {}
+    body:
+      - run_processor:
+          id: embedding.visualize
+          inputs:
+            embedding: "$state.embedding"
+          params:
+            method: "$state.method"
+            n_neighbors: "$state.nNeighbors"
+            min_dist: "$state.minDist"
+            metric: "$state.metric"
+            seed: "$state.seed"
+            name: "$state.name"
+          into: visualizeJob
+      - wait_for: { job: "$visualizeJob", until: completed }
+      - toast: { success: "2-D embedding computed" }

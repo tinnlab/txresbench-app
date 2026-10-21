@@ -1,0 +1,170 @@
+import * as React from "react"
+import { Dialog as SheetPrimitive } from "@base-ui/react/dialog"
+
+import { cn } from "../lib/utils"
+import { OverlayCloseButton } from "../internal/overlay-close"
+import { usePortalContainer, PortalContainerInherit, type PortalContainerValue } from "../kit/portal-container"
+
+function Sheet({ ...props }: SheetPrimitive.Root.Props) {
+  return <SheetPrimitive.Root data-slot="sheet" {...props} />
+}
+
+function SheetTrigger({ ...props }: SheetPrimitive.Trigger.Props) {
+  return <SheetPrimitive.Trigger data-slot="sheet-trigger" {...props} />
+}
+
+function SheetClose({ ...props }: SheetPrimitive.Close.Props) {
+  return <SheetPrimitive.Close data-slot="sheet-close" {...props} />
+}
+
+function SheetPortal({ ...props }: SheetPrimitive.Portal.Props) {
+  return <SheetPrimitive.Portal data-slot="sheet-portal" {...props} />
+}
+
+function SheetOverlay({ className, ...props }: SheetPrimitive.Backdrop.Props) {
+  return (
+    <SheetPrimitive.Backdrop
+      data-slot="sheet-overlay"
+      className={cn(
+        // data-[closed]:pointer-events-none — a closed Base-UI backdrop can linger
+        // mounted (opacity-0 but present) when its exit transition never fires a
+        // transitionend (opacity 0→0), leaving an invisible fixed inset-0 layer that
+        // eats every click. Disable its hit-testing whenever it's closed.
+        "fixed inset-0 z-50 bg-black/10 transition-opacity duration-150 data-[closed]:pointer-events-none data-ending-style:opacity-0 data-starting-style:opacity-0 supports-backdrop-filter:backdrop-blur-xs",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function SheetContent({
+  className,
+  children,
+  side = "right",
+  showCloseButton = true,
+  closeLabel = "Close",
+  onTouchStart,
+  onTouchMove,
+  onTouchEnd,
+  container,
+  ...props
+}: SheetPrimitive.Popup.Props & {
+  side?: "top" | "right" | "bottom" | "left"
+  showCloseButton?: boolean
+  /** Accessible name AND hover text for the corner \u00d7. Defaults to the English word this
+      component has always hardcoded in its `sr-only` span, so supplying it is optional and
+      omitting it is not a regression \u2014 but a translated app should supply it. */
+  closeLabel?: string
+  /** Portal target. Defaults to the document of the window this subtree renders in. */
+  container?: PortalContainerValue
+}) {
+  // Forward touch handlers to BOTH the overlay (mask) and the panel so a
+  // swipe-to-close gesture can start on either.
+  const touchHandlers = { onTouchStart, onTouchMove, onTouchEnd }
+  const portalContainer = usePortalContainer(container)
+  return (
+    <SheetPortal container={portalContainer}>
+     <PortalContainerInherit>
+      <SheetOverlay {...touchHandlers} />
+      <SheetPrimitive.Popup
+        data-slot="sheet-content"
+        data-side={side}
+        {...touchHandlers}
+        className={cn(
+          // A closed-but-still-mounted popup must not hit-test (see SheetOverlay).
+          "data-[closed]:pointer-events-none",
+          // bottom/top are CAPPED (`max-h-[85svh]`), not auto-height and not full-height.
+          //
+          // They used to carry `h-auto` while only left/right got `h-full`. This popup is a flex
+          // COLUMN whose body is `flex-1 overflow-y-auto`, and `flex-1` is inert under an
+          // auto-height parent — there is no definite height to take a remainder of. A tall
+          // bottom sheet therefore did not scroll, it GREW: measured at 3293px inside an 800px
+          // phone viewport, with its top at -2454, so its first 2454px were unreachable rather
+          // than merely off screen. `MobileShell`'s bottom "Analysis" sheet is that path.
+          //
+          // `h-full` would fix the overflow and break everything else: every bottom sheet, short
+          // ones included, would become full-screen. A CAP touches only what is too tall — a
+          // short sheet still sizes to its content, which is what `h-auto` was there for.
+          //
+          // 85svh, not 85vh/85dvh: `vh` resolves against the LARGE viewport, so with a mobile
+          // browser's toolbar showing, 85vh is taller than what the user can see — this same bug
+          // at a smaller scale. `svh` is the toolbar-visible viewport and is always safe. The 15%
+          // remainder is also the backdrop strip that keeps the sheet reading as an overlay and
+          // keeps tap-to-dismiss reachable. (The kit sidebar already uses `svh`.)
+          //
+          // The cap is the WHOLE fix; no `min-h-0` is needed on the body and adding one was
+          // measured to change nothing (see the note at `kit/sheet.tsx`'s body div). Pinned by
+          // `kit/sheet-bottom-track.test.tsx` and measured by
+          // `src-app/ui/tests/gallery-e2e/sheet-bottom-track.spec.ts`.
+          "fixed z-50 flex flex-col gap-4 bg-popover bg-clip-padding text-sm text-popover-foreground shadow-lg transition duration-200 ease-in-out data-ending-style:opacity-0 data-starting-style:opacity-0 data-[side=bottom]:inset-x-0 data-[side=bottom]:bottom-0 data-[side=bottom]:max-h-[85svh] data-[side=bottom]:border-t data-[side=bottom]:data-ending-style:translate-y-[2.5rem] data-[side=bottom]:data-starting-style:translate-y-[2.5rem] data-[side=left]:inset-y-0 data-[side=left]:left-0 data-[side=left]:h-full data-[side=left]:w-3/4 data-[side=left]:border-r data-[side=left]:data-ending-style:translate-x-[-2.5rem] data-[side=left]:data-starting-style:translate-x-[-2.5rem] data-[side=right]:inset-y-0 data-[side=right]:right-0 data-[side=right]:h-full data-[side=right]:w-3/4 data-[side=right]:border-l data-[side=right]:data-ending-style:translate-x-[2.5rem] data-[side=right]:data-starting-style:translate-x-[2.5rem] data-[side=top]:inset-x-0 data-[side=top]:top-0 data-[side=top]:max-h-[85svh] data-[side=top]:border-b data-[side=top]:data-ending-style:translate-y-[-2.5rem] data-[side=top]:data-starting-style:translate-y-[-2.5rem] data-[side=left]:sm:max-w-sm data-[side=right]:sm:max-w-sm",
+          className
+        )}
+        {...props}
+      >
+        {children}
+        {showCloseButton && (
+          <OverlayCloseButton slot="sheet-close" label={closeLabel} className="absolute top-3 right-3" />
+        )}
+      </SheetPrimitive.Popup>
+     </PortalContainerInherit>
+    </SheetPortal>
+  )
+}
+
+function SheetHeader({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="sheet-header"
+      className={cn("flex flex-col gap-0.5 p-4", className)}
+      {...props}
+    />
+  )
+}
+
+function SheetFooter({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="sheet-footer"
+      className={cn("mt-auto flex flex-col gap-2 p-4", className)}
+      {...props}
+    />
+  )
+}
+
+function SheetTitle({ className, ...props }: SheetPrimitive.Title.Props) {
+  return (
+    <SheetPrimitive.Title
+      data-slot="sheet-title"
+      className={cn(
+        "text-base font-medium text-foreground",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function SheetDescription({
+  className,
+  ...props
+}: SheetPrimitive.Description.Props) {
+  return (
+    <SheetPrimitive.Description
+      data-slot="sheet-description"
+      className={cn("text-sm text-muted-foreground", className)}
+      {...props}
+    />
+  )
+}
+
+export {
+  Sheet,
+  SheetTrigger,
+  SheetClose,
+  SheetContent,
+  SheetHeader,
+  SheetFooter,
+  SheetTitle,
+  SheetDescription,
+}

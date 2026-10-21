@@ -1,0 +1,401 @@
+{
+  "_readme": "INV-11 checkpoint ledger, as AMENDED by DEC-40. Every entry is WRITTEN BY THE HARNESS (RENDER_PERF_RECORD_SPLIT=<name> npx playwright test --config=playwright.viz.config.ts --project=chromium render-perf.spec.ts), never hand-authored. An entry records the split's MEASURED state, GREEN OR RED, per field: 0a and 0b are legitimately red because the decomposition exists to fix exactly the counters they fail. A null field means NOT MEASURED and is never filled with a plausible value. Structural thresholds and counters are monotonically non-regressing across entries; the writer throws rather than recording a structural rise. Asserted by TEST-P9 (src-app/ui/tests/viz-e2e/render-perf-splits.spec.ts).",
+  "_provenance": {
+    "_note": "METADATA added by the 2026-07-29 integrity sweep. This key documents the INSTRUMENT; it is NOT a measurement and no checkpoint field below was hand-edited.",
+    "instrument": "Checkpoints 0a, 0b, A, B, C and D were measured with the TIP harness (src-app/ui/tests/viz-e2e/ overlaid from commit 750a3bd8) run against each split's own SOURCE tree in a detached worktree. This was necessary, not preferred: writeSplitCheckpoint did not exist until Split E (99caf80b), so the harness AT those shas was physically incapable of emitting a checkpoint -- which is the real reason this ledger held one entry for twenty splits. Checkpoints E and T were measured with a harness contemporaneous with their own tree. All eight are harness-written; the 0a-D six are instrument-from-tip. See DEC-40.",
+    "gitShaSemantics": "Each entry's gitSha is the sha the SOURCE TREE was checked out at, captured by git rev-parse HEAD in a detached worktree. The pre-sweep ledger's single entry recorded Split E against cee51a59 -- Split D's commit -- because it was written from an uncommitted working tree; TEST-P9b now gates against that class of error.",
+    "countersNotPerSplitFor": "F,G,H,I,J,K,L,M,N,O,P,Q,R,S -- no archived per-split COUNTER record exists for the twelve intermediate plane extractions; their counter evidence is wave-level runs plus the final full 15-test run at the tip. Structural coverage for them is gridDecomposition.test.ts's per-split ratchet. Gap left OPEN and named; see DEC-40."
+  },
+  "splits": {
+    "0a": {
+      "gitSha": "3f521f6deb2e857e0d87958cb49dd6e56800bcb0",
+      "recordedAt": "2026-07-30T01:33:06.571Z",
+      "recordedBy": "render-perf.spec.ts (counter leg)",
+      "counters": {
+        "TEST-P1": {
+          "metric": "chromeElementsPerWheel",
+          "value": 168,
+          "budget": 0,
+          "pass": false
+        },
+        "TEST-P5": {
+          "metric": "commitsPerWheel",
+          "value": 1,
+          "budget": 1,
+          "pass": true
+        },
+        "TEST-P6": {
+          "metric": "elementsPerPaneSlope",
+          "value": 29.08571428571429,
+          "budget": 8,
+          "pass": false
+        }
+      },
+      "countersGreen": false,
+      "structural": {
+        "shellFileLines": 6100,
+        "shellBodyLines": 5430,
+        "finalCapFileLines": 1600,
+        "finalCapBodyLines": 1200,
+        "layersPresent": 1,
+        "layersDeclared": 5,
+        "meetsFinalCap": false,
+        "green": false
+      },
+      "msRatio": null,
+      "behavioural": null,
+      "complete": false
+    },
+    "0b": {
+      "gitSha": "c798ffb9db984e12222da65402a271077aa29837",
+      "recordedAt": "2026-07-30T01:37:36.273Z",
+      "recordedBy": "render-perf.spec.ts (counter leg)",
+      "counters": {
+        "TEST-P1": {
+          "metric": "chromeElementsPerWheel",
+          "value": 168,
+          "budget": 0,
+          "pass": false
+        },
+        "TEST-P5": {
+          "metric": "commitsPerWheel",
+          "value": 1,
+          "budget": 1,
+          "pass": true
+        },
+        "TEST-P6": {
+          "metric": "elementsPerPaneSlope",
+          "value": 29.08571428571429,
+          "budget": 8,
+          "pass": false
+        }
+      },
+      "countersGreen": false,
+      "structural": {
+        "shellFileLines": 6095,
+        "shellBodyLines": 5419,
+        "finalCapFileLines": 1600,
+        "finalCapBodyLines": 1200,
+        "layersPresent": 1,
+        "layersDeclared": 5,
+        "meetsFinalCap": false,
+        "green": false
+      },
+      "msRatio": null,
+      "behavioural": null,
+      "complete": false
+    },
+    "A": {
+      "gitSha": "1922ed962b1ae247813a7e5a1a6aa59ac1d11165",
+      "recordedAt": "2026-07-30T01:42:54.424Z",
+      "recordedBy": "render-perf.spec.ts (counter leg)",
+      "counters": {
+        "TEST-P1": {
+          "metric": "chromeElementsPerWheel",
+          "value": 0,
+          "budget": 0,
+          "pass": true
+        },
+        "TEST-P5": {
+          "metric": "commitsPerWheel",
+          "value": 1,
+          "budget": 1,
+          "pass": true
+        },
+        "TEST-P6": {
+          "metric": "elementsPerPaneSlope",
+          "value": 0,
+          "budget": 8,
+          "pass": true
+        }
+      },
+      "countersGreen": true,
+      "structural": {
+        "shellFileLines": 6004,
+        "shellBodyLines": 5336,
+        "finalCapFileLines": 1600,
+        "finalCapBodyLines": 1200,
+        "layersPresent": 2,
+        "layersDeclared": 5,
+        "meetsFinalCap": false,
+        "green": false
+      },
+      "msRatio": null,
+      "behavioural": null,
+      "complete": false
+    },
+    "B": {
+      "gitSha": "d558696dfe67b297304d0a2d1d55b2a81af374eb",
+      "recordedAt": "2026-07-30T01:47:22.849Z",
+      "recordedBy": "render-perf.spec.ts (counter leg)",
+      "counters": {
+        "TEST-P1": {
+          "metric": "chromeElementsPerWheel",
+          "value": 0,
+          "budget": 0,
+          "pass": true
+        },
+        "TEST-P5": {
+          "metric": "commitsPerWheel",
+          "value": 1,
+          "budget": 1,
+          "pass": true
+        },
+        "TEST-P6": {
+          "metric": "elementsPerPaneSlope",
+          "value": 0,
+          "budget": 8,
+          "pass": true
+        }
+      },
+      "countersGreen": true,
+      "structural": {
+        "shellFileLines": 5466,
+        "shellBodyLines": 4809,
+        "finalCapFileLines": 1600,
+        "finalCapBodyLines": 1200,
+        "layersPresent": 3,
+        "layersDeclared": 5,
+        "meetsFinalCap": false,
+        "green": false
+      },
+      "msRatio": null,
+      "behavioural": null,
+      "complete": false
+    },
+    "C": {
+      "gitSha": "7771f1ff26178b77d1e522a4e7f384bf7f31cea3",
+      "recordedAt": "2026-07-30T01:51:54.688Z",
+      "recordedBy": "render-perf.spec.ts (counter leg)",
+      "counters": {
+        "TEST-P1": {
+          "metric": "chromeElementsPerWheel",
+          "value": 0,
+          "budget": 0,
+          "pass": true
+        },
+        "TEST-P5": {
+          "metric": "commitsPerWheel",
+          "value": 1,
+          "budget": 1,
+          "pass": true
+        },
+        "TEST-P6": {
+          "metric": "elementsPerPaneSlope",
+          "value": 0,
+          "budget": 8,
+          "pass": true
+        }
+      },
+      "countersGreen": true,
+      "structural": {
+        "shellFileLines": 4812,
+        "shellBodyLines": 4193,
+        "finalCapFileLines": 1600,
+        "finalCapBodyLines": 1200,
+        "layersPresent": 4,
+        "layersDeclared": 5,
+        "meetsFinalCap": false,
+        "green": false
+      },
+      "msRatio": null,
+      "behavioural": null,
+      "complete": false
+    },
+    "D": {
+      "gitSha": "cee51a59a26f7252116eeedccb3beef064c4d575",
+      "recordedAt": "2026-07-30T01:56:29.693Z",
+      "recordedBy": "render-perf.spec.ts (counter leg)",
+      "counters": {
+        "TEST-P1": {
+          "metric": "chromeElementsPerWheel",
+          "value": 0,
+          "budget": 0,
+          "pass": true
+        },
+        "TEST-P5": {
+          "metric": "commitsPerWheel",
+          "value": 1,
+          "budget": 1,
+          "pass": true
+        },
+        "TEST-P6": {
+          "metric": "elementsPerPaneSlope",
+          "value": 0,
+          "budget": 8,
+          "pass": true
+        }
+      },
+      "countersGreen": true,
+      "structural": {
+        "shellFileLines": 4462,
+        "shellBodyLines": 3856,
+        "finalCapFileLines": 1600,
+        "finalCapBodyLines": 1200,
+        "layersPresent": 5,
+        "layersDeclared": 5,
+        "meetsFinalCap": false,
+        "green": true
+      },
+      "msRatio": null,
+      "behavioural": null,
+      "complete": false
+    },
+    "E": {
+      "gitSha": "99caf80bd4704f3a55c233d54681925f60a5043b",
+      "recordedAt": "2026-07-30T02:01:26.961Z",
+      "recordedBy": "render-perf.spec.ts (counter leg)",
+      "counters": {
+        "TEST-P1": {
+          "metric": "chromeElementsPerWheel",
+          "value": 0,
+          "budget": 0,
+          "pass": true
+        },
+        "TEST-P5": {
+          "metric": "commitsPerWheel",
+          "value": 1,
+          "budget": 1,
+          "pass": true
+        },
+        "TEST-P6": {
+          "metric": "elementsPerPaneSlope",
+          "value": 0,
+          "budget": 8,
+          "pass": true
+        }
+      },
+      "countersGreen": true,
+      "structural": {
+        "shellFileLines": 4462,
+        "shellBodyLines": 3856,
+        "finalCapFileLines": 1600,
+        "finalCapBodyLines": 1200,
+        "layersPresent": 5,
+        "layersDeclared": 5,
+        "meetsFinalCap": false,
+        "green": true
+      },
+      "msRatio": null,
+      "behavioural": null,
+      "complete": false
+    },
+    "T": {
+      "gitSha": "012e4194e02f5fa42b186c0876b86132df973a02",
+      "recordedAt": "2026-07-30T12:48:48.434Z",
+      "recordedBy": "render-perf.spec.ts (counter leg)",
+      "counters": {
+        "TEST-P1": {
+          "metric": "chromeElementsPerWheel",
+          "value": 0,
+          "budget": 0,
+          "pass": true
+        },
+        "TEST-P5": {
+          "metric": "commitsPerWheel",
+          "value": 1,
+          "budget": 1,
+          "pass": true
+        },
+        "TEST-P6": {
+          "metric": "elementsPerPaneSlope",
+          "value": 0,
+          "budget": 8,
+          "pass": true
+        }
+      },
+      "countersGreen": true,
+      "structural": {
+        "shellFileLines": 1899,
+        "shellBodyLines": 1525,
+        "finalCapFileLines": 1600,
+        "finalCapBodyLines": 1200,
+        "layersPresent": 5,
+        "layersDeclared": 5,
+        "meetsFinalCap": false,
+        "green": true
+      },
+      "msRatio": 0.17,
+      "behavioural": null,
+      "complete": false
+    },
+    "FIX1": {
+      "gitSha": "45ac5e24f071caf99d4ec1b459e1bb11b0e048ea",
+      "recordedAt": "2026-07-30T15:00:15.238Z",
+      "recordedBy": "render-perf.spec.ts (counter leg)",
+      "counters": {
+        "TEST-P1": {
+          "metric": "chromeElementsPerWheel",
+          "value": 0,
+          "budget": 0,
+          "pass": true
+        },
+        "TEST-P5": {
+          "metric": "commitsPerWheel",
+          "value": 1,
+          "budget": 1,
+          "pass": true
+        },
+        "TEST-P6": {
+          "metric": "elementsPerPaneSlope",
+          "value": 0,
+          "budget": 8,
+          "pass": true
+        }
+      },
+      "countersGreen": true,
+      "structural": {
+        "shellFileLines": 1899,
+        "shellBodyLines": 1525,
+        "finalCapFileLines": 1600,
+        "finalCapBodyLines": 1200,
+        "layersPresent": 5,
+        "layersDeclared": 5,
+        "meetsFinalCap": false,
+        "green": true
+      },
+      "msRatio": null,
+      "behavioural": null,
+      "complete": false
+    },
+    "FIX2": {
+      "gitSha": "c593eeb2ea3243f0c3c58086c4f9329ac847bf9f",
+      "recordedAt": "2026-07-30T18:47:58.640Z",
+      "recordedBy": "render-perf.spec.ts (counter leg)",
+      "counters": {
+        "TEST-P1": {
+          "metric": "chromeElementsPerWheel",
+          "value": 0,
+          "budget": 0,
+          "pass": true
+        },
+        "TEST-P5": {
+          "metric": "commitsPerWheel",
+          "value": 1,
+          "budget": 1,
+          "pass": true
+        },
+        "TEST-P6": {
+          "metric": "elementsPerPaneSlope",
+          "value": 0,
+          "budget": 8,
+          "pass": true
+        }
+      },
+      "countersGreen": true,
+      "structural": {
+        "shellFileLines": 1880,
+        "shellBodyLines": 1525,
+        "finalCapFileLines": 1600,
+        "finalCapBodyLines": 1200,
+        "layersPresent": 5,
+        "layersDeclared": 5,
+        "meetsFinalCap": false,
+        "green": true
+      },
+      "msRatio": null,
+      "behavioural": null,
+      "complete": false
+    }
+  }
+}

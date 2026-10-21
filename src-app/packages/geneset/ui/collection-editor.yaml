@@ -1,0 +1,260 @@
+# geneset.curate editor (Frame A) — the DRAFTABLE collection editor. Its $state binds to the
+# project-scoped `drafts` row's opaque `data` via the draftable FE binding (the mount seeds
+# $state from draft.data and debounce-persists every edit; ITEM-8). Freeze runs the
+# geneset.collection.freeze producer, minting the immutable geneset/collection (GS-INV-5).
+#
+# $state shape == the draft.data shape the freeze producer reads:
+#   { name, default_kind, sets: [ { name, kind, genes[], origin?, data_driven?, description? } ] }
+# (`mode` + `pasteText`/`gmtText` are editor-local UI state the freeze producer ignores.)
+id: geneset.curate
+title: Curate gene-set collection
+permission: drafts::use
+
+state:
+  name: { type: string, default: "" }
+  default_kind: { type: string, default: "celltype-markers" }
+  # Input mode (Manual / Paste / GMT) — editor-local UI state.
+  mode: { type: string, default: "manual" }
+  pasteText: { type: string, default: "" }
+  gmtText: { type: string, default: "" }
+  # The gene sets — an array of objects, the per-set-card repeat (list-editor CARD mode).
+  sets: { type: array, default: [] }
+
+const:
+  # A set's kind gates annotation-consumability (GS-INV-10): cell-type-markers sets are marker
+  # inputs; signatures are scoring-only.
+  kinds:
+    - { value: "celltype-markers", label: "Cell-type markers" }
+    - { value: "signatures", label: "Signatures" }
+
+widgets:
+  - id: collectionName
+    kind: text
+    label: Collection name
+    value: "$state.name"
+    placeholder: "e.g. PBMC cell-type markers"
+    onChange: gs.setName
+    require:
+      required: true
+      message: Name the collection before freezing.
+
+  - id: defaultKind
+    kind: select
+    label: Default kind for new sets
+    help: >-
+      Kind is stored per gene set (each set can be either). Marker annotation filters to
+      cell-type-markers sets — a set = one cell type. Signatures (e.g. pathways) are scoring-only.
+    options: "$const.kinds"
+    value: "$state.default_kind"
+    onChange: gs.setDefaultKind
+
+  # Manual / Paste / GMT input mode-switch (the tabs widget, ITEM-16).
+  - id: inputMode
+    kind: tabs
+    value: "$state.mode"
+    onChange: gs.setMode
+    tabs:
+      - id: manual
+        label: Manual
+        children:
+          # The per-set cards — list-editor CARD mode (ITEM-18): an editable array of `group`s,
+          # each card scoped by $item/$index.
+          - id: setCards
+            kind: list-editor
+            items: "$state.sets"
+            add: gs.addSet
+            remove: gs.removeSet
+            add_label: "+ Add gene set"
+            remove_label: "Remove set"
+            item:
+              children:
+                - id: setName
+                  kind: text
+                  label: Set name
+                  value: "$item.name"
+                  onChange: gs.setSetField
+                  args: { key: "name", index: "$index" }
+                - id: setKind
+                  kind: select
+                  label: Kind
+                  options: "$const.kinds"
+                  value: "$item.kind"
+                  onChange: gs.setSetField
+                  args: { key: "kind", index: "$index" }
+                - id: setGenes
+                  kind: token-input
+                  label: Genes
+                  value: "$item.genes"
+                  placeholder: "+ gene"
+                  onChange: gs.setSetGenes
+                  args: { index: "$index" }
+      - id: paste
+        label: Paste text
+        children:
+          - id: pasteInput
+            kind: text
+            label: Paste sets
+            help: "One set per line: name, then genes (tab / comma / space separated)."
+            value: "$state.pasteText"
+            onChange: gs.setPasteText
+          - id: pasteBtn
+            kind: button
+            label: Parse & add
+            variant: primary
+            onClick: gs.parsePaste
+      - id: gmt
+        label: Import GMT
+        children:
+          - id: gmtInput
+            kind: text
+            label: GMT text
+            help: "GMT: name <tab> description <tab> gene1 <tab> gene2 …, one set per line."
+            value: "$state.gmtText"
+            onChange: gs.setGmtText
+          - id: gmtBtn
+            kind: button
+            label: Import GMT
+            variant: primary
+            onClick: gs.parseGmt
+
+  - id: lifecycleNote
+    kind: alert
+    tone: info
+    text: >-
+      Draft — freely editable. Freezing pins this collection (a content hash) so any figure or
+      annotation that uses it stays reproducible. After that, editing forks a new version — the
+      past is never rewritten.
+
+  - id: freezeBtn
+    kind: button
+    label: Freeze — save as gene set
+    variant: primary
+    onClick: gs.freeze
+
+actions:
+  - id: gs.setName
+    title: Set the collection name
+    permission: drafts::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { name: "$params.value" }
+  - id: gs.setDefaultKind
+    title: Set the default kind
+    permission: drafts::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { default_kind: "$params.value" }
+  - id: gs.setMode
+    title: Set the input mode
+    permission: drafts::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { mode: "$params.value" }
+  - id: gs.setPasteText
+    title: Set the paste text
+    permission: drafts::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { pasteText: "$params.value" }
+  - id: gs.setGmtText
+    title: Set the GMT text
+    permission: drafts::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { gmtText: "$params.value" }
+
+  # Per-set-card CRUD — mirrors DE's group-criteria CRUD (listAppend / path-templated set /
+  # listRemove) keyed to $state.sets.
+  - id: gs.addSet
+    title: Add a gene set
+    permission: drafts::use
+    mutating: true
+    stateful: true
+    params: {}
+    body:
+      - listAppend:
+          path: sets
+          value: { name: "", kind: "$state.default_kind", genes: [], origin: "manual" }
+  - id: gs.setSetField
+    title: Set a gene-set field
+    permission: drafts::use
+    mutating: true
+    stateful: true
+    params: { index: number, key: string, value: string }
+    body:
+      - set: { "sets.{$params.index}.{$params.key}": "$params.value" }
+  - id: gs.setSetGenes
+    title: Set a gene set's genes
+    permission: drafts::use
+    mutating: true
+    stateful: true
+    params: { index: number, value: string }
+    body:
+      - set: { "sets.{$params.index}.genes": "$params.value" }
+  - id: gs.removeSet
+    title: Remove a gene set
+    permission: drafts::use
+    mutating: true
+    stateful: true
+    params: { index: number }
+    body:
+      - listRemove: { path: sets, index: "$params.index" }
+
+  # Paste / GMT parse + Freeze — GENERIC, domain-free workbench module actions
+  # (`draft.parseInto`/`draft.freeze`, registered via defineAction). `call_action` resolves them
+  # at INVOKE time; `view_id` is forwarded so the action reaches this view's store + bound draft.
+  # Parsing is client-side (DEC-1): the action parses the pasted/GMT text and appends the parsed
+  # records onto `$state.sets`, mapping each record's values onto the set's `genes` field and
+  # stamping the per-set `kind`/`origin`. Freeze looks up the view's bound draft id and POSTs the
+  # freeze (the server resolves the freeze producer from the draft's `kind`).
+  - id: gs.parsePaste
+    title: Parse pasted sets
+    permission: drafts::use
+    mutating: true
+    params: {}
+    body:
+      - call_action:
+          id: draft.parseInto
+          params:
+            view_id: "$params.view_id"
+            text: "$state.pasteText"
+            format: flexible
+            target: sets
+            values_field: genes
+            defaults: { kind: "$state.default_kind", origin: "imported:paste" }
+  - id: gs.parseGmt
+    title: Import GMT
+    permission: drafts::use
+    mutating: true
+    params: {}
+    body:
+      - call_action:
+          id: draft.parseInto
+          params:
+            view_id: "$params.view_id"
+            text: "$state.gmtText"
+            format: gmt
+            target: sets
+            values_field: genes
+            description_field: description
+            defaults: { kind: "$state.default_kind", origin: "imported:gmt" }
+  - id: gs.freeze
+    title: Freeze the collection
+    permission: drafts::use
+    mutating: true
+    params: {}
+    body:
+      - call_action:
+          id: draft.freeze
+          params:
+            view_id: "$params.view_id"

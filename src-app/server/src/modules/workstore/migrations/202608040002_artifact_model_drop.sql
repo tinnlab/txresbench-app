@@ -1,0 +1,79 @@
+-- workstore — the artifact model, DROP half (ITEM-7 + ITEM-8).
+--
+-- Stamped AFTER `202608040001_artifact_model.sql` per DEC-9: the additive half
+-- (`structure` + `meta`, the producer declarations) lands first so the schema is
+-- never ahead of the code, and only once the new declarations exist does this
+-- migration remove what they replace.
+--
+-- Realizes the design's §0.3 "Postgres — 38 → 37 tables" block verbatim:
+--
+--     artifacts  − shape, params, covered_axes, storage_layout
+--     DROP TABLE workstore_axis_entry
+--
+-- The table count goes 38 → 37 (the DROP TABLE below; zero new tables).
+--
+-- COLUMN COUNTS, counted off the SQL and verified against a fully-migrated database.
+-- The baseline `CREATE TABLE public.artifacts` (`…0004_workstore_baseline.sql`) declares
+-- **20** columns; `…0001_artifact_model.sql` adds `structure` + `meta`, so this migration
+-- runs against **22** and leaves **18**. `…0003_artifact_role.sql` then adds `role`, so
+-- the artifact model's FINISHED shape is **19** columns. (This line previously read
+-- "`artifacts` goes 21 → 17 columns", which was wrong at both ends and understated the
+-- final count by one — a reader checking the shipped schema against it went hunting for a
+-- column that never existed.)
+--
+-- Note what these counts do NOT describe: `…0001` opens with an unconditional
+-- `DELETE FROM public.artifacts`, so this is not an in-place migration of surviving rows.
+-- Every artifact row is destroyed on every path (see that file's "WHY THE WIPE IS IN
+-- *THIS* FILE" block, DEC-10 and HUMAN_FEEDBACK FB-10); the column arithmetic above is
+-- about the TABLE's shape, not about preserved data.
+
+-- ── ITEM-7 — the four columns the two declarations replace ──────────────────────
+--
+-- Each was the SERVER holding an opinion about bytes it does not open:
+--
+--   shape           INFERRED at ingest by reading the stored payload (a JSON parse of
+--                   a single-file blob, an i64-LE read of a multi-file `indptr`) and
+--                   classifying columns as continuous/categorical. That inference is
+--                   deleted by ITEM-15; INV-1 forbids it outright. Superseded by the
+--                   producer-declared `structure`.
+--   params          A bag the server SYNTHESIZED at ingest by merging three manifest
+--                   fields (`role`, `label`, `meta`) into a fourth column. `meta` is
+--                   now a first-class producer declaration carried verbatim, so the
+--                   merge has nothing left to merge.
+--   covered_axes    Written `{}` by every producer that ever wrote it — the partial-
+--                   coverage model it was for (`na_fill` over a dense per-project
+--                   entry index) goes with `workstore_axis_entry` below. Coverage is
+--                   stated in `structure`, never inferred (D24).
+--   storage_layout  Duplicated on the row a layout the DATATYPE already declares
+--                   (`StorageSpec.layout`) and the manifest entry already carries.
+--                   Two sources for one value is the ambiguity INV-2 forbids.
+--
+-- All four carried `DEFAULT '{}'::jsonb NOT NULL` (or a text default), i.e. exactly
+-- the "absence silently becomes an empty value" the second invariant forbids — which
+-- is why the replacements landed `NOT NULL` with NO default in `…0001`.
+ALTER TABLE public.artifacts DROP COLUMN shape;
+ALTER TABLE public.artifacts DROP COLUMN params;
+ALTER TABLE public.artifacts DROP COLUMN covered_axes;
+ALTER TABLE public.artifacts DROP COLUMN storage_layout;
+
+-- ── ITEM-8 — the axis-entry table ───────────────────────────────────────────────
+--
+-- INV-3: **an axis IS its key artifact**; its identity is that artifact's
+-- `content_hash`, and the axis NAME is a label, never a key.
+--
+-- This table said the opposite in the strongest form a schema can. Its PRIMARY KEY
+-- was `(project_id, axis_name, entry_index)` and all three of its indexes were keyed
+-- on `axis_name`, so the axis's identity in the database WAS its name — two projects
+-- spelling the same entity set `rows` and `row` held two unrelated axes, and one
+-- rename silently orphaned every row. Cardinality now derives from the key artifact's
+-- own declaration (`structure.axis` + `structure.n`) rather than from a COUNT(*) over
+-- name-keyed rows, so nothing reads this table and nothing writes it.
+--
+-- Dropping it also removes the only reason `copy_axes_to_project_in_tx` existed:
+-- duplicating a project already copies its artifacts, and if an axis IS its key
+-- artifact then copying the artifact copies the axis.
+--
+-- The `ON DELETE CASCADE` FK to `projects` disappears with the table; the artifact
+-- rows that now carry axis cardinality already cascade on project delete via
+-- `artifacts.project_id`.
+DROP TABLE public.workstore_axis_entry;

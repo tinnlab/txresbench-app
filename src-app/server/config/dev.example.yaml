@@ -1,0 +1,73 @@
+# CytoAnalyst dev config (per-machine).
+#
+# Copy to `config/dev.yaml` and set `jwt.secret` to `openssl rand -base64 48`.
+# The server refuses to boot on a weak/placeholder secret (see src/config.rs).
+#
+# Ports are chosen distinct from ziee (app #1) so both apps can run side-by-side:
+#   - embedded Postgres :54341   (ziee dev uses :54323)
+#   - HTTP server       :3100    (ziee dev uses :3000)
+
+postgresql:
+  use_embedded: true
+  embedded:
+    version: "18.3.0"
+    port: 54341
+    bind_address: "127.0.0.1"
+    username: "postgres"
+    password: "password"
+    database: "postgres"
+    # SDK_GAPS G3: the SDK ships no `resolve_paths`, and embedded_pg hard-requires
+    # these two paths (it `.expect()`s them). So we set them explicitly here
+    # rather than deriving from an app.data_dir the SDK config has no field for.
+    installation_dir: "../../cytoanalyst-data/dev/postgres"
+    data_dir: "../../cytoanalyst-data/dev/postgres-data"
+    timezone: "UTC"
+    log_timezone: "UTC"
+    logging:
+      collector: true
+      directory: "log"
+      filename: "postgresql-%Y-%m-%d_%H%M%S.log"
+      statement: "all"
+  pool:
+    max_connections: 10
+    min_connections: 1
+    acquire_timeout_secs: 5
+    idle_timeout_secs: 30
+    max_lifetime_secs: 300
+
+server:
+  host: "127.0.0.1"
+  port: 3100
+  api_prefix: "/api"
+  trust_forwarded_headers: true
+  rate_limit:
+    # Disabled by default for local dev + iterative testing — rapid manual
+    # clicking and e2e runs would otherwise trip the limiter. Re-enable and
+    # tune per_second/burst_size for any shared/production deployment.
+    enabled: false
+    per_second: 50
+    burst_size: 500
+
+logging:
+  level: "info"
+  format: "pretty"
+
+jwt:
+  secret: "CHANGE_ME_run_openssl_rand_base64_48"
+  issuer: "cytoanalyst"
+  audience: "cytoanalyst-api"
+  access_token_expiry_hours: 24
+  refresh_token_expiry_days: 30
+
+# At-rest secret encryption (#60). `storage_key` is the pgcrypto symmetric key used
+# to encrypt admin-configured payment credentials (the Stripe secret + webhook
+# signing secret) in the `billing_integration` table. It is a DEPLOYMENT secret like
+# `jwt.secret` — set it to a random >=32-char string (`openssl rand -base64 48`) and
+# keep it stable (rotating it makes previously-encrypted secrets undecryptable).
+#
+# UNSET (this block absent, or storage_key blank) => COMPAT MODE: no DB secret
+# storage; the app falls back to the `STRIPE_SECRET_KEY` env var exactly as before,
+# and the admin Billing-integration page's secret storage is disabled. An override
+# env var `CYTO_SECRET_STORAGE_KEY` takes precedence over this value.
+secrets:
+  storage_key: null   # e.g. "CHANGE_ME_run_openssl_rand_base64_48"

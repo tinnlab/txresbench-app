@@ -1,0 +1,876 @@
+# spatial-import-xenium — the Xenium bundle importer (#162, epic #151).
+#
+# THE SECOND IMPORTER, and that is its point. #154 shipped Visium and four items were built
+# on top of it; this one exists to find out whether the spatial abstraction generalises past
+# one vendor. Xenium is imaging-based single-molecule data, not spot-based capture, so it
+# stresses exactly the assumptions a Visium-only design could have baked in.
+#
+# ── WHY THIS IS PURE DATA ────────────────────────────────────────────────────────────
+#
+# There is no package registry to edit. `extensions/embedded.rs` bakes the whole
+# `src-app/packages` tree in with one `include_dir!`, extracts it to `<data_root>/
+# processors/` on boot, and the loader SCANS the extracted folder. A directory that exists
+# is a package that is registered. So this file plus `compute/` is the whole of the
+# contribution, and `tests/test_zero_src_app_diff.py` is what holds that shut.
+#
+# The non-package edits this branch makes are the hand-maintained ENUMERATIONS the platform
+# has no way to derive, each with a guard that fails loudly when it is not updated:
+# `packages/pytest.ini` (`testpaths`), `_lib/model_coverage_exempt.json` (the producer
+# register), and `_helpers`' spatial-arm set. Zero Rust, zero TypeScript, zero `ui/`.
+#
+# ── WHERE XENIUM GENUINELY DIVERGES FROM VISIUM ──────────────────────────────────────
+#
+# Each of these is a DECISION with a reason, not an accident. The full argument is in
+# `.lifecycle/spatial-import-xenium/DECISIONS.md`; the short forms:
+#
+# * **The coordinates are already MICROMETRES** (DEC-4). Visium stores full-resolution
+#   PIXELS and derives a `microns_per_pixel` from `spot_diameter_fullres`. Xenium's
+#   `x_centroid`/`y_centroid` are microns, so the space declares `unit: "micrometre"` and NO
+#   `microns_per_pixel` — `spatial_declarations.coordinate_space` REFUSES that field there,
+#   and `require_micron_scale` answers 1.0 by definition. The class of defect that field
+#   exists to prevent is STRUCTURALLY ABSENT on the coordinates rather than merely guarded.
+#
+# * **`cells.csv.gz`, not `cells.parquet`** (DEC-3). No parquet reader is pinned anywhere in
+#   this tree, and pinning one moves the `env-rootfs` content lock and implies an image
+#   republish. Measured: the CSV is BIT-EXACT to the parquet at float32 on two real bundles,
+#   because the vendor writes 17 significant digits. So this costs no precision. **#164
+#   inherits the unsolved half**: `transcripts.parquet` has no `.csv.gz` sibling.
+#
+# * **The image is a JPEG-2000 stack** (DEC-9/DEC-10/DEC-14). Every Xenium morphology
+#   OME-TIFF is JPEG-2000 and is `YX`, `ZYX` or a 12-file `CYX`. `ome_writer.read_image`
+#   refuses everything but a plain plane — correctly, and its comment names this exact
+#   image as the case it guards against — so `compute/xenium_image.py` does the DECLARED
+#   reduction to one plane before the shared writer is called. `imagecodecs` is required
+#   (tifffile raises without it) and is ALREADY pinned in the rootfs, so no republish.
+#
+# * **Provenance is not in the matrix** (DEC-7/DEC-8). Xenium's h5 root attributes are
+#   `{filetype, library_ids, original_gem_groups, version}` — no `software_version`, no
+#   `chemistry_description`. Everything §7.4 wants is in `experiment.xenium`, which the
+#   design's own table names for the Xenium row. And `library_ids` is the placeholder
+#   `0000000_0000000` on real bundles, so deriving the coordinate-space id from it (the
+#   Visium rule) would declare two unrelated experiments to share one frame. `roi_uuid` is
+#   used instead — read through `vendor_statement` and #320's self-naming-field rule, so a
+#   PLACEHOLDER `roi_uuid` is not an identity either (#323), and a run the vendor named nothing
+#   usable in gets a frame derived from its own MEASUREMENT — the matrix's cell ids and the
+#   centroids joined to them — and declared unverified, rather than one borrowed from the
+#   directory it was mounted under.
+#
+# * **One row is a SEGMENTED CELL whose method can vary row by row** (DEC-12). `kind:
+#   "cell"` requires a segmentation block, which is right — but XOA >= 3 mixes
+#   boundary-stain, interior-stain and nucleus-expansion segmentation WITHIN ONE RUN
+#   (measured: three methods across 358 cells in a real bundle) while
+#   `measured_entity.segmentation.method` is a single string. The mixture is NAMED and the
+#   per-cell truth is kept as a column. That the shared declaration cannot express it is a
+#   finding against #152, reported upward rather than papered over.
+#
+# ── THE ONE SHARED-CODE DEFECT THIS BRANCH FIXES ─────────────────────────────────────
+#
+# `ome_writer._reconcile_scale` read `placement["microns_per_pixel"]` and REFUSED when it
+# was absent, while `coordinate_space` REFUSES that same field for `unit: "micrometre"`.
+# Two shared rules, mutually unsatisfiable — and since every Xenium image is 0.2125 um/pixel
+# against the 0.5 um/pixel cap it is ALWAYS downsampled and therefore ALWAYS carries the
+# provenance that triggers the refusal, so NO micron-space image could ever be emitted.
+# Resolved through `SD.require_micron_scale`, the helper written for exactly that question.
+# `ome_writer.py` moved to `spatial-types/compute/` in the same change, because a leaf
+# importer should not be the source of truth for a sibling importer; both importers now
+# vendor a byte-identical copy and `tests/test_vendored_contract.py` holds that shut.
+#
+# ── WHAT IS DELIBERATELY NOT HERE ────────────────────────────────────────────────────
+#
+# * NO `trigger: on-ingest` — #154's DEC-1 applies unchanged: an import that silently
+#   REINTERPRETS an upload is not recoverable by undo, and this one mints a coordinate space
+#   every later image and every later section places itself into. A user confirms it.
+# * `spatial/boundaries` IS now emitted (#163) — the line above used to say it was not, and
+#   this is that line advanced rather than deleted. What changed and what did NOT:
+#     - `cell_boundaries.parquet` is READ when the bundle carries one, and turned into a
+#       long `vertex`-axis table plus two sibling offset `metadata-column`s (design §6.4).
+#       It is still NOT a declared member of `spatial/xenium-bundle` and must not become
+#       one: grouping needs EXACTLY ONE file per member, so declaring it would make every
+#       bundle without one ungroupable — and both real full-size Xenium bundles this was
+#       verified against ship their boundaries only as `cell_boundaries.csv.gz`. It is
+#       located by a 0-or-1 walk of the retained bundle, the way the morphology image is.
+#     - a bundle with no `cell_boundaries.parquet` emits NO boundaries artifact and NO
+#       offset columns — not empty ones — and says so in the report.
+# * STILL NO `spatial/transcripts` (#164). `transcripts.*` stays in the retained bundle,
+#   untouched, and so does `nucleus_boundaries.*`: a second boundary ROLE is not
+#   distinguishable from the first in the declaration as it stands today (see the
+#   `spatial/boundaries` comment in `spatial-types/manifest.yaml`), and emitting two
+#   artifacts a consumer cannot tell apart is worse than emitting one.
+# * NO `Protein Expression` matrix. Xenium protein is a MEAN_PER_CELL_STAIN metric scaled by
+#   a root-attribute `protein_scaling_factor` (design §15.5: it "must be divided out"), not
+#   integer UMI counts. Emitting it under `single-cell/counts` in either form would misstate
+#   what it is. Named in the report with the reason and the feature count.
+# * THE REGISTRATION OVERLAY IS NOW HERE (#301) — which retires the "NO registration overlay,
+#   and NOTHING IS COMING" paragraph this line carried until now, and #291's disclosure with
+#   it. Design §7.5 makes a rendered overlay in the `report/qc` "a required output of the
+#   importer, not a nice-to-have ... the entire verification story for step 7.3"; #156 built
+#   one for `spatial-import-visium` ONLY and closed, so until now this producer had none and
+#   said so. `compute/registration_qc.py` is this package's own, staged in `run.helpers`
+#   below, and every run that emits a morphology image now also emits
+#   `spatial-image-morphology-registration-overlay.png` as a `report/qc` artifact.
+#   WHAT IT ACTUALLY CHECKS, and it is not the same check the Visium sibling runs. Xenium has
+#   no fixed-pitch capture slide and no vendor `in_tissue` flag, so neither of that module's
+#   two referents transfers. What Xenium has instead is that the vendor SEGMENTED these cells
+#   from this very image: so every cell centre is placed through the image's DECLARED
+#   `to_space` — read back out of the emitted artifact's own OME-XML, not from the entry dict
+#   — onto a signal mask derived from the emitted PIXELS, and scored as how far above CHANCE
+#   the cells land on signal (`signal_lift`, 0 at chance and 1 at perfect, where chance is the
+#   mask's own area fraction). The pixels and the cell table are two independent recordings
+#   and neither is a function of the affine, which is what makes the referent EXTERNAL. On the
+#   two real vendor bundles the declared placement scores 0.608 and 0.536; a 2x misscale, a
+#   0.5x misscale and a transpose all score 0.000.
+#   AND IT SAYS WHICH OF THE TWO VENDOR STATEMENTS PLACED THE IMAGE. A Xenium bundle states
+#   its pixel size twice and they can disagree; `stated_scales` (#269) measures the
+#   disagreement and says in its own warning that deciding it needs the control §7.5 asks for.
+#   This is that control, so when the two DIFFER it scores the placement the OTHER statement
+#   implies against the same pixels and reports both side by side — and the applied statement
+#   is named in `placed_by`, in the report, and BURNED INTO THE OVERLAY'S OWN PIXELS, so the
+#   provenance survives the picture being copied out of the report. Measured: with
+#   `experiment.xenium` wrong by 5% the applied placement scores 0.041 and FAILS while the
+#   image's own OME-XML statement scores 0.608 and passes, which is the overlay deciding.
+#   WHAT IT STILL DOES NOT DECIDE, stated rather than implied — a disclosure that swapped
+#   "judged by nothing" for "judged, fully" would be the same overstatement one sign flipped.
+#   It cannot see a misregistration that moves the image and the cells TOGETHER (that is not a
+#   misregistration, it is a different frame), and it does not resolve a scale error below
+#   about 2%: measured, a 2% misscale scores 0.303 against a 0.4 floor. Every score is
+#   therefore reported as a NUMBER beside its verdict rather than as a word, and a failing
+#   verdict never refuses the import — the artifacts are all emitted and the report says what
+#   happened, the same posture a damaged image already gets.
+#   IT IS ALSO NOT A CONFORMANCE GATE, and §12.2 is why: "no gate can check a registration.
+#   The compensating control is the rendered overlay (§7.5) — a human check, not a mechanical
+#   one." The score is a diagnostic that makes the picture worth opening; the picture is the
+#   control.
+#   THE RESIDUE THIS PACKAGE CANNOT FIX FROM HERE: `spatial-types/compute/`'s shared modules
+#   carry prose written when no overlay existed for this producer, and they are vendored
+#   BYTE-IDENTICALLY into all three spatial packages — so correcting them there forces a
+#   matching edit inside `spatial-import-visium`, which a concurrent branch owns. That is
+#   tracked as #302 and is named here rather than left as a stale claim with no pointer.
+#
+# ── EVERY DECLARED DEPENDENCY IS ALREADY PINNED ──────────────────────────────────────
+#
+# `server/build_helper/processor_manifest.rs` resolves each `run.dependencies[]` against
+# `env-rootfs/single-cell/requirements.txt` AT BUILD TIME, so a library that is absent there
+# — or a range the pin falls outside — fails `cargo check` rather than a user's sandbox job.
+# Measured against the pins on this branch: numpy 2.4.6, scipy 1.17.1, pandas 2.3.3, h5py
+# 3.16.0, tifffile 2026.3.3, imagecodecs 2025.11.11, pyarrow 25.0.0.
+#
+# `env-rootfs/` IS touched by #163, and the paragraph here used to say it was not. The
+# `(count, sha256)` content lock in `differential-expression/tests/test_rootfs_deps_r.py`
+# MOVES, and is re-recorded in the same commit with the reason — which is the remedy that
+# assertion's own message prescribes. What does NOT follow is the image republish #162
+# predicted: `pyarrow` is already IN the shipped image at exactly the pinned version, as a
+# hard transitive of the already-pinned `spatialdata==0.7.3`, so the pin freezes what ships.
+# Verified by RUNNING `import pyarrow` inside the shipped rootfs under `bwrap`, not by
+# reading a dependency graph.
+id: spatial-import-xenium
+name: Import Xenium (Onboard Analysis)
+publisher: cyto
+# Bump on ANY file change in this package — the seed reconciliation keys on it.
+#
+# 0.1.1 — #160, test-only: `tests/test_bundle_container.py`'s basename matcher was a FOURTH
+# copy of the core's member-matching rule, and it had drifted — its docstring cited
+# `normalize_member_name`, which #160 deleted; it folded full Unicode where the core folds
+# ASCII; and it did not strip the compression suffix the core strips. It is corrected and
+# pinned to `server/src/modules/dataset/member_match_cases.json`, the table the other three
+# implementations already answer to. No compute, manifest surface or declaration changed.
+#  0.2.0 — #211: the spatial declarations are MIRRORED into the coordinates store's own
+#          `attributes.cyto` (`structure['cyto_spatial']`), so a SANDBOXED consumer can
+#          read the coordinate space, the micron scale (and its provenance), the
+#          measured entity, the positioning and the section. `meta` never crossed into
+#          the sandbox; the store's own bytes do. Reader side: `require_spatial_declarations`,
+#          which REFUSES rather than defaulting. `coordinate_space()` gains optional
+#          `microns_per_pixel_source` / `coordinate_space_source` so a scale's provenance
+#          travels with the scale (#222). The coordinates entry's `meta` key set is
+#          UNCHANGED; a `spatial/image` entry gains `microns_per_pixel_source` in
+#          both its `meta` and its OME payload, because a scale without the record
+#          of which leg produced it is a number no consumer can audit. Additive and
+#          safe for an old decoder, but not "unchanged" — an integrator trusts a
+#          changelog line instead of re-reading the diff.
+#  0.3.0 — #163: `spatial/boundaries`. The Xenium `cell_boundaries.parquet` becomes a long
+#          `vertex`-axis table plus `boundary_vertex_start`/`boundary_vertex_count` offset
+#          columns on the cells axis (design §6.4). Adds ONE dependency (`pyarrow`), ONE
+#          helper (`compute/boundaries.py`), one datatype to `produces`, and moves the env
+#          recipe's content lock. Additive: a bundle with no boundaries parquet produces
+#          exactly the artifacts 0.2.0 produced, byte for byte.
+#  0.4.0 — #247: A KEY IS REMOVED FROM THE EMITTED ARTIFACT. `meta.boundary_coverage` and
+#          `report.boundaries.coverage` no longer carry `consistent` — the
+#          `true|false|null` placement verdict 0.3.0 introduced, part of which was a
+#          hard-coded `_SCALE_HINT_MAX = 5.0` this importer invented. Design §7.3
+#          prescribes no coverage arithmetic (its rule is "declare the space, never the
+#          scale factor alone") and §7.5 names the compensating control as the
+#          registration QC overlay (#156), which compares against an EXTERNAL referent;
+#          the bounded quantity (segmentation extent / centroid extent) is a function of
+#          cell density and border margin, measured nowhere, with no published tolerance
+#          to adopt. A decoder that read `consistent` gets a KeyError, not a default:
+#          this is a removal, not an additive change, which is why it is a minor bump.
+#          What remains is what the artifact supports — `overlaps`, `centroids_contained`
+#          and the raw `extent_ratios`, now always a 2-element `[x, y]` with `None` for an
+#          axis whose centroid extent is a point (0.3.0 DROPPED that axis, so a lone y
+#          ratio sat in x's position).
+#          THE CONSEQUENCE FOR A HUMAN: the import summary's `Segmentation boundaries`
+#          section is now shown for the two FACT failures only — the extents do not
+#          overlap, or the centroids are not inside the polygon extent on a set that
+#          declares every cell has one — and never for a ratio. It gains a
+#          `measured extents — polygon extent / centroid extent: x …, y …` line, because
+#          the note points a reader at a number the page did not previously show. A
+#          contained-but-grossly-misscaled pair (a uniform unit error) is therefore
+#          reported to NOBODY by this importer; that judgement is #156's, and the raw
+#          ratio is what a reader has until it lands.
+#          No artifact already produced is re-imported, backfilled or flagged; a store
+#          written by 0.3.0 keeps its `consistent` key and no consumer in this tree reads
+#          it. The store's own bytes are unchanged — the declarations mirror is written
+#          before this block is added to `meta`.
+#  0.5.0 — #227: the vendored `compute/ome_writer.py` becomes the byte-identical copy of the
+#          promoted file, which now writes TILED OME-TIFFs (`tile=(512, 512)`) at every
+#          pyramid level instead of full-image-width strips. This package's own compute,
+#          manifest surface and tests are UNCHANGED; what changes is the bytes every
+#          `spatial/image` it emits are packed into. Pixels, extents, OME-XML and the
+#          display-derivative provenance are identical — the layout tags are not. This is
+#          the package whose multi-GB morphology image the tiling exists for.
+#  0.6.0 — #269: AN IMAGE THAT USED TO BE REFUSED IS NOW EMITTED. `check_stated_scales`
+#          compared `experiment.xenium:pixel_size` against the morphology OME-XML's
+#          `PhysicalSizeX/Y` and, above a hard-coded `_STATED_SCALE_RTOL = 1e-6`, raised
+#          `ImageConversionError` — the whole image became an `images_not_emitted` entry.
+#          THE CONSEQUENCE, stated plainly: every bundle whose two stated pixel sizes
+#          differ by more than one part in a million now KEEPS its `spatial/image`, placed
+#          on `experiment.xenium:pixel_size`, where 0.4.0/0.5.0 dropped it. Nothing that was
+#          emitted before stops being emitted; this only adds images back.
+#          WHY. `1e-6` had no basis — no vendor statement on the two fields' precision, no
+#          measurement, no design section. It was MEASURED on 10x's own published bundles:
+#          eight of them, XOA 1.0.1 -> 3.0.0, all writing the identical decimal literal
+#          `0.2125` in both files, relative difference exactly 0.0, SPREAD ZERO. A tolerance
+#          is calibrated from the spread of a legitimate population and there is none, so no
+#          band replaces it — the difference is measured and REPORTED. Design §12.2
+#          corroborates: no mechanical test can decide placement, so an uncalibrated one
+#          must not decide whether the user gets the image; §7.5 names the control that can,
+#          and it needs the image. Same shape as 0.4.0/#247.
+#          TWO CORRECTIONS TO #269's OWN TEXT, made rather than repeated. (1) It said 1e-6
+#          was "tighter than a float32 round-trip in places". False: float32's worst
+#          relative round-trip error is 2^-24 = 5.96e-08 and 0.2125 round-trips at 2.80e-08,
+#          so the band was ~17x LOOSER than that population's worst case and no re-exported
+#          bundle could have tripped it. The band's fault was never tightness; it was that nothing
+#          measured said where it should sit. (2) §12.2 does not FORBID a producer-side
+#          refusal — it is filed under "Known weaknesses" and says no gate CAN check a
+#          registration. The measurement is the argument; §12.2 is corroboration.
+#          AND ONE HONESTY NOTE THAT COST A HIGH AUDIT FINDING: §7.5's overlay is #156 and
+#          IS NOT BUILT. This package emits none. So 0.6.0 does not hand a mechanical
+#          control over to a human one — it reports the measurement and emits the artifact
+#          the eventual control will need, and `report.scale_referent.compensating_control`
+#          says so in the artifact rather than only in this comment.
+#          `check_stated_scales` is GONE, replaced by `stated_scale_agreement`, which
+#          returns facts and raises nothing — a stale caller gets an `AttributeError`
+#          rather than a silently absent check.
+#          A VALUE IN `meta` CHANGES, which is why this is a minor bump and not a patch:
+#          `stated_scales.agreement` no longer takes the value `"checked"` (it meant
+#          "compared and passed the band", and there is no band). It is now one of
+#          `identical | differs | single-source | unreadable-unit` — four outcomes where
+#          there were three, keeping the distinction between a check that STOPPED RUNNING
+#          and one that was NEVER AVAILABLE. A decoder matching `"checked"` stops matching.
+#          FIVE keys are ADDED to `stated_scales`: `relative_difference_x` /
+#          `relative_difference_y` (the measured figure, present only for an axis that was
+#          actually comparable — absent, never `0.0`, when there was nothing to compare),
+#          `applied_source` / `applied_pixel_size_um` (WHICH of the two statements built the
+#          affine, so a disagreeing bundle's placement is declared rather than picked
+#          silently), and `unreadable_unit_axes` (an axis that DID state a size in a unit
+#          this importer cannot convert, recorded even when the OTHER axis compared fine —
+#          that mixed case used to leave no trace at all).
+#          `report.scale_referent` gains a `reports` key and a `compensating_control` block,
+#          and no longer claims to `close` a one-sided disagreement, because it no longer
+#          does. `does_not_close` additionally names a gap this change makes reachable: a
+#          disagreeing image now REACHES a sandboxed consumer, and `stated_scales` does not
+#          ride the OME `Description` payload that carries the affine there, so that
+#          consumer sees a placement with no record that its scale was contested. Filed as
+#          #279, not fixed here — `_PLACEMENT_KEYS` lives in the triplicated
+#          `spatial_declarations.py` and changing it means bumping three packages.
+#          `agreement` is `identical` when the two parsed values differ by no more than the
+#          float64 error THIS IMPORTER's own unit conversion can introduce
+#          (`_CONVERSION_ULPS = 2`, enumerated in `_STATED_SCALE_ULP_STEPS` from the four
+#          rounding steps this importer performs; measured worst case 2.0 ulp across every
+#          unit in `_OME_LENGTH_UM`, attained by an ordinary four-digit pixel size restated
+#          in angstrom — so the measured lower bound MEETS the enumerated upper bound and the
+#          constant is determined to a single value rather than an interval. A test re-derives
+#          the enumeration and re-measures the sweep, and refuses 1 or 3; a constant nothing
+#          pins is the defect this branch is about. Earlier drafts of this line said 1.18 ulp
+#          and then 1.0 ulp — the first was the relative difference divided by 2^-53, the
+#          second a sweep whose quantities never reached the bound. Both corrected here.). It is not a vendor tolerance and it withholds no artifact: it
+#          stops a bundle that restates 0.2125 um as `2.125e-05` cm being told the two
+#          numbers disagree over a difference this importer created. The nearest real
+#          population, a 32-bit-float re-export, sits at 2.1e8 ulp — eight orders above the
+#          floor, and TEST-11 pins that it is still reported as `differs`.
+#          THE CONSEQUENCE FOR A HUMAN: a disagreeing bundle produces an image plus a loud
+#          `image_warnings` entry naming BOTH numbers, the measured relative difference per
+#          axis, and the fact that only the registration overlay can say which is right —
+#          where 0.4.0 produced no image and an `images_not_emitted` line.
+#          No artifact already produced is re-imported, backfilled or flagged. A store
+#          written by 0.4.0 keeps `agreement: "checked"`; no consumer in this tree reads it.
+#          VERSION COLLISION, resolved rather than merged over: this branch chose 0.5.0 and
+#          #227 landed on 0.5.0 first — two correct edits producing one identical line,
+#          which is precisely what `tests/test_package_registration.py` records as having
+#          happened once before and what `check-processor-seed-versions` exists to catch.
+#          Renumbered to 0.6.0 on top of #227's entry; the floor in that test moves with it.
+#  0.7.0 — #266: THE EMITTED OME-XML NOW DESCRIBES THE IMAGE THAT WAS ACTUALLY WRITTEN, and
+#          an image it cannot describe that way is NAMED rather than half-written. The
+#          vendored `compute/ome_writer.py` becomes the byte-identical copy of the promoted
+#          file again; this package's own compute, manifest surface and tests are UNCHANGED.
+#          WHAT MOVES. `write_ome_tiff` classified `photometric` with one equality on one
+#          dimension (`arr.shape[2] == 3`), but `xenium_image.read_plane` returns `YXS` for
+#          any sample count. For `S` != 3 the writer fell through to `minisblack` with no
+#          `planarconfig`, and tifffile then read the SAMPLE AXIS AS X: a (900, 700, 4)
+#          plane emitted `SizeX="4" SizeY="700" SizeC="900"`. The pixels round-tripped, so
+#          nothing errored — but every OME-aware consumer read nonsense, and #227's tiling
+#          padded each of those 900 mis-shaped 4x700 "planes" to a whole 512x512 tile.
+#          `S == 1` was broken by the same expression and is fixed with it.
+#          AN IMAGE THAT USED TO BE EMITTED IS NOW REFUSED, and the direction is deliberate.
+#          `S` outside {1, 3, 4} is left out with a named reason instead of written. Not
+#          because it cannot be described correctly — `minisblack` + `planarconfig="contig"`
+#          describes any `S` truthfully — but because a CORRECT header is not sufficient:
+#          `omeTiffPyramid.ts`'s two multi-plane refusals both PASS for such a file, its
+#          interleave rule is `samples === 3 || samples === 4`, and it would render sample 0
+#          as the whole image in silence. On 0.6.0 the same input emitted 300 top-level IFDs
+#          and got a NAMED `MultiPlaneImageUnsupportedError`, so emitting the truthful file
+#          would have traded a loud refusal for a silent partial render. Widening it is #288.
+#          Also refused: a BILEVEL (bool) plane with more than one sample, which the pinned
+#          tifffile cannot write losslessly (~46% of samples decode back changed, measured);
+#          and an array whose `ndim` is not 2 or 3, which 0.6.0 wrote as a mis-headed
+#          ZCYX/TZCYX file. All three raise `ImageConversionError`, which `emit_image`
+#          already catches, so each costs ONE image and never the import.
+#          UNCHANGED: a 2-D plane and an `(H, W, 3)` plane emit BYTE-IDENTICAL files, at a
+#          flat and a pyramid size and across dtypes — asserted executably, not assumed.
+#  0.9.0 — #291: THIS PACKAGE STOPS DEFERRING THE BOUNDARY-PLACEMENT JUDGEMENT TO A CONTROL
+#          THAT, FOR THIS PRODUCER, DOES NOT EXIST. No CHECK is added or removed and no
+#          refusal changes. What moves: THREE emitted strings, TWO new report keys, one new
+#          rendered section, and six prose sites.
+#          (0.8.0 carries no entry of its own — the number was taken by a renumber.)
+#          THE REPORT GAINS KEYS, so a consumer reading this entry is told the shape moved:
+#          `boundaries.placement_judgement` (a whole block, on every bundle with boundaries)
+#          and `scale_referent.compensating_control.built_for` / `.tracked_as`. Nothing is
+#          removed and no existing key changes type; `boundary_coverage`'s key set is
+#          byte-for-byte #247's.
+#          WHAT WAS WRONG. #247 removed `coverage_against`'s invented `_SCALE_HINT_MAX = 5.0`
+#          — correctly: §7.3 prescribes no such arithmetic and prior art (SpatialData, Nature
+#          Methods 2024) places by a DECLARED transformation rather than inferring from
+#          extents — and deferred the placement judgement to "#156's registration QC overlay"
+#          in three places in `compute/boundaries.py`. #156 built that overlay for
+#          `spatial-import-visium` only (`compute/registration_qc.py` is in that package and
+#          nowhere else) and is CLOSED. So on the Xenium path the deferral target is not
+#          there: #247's DEC-5 residue — "a uniform scale error, a 1000x pair, satisfies both
+#          remaining booleans and is now caught by nothing" — is UNQUALIFIED here, not
+#          temporary, because the mitigation it named covers a different producer.
+#          WHAT MOVES. The benign coverage note (the string that reaches
+#          `meta.boundary_coverage.note` and `report.boundaries.coverage.note` on every
+#          well-placed bundle) now DISCLOSES, in the shape #269 established one module over:
+#          the control §7.5 requires is NOT BUILT for this importer, #156 built it for Visium
+#          only, Xenium boundary placement is judged by nothing today downstream included, and
+#          the gap is #291. The same correction lands in `coverage_against`'s and
+#          `coverage_is_reportable`'s docstrings, in `import_xenium.py`'s boundaries-note
+#          block, in this file's "NO registration overlay" paragraph (which claimed the
+#          overlay was "being built in parallel"), and in three test docstrings that repeated
+#          the claim as rationale.
+#          WHAT DELIBERATELY DOES NOT MOVE. No producer-side ruling is reinstated and no
+#          tolerance is invented — a third invented number would be the defect this whole
+#          cluster is about. `coverage_against`'s key set, its facts, its precedence and its
+#          raw ratios are byte-for-byte the ones #247 left; #247's exact-key-set and
+#          prose-ban guards are re-asserted against the NEW text.
+#          SUPERSEDES THE "COMING SOON" FRAMING IN THE OLDER ENTRIES ABOVE — all THREE of
+#          them. 0.4.0's "the raw ratio is what a reader has until it lands"; 0.6.0's "the
+#          artifact the eventual control will need"; and 0.6.0's account of the emitted
+#          disagreement warning as carrying "the fact that only the registration overlay can
+#          say which is right", which describes a sentence 0.9.0 rewrote — the warning now
+#          says that overlay is NOT COMING for this producer. All three read as though #156's
+#          overlay were arriving here. It is not, and was never going to: #156 shipped for
+#          Visium and closed. Those entries are history and are left as written; this one is
+#          the correction, and #301 is the work item that would actually build the overlay.
+#          SCOPED TO PLACEMENT. What no control here can answer is whether the DECLARED
+#          transform puts the geometry in the right place — that needs a referent outside the
+#          bundle. It is not a claim that nothing is checked: `stated_scales` and
+#          `coverage_note` are real producer-side measurements and both are reported.
+#          AND THE DISCLOSURE IS SELF-INVALIDATING — as far as a detector can be.
+#          `tests/test_placement_judgement_disclosure.py`
+#          asserts that no registration QC exists for this package — no module, no staged
+#          helper, no declared overlay output — with the identical detector run against
+#          `spatial-import-visium` as a positive control, so the negative answer means "there
+#          is none here" rather than "the check stopped working". Build one and it goes RED
+#          and names every prose site to update, instead of leaving the next stale claim (#294).
+#
+# 0.9.1 — TEST-DIRECTORY ONLY, no compute, no ui, no declaration change (#299/#265/#238/
+#          #268/#282). This package's two branch-diff guards in
+#          `tests/test_boundaries_long_table.py` are routed through `_lib/zero_core_guard`'s
+#          self-limiting gate, keyed — like the sibling guard already beside them — on the
+#          ADD of `compute/boundaries.py`, the producer whose existence IS #163's subject.
+#          Unscoped they pinned `spatial-types/` and three `_lib` modules byte-identical
+#          against a MOVING `origin/main` tip for EVERY later branch, which is unsatisfiable
+#          for any branch touching the OME-TIFF writer (#162 promoted its source of truth
+#          into `spatial-types/`) and directly contradicts
+#          `scripts/check-processor-seed-versions.sh`, which REQUIRES that manifest to move
+#          when that package's files do. No allow-set was widened and no assertion removed —
+#          `docs/design/derived-guards.md` §5 names both as not the repair; the property is
+#          real and only its SCOPE was wrong. `compute/boundaries.py` is NOT touched by this
+#          branch (it is #291's).
+#
+#          WHY 0.9.1 AND NOT 0.8.1, recorded because the near-miss is the useful part: the
+#          merge target (`origin/main` @ `20ff18e5`) reads 0.8.0, so 0.9.0 and 0.8.1 both
+#          LOOK free from this branch's merge base and neither is — `#291`
+#          (`feat/xenium-placement-disclosure`) has already claimed 0.9.0 on origin. This is
+#          the fifth consecutive version collision on this repo's processor manifests (#300
+#          tracks the pattern), and it is the one thing a base-relative guard structurally
+#          cannot see.
+#
+#          RESOLVED AT MERGE, and the resolution is recorded rather than left to be inferred:
+#          #291 LANDED FIRST (`origin/main` @ `c2247e43`, which reads 0.9.0), so 0.9.1 is now
+#          an ordinary forward bump from the merge target and the two changelog entries above
+#          and below are BOTH kept — this one and #291's. The sentence that used to sit here
+#          ("if #291 lands AFTER this branch…") described a branch order that did not happen
+#          and is removed rather than left to go quietly stale, which is the failure mode this
+#          paragraph exists to name.
+#
+#          The version moves at all because `check-processor-seed-versions.sh` is
+#          base-relative over the whole package DIRECTORY, `tests/` included.
+#
+# 0.9.2 — #296/#297/#298: the three image-failure escapes #292's sweep found. `read_plane`'s
+#          `_PROGRAMMING_ERRORS` deny-list is gone (it re-raised six types this module had
+#          already measured arriving from DATA, aborting the whole import over one damaged
+#          vendor file); `write_ome_tiff` converts its allocation and encode failures the way
+#          `read_image` and `downsample` already did; and the four smaller escapes — an
+#          unwrapped `tifffile` re-open, deferred imports outside their `try`,
+#          `_reconcile_scale`'s unvalidated types, the visium handler's own `KeyError` — are
+#          closed. PATCH, not minor: no input that emitted before emits anything different
+#          (pinned byte-for-byte against `origin/main`'s own writer); what changed is which
+#          failures cost ONE image instead of the matrix, the coordinates, the columns and
+#          the report. The version moves at all because `check-processor-seed-versions.sh`
+#          is base-relative over the whole package DIRECTORY, and because the vendored
+#          `compute/ome_writer.py` changed in ALL THREE packages — bumping only the one that
+#          "owns" the change is the exact miss that
+#          `test_a_vendoring_package_whose_files_changed_also_moved_its_manifest_version` closes.
+#
+# 0.9.3 — #301: design §7.5's REGISTRATION QC OVERLAY, built for this producer. Adds one
+#          helper (`compute/registration_qc.py`), one dependency (`pillow`, already in the
+#          image), and one emitted `report/qc` row per run that emits a morphology image:
+#          `spatial-image-morphology-registration-overlay.png`. The `registration_qc` block
+#          joins `xenium-import-report.json`, the verdict lines join both report entries'
+#          `meta` (the one channel this app renders — #223), and the overlay is embedded in
+#          `xenium-import-summary.html` above the facts table.
+#          AN INTEGRATOR SHOULD EXPECT: one MORE artifact in the manifest, named above so it
+#          does not have to be discovered by diffing; and the corrected placement prose. What
+#          they should expect NOT to move: every artifact that shipped at 0.9.2 is
+#          byte-identical at 0.9.3 — not one coordinate, extent, affine, column, matrix or
+#          declaration changes, and no already-imported dataset is re-imported or backfilled.
+#          PATCH, not minor, on `check-processor-seed-versions.sh`'s stated "patch for a fix,
+#          minor for behavior" convention, read as the sibling's changelog reads it: a minor
+#          when an emitted NUMBER or a DECLARATION moves. Neither does. The argument for a
+#          minor — that a new manifest row IS a behaviour change for an integrator — is
+#          recorded rather than dismissed, and answered by naming the new row here.
+#          IT ALSO INVERTS TWO STANDING CLAIMS THIS PACKAGE MADE, which is the half worth
+#          reading before the diff: `pillow`'s deliberate absence (see the dependency block),
+#          and `tests/test_placement_judgement_disclosure.py`, which asserted that NO
+#          registration QC exists here and enumerated the prose sites that would go stale the
+#          day one did. That test is INVERTED, not deleted — it now asserts the overlay exists
+#          and is staged, with the same detector and the same `spatial-import-visium` positive
+#          control — and every site it named is corrected.
+# 0.9.5 — #319 / #320, the two DECLARATION RESIDUES of the rule #270/#271 established: emit what
+#         was verified, disclose what was inferred, never let an inference occupy a field a
+#         consumer reads as vendor fact. A PATCH, on the same reasoning as the rows above: no
+#         emitted NUMBER moves and no manifest row is added. What moves is that two fields stop
+#         carrying an unverified CLAIM — `plane_selection.channel_name`/`available` on a
+#         multi-`<Image>` OME document (#319), and `section.sample_id` when `region_name` is only
+#         the generic name of its own field (#320) — and each refusal is now DISCLOSED
+#         (`channel_name_rule: "unverified-channel"`, `sample_id_source:
+#         "non-identifying-region-name"`) rather than left as an absence.
+#         BOTH CHANGED FILES ARE STAGED FILES — `compute/import_xenium.py` is `run.entry` and
+#         `compute/xenium_image.py` is in `run.helpers` below — so the bump is meaningful: it is
+#         the seed cache key `extensions/embedded.rs` compares before re-extracting, and without
+#         it an already-provisioned deployment keeps running the old kernel. [TEST-12 is the
+#         repo's own scoped answer to "did the version actually move for this branch":
+#         `just check-processor-versions` -> `scripts/check-processor-seed-versions.sh origin/main`.
+#         A package test cannot ask a commit-range question honestly — see
+#         `tests/test_unverified_declarations.py::test_the_manifest_bump_covers_the_files_this_branch_changed`.]
+# 0.9.6 — #323, the residue #320 measured and filed rather than half-fixed: `coordinate_space_id`
+#         was a three-rung ladder on which EVERY rung could answer with a value two unrelated runs
+#         share — each rung read the vendor string RAW (never through `vendor_statement`, so
+#         `roi_uuid: "unknown"` WAS the frame identity), and the bottom rung was the bundle
+#         directory's basename, which is the SANDBOX MOUNT NAME and therefore plausibly the
+#         constant `bundle` for every Xenium import in a deployment. Two unrelated experiments
+#         declared to share one coordinate frame is one tissue's image registered against the
+#         other's cells — the exact failure this ladder's own docstring rejects `library_ids` for.
+#         A PATCH on the same reasoning as the rows above: no emitted NUMBER moves and no manifest
+#         row is added. What moves is that a frame identity is now either the vendor's own
+#         (read through `vendor_statement` + #320's self-naming-field rule, and it must be a
+#         STRING — a number passes both identity predicates unexamined) or DERIVED from the run's
+#         own MEASUREMENT — the matrix's ordered cell ids AND the centroids joined to them —
+#         and declared unverified: `xenium:unverified-space:<32 hex>`, with
+#         `coordinate_space_source` naming which of the two bottom rows it is
+#         (`unverified-space-non-identifying-labels` / `unverified-space-no-vendor-statement`).
+#         `bundle-directory-name` is REMOVED, and `bundle_root` is removed from the function's
+#         signature with it, so a run's coordinate identity is no longer a function of where it
+#         happened to be mounted. `compute/import_xenium.py` is `run.entry`, so the bump is the
+#         seed cache key `extensions/embedded.rs` compares before re-extracting. The two #319/#320
+#         tests pinned to redden the day this landed (TEST-17, TEST-26) are INVERTED, not deleted.
+#
+#         AN INTEGRATOR SHOULD EXPECT, and this is the half a PATCH number does not say on its own:
+#         * `section.sample_id` MOVES TOO wherever the space id moves, because its unverified leg
+#           quotes it — `unverified-sample:xenium:outs` becomes
+#           `unverified-sample:xenium:unverified-space:<32 hex>` (74 characters, inside the
+#           server's `DECL_MAX_VALUE_CHARS = 120` declaration cap with headroom).
+#         * A RE-IMPORT OF AN ALREADY-IMPORTED BUNDLE may no longer share a frame with the
+#           artifacts already in the project — every shape that used to answer `xenium:unknown`,
+#           `xenium:slide_region`, `xenium:outs` or `xenium:bundle` now answers a derived id.
+#           `resolveOverlayBinding` compares frame ids by EQUALITY, so that surfaces as a VISIBLE
+#           refusal to bind ("different spaces are different frames"), never as a silent mis-bind
+#           — which is the direction this module chooses by name. Re-import both artifacts, or
+#           give the bundle a real `roi_uuid` (or `slide_id` AND `region_name`).
+#         * WHAT DOES NOT MOVE: a bundle stating an identifying `roi_uuid`, or an identifying
+#           `slide_id` AND `region_name` as strings, answers exactly what it answered on 0.9.5.
+#           Both shipped fixtures are in that set.
+#         * TWO NEW REFUSALS. (a) A matrix whose `/matrix/barcodes` are all blank fails the import
+#           by name instead of importing under a mount-derived frame; it is reached only at the
+#           bottom rung, so a bundle that also states an identifying frame key still imports —
+#           that refusal is about deriving an identity from nothing, not about the barcodes.
+#           (b) A `cell_feature_matrix.h5` whose `/matrix/barcodes` or `/matrix/features/{id,name,
+#           feature_type}` are not valid UTF-8 now fails with a NAMED refusal that says which
+#           dataset and which entry; before it exited with an uncaught `UnicodeDecodeError`
+#           traceback. The decode stays STRICT — those values are identities and a loose decode
+#           would pair one row's values with another row's — so no bundle that imports today
+#           stops importing; only the failure MESSAGE changes, from a traceback to an instruction.
+#         * `section.sample_id` GAINS TWO REFUSALS of its own, both applying rules this release
+#           states for the frame keys to the twin identity field: a `region_name` that is a JSON
+#           NUMBER, and one that forges the `unverified-sample:` prefix, are no longer emitted as
+#           the vendor's sample statement. Each falls to `unverified-sample:<space id>` with
+#           `sample_id_source: "non-identifying-region-name"`, and the operator's own value is
+#           still in the provenance block. A QUOTED number is unaffected: the rule is about TYPE,
+#           not about digits.
+#
+# 0.9.8 — #321: the vendored `compute/ome_writer.py` re-vendored from the corrected
+#          `spatial-types` copy — #158's TEN consecutive strips are NINE, with the
+#          arithmetic carried as a visible amendment (a 512-row band spans nine of the
+#          fixture's 62-row strips, 36,383 B at y=0; 41,891 - 36,383 = 5,508 over 5 GETs is the
+#          file's measured open). The count is not maintained by hand any more:
+#          `spatial-types/tests/test_wire_measurement_strip_count.py` derives it from
+#          `spatial-image-hires-stripped.ome.tif`'s own tags and holds every copy under
+#          `src-app/packages/` to it — this one included, which is the point of a whole-tree
+#          scan rather than a guard per package.
+#          The clause is comment prose in a `#:` block and, for `spatial-types`, two
+#          docstrings: NO emitted byte, no declaration, no computed number moves. The version
+#          moves anyway because `check-processor-seed-versions.sh` is base-relative over the
+#          whole package DIRECTORY, the seed is reconciled on this number, and the vendored
+#          `compute/ome_writer.py` changed in ALL THREE packages — bumping only the one that
+#          "owns" the change is the exact miss
+#          `test_a_vendoring_package_whose_files_changed_also_moved_its_manifest_version` closes.
+#          Lands together with #333's single-entry `libs/viz` allowlist deletion, and had to:
+#          `staleClaims.test.ts` asserts every allowlisted path STILL contains the old sentence,
+#          so correcting the writer without shrinking that list turns main RED.
+# 0.10.0 — #327/#328: `coordinate_space` is now INJECTIVE in what the vendor stated, and the
+#          `slide_id`+`region_name` rung's EMITTED VALUE MOVES. Read this before re-importing.
+#          WHAT CHANGED, exactly: a bundle whose frame is named by `roi_uuid` is UNTOUCHED
+#          (`xenium:<roi_uuid>`, verbatim — both committed real bundles are on that rung), and a
+#          bundle named by `slide_id`+`region_name` moves from `xenium:<slide>_<region>` to
+#          `xenium:slide_id+region_name:<n>:<slide>|<m>:<region>|` — each component length-prefixed
+#          inside a namespace no vendor value may open with. The derived rung
+#          (`xenium:unverified-space:<digest>`) and both of its `coordinate_space_source` tokens are
+#          unchanged. WHY, since a moved id is not free: `f"xenium:{slide}_{region}"` was not an
+#          injective framing and `_` is a separator neither field is free of (the shipped protein
+#          bundle is `Slide_1` / `hKidney_sample`), so `slide_id="Slide_1_HeartBlock",
+#          region_name="R2"` and `slide_id="Slide_1", region_name="HeartBlock_R2"` — two unrelated
+#          runs, both fully identifying — answered ONE frame; and rungs 1 and 2 emitted into one
+#          undelimited namespace, so `roi_uuid: "Slide_1_R2"` collided with `slide_id: "Slide_1"` +
+#          `region_name: "R2"` as well. `resolveOverlayBinding` compares the frame VALUE by
+#          equality, so neither errored — each was one tissue's image registered against the
+#          other's cells, silently. WHAT IT COSTS an integrator: a dataset already imported through
+#          rung 2 will NOT bind to its own re-import, because the old id is baked into the emitted
+#          artifact and nothing can rewrite it. That trade is #328's own table and is taken on the
+#          measurement that no real bundle is on rung 2 (`docs/design/xenium-declaration-residues.md`
+#          §4.3, DEC-2). Also: `0000000_0000000` joins `_VENDOR_PLACEHOLDERS` — the value BOTH real
+#          bundles carry in `library_ids`, which #270's DEC-7 already rests on (§4.6) — so it can
+#          no longer BE a frame identity or a `section.sample_id` on any rung.
+# 0.11.0 — #343: EVERY REFUSAL THIS PACKAGE PRINTS TO STDERR NOW QUOTES VENDOR-DERIVED VALUES
+#          through an ASCII, control-character-free, length-bounded funnel — 120 units per
+#          value, 8 elements per sequence, with the true length and true count always stated —
+#          instead of interpolating them raw and unbounded. Previously exactly ONE of 28 refusal
+#          sites was funnelled (the #329 parse-boundary refusal); now all 28 are.
+#          WHAT AN OPERATOR SEES: refusal MESSAGE TEXT moves. A message that used to read
+#          `Found ['µm', 'x']` now reads `Found ['\xb5m', 'x']`. Non-ASCII and control
+#          characters appear as escapes; an over-long value is clipped with its true length
+#          stated.
+#          WHY: `scheduler.rs::drain_logs` writes each stderr line as its own `job_logs` row
+#          with no per-line cap, and the UI renders it HTML-safe but ANSI-unsafe — so a vendor
+#          newline could forge a log row (including a forged `progress:` row, which drives the
+#          job's progress bar over SSE) and a vendor escape sequence could drive the operator's
+#          terminal.
+#          WHAT DOES NOT MOVE: no emitted artifact, no declaration, no computed number, no
+#          manifest row. Only refusal message text. A bundle that imports today still imports
+#          and still round-trips its legitimate non-ASCII vendor text unchanged — escaping is
+#          not sanitising.
+#          HOW IT IS PINNED: `tests/refusal_sites.py` derives the refusal-site set from the
+#          module's own AST, so it covers refusals that do not exist yet; 35 unprovable
+#          interpolations across 28 sites on `1e94c77d2`, 0 across 28 now.
+# 0.12.0 — #452/#456: /MATRIX/SHAPE WITH A NON-NUMERIC DTYPE IS NOW A NAMED REFUSAL, AND THE
+#          H5 ROOT ATTRIBUTE WALK IS BOUNDED IN WORK — 1 MiB, THE VISIUM SIBLING'S OWN CAP —
+#          INSTEAD OF AN UNCAUGHT TRACEBACK OR AN OOM SIGKILL. The presence check above the
+#          dtype check proved the dataset existed but never its dtype, so a fixed-length-S /
+#          vlen-string / float-NaN / 2-D / scalar /matrix/shape, a /matrix/shape that is a
+#          GROUP rather than a dataset, and an ExternalLink to a missing file all escaped as
+#          tracebacks. The refusal names the dataset, what was found there (dtype and shape),
+#          and that a 10x feature-barcode matrix stores /matrix/shape as two integers; the
+#          existing len(shape) != 2 arity refusal is unchanged.
+#          WHAT AN OPERATOR SEES: bundles that previously died with a traceback and exit 1
+#          now stop with a named refusal naming the offending member. The #452 half is on
+#          paths that previously crashed, so nothing that imported before stops importing.
+#          The #456 half is NOT: a non-numeric root attribute over 1 MiB imported before
+#          (slowly) and now refuses, and the new np.void arm refuses compound/opaque scalar
+#          attributes carrying invalid UTF-8 that previously imported. Both are intended.
+#          HOW LARGE THAT HALF CAN BE: HDF5's default (non-`latest`) object header caps a
+#          single attribute at 64 KiB, so no vendor-written bundle can exceed the 1 MiB cap —
+#          this branch's own test has to rebuild the file with `libver="latest"` to construct
+#          one at all. That assumption is explicit: it breaks the day 10x ships latest-format
+#          files, and the refusal is what an operator sees then.
+#          WHY: #456 — the h5 root attribute walk is now BOUNDED in work and not only in
+#          message length. A numeric root attribute is skipped by dtype (it cannot contain
+#          unwritable text, so walking it does the work the check exists to bound and returns
+#          nothing every time); a non-numeric root attribute above a 1 MiB cap is refused by
+#          name. Previously .tolist() was called on any ndarray, so a large vendor-written
+#          root attribute was unbounded work — an OOM SIGKILL with no refusal, no message,
+#          and no exit code this module chose, which is strictly worse than a long line on
+#          stderr. The bound follows the spatial-import-visium sibling's
+#          _MAX_WALKED_ATTRIBUTE_BYTES (1 MiB) rather than inventing a different one.
+#          WHAT DOES NOT MOVE: no emitted artifact, no declaration, no computed number, no
+#          manifest row, and no existing refusal message text.
+# 0.13.0 — #437/#348: THE TWO MANIFEST-BUMP GUARDS NOW DERIVE THEIR VERSION FLOOR AND
+#          APPEND-ONLY HISTORY FROM origin/main INSTEAD OF THE PREVIOUS BRANCH'S HARDCODED
+#          FACTS, AND THE TEST HARNESS NO LONGER DEPENDS ON THE PROCESS LOCALE — TEST-ONLY,
+#          NO COMPUTE BEHAVIOUR MOVED.
+#          TEST-16's two guards (test_coordinate_space_identity.py and
+#          test_refusal_design_contract.py) previously pinned the previous branch's literals —
+#          `version > (0, 11, 0)`, `version: 0.12.0`, and the `#452`/`#456` and
+#          `# 0.11.0 — #343:` prefix assertions — a landmine that rots the moment main moves
+#          past it. Both now read `origin/main`'s own manifest through the ONE shared
+#          `origin_main_text` helper in tests/xenium_fixtures.py, assert the working tree's
+#          version is strictly above origin's, and check the changelog is APPEND-ONLY byte for
+#          byte over ALL history above origin's version line, not two named entries; an
+#          unfetched `origin/main` skips rather than fails.
+#          test_refusal_escaping.py's TEST_1/TEST_7 create their hostile-named directory and
+#          copy the matrix through explicit UTF-8 bytes (`os.mkdir(str(nest).encode("utf-8"))`
+#          + bytes `shutil.copy`) instead of `Path.mkdir()`/`shutil.copy`, which under
+#          `LC_ALL=C` (filesystem encoding ASCII) raised `UnicodeEncodeError`; the interpolated
+#          `str(nest)` value the refusal sees is unchanged.
+#          test_chain_compat.py names `encoding="utf-8"` at all four un-encoded `read_text()`
+#          sites — the same #333/#339/#330 repair family — so this file collects and its own
+#          tests run under a hostile locale; other files in this package may still have
+#          unrelated un-encoded reads, not addressed here.
+#          TEST-ONLY: no `compute/` file, no emitted artifact, no declaration, no manifest row
+#          and no refusal message text moves; the version moves because
+#          check-processor-seed-versions.sh is base-relative over the whole package directory,
+#          tests/ included.
+# 0.14.0 — #527/#528/#529/#530: THE #437 APPEND-ONLY GUARDS ARE HARDENED AGAINST THREE DEFECTS AN
+#          ADVERSARIAL AUDIT FOUND — LINE-INDEX SLICING, A CHANGELOG-ONLY COMPARED BLOCK, AND
+#          THREE NITS — TEST-ONLY, NO COMPUTE BEHAVIOUR MOVED.
+#          #528 — the guards used `str.split()` on a line's own text (first-occurrence match),
+#          which a changelog entry quoting a version line in its own prose (as this package's
+#          own 0.13.0 entry already does) could fool into truncating early and missing tampering
+#          after that point; fixed by switching to line-index-based slicing — the fixed guard
+#          replaces the old fail-open `` `version: 0.13.0` `` first-occurrence split with one
+#          keyed on line index, so a quoted version line in prose can no longer truncate the
+#          comparison early.
+#          #527 — the compared block wrongly spanned the whole file above `version:`, including
+#          the ~150-line documentation header, so an edit to the header alone falsely failed
+#          with an append-only violation; fixed by restricting the block to the changelog
+#          section only (from the first head line down to `version:`).
+#          #529 — three nits: a tail-append after a past entry's last continuation line slipped
+#          past the old substring check (now caught); the docstring said "newest-first" when the
+#          layout is oldest-first (now corrected); one of the two guard copies lacked a
+#          cardinality assert on `origin/main`'s `version:` line count (now added, matching its
+#          sibling).
+#          #530 — the version-floor assertion is now `>` ONLY when `git diff
+#          origin/main...HEAD -- <this package>` is non-empty (this branch touches the
+#          package), and the guard SKIPS (not asserts) when it is empty (a clean checkout of
+#          `origin/main`, or any future state where the package is untouched), since there is
+#          then no local version claim to verify — fixing the guard being permanently
+#          RED on `main` once a bump lands (`X > X` is unsatisfiable when `origin/main`'s own
+#          version equals the branch's).
+#          AUDIT ROUND 2 — the `git diff` call moved out of both `test_*` functions into a
+#          new `package_touched_since_origin_main()` helper in `xenium_fixtures.py` (mirroring
+#          `origin_main_text`) so it no longer trips `_lib`'s branch-diff sweep; the
+#          "package untouched" case now SKIPS instead of asserting `>=` — which could wrongly
+#          redden a branch behind `origin/main` that never touched the package.
+#          TEST-ONLY: no `compute/` file, no emitted artifact, no declaration, no manifest row
+#          and no refusal message text moves; the version moves because
+#          check-processor-seed-versions.sh is base-relative over the whole package directory,
+#          tests/ included.
+# 0.14.1 — #453: the vendored `tests/refusal_sites.py` AST guard is renamed to
+#          `tests/xenium_refusal_sites.py` — TEST-ONLY, no `compute/` change. Three
+#          packages each carried a copy of a test-support module with the SAME basename,
+#          and a shared-process pytest run bound `sys.modules["refusal_sites"]` to
+#          whichever copy imported FIRST, so this package's suite could be scanned with
+#          visium's classifier (expecting `VisiumImportError`) and three tests went red.
+#          Distinct basenames make the collision impossible. The constraint the module's
+#          own old docstring cited — promoting to a shared module was blocked because
+#          visium/visium-hd/xenium had live sibling branches — has now relaxed (all three
+#          packages are idle as of `c8d9eb5e0`), but distinct names were chosen over
+#          promotion: cheaper, needs no classifier change, cannot alter any rule table,
+#          and the `REFUSAL` constant genuinely differs by package (this one is
+#          `XeniumImportError`), so full byte-identity is not the goal. The version moves
+#          because check-processor-seed-versions.sh is base-relative over the whole
+#          package directory, tests/ included.
+# 0.14.2 — #432: the two vendored shared modules' false registration-overlay claims are
+#          corrected and RE-VENDORED byte-identically. The `ome_writer.py` and `spatial_declarations.py`
+#          docstrings carried the #176-era sentences ("#156's registration overlay is the only
+#          real check" and "`spatial-import-xenium` does that cross-check and refuses the image on a
+#          disagreement") as LIVE claims; they are now quoted beside their retirement markers and
+#          followed by the true statement: a registration overlay exists for ALL THREE producers (Visium
+#          #156, this package #301 and Visium HD #313), each measuring a DIFFERENT platform referent
+#          (this package's scores its cell centres through the declared `to_space` against the
+#          morphology-pixel signal mask at `SIGNAL_LIFT_FLOOR = 0.4`, and scores both vendor-statement
+#          placements side by side when they disagree). #269's posture is stated: `stated_scale_agreement`
+#          measures the TWO vendor statements and returns `(stated_scales, warning_or_None)`, the call
+#          site appends the warning to `pending_warnings`, and the image is emitted with both raw numbers
+#          and `applied_source` recorded. The residue — a uniform error under about 2% wrong
+#          the same way in both statements, which still passes every INTERNAL check — is
+#          measured rather than closed: the overlay NARROWED the hole (a 2% misscale scores
+#          signal-lift 0.303, BELOW the 0.4 floor, so about 2% is the boundary and the
+#          unresolved band lies strictly under it), per this package's own
+#          `tests/test_scale_referent.py` residue proof.
+#          Docstring prose + re-vendor only: no emitted byte, no declaration, no computed number moves.
+version: 0.14.2
+apiVersion: "1.0"
+contributes:
+  analyses:
+    - id: spatial.import-xenium
+      category: data-io
+      title: Import Xenium (Onboard Analysis)
+      description: >-
+        Read an uploaded 10x Xenium Onboard Analysis `outs/` bundle and emit the expression
+        matrix, the per-cell tissue map in micrometres, and the morphology image — so an
+        imaging-based single-cell dataset becomes an ordinary, analysable dataset with a
+        place on a slide.
+      whenHint: >-
+        the user uploaded a Xenium Onboard Analysis output bundle (a cell-feature matrix,
+        a cells table, an experiment manifest and a morphology image) and wants the cell
+        positions, the counts and the tissue image imported
+      examples:
+        - import this Xenium bundle
+        - load the xenium onboard analysis outputs
+        - bring in the cell centroids and the counts
+      safety: read-run
+      # WHICH ANALYSIS ENVIRONMENT these pins must be satisfiable in. Required since E3
+      # landed a SECOND recipe (`single-cell-r`): the #80 build gate resolves every declared
+      # dependency against every recipe on disk, so an undeclared contribution would demand
+      # that numpy/h5py/tifffile be installed in the deliberately-narrower R env too. The
+      # gate's own doc-comment prescribes exactly this fix — "the right relaxation is for a
+      # contribution to DECLARE the env it targets, not for this gate to guess".
+      env: single-cell
+      # ONE slot. The bundle is already ONE dataset by the time it reaches here —
+      # `spatial/xenium-bundle` declares `mtx-trio-target`, so the upload planner
+      # auto-groups the three members into a single dataset. Binding the members
+      # individually here would re-open a grouping the container already did.
+      appliesTo:
+        - slot: bundle
+          type_id: spatial/xenium-bundle
+          auto_bind_sole_candidate: true
+      # `single-cell/counts`, not the abstract `single-cell/expression`: a Xenium
+      # `cell_feature_matrix.h5` holds INTEGER TRANSCRIPT COUNTS, which is what
+      # `single-cell/counts` means and what `qc.10x` requires. It `extends:
+      # single-cell/expression`, so every shipped `subtypes_of: single-cell/expression`
+      # selector still resolves it — which is the whole basis of the backwards-compatibility
+      # claim: nothing downstream needs to know it is spatial.
+      produces:
+        - single-cell/counts
+        - spatial/coordinates
+        - spatial/image
+        # #163. Emitted only when the bundle carries a `cell_boundaries.parquet`; `produces`
+        # is the set this analysis CAN emit, not the set every run does — the same reading
+        # `spatial/image` already has (a bundle whose morphology image is unreadable emits
+        # none, and the report says so).
+        - spatial/boundaries
+        - metadata-column
+        - report/qc
+        - report/html
+      run:
+        kind: sandbox
+        runtime: python
+        entry: compute/import_xenium.py
+        # BOTH helpers are VENDORED VERBATIM from `spatial-types/compute/` and staged beside
+        # the entry. The platform confines `run.helpers` to a package's OWN tree, so
+        # vendoring is the idiom (`spatial-import-visium` vendors `spatial_declarations.py`
+        # the same way), not an exception. `tests/test_vendored_contract.py` byte-compares
+        # every copy against its source of truth — a vendored file that drifts is a second
+        # implementation wearing the first one's name.
+        helpers:
+          - compute/spatial_declarations.py
+          - compute/ome_writer.py
+          # This package's OWN: the reduction of a Xenium morphology stack to the single
+          # plane the shared writer accepts, with the selection declared. Not vendored —
+          # nobody else has a copy.
+          - compute/xenium_image.py
+          # This package's OWN, and the one #163 adds: the `cell_boundaries.parquet` reader
+          # and the ragged -> long-table-plus-offsets encoding. Not vendored — it is the
+          # first implementation of design §6.4's encoding anywhere in the tree, and if a
+          # second producer ever needs it (`spatial/transcripts`, #164) the promotion to
+          # `spatial-types/compute/` is the same move `ome_writer.py` already made.
+          - compute/boundaries.py
+          # This package's OWN, and the one #301 adds: design §7.5's registration QC overlay.
+          # Staged for the same reason every other helper is — the entry imports it by BARE
+          # NAME, and in `/code` a bare name resolves to whatever `run.helpers` put beside the
+          # entry. An undeclared helper is an ImportError inside a user's sandbox with no
+          # build-time signal at all.
+          #
+          # NOT vendored, and not shared with the sibling that has a file of the same name.
+          # `spatial-import-visium/compute/registration_qc.py` measures a Visium slide's
+          # manufactured spot pitch and scores a tissue mask against the vendor's `in_tissue`
+          # flag; Xenium has neither. The two are different checks that answer the same design
+          # section, which is why each package owns its own — and why
+          # `tests/test_vendored_contract.py` does NOT byte-compare them.
+          - compute/registration_qc.py
+        dependencies:
+          - { library: numpy, version: ">=2.0,<3" }
+          - { library: pandas, version: ">=2.2,<3" }
+          - { library: scipy, version: ">=1.14,<2" }
+          - { library: h5py, version: ">=3.10,<4" }
+          - { library: tifffile, version: ">=2024.1.1" }
+          # #163. The parquet reader `compute/boundaries.py` stands on. The range is open at
+          # the top because pyarrow's parquet read API has been stable across majors and the
+          # EXACT version is pinned in the recipe, which is the file that decides what is
+          # installed; a tight range here would only add a second place to bump.
+          - { library: pyarrow, version: ">=14,<26" }
+          # THE ONE NEW DECLARATION, and it is not optional decoration: every Xenium
+          # morphology OME-TIFF is JPEG-2000 compressed and `tifffile` raises
+          # `ValueError: <COMPRESSION.JPEG2000: 34712> requires the 'imagecodecs' package`
+          # without it. #155 deliberately declined this library for Visium ("it is the LZW
+          # backend, and DEC-2 writes `deflate`"); that reasoning was correct for a vendor
+          # that ships PNGs and does not survive one that ships JPEG-2000.
+          #
+          # A RANGE, not a pin, for the same reason #155 used ranges: the HOST that runs
+          # `just check-py` carries an older build than the rootfs (2025.3.30 vs
+          # 2025.11.11) and BOTH must satisfy the declaration — otherwise the gate that has
+          # to run this code cannot.
+          #
+          - { library: imagecodecs, version: ">=2024.1.1" }
+          # #301. DECLARED NOW, AND THIS INVERTS A STANDING REFUSAL rather than quietly
+          # adding a line. Until this version the reasoning here read: "`pillow` is deliberately
+          # NOT declared: it is the PNG reader Visium needs and no Xenium bundle ships a PNG.
+          # Declaring a library no code path imports is the unconsumed-pin shape the
+          # requirements file refuses." Both halves of that are still true about READING a PNG,
+          # and both stop mattering: `compute/registration_qc.py` WRITES one, on the path every
+          # run with a morphology image takes. The pin is consumed, so the refusal that rested
+          # on it being unconsumed is gone — the same in-place inversion `pyarrow` got at
+          # 0.3.0, with the old reasoning kept rather than deleted.
+          #
+          # A RANGE, not a pin, for the reason #155 used ranges: the HOST that runs
+          # `just check-py` carries an older build than the rootfs (12.2.0 vs 12.3.0) and BOTH
+          # must satisfy the declaration. Already pinned in
+          # `env-rootfs/single-cell/requirements.txt` at 12.3.0 and already declared by
+          # `spatial-import-visium`, so no content lock moves and no image republish follows.
+          #
+          # WHAT DOES NOT CHANGE: the vendored `ome_writer.py` still names `PIL` only inside
+          # `read_image`'s PNG branch, as a LAZY import in a function this importer never calls
+          # (it goes through `xenium_image.read_plane`, because every Xenium morphology image
+          # is a TIFF whose axis order `read_image` refuses by design). A module-level import
+          # there would make `pillow` a hard requirement of every consumer of the shared
+          # helper, which it is not. `tests/test_package_registration.py` asserts that half
+          # unchanged, and asserts the new half in both directions so neither can rot.
+          - { library: pillow, version: ">=10,<14" }
+      schedule:
+        class: normal
+      arch: [x86_64, aarch64]
+      methodsText: >-
+        Imported the 10x Xenium Onboard Analysis outputs: the cell-feature matrix was
+        re-emitted as a cells x genes count matrix per feature class, per-cell centroids
+        were recorded as coordinates in the micrometre frame of the imaged region, the
+        segmentation that produced the cells was recorded, and the morphology image was
+        placed into that same frame as a downsampled display derivative.

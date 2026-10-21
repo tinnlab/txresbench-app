@@ -1,0 +1,87 @@
+{
+  "_readme": [
+    "The render-perf gate's single source of truth (ITEM-10 / ITEM-11).",
+    "",
+    "It lives at a PERMANENT product path — never under .lifecycle/ — because the e2e gate reads",
+    "it and .lifecycle/ is stripped at merge.",
+    "",
+    "`baseline` is MEASURED, not asserted: every value was captured by the harness against the",
+    "unmodified tree at the recorded `gitSha`, on the recorded `machine`. `budgets` is what the",
+    "specs gate on. Every `budgets.K` must be numerically STRICTER than `baseline.K` — a budget",
+    "looser than its own baseline is a no-op gate, and `renderPerfBudgets.test.ts` (TEST-2) makes",
+    "that impossible to commit.",
+    "",
+    "`recordedMs` is DELIBERATELY NOT GATED (DEC-3). The recapture measured a ~3x swing in box",
+    "load inside one run set (1-min load average 271 -> 88 on 192 cores) with visibly contaminated",
+    "wall time, while the COUNTER metrics reproduced bit-identically (2492 / 2492) and the 200k",
+    "control's ScriptDuration landed within 0.4% of the month-old figure. So counters gate; ms is",
+    "recorded for the record and normalized only as a same-run control RATIO."
+  ],
+  "baseline": {
+    "gitSha": "1d391dc4",
+    "capturedAt": "2026-07-28",
+    "surface": "#render-perf ?panes=4&points=20000 (chrome identical to #plot-editing)",
+    "drive": "30 wheels @ 120ms (ms leg) / 20 wheels @ 150ms (counter leg)",
+    "_measuredBy": "tests/viz-e2e/render-perf.spec.ts, run against this tree before ITEM-3 landed. Two consecutive drives agreed EXACTLY (2484.8 / 2484.8) — TEST-3.",
+
+    "elementsPerWheelAt4Panes": 2484.8,
+    "elementsPerPaneSlope": 588,
+    "chromeElementsPerWheel": 8,
+    "overflowElementsWhenNothingFolds": 192,
+    "commitsPerWheel": 2.0,
+    "scriptRatioVsControl": 11.46,
+    "wheelAckRatioVsControl": 3.7,
+
+    "_overflowNote": [
+      "192 = MenuRowButton 96 + the Popover container family 96 (Popover 24, PopoverTrigger 16,",
+      "Ellipsis 16, PopoverContent/Root/Popup/Positioner/Portal 8 each), measured per wheel on the",
+      "4-pane canonical drive.",
+      "",
+      "PRE-FIX THE BUDGET'S PREMISE WAS UNREACHABLE. TEST-P4 asks for a width at which NOTHING folds.",
+      "No such width existed: the pinned group's wrapper is `flex-1`, so `measure()` learned its GROWN",
+      "scrollWidth (2072px on a 2304px toolbar) as the group's 'natural' width, leaving availFull ~202px",
+      "against ~204px of foldable icons — so exactly one item (`split`) folded at EVERY width on EVERY",
+      "pane, and the overflow Popover was mounted unconditionally. Recorded as the ITEM-3 drift finding;",
+      "the fix measures the CONTENT node instead."
+    ],
+    "controlElementsPerWheel": 0
+  },
+  "budgets": {
+    "elementsPerWheelAt4Panes": 200,
+    "elementsPerPaneSlope": 8,
+    "chromeElementsPerWheel": 0,
+    "overflowElementsWhenNothingFolds": 0,
+    "commitsPerWheel": 1,
+    "scriptRatioVsControl": 3.0,
+    "wheelAckRatioVsControl": 1.5
+  },
+  "recordedMs": {
+    "_note": "NEVER a gate (DEC-3). Recorded so a change of kind is visible; the gate is the same-run ratio.",
+    "scriptMs": 2326.3,
+    "taskMs": 2969.0,
+    "controlScriptMs": 194.7,
+    "wheelAckP50Ms": 108,
+    "controlWheelAckP50Ms": 29,
+    "longTasks": 22
+  },
+  "structural": {
+    "_note": "INV-10 ratchet — thresholds move DOWN per split, never up. Baselines re-measured on acbe0fca.",
+    "gridWorkspaceBodyLinesBaseline": 5388,
+    "gridWorkspaceFileLinesBaseline": 6052,
+    "gridWorkspaceBodyLines": 1200,
+    "gridWorkspaceFileLines": 1600,
+    "layerFiles": [
+      "GridWorkspaceContext.tsx",
+      "GridDeckLayer.tsx",
+      "GridOverlayLayer.tsx",
+      "GridDockLayer.tsx",
+      "GridPaneLayer.tsx"
+    ]
+  },
+  "machine": {
+    "renderer": "swiftshader (ANGLE, software WebGL)",
+    "launchArgs": ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"],
+    "viewport": "1280x820 (config default); TEST-P4 overrides to 1900x900 to reach a no-fold width",
+    "reactStrictMode": "ON for the counter leg (its 2x is why chrome reads 8/wheel at 4 panes), OFF for the ms leg"
+  }
+}

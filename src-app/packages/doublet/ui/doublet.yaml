@@ -1,0 +1,522 @@
+# doublet.detect declarative view_spec — the RUN FORM.
+#
+# The MANIFEST declares `ui: [ui/doublet.yaml, ui/doublet-report.yaml]`, so this view does NOT
+# name its analysis (no `analysis:` back-pointer) and does NOT declare a `layout:` — one
+# analysis renders into ONE pane and widgets render in DECLARATION ORDER, so the order below
+# IS the layout. The manifest declares only load/enable/execute; THIS file owns everything the
+# user sees + selects and declares its OWN option sources. Every input the run consumes is a
+# visible control passed EXPLICITLY on `run_processor` — what is launched is what was shown.
+#
+# The twin of `embedding/ui/reduce.yaml`: one raw-count matrix picker, a batch/sample column
+# picker whose options DERIVE from the chosen matrix's cells axis, `cell-filter`'s criteria
+# builder for the inline pre-filter, `text`+`require.number` parameter fields (the core
+# vocabulary ships no numeric widget kind), and one Run action.
+#
+# ── THE ONE CONTROL THAT CAN PREVENT A SILENTLY WRONG ANSWER ────────────────────────────
+# The sample/batch picker below is where a user prevents this analysis' central failure. A
+# doublet is one droplet that captured two cells, so cells from separately captured libraries
+# cannot form one — and a merged multi-sample matrix scored as ONE population fails twice, both
+# times invisibly: simulated doublets cross sample boundaries (inventing profiles no droplet
+# could produce), and the expected-rate prior is derived from the merged total instead of per
+# lane. The compute REFUSES to guess which shape the data is: sniffing for a column named
+# "sample" is exactly the plausible-wrong-answer heuristic this codebase removed elsewhere. So
+# the rule is DISCLOSURE, NOT INFERENCE — the reason is stated at the control, an unbatched run
+# is permitted, and the report records `batched: false` so the export always says which it was.
+id: doublet.detect
+title: Detect doublets
+# Reuse the EXISTING permission — this analysis introduces no new gate. The workbench
+# dispatches compute jobs, so `jobs::use` (granted to Users) is the gate.
+permission: jobs::use
+
+state:
+  # The single RAW count matrix this run scores. SINGULAR: this is an RNA-count method and the
+  # compute REFUSES >1 (protein/ATAC doublets need dedicated methods entirely).
+  matrix: { type: string, default: null }
+  # The per-sample / batch column. Empty is a REAL answer — a one-artifact-per-sample project
+  # is already per-sample — and it is recorded as such, never inferred away. Null, never "": a
+  # closed-set control's default is null.
+  batchColumn: { type: string, default: null }
+  # The INLINE pre-filter — the same `{ column, control, min?, max?, keep? }` recipe
+  # `cell-filter` and `embedding.reduce` emit, not a fourth dialect. Empty ⇒ no filter.
+  criteria: { type: list, default: [] }
+  # Parameters, EXPOSED. Text-valued because a numeric widget kind is not in the core
+  # vocabulary; `require.number` holds them to the shared decimal grammar the compute reads.
+  # Blank is meaningful for two of them and the placeholders say so: an empty expected rate is
+  # DERIVED per sample, an empty threshold is Scrublet's AUTOMATIC one.
+  expectedDoubletRate: { type: string, default: "" }
+  doubletRatePer1k: { type: string, default: "0.008" }
+  threshold: { type: string, default: "" }
+  nPrinComps: { type: string, default: "30" }
+  simDoubletRatio: { type: string, default: "2.0" }
+  seed: { type: string, default: "0" }
+  # The output column PREFIX (the run commits `<label>_score` and `<label>_call`). Not "" — a
+  # column name has no empty answer, so a blank default would ship a form invalid the instant
+  # it opens. `doublet` is the compute's own fallback.
+  label: { type: string, default: "doublet" }
+
+data:
+  # The cells-axis metadata columns of the CHOSEN matrix's dataset — including columns no
+  # analysis declared. `values_for` makes the read LAZY: metadata for every column, VALUES only
+  # for the columns a criterion actually names, so a 65-column CELLxGENE import does not fetch
+  # 65 bodies to draw a form. Before a matrix is chosen this resolves to nothing and is skipped.
+  obs:
+    source: axis_columns
+    args: { of: "$state.matrix", axis: cells, values_for: "$state.criteria" }
+  # The SAME axis relation asked for the ARTIFACT ID behind each column (`as: sources` →
+  # `{ column: artifact_id }`). Two uses: it is the taken-set `label.require.not_in` reads, AND
+  # it is what the `batch` and `column:<name>` slots bind to — a `metadata-column` store cannot
+  # carry its own name, so the id has to arrive with the binding.
+  obsSources:
+    source: axis_columns
+    args: { of: "$state.matrix", axis: cells, as: sources }
+
+derived:
+  # The CATEGORICAL cells-axis columns — the sample/batch picker's options. A sample key is a
+  # categorical column, so `only: categorical` narrows the offer; the list is OPEN (any
+  # categorical column present on the axis), never a closed literal and never name-sniffed.
+  catColumns: { columns_of: { obs: "$data.obs", only: categorical } }
+  # The pre-filter criteria builder's derived option sources, all READ FROM THE DATA, mirroring
+  # `cell-filter.yaml` and `reduce.yaml`.
+  columns: { columns_of: { obs: "$data.obs" } }
+  controlByColumn: { columns_of: { obs: "$data.obs", keyed: true } }
+  categoriesByColumn: { categories_by_column: { obs: "$data.obs" } }
+
+widgets:
+  # ── the INPUT ─────────────────────────────────────────────────────────────────────
+  #
+  # RAW counts only, mirroring the manifest's `excludes`. Scrublet does its own total-count
+  # normalize, HVG selection and PCA internally, so a normalized matrix silently produces
+  # meaningless scores — the compute refuses one outright rather than scoring it.
+  - id: matrixPicker
+    kind: artifact_ref
+    auto_bind_sole_candidate: true
+    label: Count matrix
+    source:
+      subtypes_of: single-cell/expression
+      excludes: [single-cell/normalized]
+    value: "$state.matrix"
+    onChange: dd.setMatrix
+    require:
+      required: true
+      message: Choose the raw-count matrix to score for doublets.
+    empty_text: >-
+      No raw-count expression matrix in this project yet. Import one — doublet detection needs
+      raw counts, and a normalized matrix is refused rather than scored.
+
+  # ── THE SAMPLE / BATCH COLUMN — the correctness control ────────────────────────────
+  #
+  # Options DERIVE from the data: the categorical columns of the chosen matrix's cells axis.
+  # Nothing here or in the compute guesses which one is the sample key.
+  - id: batchColumnPicker
+    kind: select
+    label: Sample / batch column
+    help: >-
+      Doublets cannot form across separately captured libraries, so scoring runs INDEPENDENTLY
+      within each level of this column — its own simulated doublets, its own threshold, and an
+      expected-rate prior derived from that sample's own cell count. Leave this empty ONLY if
+      this dataset is a single capture; on a merged multi-sample matrix an unbatched run is a
+      wrong answer, not a different one. Either way the run records whether it was batched.
+    options: "$derived.catColumns"
+    value: "$state.batchColumn"
+    onChange: dd.setBatchColumn
+    empty_text: >-
+      No categorical column to use as a sample key — they come from the matrix chosen above. If
+      this dataset is one capture, that is the expected state and the run is scored as one
+      population.
+
+  # ── the INLINE PRE-FILTER — which cells are scored ─────────────────────────────────
+  #
+  # Best practice is to score the QC-FILTERED matrix: junk cells skew the simulated-doublet
+  # population and the kNN density. `cell.filter` is non-destructive (it commits a keep-mask
+  # COLUMN, never a filtered matrix), so there is no filtered-matrix artifact to consume — this
+  # builder applies the same criteria recipe inline instead, exactly as `embedding.reduce` does.
+  # Excluded cells still appear in the output columns, at their original positions, as
+  # `not_evaluated` with no score. Empty ⇒ every cell is scored.
+  - id: criteriaTable
+    kind: table
+    rows: "$state.criteria"
+    empty_text: >-
+      No pre-filter — every cell is scored. Add a criterion to score only a subset (a range for
+      a QC metric, a set of categories for a label); excluded cells stay in the output as
+      `not_evaluated`, never as `singlet`.
+    columns:
+      - key: column
+        title: Column
+        cell:
+          select:
+            value: "$row.column"
+            options: "$derived.columns"
+            onChange: dd.setCriterionField
+            empty_text: No columns to filter on — they come from the matrix chosen above.
+      - key: constraint
+        title: Constraint
+        parts:
+          - key: min
+            cell:
+              editable_text:
+                when: "$derived.controlByColumn[$row.column] == range"
+                value: "$row.min"
+                placeholder: "Min"
+                onChange: dd.setCriterionField
+                require: { number: {} }
+          - key: max
+            cell:
+              editable_text:
+                when: "$derived.controlByColumn[$row.column] == range"
+                value: "$row.max"
+                placeholder: "Max"
+                onChange: dd.setCriterionField
+                require: { number: {} }
+          - key: keep
+            cell:
+              multiselect:
+                when: "$derived.controlByColumn[$row.column] == multiselect"
+                value: "$row.keep"
+                options: "$derived.categoriesByColumn[$row.column]"
+                placeholder: "All categories"
+                onChange: dd.setCriterionField
+      - key: remove
+        title: ""
+        cell:
+          button:
+            label: Remove
+            icon: remove
+            variant: destructive
+            onClick: dd.removeCriterion
+  - id: addCriterionBtn
+    kind: button
+    label: Add pre-filter criterion
+    variant: default
+    onClick: dd.addCriterion
+
+  # ── THE EXPECTED-DOUBLET-RATE PRIOR ───────────────────────────────────────────────
+  #
+  # Scrublet's own default is a flat 0.05/0.06, which is wrong in BOTH directions on real data.
+  # The 10x rate scales ~linearly with recovered cells at ~0.8% per 1,000, so the default here
+  # is DERIVED per sample. The rate-per-1k field exists so nobody is ever asked to compute a
+  # rate by hand for an HT chip.
+  - id: expectedRateInput
+    kind: text
+    label: Expected doublet rate
+    help: >-
+      Leave empty to derive it per sample from that sample's own recovered-cell count
+      (0.8% per 1,000 cells, clamped to 0.5%–25%). Set it only if you know the loading for this
+      experiment; the report records which of the two was used.
+    value: "$state.expectedDoubletRate"
+    placeholder: "auto — derived per sample"
+    onChange: dd.setExpectedDoubletRate
+    # The bounds MATCH the compute's (`RATE_MIN_USER`/`RATE_MAX_USER`). They have to: the
+    # form is the braces and the compute is the belt, and a form that accepts a value the
+    # compute refuses is a shipped deadlock — the user fixes nothing by re-typing it.
+    require:
+      number: { min: 0.000001, max: 0.9 }
+      message: >-
+        The expected doublet rate is a fraction strictly between 0 and 0.9 (e.g. 0.076 for
+        7.6%). It cannot be 0 — the scoring divides by it — and a rate near or above 1 stops
+        separating cells: at exactly 1 every cell scores the same value. Leave it empty to
+        derive it per sample from that sample's own cell count.
+  - id: ratePer1kInput
+    kind: text
+    label: Doublet rate per 1,000 cells
+    help: >-
+      The chip's multiplet rate per 1,000 recovered cells, used to derive the rate above.
+      0.008 for a standard 10x chip; 0.004 for an HT chip, which halves it.
+    value: "$state.doubletRatePer1k"
+    placeholder: "0.008"
+    onChange: dd.setDoubletRatePer1k
+    require:
+      number: { min: 0.000001, max: 1 }
+      message: >-
+        The per-1,000-cell rate is a fraction above 0 and at most 1 (0.008 standard, 0.004
+        HT). It cannot be 0 — a zero rate carries no information about the chip, and the
+        derived prior would be the same 0.5% floor for every sample regardless of size,
+        which is the opposite of what deriving it per sample is for.
+
+  # ── THE THRESHOLD ─────────────────────────────────────────────────────────────────
+  #
+  # Blank is the normal answer: Scrublet picks the minimum between the two modes of the
+  # SIMULATED score histogram. When that histogram is not bimodal there is no such minimum, and
+  # the run then emits the score and NO call rather than inventing a cut point — this field is
+  # the reachable lever in that case, which the readout below says explicitly.
+  - id: thresholdInput
+    kind: text
+    label: Doublet score threshold
+    help: >-
+      Leave empty for Scrublet's automatic threshold (the minimum between the two modes of the
+      simulated-score histogram). If the histogram is not bimodal there is no honest automatic
+      cut point: the run emits the score and NO call, and setting a threshold here is how you
+      get one. A threshold is never invented on your behalf.
+    value: "$state.threshold"
+    placeholder: "auto — from the simulated-score histogram"
+    onChange: dd.setThreshold
+    require:
+      number: { min: 0, max: 1 }
+      message: The threshold is a doublet score between 0 and 1.
+
+  # ── SCRUBLET PARAMETERS, exposed ──────────────────────────────────────────────────
+  - id: nPrinCompsInput
+    kind: text
+    label: Principal components
+    value: "$state.nPrinComps"
+    placeholder: "30"
+    onChange: dd.setNPrinComps
+    require:
+      number: { integer: true, min: 1, max: 500 }
+      message: >-
+        The number of principal components must be a whole number between 1 and 500 (the
+        embedding is dense over the observed AND simulated cells, so a large rank is the
+        memory bound).
+  - id: simRatioInput
+    kind: text
+    label: Simulated doublets per cell
+    help: >-
+      How many synthetic doublets to simulate, relative to the number of observed cells. More
+      is a better-resolved simulated distribution and a longer run.
+    value: "$state.simDoubletRatio"
+    placeholder: "2.0"
+    onChange: dd.setSimDoubletRatio
+    require:
+      number: { min: 0.1, max: 20 }
+      message: >-
+        The simulated-doublet ratio must be between 0.1 and 20 (Scrublet's default is 2.0).
+        The simulated set is that many times the observed cells and is held in memory
+        beside it.
+  - id: seedInput
+    kind: text
+    label: Random seed
+    value: "$state.seed"
+    placeholder: "0"
+    onChange: dd.setSeed
+    require:
+      number: { integer: true, min: 0, max: 4294967295 }
+      message: The seed must be a whole number between 0 and 4294967295 (2^32 - 1).
+
+  # ── the OUTPUT LABEL — the cells-axis columns this run commits ────────────────────
+  #
+  # `not_in` the whole cells axis (`obsSources`' KEYS): runs coexist provenance-immutable, so a
+  # second column under an existing name would leave two columns with one name and a reader
+  # keeps whichever came last. Mirrors `cell-filter`'s `labelInput`.
+  - id: labelInput
+    kind: text
+    label: Output label
+    help: >-
+      The run commits two cells-axis columns named after this: `<label>_score` (continuous) and
+      `<label>_call` (singlet / doublet). Both are then available to Cell filter and to the
+      colour-by on any embedding.
+    value: "$state.label"
+    placeholder: "e.g. doublet"
+    onChange: dd.setLabel
+    # `not_in` tests the value AS TYPED against the axis's existing column names. NOTE this
+    # is a WEAKER guard here than in `cell-filter`, which commits a column named exactly
+    # `<label>`: this analysis commits `<label>_score` and `<label>_call`, so re-running with
+    # the same label passes THIS check while still colliding. The compute therefore re-checks
+    # the names it will actually commit and refuses the collision by name — the form's braces
+    # catch the obvious case early, the compute's belt catches the real one.
+    require:
+      required: true
+      not_in: "$data.obsSources"
+      message:
+        required: >-
+          The run needs a label — it names the two cells-axis columns this run commits, and the
+          run refuses to invent one.
+        not_in: >-
+          "{value}" is already a column on this matrix's cells axis. Committing another column
+          under that name would leave two columns with one name, so pick another.
+
+  - id: runBtn
+    kind: button
+    label: Detect doublets
+    variant: primary
+    # Deliberately NOT `when:` — hiding Run behind the message telling the user to run is a
+    # deadlock. It DERIVES its disabled state from the form's own verdicts, which the engine
+    # lists underneath, so it never sits greyed silently.
+    onClick: dd.run
+
+# ── cross-field constraints (the relation no single control owns) ────────────────────
+checks:
+  # A keep-range whose Min is above its Max keeps NOTHING and says so nowhere (the compute
+  # applies it faithfully and the subset empties). A relation BETWEEN the two bounds, so it
+  # lands on the row's own Max. The `!= ''` guards are load-bearing — an empty bound is
+  # UNBOUNDED, not 0.
+  - id: filterMinAboveMax
+    for_each: "$state.criteria as $c, $i"
+    fails_when: "$c.min != '' && $c.max != '' && $c.min > $c.max"
+    at: { widget: criteriaTable, part: max, index: "$i" }
+    message: Min is above Max, so this criterion keeps no cells.
+
+  # A criterion built on a column the CHOSEN matrix does not carry (e.g. after switching
+  # matrices). The LAUNCH is already protected — `inputs_from` treats an unresolvable
+  # `column:<name>` as an error — but the FORM in between would draw the row's name over three
+  # empty slots with no reason. `$c.column != ''` keeps a freshly-added blank row unaccused.
+  - id: filterColumnOffAxis
+    for_each: "$state.criteria as $c, $i"
+    fails_when: "$c.column != '' && $derived.controlByColumn[$c.column] == absent"
+    at: { widget: criteriaTable, part: column, index: "$i" }
+    message: >-
+      The chosen matrix has no column by this name. Pick a column this matrix carries, or
+      remove the criterion.
+
+  # NOTE — there is deliberately NO view-side check for "this looks like a merged multi-sample
+  # matrix, you should pick a sample column". That check cannot be written honestly: the two
+  # shapes are indistinguishable without inferring intent from a column NAME, which is the
+  # heuristic this analysis refuses. The control's own help text and the report's `batched`
+  # disclosure carry the burden instead.
+
+actions:
+  - id: dd.setMatrix
+    title: Set the count matrix
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      # Clear the batch column: it is a column of the PREVIOUS matrix's cells axis, and a kept
+      # value would name a column the new matrix may not carry. Re-seeded by the picker over
+      # the new axis. Silently keeping a stale value is how a pairing rots — and here it would
+      # rot into the single most consequential parameter in the analysis.
+      - set: { matrix: "$params.value", batchColumn: null }
+
+  - id: dd.setBatchColumn
+    title: Set the sample / batch column
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { batchColumn: "$params.value" }
+
+  # ── pre-filter criteria actions (mirror `cell-filter`'s `cf.*Criterion`) ────────────
+  - id: dd.addCriterion
+    title: Add a pre-filter criterion
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: {}
+    body:
+      - listAppend: { path: criteria, value: { column: "", control: "", min: "", max: "", keep: [] } }
+  - id: dd.setCriterionField
+    title: Set a criterion field
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { index: number, key: string, value: string }
+    body:
+      - set: { "criteria.{$params.index}.{$params.key}": "$params.value" }
+  - id: dd.removeCriterion
+    title: Remove a pre-filter criterion
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { index: number }
+    body:
+      - listRemove: { path: criteria, index: "$params.index" }
+
+  - id: dd.setExpectedDoubletRate
+    title: Set the expected doublet rate
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { expectedDoubletRate: "$params.value" }
+
+  - id: dd.setDoubletRatePer1k
+    title: Set the doublet rate per 1,000 cells
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { doubletRatePer1k: "$params.value" }
+
+  - id: dd.setThreshold
+    title: Set the doublet score threshold
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { threshold: "$params.value" }
+
+  - id: dd.setNPrinComps
+    title: Set the PC count
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { nPrinComps: "$params.value" }
+
+  - id: dd.setSimDoubletRatio
+    title: Set the simulated-doublet ratio
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { simDoubletRatio: "$params.value" }
+
+  - id: dd.setSeed
+    title: Set the random seed
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { seed: "$params.value" }
+
+  - id: dd.setLabel
+    title: Set the output label
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { label: "$params.value" }
+
+  # Run — a DECLARED run_processor → wait_for → toast. Every input the run consumes is passed
+  # EXPLICITLY from view state:
+  #   · `inputs.matrix` — the chosen raw-count matrix.
+  #   · `inputs_from` binds the `batch` SLOT to the chosen column's metadata-column artifact,
+  #     gated on a column being chosen — no column, no binding. It is a SLOT and not a param
+  #     because a `metadata-column` store cannot carry its own name; the NAME still travels as
+  #     `params.batch_column` so the report and methods.md can say which column was used.
+  #     `inputs` and `params` are separate channels and must stay so. Passing the column as a
+  #     param instead of a slot is the realistic way the per-sample invariant silently regresses,
+  #     which is why `tests/test_view_shape.py` asserts this binding against the compute's own
+  #     `BATCH_SLOT` constant.
+  #   · one `column:<name>` binding per pre-filter criterion, the same idiom `cell-filter`'s
+  #     `cf.run` uses. Anything past the `when` gate that cannot resolve is an ERROR, not a
+  #     skip — a criterion whose column never reaches the run is exactly the silent
+  #     keep-everything this prevents.
+  - id: dd.run
+    title: Detect doublets
+    permission: jobs::use
+    mutating: true
+    params: {}
+    body:
+      - run_processor:
+          id: doublet.detect
+          inputs:
+            matrix: "$state.matrix"
+          inputs_from:
+            - when: "$state.batchColumn"
+              slot: "batch"
+              artifact: "$data.obsSources[$state.batchColumn]"
+            - for_each: "$state.criteria as $c"
+              when: "$c.column"
+              slot: "column:{$c.column}"
+              artifact: "$data.obsSources[$c.column]"
+          params:
+            criteria: "$state.criteria"
+            batch_column: "$state.batchColumn"
+            expected_doublet_rate: "$state.expectedDoubletRate"
+            doublet_rate_per_1k: "$state.doubletRatePer1k"
+            threshold: "$state.threshold"
+            n_prin_comps: "$state.nPrinComps"
+            sim_doublet_ratio: "$state.simDoubletRatio"
+            seed: "$state.seed"
+            label: "$state.label"
+          into: doubletJob
+      - wait_for: { job: "$doubletJob", until: completed }
+      - toast: { success: "Doublet scores computed" }

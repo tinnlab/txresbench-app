@@ -1,0 +1,672 @@
+#!/usr/bin/env bash
+# selftest.sh — portable, self-contained verification of the feature-lifecycle
+# validator's FRONTEND gates (phase 3 e2e-tier requirement + phase 8
+# npm-run-check / e2e result requirement) and the backend-only exemption.
+#
+# Builds throwaway git repos with controlled diffs + a full set of lifecycle
+# artifacts, then asserts the validator's exit code for each scenario. No
+# network, no repo-specific SHAs — runs on any clone.
+#
+#   bash .claude/lifecycle/selftest.sh
+#
+# Exit 0 = all scenarios behaved as specified.
+set -u
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CHECK="$HERE/lifecycle-check.mjs"
+# shellcheck source=selftest-lib.sh
+. "$HERE/selftest-lib.sh"
+
+# assert_exit <expected 0|1> <label> -- <validator args...>  (thin wrapper over
+# the shared assert_exit_cmd, pinned to `node lifecycle-check.mjs`).
+assert_exit() {
+  local want="$1"; local label="$2"; shift 2; [ "${1:-}" = "--" ] && shift
+  assert_exit_cmd "$want" "$label" -- node "$CHECK" "$@"
+}
+
+# (write_common + new_repo now live in selftest-lib.sh, sourced above.)
+
+echo "== feature-lifecycle validator self-test =="
+
+# ---------------------------------------------------------------------------
+# FIXTURE 1 — FRONTEND-TOUCHING feature (src-app/ui/**)
+# ---------------------------------------------------------------------------
+FE="$(new_repo)"
+git -C "$FE" checkout -q -b feat/foo
+mkdir -p "$FE/src-app/ui/src/modules/foo" "$FE/src-app/ui/openapi" "$FE/.lifecycle/foo"
+cat > "$FE/src-app/ui/src/modules/foo/FooPage.tsx" <<'EOF'
+export function FooPage() {
+  return (
+    <div>
+      <h1>Foo</h1>
+      <button>Save</button>
+    </div>
+  );
+}
+EOF
+# The TEST the plan enumerates, CITING its id. A11 requires a `TEST-N: PASS` to be
+# earned by an added line of this branch's diff — so a fixture that records PASS
+# must actually carry the test, exactly as a real branch must.
+cat > "$FE/src-app/ui/src/modules/foo/FooPage.test.tsx" <<'EOF'
+// TEST-1 (ITEM-1, INV-1) — exactly one Save affordance.
+import { render, screen } from '@testing-library/react';
+import { expect, test } from 'vitest';
+import { FooPage } from './FooPage';
+test('exactly one Save affordance', () => {
+  render(<FooPage />);
+  expect(screen.getAllByRole('button', { name: 'Save' })).toHaveLength(1);
+});
+EOF
+# a GENERATED artifact also changes — must NOT count as a real UI touch
+echo '{"openapi":"3.0.0"}' > "$FE/src-app/ui/openapi/openapi.json"
+
+FD="$FE/.lifecycle/foo"
+cat > "$FD/PLAN.md" <<'EOF'
+# PLAN — foo
+## Design source
+- `docs/design/foo.md` §2 "Foo surface" — this plan realizes the single-action
+  Foo page described there; no other section of that design is in scope.
+## Invariants
+- **INV-1**: The Foo surface exposes exactly one Save affordance.
+## Items
+- **ITEM-1**: Add a FooPage component to the ui workspace.
+## Files to touch
+- `src-app/ui/src/modules/foo/FooPage.tsx` — new page (ITEM-1).
+- `src-app/ui/openapi/openapi.json` — regenerated (excluded from gates).
+## Patterns to follow
+- Mirror an existing settings page in `src-app/ui/src/modules/`.
+EOF
+write_common "$FD" "src-app/ui/src/modules/foo/FooPage.tsx" 8
+
+# --- variant A: all-unit test plan (NO e2e) -> phase 3 must FAIL
+# TEST-1 already carries the [acceptance] proof of INV-1, so the ONLY gap phase 3
+# can report here is the missing e2e tier — the gate under test.
+cat > "$FD/TESTS.md" <<'EOF'
+# TESTS — foo
+- **TEST-1** (tier: unit) [acceptance] [invariant: INV-1] [covers: ITEM-1] file: `src-app/ui/src/modules/foo/FooPage.test.tsx` — asserts: FooPage renders exactly one Save button.
+EOF
+git -C "$FE" add -A && git -C "$FE" commit -qm feat
+assert_exit 1 "FE phase 3: all-unit plan for UI work is REFUSED" -- --phase 3 --repo "$FE" --dir "$FD" --base main
+
+# --- variant B: plan now enumerates an e2e-tier test -> phase 3 OK
+cat > "$FD/TESTS.md" <<'EOF'
+# TESTS — foo
+- **TEST-1** (tier: unit) [acceptance] [invariant: INV-1] [covers: ITEM-1] file: `src-app/ui/src/modules/foo/FooPage.test.tsx` — asserts: FooPage renders exactly one Save button.
+- **TEST-2** (tier: e2e) [covers: ITEM-1] file: `src-app/ui/tests/e2e/foo/foo.spec.ts` — asserts: user opens Foo page and clicks Save.
+EOF
+mkdir -p "$FE/src-app/ui/tests/e2e/foo"
+cat > "$FE/src-app/ui/tests/e2e/foo/foo.spec.ts" <<'EOF'
+// TEST-2 (ITEM-1) — the user journey: open Foo, press Save.
+import { expect, test } from '@playwright/test';
+test('opens Foo and saves', async ({ page }) => {
+  await page.goto('/foo');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Saved')).toBeVisible();
+});
+EOF
+git -C "$FE" add -A && git -C "$FE" commit -qm tests-e2e
+assert_exit 0 "FE phase 3: UI plan WITH an e2e-tier test passes" -- --phase 3 --repo "$FE" --dir "$FD" --base main
+
+# --- variant C: phase 8 results WITHOUT npm-run-check / e2e lines -> FAIL
+cat > "$FD/TEST_RESULTS.md" <<'EOF'
+# TEST_RESULTS — foo
+- **TEST-1**: PASS
+- **TEST-2**: PASS
+EOF
+git -C "$FE" add -A && git -C "$FE" commit -qm results-missing-fe-lines
+assert_exit 1 "FE phase 8: missing 'npm run check (ui): PASS' is REFUSED" -- --phase 8 --repo "$FE" --dir "$FD" --base main
+
+# --- variant C2: npm-run-check present but the e2e spec did not pass -> FAIL
+cat > "$FD/TEST_RESULTS.md" <<'EOF'
+# TEST_RESULTS — foo
+- **TEST-1**: PASS
+- **TEST-2**: FAIL
+npm run check (ui): PASS
+EOF
+git -C "$FE" add -A && git -C "$FE" commit -qm results-e2e-fail
+assert_exit 1 "FE phase 8: a failing e2e spec is REFUSED" -- --phase 8 --repo "$FE" --dir "$FD" --base main
+
+# --- variant D: full frontend results -> phase 8 OK, and --all OK
+cat > "$FD/TEST_RESULTS.md" <<'EOF'
+# TEST_RESULTS — foo
+- **TEST-1**: PASS
+- **TEST-2**: PASS
+npm run check (ui): PASS
+gate:ui (ui): PASS
+EOF
+git -C "$FE" add -A && git -C "$FE" commit -qm results-complete
+assert_exit 0 "FE phase 8: npm-run-check + e2e PASS lines accepted" -- --phase 8 --repo "$FE" --dir "$FD" --base main
+assert_exit 0 "FE --all: complete frontend lifecycle is green" -- --all --repo "$FE" --dir "$FD" --base main
+
+# ---------------------------------------------------------------------------
+# FIXTURE 2 — BACKEND-ONLY feature that ALSO regenerates the client.
+# The generated ui/ artifacts must NOT trigger the frontend gates; an all-unit
+# + integration plan (no e2e) must PASS, and results need no npm-run-check line.
+# ---------------------------------------------------------------------------
+BE="$(new_repo)"
+git -C "$BE" checkout -q -b feat/bar
+mkdir -p "$BE/src-app/server/src/modules/bar" "$BE/src-app/ui/src/api-client" "$BE/.lifecycle/bar"
+cat > "$BE/src-app/server/src/modules/bar/repository.rs" <<'EOF'
+pub fn list_bar() -> Vec<String> {
+    vec!["a".into(), "b".into()]
+}
+
+#[cfg(test)]
+mod tests {
+    // TEST-1 (ITEM-1, INV-1) — the listing is never silently truncated.
+    #[test]
+    fn list_bar_returns_every_row() {
+        assert_eq!(super::list_bar().len(), 2);
+    }
+}
+EOF
+# regenerated client types — generated, must be excluded from touch detection
+echo 'export type Bar = { id: string };' > "$BE/src-app/ui/src/api-client/types.ts"
+
+BD="$BE/.lifecycle/bar"
+cat > "$BD/PLAN.md" <<'EOF'
+# PLAN — bar
+## Design source
+- `docs/design/bar.md` §1 "Bar listing" — this plan realizes the read path
+  described there; the write path is out of scope for this round.
+## Invariants
+- **INV-1**: `list_bar` returns every bar row — the listing is never silently truncated.
+## Items
+- **ITEM-1**: Add list_bar to the bar repository.
+## Files to touch
+- `src-app/server/src/modules/bar/repository.rs` — new fn (ITEM-1).
+- `src-app/ui/src/api-client/types.ts` — regenerated (excluded from gates).
+## Patterns to follow
+- Mirror an existing server repository module.
+EOF
+write_common "$BD" "src-app/server/src/modules/bar/repository.rs" 3
+cat > "$BD/TESTS.md" <<'EOF'
+# TESTS — bar
+- **TEST-1** (tier: unit) [acceptance] [invariant: INV-1] [covers: ITEM-1] file: `src-app/server/src/modules/bar/repository.rs` — asserts: list_bar returns both seeded rows, not a truncated prefix.
+EOF
+cat > "$BD/TEST_RESULTS.md" <<'EOF'
+# TEST_RESULTS — bar
+- **TEST-1**: PASS
+EOF
+git -C "$BE" add -A && git -C "$BE" commit -qm feat-bar
+assert_exit 0 "BE phase 3: backend-only + regen-client plan needs NO e2e" -- --phase 3 --repo "$BE" --dir "$BD" --base main
+assert_exit 0 "BE phase 8: backend-only results need NO npm-run-check line" -- --phase 8 --repo "$BE" --dir "$BD" --base main
+assert_exit 0 "BE --all: backend-only lifecycle is green" -- --all --repo "$BE" --dir "$BD" --base main
+
+# ---------------------------------------------------------------------------
+# FIXTURE 3 — A11: an UNEARNED PASS.
+# `TEST-N` is a per-feature namespace, so an ID can be cited only in ANOTHER
+# feature's test and still be grepped up. This fixture records PASS for an
+# acceptance test whose id appears in NO line the branch added — the exact shape
+# that shipped a design invariant as "proven" on a real branch.
+# ---------------------------------------------------------------------------
+UE="$(new_repo)"
+git -C "$UE" checkout -q -b feat/baz
+mkdir -p "$UE/src-app/server/src/modules/baz" "$UE/.lifecycle/baz"
+# The branch adds real code — but nothing cites TEST-1, and the file TESTS.md
+# points at is a PRE-EXISTING one in another module that this branch never opens.
+# A stranger's file already on main carries the id, which is precisely what a bare
+# grep would find.
+mkdir -p "$UE/src-app/server/src/modules/other"
+cat > "$UE/src-app/server/src/modules/other/legacy_test.rs" <<'EOF'
+// TEST-1 — another feature's test, on main long before this branch existed.
+#[test]
+fn unrelated() { assert!(true); }
+EOF
+git -C "$UE" add -A && git -C "$UE" commit -qm pre-existing-stranger
+git -C "$UE" checkout -q main && git -C "$UE" merge -q --ff-only feat/baz && git -C "$UE" checkout -q feat/baz
+cat > "$UE/src-app/server/src/modules/baz/repository.rs" <<'EOF'
+pub fn list_baz() -> Vec<String> {
+    vec!["a".into()]
+}
+EOF
+BZ="$UE/.lifecycle/baz"
+cat > "$BZ/PLAN.md" <<'EOF'
+# PLAN — baz
+## Design source
+- `docs/design/baz.md` §1 "Baz listing" — this plan realizes the read path.
+## Invariants
+- **INV-1**: `list_baz` returns every baz row — the listing is never silently truncated.
+## Items
+- **ITEM-1**: Add list_baz to the baz repository.
+## Files to touch
+- `src-app/server/src/modules/baz/repository.rs` — new fn (ITEM-1).
+## Patterns to follow
+- Mirror an existing server repository module.
+EOF
+write_common "$BZ" "src-app/server/src/modules/baz/repository.rs" 3
+cat > "$BZ/TESTS.md" <<'EOF'
+# TESTS — baz
+- **TEST-1** (tier: unit) [acceptance] [invariant: INV-1] [covers: ITEM-1] file: `src-app/server/src/modules/other/legacy_test.rs` — asserts: list_baz returns every row.
+EOF
+cat > "$BZ/TEST_RESULTS.md" <<'EOF'
+# TEST_RESULTS — baz
+- **TEST-1**: PASS
+EOF
+git -C "$UE" add -A && git -C "$UE" commit -qm feat-baz
+assert_exit 1 "A11: an acceptance PASS cited in NO added line is REFUSED" -- --phase 8 --repo "$UE" --dir "$BZ" --base main
+# …and the message NAMES the check, so the author meets the argument rather than a bare exit code.
+if grep -q "A11" "$LC_SELFTEST_OUT"; then
+  PASS=$((PASS+1)); printf '  \033[32mok  \033[0m %s\n' "A11: the refusal names the check"
+else
+  FAIL=$((FAIL+1)); printf '  \033[31mFAIL\033[0m %s\n' "A11: the refusal names the check"
+  sed 's/^/        | /' "$LC_SELFTEST_OUT"
+fi
+
+# …and it becomes green the moment the branch actually carries the test.
+cat >> "$UE/src-app/server/src/modules/baz/repository.rs" <<'EOF'
+
+#[cfg(test)]
+mod tests {
+    // TEST-1 (ITEM-1, INV-1) — the listing is never silently truncated.
+    #[test]
+    fn list_baz_returns_every_row() {
+        assert_eq!(super::list_baz().len(), 1);
+    }
+}
+EOF
+git -C "$UE" add -A && git -C "$UE" commit -qm earn-test-1
+assert_exit 0 "A11: the SAME PASS is accepted once the branch cites it in a test" -- --phase 8 --repo "$UE" --dir "$BZ" --base main
+
+# ---------------------------------------------------------------------------
+# phase 5 convergence — EVERY drift file must report 0, including SCOPED ones.
+#
+# The bug this pins: `glob` matched only `^DRIFT-(\d+)\.md$`, so a per-owner file
+# (`DRIFT-stage2-1.md`, the naming a feature split across concurrent owners needs) was
+# invisible; and `phase5` read its count from the HIGHEST-numbered match alone, so even
+# once visible, one converged file decided the verdict for all of them. Observed in the
+# field: a `DRIFT-stage2-1.md` declaring `Unresolved drifts: 1` with `--phase 5` exiting 0.
+#
+# Reserved number ranges per owner would NOT have fixed it — a high-numbered converged file
+# masks a low-numbered unresolved one, which is the same bug in a different convention. So
+# the assertions below cover both halves: the scoped file is SEEN, and a converged sibling
+# does not discharge it.
+DE="$(new_repo)"
+git -C "$DE" checkout -q -b feat/drift
+mkdir -p "$DE/.lifecycle/drift" "$DE/src-app/server/src"
+echo "pub fn a() {}" > "$DE/src-app/server/src/a.rs"
+write_common "$DE/.lifecycle/drift" src-app/server/src/a.rs 1
+git -C "$DE" add -A && git -C "$DE" commit -qm drift-base
+
+drift_file() { printf '# DRIFT\n\n- **DRIFT-%s** — verdict: resolved — x\n\n**Unresolved drifts:** %s\n' "$2" "$3" > "$DE/.lifecycle/drift/$1"; }
+
+# CONTROL — one unscoped, converged file passes. Without this, every FAIL below could be
+# a fixture that never satisfies phase 5 for some unrelated reason.
+drift_file DRIFT-1.md 1.1 0
+assert_exit 0 "phase5: a single converged DRIFT-1.md passes" -- --phase 5 --repo "$DE" --dir "$DE/.lifecycle/drift"
+
+# THE REGRESSION — a SCOPED file with unresolved drift must be seen and must FAIL.
+drift_file DRIFT-stage2-1.md S2-1.1 1
+assert_exit 1 "phase5: a SCOPED drift file with 1 unresolved FAILS (was invisible)" -- --phase 5 --repo "$DE" --dir "$DE/.lifecycle/drift"
+
+# …and a CONVERGED higher-numbered sibling must NOT discharge it. This is the half the
+# regex alone does not fix: both files now match, and the old code read only the last.
+drift_file DRIFT-stage3-9.md S3-9.1 0
+assert_exit 1 "phase5: a converged higher-numbered sibling does NOT mask an unresolved one" -- --phase 5 --repo "$DE" --dir "$DE/.lifecycle/drift"
+
+# All scoped files converged ⇒ green. Proves the FAILs above are about the COUNT and not
+# merely about a scoped filename being present.
+drift_file DRIFT-stage2-1.md S2-1.1 0
+assert_exit 0 "phase5: all drift files converged (scoped included) passes" -- --phase 5 --repo "$DE" --dir "$DE/.lifecycle/drift"
+
+# An EARLIER unscoped round left unresolved is still unresolved — the single-owner case the
+# old "read the last file" logic also got wrong.
+drift_file DRIFT-1.md 1.1 2
+assert_exit 1 "phase5: an earlier unconverged round is not discharged by a later one" -- --phase 5 --repo "$DE" --dir "$DE/.lifecycle/drift"
+
+# ---------------------------------------------------------------------------
+# The count parser must read the SUMMARY LINE, not prose that quotes it.
+#
+# `phase5` extracted the count with a regex applied to the whole file, taking the FIRST
+# match anywhere — so a drift entry that QUOTES the summary phrase decided its own file's
+# verdict. Found by tripping over it: prose quoting the phrase with a `1`, above a real
+# summary of `0`, made the gate report 1. That direction fails SAFE.
+#
+# The dangerous direction is the mirror, and it is what the first scenario below pins:
+# prose quoting the phrase with a `0`, above a REAL summary of `2`, reports GREEN with
+# genuine unresolved drift. A gate that can be spoofed by prose is the same class of bug as
+# a gate that cannot see a file.
+drift_prose() {
+  # $1 file · $2 the number the PROSE quotes · $3 the number the SUMMARY declares
+  printf '# DRIFT\n\n- **DRIFT-9.1** — verdict: none — the report said `Unresolved drifts: %s` and the gate agreed.\n\n**Unresolved drifts:** %s\n' "$2" "$3" > "$DE/.lifecycle/drift/$1"
+}
+
+# Reset to a single clean file so these assertions are about the parser alone.
+rm -f "$DE"/.lifecycle/drift/DRIFT-*.md
+
+# THE ONE THAT MATTERS — prose says 0, the summary says 2. Must be RED.
+drift_prose DRIFT-1.md 0 2
+assert_exit 1 "phase5 parser: prose quoting '0' must NOT mask a real summary of 2" -- --phase 5 --repo "$DE" --dir "$DE/.lifecycle/drift"
+
+# The safe direction actually observed in the field — prose says 1, summary says 0. Green.
+drift_prose DRIFT-1.md 1 0
+assert_exit 0 "phase5 parser: prose quoting '1' does not spoof a real summary of 0" -- --phase 5 --repo "$DE" --dir "$DE/.lifecycle/drift"
+
+# CONTROL — an ordinary artifact with no prose quoting still parses exactly as before, in
+# both the plain and list-marker spellings. Without this the anchor could be too strict and
+# silently stop reading real summary lines, which fails CLOSED but breaks every consumer.
+printf '# DRIFT\n\n- **DRIFT-1.1** — verdict: resolved — x\n\n**Unresolved drifts:** 0\n' > "$DE/.lifecycle/drift/DRIFT-1.md"
+assert_exit 0 "phase5 parser: an ordinary '**Unresolved drifts:** 0' still parses" -- --phase 5 --repo "$DE" --dir "$DE/.lifecycle/drift"
+printf '# DRIFT\n\n- **DRIFT-1.1** — verdict: none — x\n\n- **Unresolved drifts:** 3\n' > "$DE/.lifecycle/drift/DRIFT-1.md"
+assert_exit 1 "phase5 parser: the list-marker spelling '- **Unresolved drifts:** 3' still parses" -- --phase 5 --repo "$DE" --dir "$DE/.lifecycle/drift"
+
+# --- the redundant PRESENCE check (removed) -------------------------------
+# A second, unanchored presence regex used to run beside the parser and demanded the
+# digit OUTSIDE the bold. It contributed ZERO unique rejections and two FALSE NEGATIVES:
+# it rejected files the parser reads correctly. Measured across every spelling, the
+# parser's reject-set strictly CONTAINS the presence check's, so the check was removed
+# rather than realigned — a second predicate for one property is a second thing to keep
+# in sync, and this one had already drifted out of sync with the parser it duplicated.
+#
+# These two pin the false negatives that removal fixes.
+printf '# DRIFT\n\n- **DRIFT-1.1** — verdict: resolved — x\n\n**Unresolved drifts: 0**\n' > "$DE/.lifecycle/drift/DRIFT-1.md"
+assert_exit 0 "phase5 presence: digit INSIDE the bold ('**Unresolved drifts: 0**') parses as 0" -- --phase 5 --repo "$DE" --dir "$DE/.lifecycle/drift"
+printf '# DRIFT\n\n- **DRIFT-1.1** — verdict: resolved — x\n\n* Unresolved drifts: 0\n' > "$DE/.lifecycle/drift/DRIFT-1.md"
+assert_exit 0 "phase5 presence: plain text under a list marker ('* Unresolved drifts: 0') parses as 0" -- --phase 5 --repo "$DE" --dir "$DE/.lifecycle/drift"
+# ...and these two are the CONTROLS proving removal lost no enforcement: the parser's own
+# null path still refuses a file with NO summary line, and still refuses one whose only
+# occurrence of the phrase is mid-line prose (which the unanchored presence check ACCEPTED).
+printf '# DRIFT\n\n- **DRIFT-1.1** — verdict: resolved — x\n' > "$DE/.lifecycle/drift/DRIFT-1.md"
+assert_exit 1 "phase5 presence: a file with NO summary line is still refused (parser null path)" -- --phase 5 --repo "$DE" --dir "$DE/.lifecycle/drift"
+printf '# DRIFT\n\n- **DRIFT-1.1** — verdict: none — the report said **Unresolved drifts:** 0 and we agreed.\n' > "$DE/.lifecycle/drift/DRIFT-1.md"
+assert_exit 1 "phase5 presence: a summary phrase ONLY as mid-line prose is still refused" -- --phase 5 --repo "$DE" --dir "$DE/.lifecycle/drift"
+
+# ---------------------------------------------------------------------------
+# THE SUMMARY IS THE FILE'S LAST WORD — take the LAST anchored match, not the first.
+#
+# Third instance of ONE BUG FAMILY: *the gate reading something other than the file's actual
+# conclusion*. Naming the family here so the fourth instance is recognised faster.
+#   1. the glob could not SEE scoped files            → fixed: widened + check every file
+#   2. prose QUOTING the phrase was read as the count → fixed: anchored to line start
+#   3. an APPENDED round leaves two summary lines and
+#      the first (stale) one wins                     → this
+#
+# All three are green-when-red. This one was found by hand: an artifact whose real summary
+# said 1 unresolved, with an earlier stale `0` above it, and `--phase 5` exited 0 —
+# certifying convergence that did not exist. Drift files are APPEND-HEAVY by design (a round
+# is added, not rewritten), so extra summary lines are the normal case, not an odd one.
+drift_two_summaries() {
+  # $1 file · $2 the STALE earlier summary · $3 the REAL final summary
+  printf '# DRIFT\n\n## round 1\n\n- **DRIFT-1.1** — verdict: resolved — x\n\n**Unresolved drifts:** %s\n\n## round 2 (appended)\n\n- **DRIFT-1.2** — verdict: none — y\n\n**Unresolved drifts:** %s\n' "$2" "$3" > "$DE/.lifecycle/drift/$1"
+}
+
+rm -f "$DE"/.lifecycle/drift/DRIFT-*.md
+
+# THE ONE THAT MATTERS — stale 0 above a real 1. Must be RED.
+drift_two_summaries DRIFT-1.md 0 1
+assert_exit 1 "phase5 summary: a stale earlier '0' must NOT mask the file's real final '1'" -- --phase 5 --repo "$DE" --dir "$DE/.lifecycle/drift"
+
+# The converse — an earlier 2 must not condemn a file whose final word is 0.
+drift_two_summaries DRIFT-1.md 2 0
+assert_exit 0 "phase5 summary: an earlier '2' does not condemn a file whose last word is 0" -- --phase 5 --repo "$DE" --dir "$DE/.lifecycle/drift"
+
+# CONTROL — a single-summary file is completely unaffected by taking the last match.
+printf '# DRIFT\n\n- **DRIFT-1.1** — verdict: resolved — x\n\n**Unresolved drifts:** 0\n' > "$DE/.lifecycle/drift/DRIFT-1.md"
+assert_exit 0 "phase5 summary: a single-summary file is unaffected (0)" -- --phase 5 --repo "$DE" --dir "$DE/.lifecycle/drift"
+printf '# DRIFT\n\n- **DRIFT-1.1** — verdict: none — x\n\n**Unresolved drifts:** 4\n' > "$DE/.lifecycle/drift/DRIFT-1.md"
+assert_exit 1 "phase5 summary: a single-summary file is unaffected (4)" -- --phase 5 --repo "$DE" --dir "$DE/.lifecycle/drift"
+
+# ---------------------------------------------------------------------------
+# FIXTURE 6 — DEC-N CONTIGUITY (a dispatched decision that never reached the record)
+# ---------------------------------------------------------------------------
+# Measured live: a decision was approved by a coordinator, an agent was dispatched to
+# BUILD it, it was later superseded, and it existed only in coordinator-to-agent
+# messages — never in DECISIONS.md. The highest recorded decision was 24; the dispatched
+# one was 25. The withdrawing agent had to CREATE it in withdrawn form so the reasoning
+# would be findable at all.
+#
+# Contiguity is the cheapest check that catches exactly that: a decision that was acted on
+# but never written down leaves a HOLE in the numbering, and a hole is mechanically
+# visible without needing to know what the decision said. It cannot catch a decision
+# dispatched as the NEXT number and never recorded (that leaves no hole, it just stops) —
+# which is why the DEC-N reference check in phase 6/7 artifacts is its companion, not its
+# replacement.
+DC="$(new_repo)"; mkdir -p "$DC/.lifecycle/dec"
+dec_file() { : > "$DC/.lifecycle/dec/DECISIONS.md"
+  printf '# DECISIONS\n' >> "$DC/.lifecycle/dec/DECISIONS.md"
+  for n in "$@"; do
+    printf '### DEC-%s: question %s?\n**Resolution:** answer %s.\n**Basis:** convention — matches the reference module.\n' "$n" "$n" "$n" >> "$DC/.lifecycle/dec/DECISIONS.md"
+  done
+}
+
+# THE MEASURED CASE — 1..3 recorded, 5 recorded, DEC-4 dispatched but never written.
+dec_file 1 2 3 5
+assert_exit 1 "phase4 contiguity: a HOLE (DEC-4 missing) fails — the measured dispatched-but-unrecorded case" -- --phase 4 --repo "$DC" --dir "$DC/.lifecycle/dec"
+
+# A hole at the START is the same defect wearing a different position.
+dec_file 2 3
+assert_exit 1 "phase4 contiguity: numbering that does not start at DEC-1 fails" -- --phase 4 --repo "$DC" --dir "$DC/.lifecycle/dec"
+
+# A REPEATED id must PASS. Measured across the live lifecycle population, re-using a DEC-N
+# as a later heading is a widespread and legitimate convention — corrections, amendments,
+# dispositions, and WITHDRAWAL RECORDS are appended as their own headings against the id
+# they annotate (`## DEC-11 CORRECTION — …`, `## DEC-6 NOTE — …`, `### DEC-25 (test
+# correction): …`). An earlier version of this gate rejected duplicates and was therefore
+# firing on exactly the practice the hole check exists to ENCOURAGE: recording a withdrawn
+# decision instead of renumbering over it. Contiguity is asserted on the SET of declared
+# ids, which is immune to annotation; uniqueness is not, so uniqueness is not checked.
+dec_file 1 2 2 3
+assert_exit 0 "phase4 contiguity CONTROL: a REPEATED DEC-2 passes (corrections/withdrawal records re-use ids)" -- --phase 4 --repo "$DC" --dir "$DC/.lifecycle/dec"
+
+# CONTROLS — the shapes that must keep passing, or this gate breaks every existing file.
+dec_file 1 2 3
+assert_exit 0 "phase4 contiguity CONTROL: a contiguous 1..3 passes" -- --phase 4 --repo "$DC" --dir "$DC/.lifecycle/dec"
+dec_file 1
+assert_exit 0 "phase4 contiguity CONTROL: a single DEC-1 passes" -- --phase 4 --repo "$DC" --dir "$DC/.lifecycle/dec"
+# Out-of-ORDER but complete is not a hole — the set is what matters, not the file order.
+dec_file 3 1 2
+assert_exit 0 "phase4 contiguity CONTROL: out-of-order but complete 1..3 passes" -- --phase 4 --repo "$DC" --dir "$DC/.lifecycle/dec"
+# BACKWARD COMPATIBILITY — non-numeric ids are a real namespacing convention in existing
+# files (DEC-A1, DEC-3b). They are NOT part of the numeric sequence and must not be read as
+# holes, or this gate fails artifacts that are already valid in both consumer repos.
+: > "$DC/.lifecycle/dec/DECISIONS.md"
+printf '# DECISIONS\n### DEC-1: q?\n**Resolution:** a.\n**Basis:** convention.\n### DEC-A1: q?\n**Resolution:** a.\n**Basis:** convention.\n### DEC-3b: q?\n**Resolution:** a.\n**Basis:** convention.\n' >> "$DC/.lifecycle/dec/DECISIONS.md"
+assert_exit 0 "phase4 contiguity CONTROL: non-numeric ids (DEC-A1, DEC-3b) are exempt, not holes" -- --phase 4 --repo "$DC" --dir "$DC/.lifecycle/dec"
+
+# MIXED HEADING LEVELS — the false positive that must never fire.
+# Real files mix depths because different owners append at different times: one measured
+# file carries 22 `### DEC-N:` and 8 `## DEC-N` (no colon) headings. A matcher keyed to one
+# depth (or to the trailing colon) cannot see the others, and every id it cannot see reads
+# as a HOLE. A false positive in a push gate is worse than the hole it hunts: it trains
+# people to bypass the gate, so it is absent on the day a decision genuinely goes
+# unrecorded — the same dynamic as the --all scaffolding trap.
+: > "$DC/.lifecycle/dec/DECISIONS.md"
+# Ordered so the HIGHEST id is the one the old colon-keyed matcher could see: if the other
+# depths go unseen the file reads as holes at 1 and 2, so this scenario is RED before the
+# fix rather than vacuously green. (Arranged the other way it passes with the matcher
+# broken, because a matcher that sees only DEC-1 finds no hole below DEC-1.)
+printf '# DECISIONS\n## DEC-1 — a later owner appended this at h2 with no colon\n**Resolution:** a.\n**Basis:** convention.\n#### DEC-2 q with no colon at h4\n**Resolution:** a.\n**Basis:** convention.\n### DEC-3: q?\n**Resolution:** a.\n**Basis:** convention.\n' >> "$DC/.lifecycle/dec/DECISIONS.md"
+assert_exit 0 "phase4 contiguity: MIXED heading levels (## / ### / ####, with and without a colon) all count" -- --phase 4 --repo "$DC" --dir "$DC/.lifecycle/dec"
+
+# THE RISK OF LOOSENING — a matcher relaxed until it matches anything starts counting
+# CITATIONS as records, which inverts the check: a decision merely referenced in passing
+# would satisfy the gate that exists to prove it was written down. DEC-2 here appears only
+# as prose and inside a fenced block, so it must still read as a hole.
+: > "$DC/.lifecycle/dec/DECISIONS.md"
+{ printf '# DECISIONS\n### DEC-1: q?\n**Resolution:** a.\n**Basis:** convention.\n'
+  printf 'Prose referring to DEC-2 in passing, and a line that only looks like a heading:\n'
+  printf '\n```sh\n# DEC-2: this is a shell comment inside a fence, not a decision\n### DEC-2 nor is this\n```\n\n'
+  printf '> ### DEC-2 quoted from another document, not declared here\n\n'
+  printf '### DEC-3: q?\n**Resolution:** a.\n**Basis:** convention.\n'; } >> "$DC/.lifecycle/dec/DECISIONS.md"
+assert_exit 1 "phase4 contiguity: DEC-2 only in prose / a code fence / a blockquote is still a HOLE" -- --phase 4 --repo "$DC" --dir "$DC/.lifecycle/dec"
+
+# ...and the positive half of that control: the SAME file with DEC-2 genuinely declared as a
+# heading passes. Without this, the test above would also pass with the matcher broken
+# outright (matching nothing at all reads every id as missing).
+: > "$DC/.lifecycle/dec/DECISIONS.md"
+{ printf '# DECISIONS\n### DEC-1: q?\n**Resolution:** a.\n**Basis:** convention.\n'
+  printf '\n```sh\n# DEC-2: a shell comment inside a fence\n```\n\n'
+  printf '## DEC-2 — genuinely declared here, at a different depth\n**Resolution:** a.\n**Basis:** convention.\n'
+  printf '### DEC-3: q?\n**Resolution:** a.\n**Basis:** convention.\n'; } >> "$DC/.lifecycle/dec/DECISIONS.md"
+assert_exit 0 "phase4 contiguity: a real heading is still counted when a fence also mentions the id" -- --phase 4 --repo "$DC" --dir "$DC/.lifecycle/dec"
+
+# WIDENING THE MATCHER MUST NOT WIDEN THE **Resolution:** REQUIREMENT.
+# Two different questions are asked of these headings: "which ids are on record" (contiguity,
+# which needs the wide matcher) and "which entries follow the structured decision form and
+# must therefore carry a **Resolution:** line" (which must NOT). The prose-style
+# `## DEC-N — <statement>` entries real owners append do not use that form, and imposing it
+# on them retroactively fails files that are valid today — a regression this fix caused once
+# already and that only a before/after comparison against the old matcher caught.
+: > "$DC/.lifecycle/dec/DECISIONS.md"
+{ printf '# DECISIONS\n### DEC-1: q?\n**Resolution:** a.\n**Basis:** convention.\n'
+  printf '## DEC-2 — a prose-style record with no Resolution line, as real owners write them\n'
+  printf 'The decision is stated in the heading and argued in the body.\n'
+  printf '## DEC-1 CORRECTION — annotating an earlier decision, also with no Resolution line\n'
+  printf 'Later owners append corrections against an existing id.\n'; } >> "$DC/.lifecycle/dec/DECISIONS.md"
+assert_exit 0 "phase4: a prose-style '## DEC-N —' record counts for contiguity but is NOT required to carry **Resolution:**" -- --phase 4 --repo "$DC" --dir "$DC/.lifecycle/dec"
+
+# ...and the structured `### DEC-N:` form still MUST carry one — the check the widening
+# could otherwise have quietly disabled for everyone.
+: > "$DC/.lifecycle/dec/DECISIONS.md"
+printf '# DECISIONS\n### DEC-1: q?\n**Resolution:** a.\n**Basis:** convention.\n### DEC-2: q with no resolution?\nsome prose but no resolution line\n' >> "$DC/.lifecycle/dec/DECISIONS.md"
+assert_exit 1 "phase4 CONTROL: the structured '### DEC-N:' form still requires **Resolution:**" -- --phase 4 --repo "$DC" --dir "$DC/.lifecycle/dec"
+
+# ---------------------------------------------------------------------------
+# FIXTURE 7 — LEDGER RESOLUTION STATE
+# ---------------------------------------------------------------------------
+# `status: "confirmed"` means "confirmed as a REAL finding" — a TRIAGE verdict, settled
+# once and never revisited. It does NOT mean "still open", and nothing wrote a resolution
+# state back when a finding was fixed. So any open-set derived from the ledger over-counts
+# silently and a stale entry is indistinguishable from a live one.
+#
+# Three staleness modes were measured on one real stage's tail, all found only by verifying
+# each finding against the code before working it: ALREADY FIXED (6 of ~20, including the
+# only high-severity item), COUNT OVER-STATED (five claimed untested branches; three real,
+# six had acquired tests since filing), and SUPERSEDED BY A LATER FIX — correct when filed
+# and INVERTED by a later change, so it is still true as written and acting on it would
+# UNDO the fix that superseded it. That last one is why `superseded` must carry a pointer.
+LG="$(new_repo)"; mkdir -p "$LG/.lifecycle/led"
+led() { : > "$LG/.lifecycle/led/LEDGER.jsonl"; for r in "$@"; do printf '%s\n' "$r" >> "$LG/.lifecycle/led/LEDGER.jsonl"; done; }
+R_OK='{"angle":"correctness","file":"a.rs","line":1,"severity":"high","triage":"confirmed","resolution_state":"open","finding":"x"}'
+R_SEC='{"angle":"security","file":"b.rs","line":2,"severity":"info","triage":"rejected","finding":"y"}'
+
+# A `superseded` row with NO pointer is the mode with teeth: it reads as a live finding that
+# is still literally true, so an implementer acts on it and undoes the fix that superseded
+# it. The pointer is what makes that state safe to store at all.
+led "$R_OK" "$R_SEC" '{"angle":"correctness","file":"c.rs","line":3,"severity":"high","triage":"confirmed","resolution_state":"superseded","finding":"z"}'
+assert_exit 1 "phase6 resolution_state: 'superseded' without superseded_by fails (the mode with teeth)" -- --phase 6 --repo "$LG" --dir "$LG/.lifecycle/led"
+
+# Same for `fixed` — a claim that something was fixed is only auditable with a referent.
+led "$R_OK" "$R_SEC" '{"angle":"correctness","file":"c.rs","line":3,"severity":"high","triage":"confirmed","resolution_state":"fixed","finding":"z"}'
+assert_exit 1 "phase6 resolution_state: 'fixed' without fixed_in fails" -- --phase 6 --repo "$LG" --dir "$LG/.lifecycle/led"
+
+# An unknown resolution word is a typo that would otherwise read as "not open" and silently
+# shrink the open set — the exact over-counting failure this field exists to remove.
+led "$R_OK" "$R_SEC" '{"angle":"correctness","file":"c.rs","line":3,"severity":"high","triage":"confirmed","resolution_state":"donezo","finding":"z"}'
+assert_exit 1 "phase6 resolution_state: an unknown resolution value fails rather than reading as closed" -- --phase 6 --repo "$LG" --dir "$LG/.lifecycle/led"
+
+# CONTROLS — the well-formed closed states pass.
+led "$R_OK" "$R_SEC" '{"angle":"correctness","file":"c.rs","line":3,"severity":"high","triage":"confirmed","resolution_state":"superseded","superseded_by":"DEC-12","finding":"z"}'
+assert_exit 0 "phase6 resolution_state CONTROL: 'superseded' WITH superseded_by passes" -- --phase 6 --repo "$LG" --dir "$LG/.lifecycle/led"
+led "$R_OK" "$R_SEC" '{"angle":"correctness","file":"c.rs","line":3,"severity":"high","triage":"confirmed","resolution_state":"fixed","fixed_in":"abc1234","finding":"z"}'
+assert_exit 0 "phase6 resolution_state CONTROL: 'fixed' WITH fixed_in passes" -- --phase 6 --repo "$LG" --dir "$LG/.lifecycle/led"
+
+# BACKWARD COMPATIBILITY — this is the whole migration story, and it is not optional: both
+# consumer repos already carry hundreds of ledgers written with `status` and no `resolution`
+# at all. Such a row must keep parsing AND keep counting as open, exactly as today.
+led '{"angle":"correctness","file":"a.rs","line":1,"severity":"high","status":"confirmed","finding":"x"}' \
+    '{"angle":"security","file":"b.rs","line":2,"severity":"info","status":"rejected","finding":"y"}'
+assert_exit 0 "phase6 resolution_state CONTROL: a legacy 'status'-only ledger (no resolution) still passes" -- --phase 6 --repo "$LG" --dir "$LG/.lifecycle/led"
+# ...and legacy `status: rejected` must still be read as rejected, not silently promoted to
+# an open finding by the rename. A rename that loses the old field's meaning is a migration
+# that corrupts every existing record.
+led '{"angle":"correctness","file":"a.rs","line":1,"severity":"high","status":"confirmed","finding":"x"}' \
+    '{"angle":"security","file":"b.rs","line":2,"severity":"high","status":"false-positive","finding":"y","corroborated_by":1}'
+assert_exit 0 "phase6 resolution_state CONTROL: legacy 'false-positive' status is still read as rejected" -- --phase 6 --repo "$LG" --dir "$LG/.lifecycle/led"
+
+# THE FIELD-NAME COLLISION — pinned because this fix very nearly shipped WITH it.
+# The obvious name for the new field was `resolution`, and `resolution` is ALREADY IN USE
+# in real ledgers as a FREE-TEXT prose field ("commit e607672e1: the tools picker was
+# removed from…") — 112 rows across 7 files in the two consumer repos, every one of which a
+# vocabulary check on that name would have failed. The name was moved to `resolution_state`
+# only after measuring all 13,799 real rows' field namespace. A prose `resolution` must
+# therefore keep parsing untouched, and this control is what stops the name drifting back.
+led '{"angle":"correctness","file":"a.rs","line":1,"severity":"high","status":"confirmed","finding":"x","resolution":"commit e607672e1: validated before any destructive op; no FS mutation precedes a successful validate."}' \
+    '{"angle":"security","file":"b.rs","line":2,"severity":"info","status":"rejected","finding":"y","disposition":"kept as record"}'
+assert_exit 0 "phase6 resolution_state CONTROL: a PROSE 'resolution' field (112 real rows) is untouched" -- --phase 6 --repo "$LG" --dir "$LG/.lifecycle/led"
+
+# ---------------------------------------------------------------------------
+# FIXTURE 8 — MID-ROUND PUSH (`--wip`)
+# ---------------------------------------------------------------------------
+# The pre-push hook ran `--all` on every push. `--all` already tolerates a phase with NO
+# artifacts (a PENDING phase never sets the failure flag), so a perfectly clean tree at
+# phase 5 does pass it — that part of the diagnosis was wrong. What actually blocked every
+# mid-round push is narrower and nastier: the moment you SCAFFOLD the next phase's artifact
+# (an empty LEDGER.jsonl as you begin phase 6) that phase becomes `present`, and a present
+# phase with gaps is fatal. Writing the first byte of the next phase makes the branch
+# unpushable until that phase is finished.
+#
+# The consequence is the part that matters: a gate that always fails teaches people to
+# reach for --no-verify reflexively, and then it is not there on the day it would have
+# caught something. `--wip` gates the phases the branch has COMPLETED and lets the one it
+# is working on be in progress. `--all` is untouched, so the merge path still demands
+# everything and no existing caller changes behaviour.
+WP="$(new_repo)"; git -C "$WP" checkout -q -b feat/bar
+mkdir -p "$WP/src-app/server/src/modules/bar" "$WP/.lifecycle/bar"
+printf 'pub fn list_bar() -> Vec<String> {\n    vec!["a".into(), "b".into()]\n}\n' > "$WP/src-app/server/src/modules/bar/repository.rs"
+WD="$WP/.lifecycle/bar"
+cat > "$WD/PLAN.md" <<'EOF'
+# PLAN — bar
+## Design source
+- `docs/design/bar.md` §1 "Bar listing" — this plan realizes the read path.
+## Invariants
+- **INV-1**: `list_bar` returns every bar row — the listing is never silently truncated.
+## Items
+- **ITEM-1**: Add list_bar to the bar repository.
+## Files to touch
+- `src-app/server/src/modules/bar/repository.rs` — new fn (ITEM-1).
+## Patterns to follow
+- Mirror an existing server repository module.
+EOF
+write_common "$WD" "src-app/server/src/modules/bar/repository.rs" 3
+cat > "$WD/TESTS.md" <<'EOF'
+# TESTS — bar
+- **TEST-1** (tier: unit) [acceptance] [invariant: INV-1] [covers: ITEM-1] file: `src-app/server/src/modules/bar/repository.rs` — asserts: list_bar returns both seeded rows, not a truncated prefix.
+EOF
+git -C "$WP" add -A && git -C "$WP" commit -qm wip-bar
+
+# THE ONE WRITTEN FIRST — a REGRESSION below the frontier must still fail, or `--wip` is
+# just `--no-verify` spelled differently. Phase 3 is broken (TESTS.md no longer pins INV-1)
+# while the branch works at phase 6.
+cp "$WD/TESTS.md" "$WD/TESTS.md.bak"
+printf '# TESTS — bar\n- **TEST-1** (tier: unit) [covers: ITEM-1] file: `src-app/server/src/modules/bar/repository.rs` — asserts: something.\n' > "$WD/TESTS.md"
+: > "$WD/LEDGER.jsonl"
+git -C "$WP" add -A && git -C "$WP" commit -qm break-phase3
+assert_exit 1 "--wip: a RED completed phase (3) still fails while working at phase 6" -- --wip --repo "$WP" --dir "$WD" --base main
+mv "$WD/TESTS.md.bak" "$WD/TESTS.md"
+git -C "$WP" add -A && git -C "$WP" commit -qm restore-phase3
+
+# The measured blocker: an EMPTY scaffolded LEDGER.jsonl (phase 6 just begun).
+: > "$WD/LEDGER.jsonl"
+rm -f "$WD/AUDIT_COVERAGE.tsv" "$WD/FIX_ROUND-1.md" "$WD/TEST_RESULTS.md" "$WD/HUMAN_FEEDBACK.md"
+git -C "$WP" add -A && git -C "$WP" commit -qm scaffold-ledger
+assert_exit 1 "--wip CONTROL: --all still rejects the scaffolded-ledger mid-round tree (the bug)" -- --all --repo "$WP" --dir "$WD" --base main
+assert_exit 0 "--wip: a mid-round tree with phase 6 IN PROGRESS passes" -- --wip --repo "$WP" --dir "$WD" --base main
+
+# Phases 1..5 complete, nothing scaffolded at all — passes under both.
+rm -f "$WD/LEDGER.jsonl"
+git -C "$WP" add -A && git -C "$WP" commit -qm clean-phase5
+assert_exit 0 "--wip: a clean tree at phase 5 passes" -- --wip --repo "$WP" --dir "$WD" --base main
+
+# An unresolved DRIFT below the frontier is never cleared to reach a push.
+: > "$WD/LEDGER.jsonl"
+printf '# DRIFT round 1\n- **DRIFT-1.1** — verdict: plan-wins — x\n**Unresolved drifts:** 2\n' > "$WD/DRIFT-1.md"
+git -C "$WP" add -A && git -C "$WP" commit -qm open-drift
+assert_exit 1 "--wip: an UNRESOLVED drift below the frontier still fails" -- --wip --repo "$WP" --dir "$WD" --base main
+printf '# DRIFT round 1\n- **DRIFT-1.1** — verdict: resolved — x\n**Unresolved drifts:** 0\n' > "$WD/DRIFT-1.md"
+rm -f "$WD/LEDGER.jsonl"
+
+# THE PROPERTY TO PRESERVE — a COMPLETE feature (every phase has artifacts) demands all
+# nine even under --wip: there is no "phase in progress" left to excuse. Here phase 8 is
+# wrong (TEST-1 recorded FAIL), and --wip must not wave it through.
+write_common "$WD" "src-app/server/src/modules/bar/repository.rs" 3
+printf '# TEST_RESULTS — bar\n- **TEST-1**: FAIL\n' > "$WD/TEST_RESULTS.md"
+git -C "$WP" add -A && git -C "$WP" commit -qm complete-but-failing
+assert_exit 1 "--wip: a COMPLETE feature still demands every phase (phase 8 FAIL is not waved through)" -- --wip --repo "$WP" --dir "$WD" --base main
+printf '# TEST_RESULTS — bar\n- **TEST-1**: PASS\n' > "$WD/TEST_RESULTS.md"
+git -C "$WP" add -A && git -C "$WP" commit -qm complete-green
+assert_exit 0 "--wip CONTROL: a complete, green feature passes" -- --wip --repo "$WP" --dir "$WD" --base main
+assert_exit 0 "--all CONTROL: the same complete, green feature passes --all unchanged" -- --all --repo "$WP" --dir "$WD" --base main
+
+rm -rf "$FE" "$BE" "$UE" "$DE" "$DC" "$LG" "$WP"
+echo "== $PASS passed, $FAIL failed =="
+[ "$FAIL" -eq 0 ]

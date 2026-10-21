@@ -1,0 +1,103 @@
+@import "tailwindcss";
+/* The `animate-in` / `slide-in-from-*` / `fade-in-0` enter/exit utilities the kit + shell
+   components (Drawer, Dialog, Dropdown, Sheet) rely on. The kit's tokens.css does NOT ship
+   them, so the APP must import them (ziee's index.css does the same). Without this the
+   Drawer/Dialog open+close with NO animation. */
+@import "tw-animate-css";
+/* The kit ships a self-contained shadcn token layer — import it directly
+   (SDK_GAPS FE-3: app#1 inlines its own copy instead of consuming this). */
+@import "@ziee/kit/styles/tokens.css";
+
+/* Tailwind v4 only auto-scans THIS app's tree; the SDK's component classes live
+   under the workspace-linked @ziee/* packages, so scan them explicitly or those
+   components render with MISSING classes (SDK_GAPS FE-3). Only `kit` was scanned,
+   so the `shell` Drawer's floating-card margin (`m-2 ml-3`) + slide classes were
+   never generated → the drawer sat FLUSH to the window edge with no animation.
+   Scan shell (Drawer/Dialog) + viz/dock (dock + canvas chrome) too. */
+@source "../../../sdk/packages/kit/src/**/*.{ts,tsx}";
+@source "../../../sdk/packages/shell/src/**/*.{ts,tsx}";
+@source "../../libs/viz/src/**/*.{ts,tsx}";
+@source "../../libs/dock/src/**/*.{ts,tsx}";
+
+@custom-variant dark (&:is(.dark *));
+
+/* SDK-consume gap (mirrors ziee's index.css @layer base): the shell's fixed app-shell relies on a
+   viewport-height ROOT anchor — the kit tokens.css does NOT supply it. Without `#root { height: 100dvh }`
+   the `#root → #app-root(h-full) → shell(h-full)` chain has no definite height, so every full-height page
+   collapses to CONTENT height — most visibly the workbench IDE (a fixed multi-pane surface), which then
+   only fills its content instead of the viewport. Relaxed under `.scroll-native` (mobile native scroll). */
+@layer base {
+  #root {
+    height: 100dvh;
+    width: 100dvw;
+  }
+  html.scroll-native,
+  html.scroll-native body {
+    height: auto;
+    overflow: visible;
+  }
+  html.scroll-native #root {
+    height: auto;
+    min-height: 100dvh;
+  }
+}
+
+/* OverlayScrollbars (the kit `ScrollArea`, now used in the workbench panes) applies its `os-theme-dark`
+   handle by default — near-opaque black, designed for LIGHT surfaces, so it vanishes in dark mode.
+   Rebind the handle vars to white when `html.dark` (set by ThemeProvider). Mirrors ziee's index.css. */
+html.dark .os-theme-dark {
+  --os-handle-bg: rgba(255, 255, 255, 0.22);
+  --os-handle-bg-hover: rgba(255, 255, 255, 0.35);
+  --os-handle-bg-active: rgba(255, 255, 255, 0.48);
+}
+
+/* The sticky job-completion ack (`statusBarJobsStore.fireJobToast`, DEC-16) never expires, so it
+   parks over whatever is bottom-right — on the workbench that is the per-analysis run list. A
+   permanent overlay that also OWNS the pointer across its whole footprint is a permanent
+   click-blocker: measured, a mouse click on a run row underneath never reached the row, and the
+   toast's only exit navigated the user away from the pane they were reading.
+
+   So the ack renders and reads but takes no pointer input, while every control it owns opts back
+   in. Applied per-toast through sonner's `classNames` option — the library's OWN API. Nothing
+   here (and nothing in a test) may reach into the toast layer's DOM: removing those nodes by hand
+   made sonner's next render throw `NotFoundError` through the root error boundary
+   (`tests/e2e/14-declarative-qc/_seed.ts` records the episode).
+
+   Deliberately scoped to THIS toast rather than the whole Toaster: every other toast in the app
+   expires on its own, and making all of them pointer-transparent would silently drop
+   swipe-to-dismiss and hover-to-pause for toasts that need them. */
+.job-toast-passthrough {
+  pointer-events: none;
+}
+.job-toast-passthrough .job-toast-control {
+  pointer-events: auto;
+}
+
+/* THE NOTIFICATION LAYER SITS BELOW THE OVERLAY LAYER.
+   ────────────────────────────────────────────────────
+   Sonner ships `[data-sonner-toaster] { z-index: 999999999 }`, i.e. above everything, forever.
+   The kit's overlays live on a small, ordered scale — drawer/sheet 50, dialog backdrop 55,
+   dialog/select/dropdown content 60, popover positioner 70 — so the toast layer outranked every
+   MENU and DIALOG in the app. Measured on the workbench: the sticky job ack (bottom-right, never
+   expires) covered the region rail's "+" (add-a-pane) menu, which opens bottom-right too, and the
+   items underneath were unclickable. Worse, the obstruction GREW as you approached: sonner expands
+   its stack while the pointer is over it, so aiming at a covered item is what keeps it covered
+   (1367 Playwright retries across 12.5 minutes on an element reported visible, enabled and stable
+   throughout — `tests/e2e/workstore/_artifacts.ts` records it).
+
+   The rule: a transient status message may sit over ordinary page content, and never over a
+   surface that has taken focus and input. 49 is the last value below the kit's overlay floor
+   (50). Nothing in this app paints between the two — the only higher app z-indexes are the
+   pointer-events-none drag ghosts at 1000.
+
+   Specificity, not `!important`: sonner INJECTS its stylesheet into <head> at import time, so it
+   lands after this file's <link> and would win a tie. `[data-sonner-toaster][data-sonner-theme]`
+   is (0,2,0) against its (0,1,0) — both attributes are always on the element sonner renders — and
+   this rule is unlayered like sonner's, so it cannot be outranked by cascade order either.
+
+   The e2e guard is `tests/e2e/14-workbench/toast-menu-stacking.spec.ts`, which asserts the
+   RELATIONSHIP (the toast layer is under the open menu's) plus what it exists for: every menu
+   item is the topmost element at its own coordinates, and a real pointer click lands. */
+[data-sonner-toaster][data-sonner-theme] {
+  z-index: 49;
+}

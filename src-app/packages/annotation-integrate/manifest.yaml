@@ -1,0 +1,56 @@
+# Annotation-table INTEGRATE extension (ITEM-13 / DEC-8/DEC-23) — the SINGLE,
+# generic, axis-AGNOSTIC supporting-file kind-processor for the `annotation_table`
+# kind. A NEW extension folder (zero core edit) that proves the modular seam from the
+# other side: a new supporting KIND is a new `packages/<id>/` folder.
+#
+# It fires on `on-integrate` (distinct from the per-domain `on-ingest` import): the
+# coordinator wires TWO inputs into the sandbox job — the uploaded annotation-table
+# file AND the dataset's target-axis entity-index metadata-column artifact (the
+# `<axis>_index` the primary import emits, bound via the dedicated
+# `InputDecl.dataset_axis_index` input source — NOT `artifact_ref` — DEC-7).
+# The compute script (`annotation_integrate.py`) aligns the table onto that axis index
+# (shared `align.py`, DEC-2/DEC-18) and emits one axis-tagged `metadata-column` per
+# aligned annotation column, each carrying the compact `colsummary` viz summary +
+# alignment coverage in `meta` (ITEM-21/DEC-25). It is REUSED unchanged by both Phase A
+# (chained after import) and Phase B (add-later).
+id: annotation-integrate
+name: Annotation Table Integrate
+publisher: cyto
+version: 0.2.1
+apiVersion: "1.0"
+contributes:
+  converters:
+    - id: annotation-integrate
+      title: Integrate annotation table
+      # Aligns a supporting annotation-table onto an existing dataset's axis (generic).
+      trigger: on-integrate
+      params: none
+      # Runs inside the same single-cell env image as the primary import (falls back to
+      # the embedded rootfs, DEC-24). The alignment itself is axis/domain-agnostic.
+      env: single-cell
+      accepts:
+        # The supporting datatype this integrator consumes (matched by
+        # `find_on_integrate_converter` on `type_id`). The axis + key normalization are
+        # supplied per-run by the coordinator (from the primary converter's supporting
+        # accepts + params), so this accept stays a bare type match.
+        - type_id: annotation-table
+      produces:
+        # 0..N aligned annotation columns, one metadata-column per non-key table column.
+        - datatype: metadata-column
+          cardinality: many
+        - datatype: report/qc
+          cardinality: one
+      run:
+        kind: sandbox
+        runtime: python
+        # NOTE FOR THE COORDINATOR: this logical entry / `code_ref` must be registered
+        # in `sandbox/processors/mod.rs` (baked via `include_str!`) and its shared
+        # sibling helpers `align.py` + `colsummary.py` staged alongside it, exactly as
+        # `h5ad_import.py` now depends on `colsummary.py`.
+        entry: annotation_integrate.py
+        # The libraries THIS entry's code imports, with the version range it is
+        # supported against (#80). A minor-pinned range where the library's DEFAULTS decide a published
+        # number; a wider one where it is a stable numerical floor.
+        dependencies:
+          - { library: numpy, version: ">=2.0,<3" }
+          - { library: pandas, version: ">=2.2,<3" }

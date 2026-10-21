@@ -1,0 +1,734 @@
+{
+  "_comment": "Shared Rust<->TS parity fixture (ITEM-7). The Rust test (src/modules/datatype/tests/mod.rs) and the FE e2e (ui/tests/e2e/datatype/registry.spec.ts) both read THIS file and assert their registry computes every case identically. One source of truth for is_a/accepts/viewers_for/layout_kind behavior. WHAT IS NOT HERE, AND MUST NOT COME BACK: a `lattice` array enumerating every type in the registry (it held 26 entries) plus an exact `reg.len()` count. That made this fixture an ENUMERATION of a set the package tree contributes to, so contributing a datatype forced an edit to a file under src-app/server/src/ -- mutually unsatisfiable with the zero-core invariant the package system rests on. The full type set is now DERIVED in mod.rs from the Rust roots UNION every contributes.datatypes[].id in every src-app/packages/*/manifest.yaml, which is a strictly stronger check and needs no edit when a package is added. See docs/design/derived-guards.md section 4; `the_shared_golden_holds_case_tables_and_no_frozen_lattice` fails if `lattice` returns. The four tables below are enumerated CASES over the lattice, not an enumeration OF it, so a new datatype does not invalidate them and they stay. ROUND-1 AUDIT ADDITION: twelve `is_a` rows were added for `annotation-table`, `cell-set`, `de/result`, `geneset/collection` and `graph/attributed` \u2014 the five contributed types that, once `lattice` was deleted, no case table mentioned at all, leaving their declared `extends` frozen nowhere. Each row pins one parent claim (and one NON-parent, so a re-root to a sibling is caught too). This is a ONE-TIME addition for types that already exist: contributing a datatype tomorrow still requires no edit to this file, which is the property INV-3 asserts. Read the derivation and these tables as two halves \u2014 the derivation cross-checks declared-vs-loaded and is edit-free; the tables freeze VALUES and cost an edit per covered type.",
+  "accepts": [
+    {
+      "datatype": "clustering",
+      "expect": false,
+      "selector": {
+        "subtypes_of": "matrix"
+      }
+    },
+    {
+      "datatype": "embedding",
+      "expect": false,
+      "selector": {
+        "capabilities": [
+          "has-obs"
+        ],
+        "subtypes_of": "matrix"
+      }
+    },
+    {
+      "datatype": "embedding",
+      "expect": true,
+      "selector": {
+        "subtypes_of": "matrix"
+      }
+    },
+    {
+      "datatype": "embedding",
+      "expect": false,
+      "selector": {
+        "type_id": "single-cell/counts"
+      }
+    },
+    {
+      "datatype": "embedding",
+      "expect": false,
+      "selector": {
+        "type_id": "single-cell/expression"
+      }
+    },
+    {
+      "datatype": "file/upload",
+      "expect": true,
+      "selector": {
+        "subtypes_of": "data"
+      }
+    },
+    {
+      "datatype": "file/upload",
+      "expect": true,
+      "selector": {
+        "type_id": "file/upload"
+      }
+    },
+    {
+      "datatype": "report/html",
+      "expect": true,
+      "selector": {
+        "subtypes_of": "data"
+      }
+    },
+    {
+      "datatype": "report/qc",
+      "expect": true,
+      "selector": {
+        "subtypes_of": "data"
+      }
+    },
+    {
+      "datatype": "report/qc",
+      "expect": true,
+      "selector": {
+        "subtypes_of": "report/html"
+      }
+    },
+    {
+      "datatype": "sequence/fastq",
+      "expect": true,
+      "selector": {
+        "subtypes_of": "data"
+      }
+    },
+    {
+      "datatype": "sequence/fastq",
+      "expect": false,
+      "selector": {
+        "subtypes_of": "matrix"
+      }
+    },
+    {
+      "datatype": "single-cell/anndata",
+      "expect": true,
+      "selector": {
+        "subtypes_of": "data"
+      }
+    },
+    {
+      "datatype": "single-cell/anndata",
+      "expect": false,
+      "selector": {
+        "subtypes_of": "matrix"
+      }
+    },
+    {
+      "datatype": "single-cell/anndata",
+      "expect": true,
+      "selector": {
+        "type_id": "single-cell/anndata"
+      }
+    },
+    {
+      "datatype": "single-cell/atac",
+      "expect": true,
+      "selector": {
+        "subtypes_of": "single-cell/expression"
+      }
+    },
+    {
+      "datatype": "single-cell/counts",
+      "expect": true,
+      "selector": {
+        "subtypes_of": "single-cell/expression"
+      }
+    },
+    {
+      "datatype": "single-cell/counts",
+      "expect": true,
+      "selector": {
+        "type_id": "single-cell/counts"
+      }
+    },
+    {
+      "datatype": "single-cell/expression",
+      "expect": true,
+      "selector": {
+        "capabilities": [
+          "has-obs"
+        ],
+        "subtypes_of": "matrix"
+      }
+    },
+    {
+      "datatype": "single-cell/expression",
+      "expect": true,
+      "selector": {
+        "subtypes_of": "matrix"
+      }
+    },
+    {
+      "datatype": "single-cell/expression",
+      "expect": false,
+      "selector": {
+        "type_id": "single-cell/counts"
+      }
+    },
+    {
+      "datatype": "single-cell/expression",
+      "expect": true,
+      "selector": {
+        "type_id": "single-cell/expression"
+      }
+    },
+    {
+      "datatype": "single-cell/matrix-mtx",
+      "expect": true,
+      "selector": {
+        "subtypes_of": "data"
+      }
+    },
+    {
+      "datatype": "single-cell/matrix-mtx",
+      "expect": false,
+      "selector": {
+        "subtypes_of": "matrix"
+      }
+    },
+    {
+      "datatype": "single-cell/matrix-mtx",
+      "expect": true,
+      "selector": {
+        "type_id": "single-cell/matrix-mtx"
+      }
+    },
+    {
+      "datatype": "single-cell/modality",
+      "expect": true,
+      "selector": {
+        "subtypes_of": "single-cell/expression"
+      }
+    },
+    {
+      "datatype": "single-cell/multimodal",
+      "expect": true,
+      "selector": {
+        "subtypes_of": "data"
+      }
+    },
+    {
+      "datatype": "single-cell/multimodal",
+      "expect": false,
+      "selector": {
+        "subtypes_of": "matrix"
+      }
+    },
+    {
+      "datatype": "single-cell/multimodal",
+      "expect": true,
+      "selector": {
+        "type_id": "single-cell/multimodal"
+      }
+    },
+    {
+      "datatype": "single-cell/protein",
+      "expect": true,
+      "selector": {
+        "subtypes_of": "matrix"
+      }
+    },
+    {
+      "datatype": "single-cell/protein",
+      "expect": true,
+      "selector": {
+        "subtypes_of": "single-cell/expression"
+      }
+    },
+    {
+      "datatype": "spatial/coordinates",
+      "selector": {
+        "capabilities": [
+          "plottable-xy"
+        ]
+      },
+      "expect": true
+    },
+    {
+      "datatype": "spatial/image",
+      "selector": {
+        "capabilities": [
+          "plottable-xy"
+        ]
+      },
+      "expect": false
+    },
+    {
+      "datatype": "spatial/coordinates",
+      "selector": {
+        "subtypes_of": "embedding"
+      },
+      "expect": false
+    },
+    {
+      "datatype": "spatial/coordinates",
+      "selector": {
+        "capabilities": [
+          "spatial"
+        ]
+      },
+      "expect": true
+    }
+  ],
+  "is_a": [
+    {
+      "sub": "annotation-table",
+      "sup": "data",
+      "expect": true
+    },
+    {
+      "sub": "annotation-table",
+      "sup": "tabular",
+      "expect": false
+    },
+    {
+      "sub": "cell-set",
+      "sup": "data",
+      "expect": true
+    },
+    {
+      "sub": "cell-set",
+      "sup": "data/opaque",
+      "expect": true
+    },
+    {
+      "sub": "cell-set",
+      "sup": "matrix",
+      "expect": false
+    },
+    {
+      "expect": true,
+      "sub": "clustering",
+      "sup": "tabular"
+    },
+    {
+      "expect": false,
+      "sub": "dataset-alignment",
+      "sup": "matrix"
+    },
+    {
+      "expect": true,
+      "sub": "dataset-alignment",
+      "sup": "tabular"
+    },
+    {
+      "sub": "de/result",
+      "sup": "data",
+      "expect": true
+    },
+    {
+      "sub": "de/result",
+      "sup": "matrix",
+      "expect": false
+    },
+    {
+      "sub": "de/result",
+      "sup": "tabular",
+      "expect": true
+    },
+    {
+      "expect": true,
+      "sub": "embedding",
+      "sup": "matrix"
+    },
+    {
+      "expect": false,
+      "sub": "embedding",
+      "sup": "single-cell/counts"
+    },
+    {
+      "expect": false,
+      "sub": "embedding",
+      "sup": "single-cell/expression"
+    },
+    {
+      "expect": true,
+      "sub": "file/upload",
+      "sup": "data"
+    },
+    {
+      "sub": "geneset/collection",
+      "sup": "data",
+      "expect": true
+    },
+    {
+      "sub": "geneset/collection",
+      "sup": "tabular",
+      "expect": false
+    },
+    {
+      "sub": "graph/attributed",
+      "sup": "data",
+      "expect": true
+    },
+    {
+      "sub": "graph/attributed",
+      "sup": "matrix",
+      "expect": false
+    },
+    {
+      "expect": true,
+      "sub": "metadata-column",
+      "sup": "data"
+    },
+    {
+      "expect": false,
+      "sub": "report/html",
+      "sup": "matrix"
+    },
+    {
+      "expect": true,
+      "sub": "report/qc",
+      "sup": "data"
+    },
+    {
+      "expect": false,
+      "sub": "report/qc",
+      "sup": "matrix"
+    },
+    {
+      "expect": true,
+      "sub": "report/qc",
+      "sup": "report/html"
+    },
+    {
+      "expect": true,
+      "sub": "sequence/fastq",
+      "sup": "data"
+    },
+    {
+      "expect": false,
+      "sub": "sequence/fastq",
+      "sup": "file/upload"
+    },
+    {
+      "expect": true,
+      "sub": "single-cell/anndata",
+      "sup": "data"
+    },
+    {
+      "expect": true,
+      "sub": "single-cell/anndata",
+      "sup": "data/opaque"
+    },
+    {
+      "expect": false,
+      "sub": "single-cell/anndata",
+      "sup": "matrix"
+    },
+    {
+      "expect": false,
+      "sub": "single-cell/anndata",
+      "sup": "single-cell/expression"
+    },
+    {
+      "expect": true,
+      "sub": "single-cell/atac",
+      "sup": "single-cell/expression"
+    },
+    {
+      "expect": true,
+      "sub": "single-cell/counts",
+      "sup": "data"
+    },
+    {
+      "expect": true,
+      "sub": "single-cell/counts",
+      "sup": "matrix"
+    },
+    {
+      "expect": true,
+      "sub": "single-cell/counts",
+      "sup": "single-cell/expression"
+    },
+    {
+      "expect": false,
+      "sub": "single-cell/counts",
+      "sup": "single-cell/normalized"
+    },
+    {
+      "expect": true,
+      "sub": "single-cell/expression",
+      "sup": "data"
+    },
+    {
+      "expect": true,
+      "sub": "single-cell/expression",
+      "sup": "matrix"
+    },
+    {
+      "expect": true,
+      "sub": "single-cell/expression",
+      "sup": "single-cell/expression"
+    },
+    {
+      "expect": true,
+      "sub": "single-cell/expression",
+      "sup": "tabular"
+    },
+    {
+      "expect": true,
+      "sub": "single-cell/matrix-mtx",
+      "sup": "data"
+    },
+    {
+      "expect": true,
+      "sub": "single-cell/matrix-mtx",
+      "sup": "data/opaque"
+    },
+    {
+      "expect": false,
+      "sub": "single-cell/matrix-mtx",
+      "sup": "matrix"
+    },
+    {
+      "expect": false,
+      "sub": "single-cell/matrix-mtx",
+      "sup": "single-cell/expression"
+    },
+    {
+      "expect": true,
+      "sub": "single-cell/modality",
+      "sup": "single-cell/expression"
+    },
+    {
+      "expect": true,
+      "sub": "single-cell/multimodal",
+      "sup": "data"
+    },
+    {
+      "expect": false,
+      "sub": "single-cell/multimodal",
+      "sup": "matrix"
+    },
+    {
+      "expect": true,
+      "sub": "single-cell/normalized",
+      "sup": "single-cell/expression"
+    },
+    {
+      "expect": true,
+      "sub": "single-cell/protein",
+      "sup": "data"
+    },
+    {
+      "expect": true,
+      "sub": "single-cell/protein",
+      "sup": "matrix"
+    },
+    {
+      "expect": true,
+      "sub": "single-cell/protein",
+      "sup": "single-cell/expression"
+    },
+    {
+      "sub": "spatial/coordinates",
+      "sup": "matrix",
+      "expect": true
+    },
+    {
+      "sub": "spatial/coordinates",
+      "sup": "embedding",
+      "expect": false
+    },
+    {
+      "sub": "spatial/image",
+      "sup": "data/opaque",
+      "expect": true
+    },
+    {
+      "sub": "spatial/image",
+      "sup": "matrix",
+      "expect": false
+    },
+    {
+      "sub": "spatial/boundaries",
+      "sup": "tabular",
+      "expect": true
+    },
+    {
+      "sub": "spatial/visium-bundle",
+      "sup": "data/opaque",
+      "expect": true
+    },
+    {
+      "sub": "spatial/xenium-bundle",
+      "sup": "data/opaque",
+      "expect": true
+    },
+    {
+      "sub": "spatial/visium-hd-bundle",
+      "sup": "data/opaque",
+      "expect": true
+    },
+    {
+      "sub": "spatial/labels",
+      "sup": "data/opaque",
+      "expect": true
+    }
+  ],
+  "layout_kind": [
+    {
+      "datatype": "single-cell/expression",
+      "expect": "chunked_sparse"
+    },
+    {
+      "datatype": "single-cell/counts",
+      "expect": "chunked_sparse"
+    },
+    {
+      "datatype": "single-cell/normalized",
+      "expect": "chunked_sparse"
+    },
+    {
+      "datatype": "single-cell/anndata",
+      "expect": "opaque_as_is"
+    },
+    {
+      "datatype": "embedding",
+      "expect": "chunked_dense"
+    },
+    {
+      "datatype": "clustering",
+      "expect": "columnar_table"
+    },
+    {
+      "datatype": "metadata-column",
+      "expect": "chunked_1d"
+    },
+    {
+      "datatype": "report/html",
+      "expect": "opaque_as_is"
+    },
+    {
+      "datatype": "report/qc",
+      "expect": "opaque_as_is"
+    },
+    {
+      "datatype": "sequence/fastq",
+      "expect": "opaque_as_is"
+    },
+    {
+      "datatype": "file/upload",
+      "expect": "opaque_as_is"
+    },
+    {
+      "datatype": "single-cell/matrix-mtx",
+      "expect": "opaque_as_is"
+    },
+    {
+      "datatype": "single-cell/protein",
+      "expect": "chunked_sparse"
+    },
+    {
+      "datatype": "single-cell/atac",
+      "expect": "chunked_sparse"
+    },
+    {
+      "datatype": "single-cell/modality",
+      "expect": "chunked_sparse"
+    },
+    {
+      "datatype": "single-cell/multimodal",
+      "expect": "opaque_as_is"
+    },
+    {
+      "datatype": "dataset-alignment",
+      "expect": "chunked_dense"
+    },
+    {
+      "datatype": "spatial/coordinates",
+      "expect": "chunked_dense"
+    },
+    {
+      "datatype": "spatial/image",
+      "expect": "opaque_as_is"
+    },
+    {
+      "datatype": "spatial/labels",
+      "expect": "opaque_as_is"
+    },
+    {
+      "datatype": "spatial/boundaries",
+      "expect": "columnar_table"
+    },
+    {
+      "datatype": "spatial/visium-bundle",
+      "expect": "opaque_as_is"
+    }
+  ],
+  "viewers_for": [
+    {
+      "datatype": "single-cell/expression",
+      "expect": [
+        "matrix-grid",
+        "table"
+      ]
+    },
+    {
+      "datatype": "embedding",
+      "expect": [
+        "embedding-scatter",
+        "matrix-grid",
+        "table"
+      ]
+    },
+    {
+      "datatype": "clustering",
+      "expect": [
+        "table"
+      ]
+    },
+    {
+      "datatype": "report/html",
+      "expect": [
+        "report"
+      ]
+    },
+    {
+      "datatype": "report/qc",
+      "expect": [
+        "qc-review",
+        "report"
+      ]
+    },
+    {
+      "datatype": "sequence/fastq",
+      "expect": []
+    },
+    {
+      "datatype": "file/upload",
+      "expect": []
+    },
+    {
+      "datatype": "single-cell/matrix-mtx",
+      "expect": []
+    },
+    {
+      "datatype": "single-cell/protein",
+      "expect": [
+        "matrix-grid",
+        "table"
+      ]
+    },
+    {
+      "datatype": "single-cell/atac",
+      "expect": [
+        "matrix-grid",
+        "table"
+      ]
+    },
+    {
+      "datatype": "single-cell/modality",
+      "expect": [
+        "matrix-grid",
+        "table"
+      ]
+    },
+    {
+      "datatype": "single-cell/multimodal",
+      "expect": []
+    },
+    {
+      "datatype": "spatial/coordinates",
+      "expect": [
+        "embedding-scatter",
+        "matrix-grid",
+        "table"
+      ]
+    },
+    {
+      "datatype": "spatial/image",
+      "expect": []
+    }
+  ]
+}

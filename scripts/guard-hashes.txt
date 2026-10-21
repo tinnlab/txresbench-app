@@ -1,0 +1,38 @@
+# guard-hashes.txt — the COMMITTED pins for scripts/check-*, scripts/lib/* and
+# scripts/coercion-parity* (ITEM-22, widened #287 R4 and #311/#324 R1).
+#
+# Regenerate with:  scripts/check-guard-integrity.sh --update
+# A line changing here is a guard changing. That is the whole point: read it.
+#
+# <sha256>  <path>
+d51fbf676171ad317a28c512771c197c487e0ed1ab43a28988b21e8c90ca9b7e  scripts/check-aggregate.sh
+34108050b03ef074e58ebc89c0b9e93ad14d6ed51c251d0cb99db1cba133b155  scripts/check-aggregate.test.mjs
+1b4b861c379f1d5cb0e0106539cd634a6822dbf57df9687d5e2a6de7345e670d  scripts/check-derived-vocabulary.sh
+fab26245ff7dba86df1426952405aa4279e365dc0ab1c1537dceaee135eabb32  scripts/check-derived-vocabulary.test.mjs
+a66d5a3c74ef9803a5046fbcc7a3b8b3cc69f385d5390725c0d5e4487b885588  scripts/check-design-citations.mjs
+4fa38d6cb2096ed4d6eb31a4eb113faaa65bc85a3ef78a5584678175e199af6e  scripts/check-design-citations.test.mjs
+e5e6939e373482b1bbfa700021399d7dc91d34965cbf07ea24675c1a8c558dd1  scripts/check-env-loop.sh
+6591903c6f86c00398bdba7a365904b3d21a81c8b70fa26c660ad09b96df6de6  scripts/check-guard-integrity.sh
+c8e675e70df31fbeeb30b9a51e9eaf290eb5eb57de1b60100010ba2d39a537a7  scripts/check-kinds-zero-core.sh
+664a57701ac4dc0bf2e49dce1003d5e6b5668d0c34dbc5388f5cf866910f3e1f  scripts/check-manifest-version-claims.sh
+30e97695e6bf58f144b8e54a5ed78cd85227cd81c116721ad016f49767be9760  scripts/check-manifest-version-claims.test.mjs
+2e3f1528a1daaee5721aebe1015af3a67ab428810ee89bddd95a543a9d81a686  scripts/check-no-format-crates.sh
+acf9a48a69468578d6204509c64ef3ec30f419cab329fa7eafd3ee2799169ea7  scripts/check-no-legacy-wire.sh
+055010d7aa7d377cbe67ac1ba34e9d4196466d7742e8c7cc41b75f438c551d1a  scripts/check-no-study-domain-literals.sh
+d10e813fd734872121c8816e37ca5d87954df006d5518447173de31de24e8862  scripts/check-package-suites.mjs
+2e34229d0956375421c2a333e29ec43342dda29a612654c3fa2d837b3d971c2c  scripts/check-package-suites.test.mjs
+f4b935daef92dd2d8d86dc8954b9b5a88f88552c8c6dc31d6801c0404bdaa554  scripts/check-processor-seed-versions.sh
+1f7bcc7586c3cb414e57c4cc5b7900e4b443eec5acf60f98a500038774bf9a4b  scripts/check-pub-orphans.mjs
+e8d991023e81fa28629ed47cbbb28bd8fa0635b1051ee7b3608ad70701c27906  scripts/check-pub-orphans.test.mjs
+dbaeeed9e6b301afdb026a0a2c89e88bed2594090235d54832ab84bcfae8bdbb  scripts/check-recipe-pins.mjs
+60471ec21a09ffe56e513863a19872e89e407e3c75b2c0fa385f6d3534dbf57c  scripts/check-recipe-pins.test.mjs
+6be0426083175b84d5bb4742dad114059ca592e686c0a837f5987ece61826c4c  scripts/check-substrate-retired.sh
+5d5d02b66e077d2a6c89cdaf1155401032ef02ea39d23115c4a4e92b448ca07e  scripts/check-test-scope-lists.mjs
+76df454d5e8508cc0f633f9c0ac67c869f5b2c6217a689b9877405a75dbba54a  scripts/check-viz-producer-magnitudes.mjs
+dc5422ff81b8ef6af0b3c3059661b14eefdb5c9f173766271cc132164ae67db2  scripts/coercion-parity-kernel.py
+cda2cdecc8ec760afc2cebe3e26748c30f5291f9d6ff58351a7b414c4f9bf870  scripts/coercion-parity.mjs
+d7f57e9eb8a81e3fc87d847f5811160ca25ec1c8d2909535b78fce2a19bcda9b  scripts/coercion-parity-ts.mjs
+e032a1589930f807aa043ded9cf6583957607f22419308014f0c6843cf3683db  scripts/coercion-parity-ws-check.mjs
+77db0c5f920636b3de109a517e8155ca979d64bb6e7f4aa2c7775c53ce998433  scripts/lib/env-id-grammar.sh
+608db313ae8e6d080000a3fd71a142708884c3ae04de3ef13b0094d0c0bcacdf  scripts/lib/env-image-verify.sh
+408aab02e2fbba09d656acceaec3f6477a3be90de9c4d6d6774fca63a83f75cc  scripts/lib/zero-core-surface.txt

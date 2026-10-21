@@ -1,0 +1,42 @@
+# open-kinds-out-of-tree — the M8 zero-core-SERVE fixture.
+#
+# A BRAND-NEW kind (`fixture/pathway`) declared ENTIRELY as DATA in a manifest that lives
+# OUTSIDE `src-app/packages/` (so it is NOT baked into the embedded registry by
+# `extensions/loader.rs::include_dir!("../packages")`). The acceptance test
+# `out_of_tree_fixture_kind_serves_through_unchanged_core` loads THIS file from disk,
+# merges it via `DatatypeRegistry::build_merged`, and serves an artifact of this kind
+# through the UNCHANGED Selection→Arrow serve core — proving zero-core extensibility from
+# a genuine out-of-tree fixture (mirrors dimension-primitives' `fixture/image`), so
+# nothing about the embedding of the in-tree `open-kinds` package is load-bearing (M8).
+#
+# `pathway` is a NEW axis SOMA's fixed obs/var vocabulary cannot express — a
+# `(pathway, gene)` membership incidence, exactly the shape whose serve is proven here.
+id: open-kinds-out-of-tree
+name: Open Kinds (out-of-tree serve fixture)
+publisher: fixture
+version: 0.1.0
+apiVersion: "1.0"
+contributes:
+  datatypes:
+    - id: fixture/pathway
+      extends: data
+      title: Pathway membership (out-of-tree)
+      description: >-
+        A (pathway × gene) membership incidence over a BRAND-NEW `pathway` axis, declared
+        entirely as out-of-tree DATA and served through the unchanged core on its
+        chunked-sparse layout — the M8 zero-core-serve proof.
+      is_abstract: false
+      axes:
+        - { name: pathway, key_label: pathway_id }
+        - { name: gene, key_label: gene_id }
+      storage:
+        layout: { kind: chunked_sparse, orientation: csc }
+        format: zarr
+        file_layout: single
+      capabilities: [sliceable]
+      arrays:
+        - name: membership
+          kind: pathway-membership
+          dims: [{ axis: gene }, { axis: pathway }]
+          attrs: [{ name: member, dtype: f32 }]
+          layout: { kind: chunked_sparse, orientation: csc }

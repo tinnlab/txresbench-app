@@ -1,0 +1,7 @@
+[submodule "sdk"]
+	path = sdk
+	url = https://github.com/ziee-ai/sdk
+	branch = cyto
+[submodule "agent-kit"]
+	path = agent-kit
+	url = https://github.com/ziee-ai/agent-kit.git

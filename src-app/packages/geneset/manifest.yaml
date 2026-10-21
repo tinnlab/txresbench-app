@@ -1,0 +1,142 @@
+# geneset — curate an immutable, provenance-bearing gene-set COLLECTION (doc 17, increment 1).
+#
+# The FIRST real consumer of the draftable-entity primitive. A user curates a collection while
+# it is a freely-editable DRAFT (manual / paste / GMT import), then FREEZES it into an immutable,
+# content-hash-pinned `geneset/collection` artifact (GS-INV-1/5). Later edits fork a new version;
+# the past never changes.
+#
+# The whole feature is DATA — manifest + python compute + declarative views — baked into the
+# server seed; no server module, no migration, no new permission (reuses the draftable primitive's
+# `drafts::use`). Mirrors the `differential-expression` package shape.
+#
+#   · geneset.curate            — the DRAFTABLE editor (ui/collection-editor.yaml). Launchable;
+#                                 produces the collection by FREEZING (no run of its own).
+#   · geneset.collection.freeze — the freeze PRODUCER (compute/freeze.py) the draftable primitive
+#                                 runs at freeze; mints the immutable `geneset/collection`.
+#   · sections[] geneset.collections — the Visualize gene-sets surface (frozen readout + export).
+id: geneset
+name: Gene sets
+publisher: cyto
+version: 0.1.3
+apiVersion: "1.0"
+contributes:
+  analyses:
+    # ── geneset.curate — the DRAFTABLE collection editor (Frame A) ────────────────────────────
+    - id: geneset.curate
+      category: geneset
+      title: Curate gene-set collection
+      description: >-
+        Curate a gene-set collection — a named set of gene sets, each with genes and a per-set
+        kind (cell-type markers vs signatures). Freely editable as a draft (add sets manually, or
+        paste / import GMT); Freeze pins it into an immutable, content-hash-addressed
+        geneset/collection so any figure or annotation that uses it stays reproducible. Later
+        edits fork a new version.
+      whenHint: >-
+        the user wants to build or import a marker / signature gene-set collection to score or to
+        feed cell-type annotation
+      examples:
+        - create a new gene-set collection
+        - import a GMT of marker sets
+        - curate cell-type marker sets
+      safety: read-run
+      # A CONTEXTUALLY-launched draftable EDITOR, not a generic launcher run-analysis. It is
+      # opened by the "Gene sets" section's New-collection / Edit→new-version buttons, which
+      # `revealPane` it directly AND thread the draft launch-intent (New = a fresh draft; Edit =
+      # a fork SEEDED from the selected frozen artifact — INV-6). `launchable: false` keeps it
+      # registered-but-out-of-the-launcher (processorPackage.ts: "false keeps it
+      # registered-but-not-in-launcher"): a generic launcher entry would open the editor with NO
+      # launch-intent → an UNSEEDED editor (re-introducing the round-1 empty-editor defect), and
+      # it is not a run-launching FORM (no artifact_ref inputs, no run_processor; its terminal
+      # action is Freeze), so the run-form conformance tier does not apply to it. Its own coverage
+      # is draftBinding.test + the 14-geneset e2e (New/Edit/reload/freeze). The New/Edit buttons
+      # are unaffected — they do not go through the launcher.
+      launchable: false
+      appliesTo:
+        - subtypes_of: geneset/collection
+      produces: [geneset/collection, report/qc]
+      ui:
+        - ui/collection-editor.yaml
+      # draftable-entity: the editor's $state <-> a project-scoped `drafts` row; Freeze runs the
+      # `geneset.collection.freeze` producer, minting the immutable artifact (GS-INV-5).
+      draftable:
+        kind: "geneset/collection"
+        edit: ui/collection-editor.yaml
+        freeze: geneset.collection.freeze
+        freeze_on: []
+
+    # ── geneset.collection.freeze — the freeze PRODUCER (mints the artifact) ──────────────────
+    - id: geneset.collection.freeze
+      category: geneset
+      title: Freeze gene-set collection
+      description: >-
+        The freeze producer for a gene-set collection draft: reads the draft body (name,
+        default kind, sets) and writes the immutable geneset/collection artifact — a
+        (gene x geneset) membership plus per-set metadata (name / description / collection +
+        kind / origin / data_driven, GS-INV-12) carried in the artifact's structure. Deterministic:
+        identical draft data yields byte-identical bytes and a stable content-hash (GS-INV-1).
+      safety: read-run
+      # The freeze producer is invoked by the draftable machinery (not user-launched); it is
+      # scoped to the geneset/collection context for availability-conformance.
+      appliesTo:
+        - subtypes_of: geneset/collection
+      produces: [geneset/collection, report/qc]
+      # The env image this contribution runs inside (#191 / E3). DECLARED, not inferred,
+      # so the #80 dependency gate resolves its `run.dependencies` against THIS env's pin
+      # set only. An env-LESS declaration is resolved against EVERY recipe on disk
+      # (`server/build_helper/processor_manifest.rs`) — the fail-closed reading, and
+      # exactly right while one recipe exists; with a second, deliberately narrower env
+      # (`single-cell-r`) it would demand these python pins be installed there too. The
+      # gate's own doc-comment prescribes this fix in writing: "the right relaxation is
+      # for a contribution to DECLARE the env it targets, not for this gate to guess".
+      env: single-cell
+      run:
+        kind: sandbox
+        runtime: python
+        entry: compute/freeze.py
+        helpers:
+          - compute/_shared.py
+        # The libraries THIS entry's code imports, with the version range it is
+        # supported against (#80). A minor-pinned range where the library's DEFAULTS decide a published
+        # number; a wider one where it is a stable numerical floor.
+        dependencies:
+          - { library: numpy, version: ">=2.0,<3" }
+      # A membership table for a curated collection is tiny (no matrix read) — the Normal envelope
+      # is ample.
+      schedule:
+        class: normal
+      arch: [x86_64, aarch64]
+      methodsText: >-
+        Froze a curated gene-set collection into an immutable, content-addressed artifact. The
+        draft's sets were canonicalized (trimmed, de-duplicated) and written as a (gene x geneset)
+        membership incidence with per-set metadata — the set name, its kind (cell-type markers or
+        signatures), how it was made (origin), and whether it is a data-driven hypothesis. The
+        artifact is content-hash-pinned, so any downstream score or annotation that uses it stays
+        reproducible and a later edit forks a new version rather than rewriting the past.
+      methods:
+        subject: { singular: gene set, plural: gene sets }
+        # The narrator renders `<Subjects> were <action> …`, so this must be the PAST
+        # PARTICIPLE, not the simple past: `froze` produced "Gene sets were froze" in
+        # every exported methods.md (observed, not inferred — it was found by RENDERING
+        # this manifest, and `methods.rs::the_shipped_geneset_narration_is_grammatical`
+        # keeps it red on revert).
+        action: frozen
+        commits: "one immutable gene-set collection, `{name}`"
+        commits_unlabeled: an immutable gene-set collection
+        note: >-
+          The collection is content-addressed by its membership, so its version IS its
+          content-hash; editing a frozen collection forks a new artifact with a recorded lineage
+          and never mutates the past. A set's data-driven flag rides in the structured metadata,
+          never composed into the human description.
+        params:
+          name: output_label
+
+  # ── The Visualize gene-sets surface (frozen collection readout + export, ITEM-7/9/10) ────────
+  sections:
+    - id: geneset.collections
+      title: Gene sets
+      pane: visualize
+      order: 45
+      collapsed: false
+      # Keys on the `geneset/collection` datatype — the frozen collections in the project.
+      applies_to: [{ type_id: geneset/collection }]
+      ui: [ui/collection.yaml]

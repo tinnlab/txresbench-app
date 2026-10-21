@@ -1,0 +1,158 @@
+# The `trajectory.dpt` READOUT (ITEM-15).
+#
+# Surfaces the things that ARE the result for a pseudotime: which root was resolved and by
+# which rule, how many cells could not be reached, and the reproducibility surface. A reader
+# who cannot see the root cannot evaluate the ordering at all — a different root would have
+# produced a different answer from the same data.
+#
+# Reads the run's own report through the shipped `job.result` document source.
+id: trajectory.dpt.report
+title: Pseudotime run
+permission: jobs::use
+
+state:
+  viewed: { type: string, default: null }
+
+data:
+  report:
+    source: job.result
+    args:
+      datatype: report/qc
+      produced_by: trajectory.dpt
+      shape: document
+      kind: trajectory-dpt-report
+
+widgets:
+  # ── the root: the single most consequential input, first ────────────────────────────
+  - id: rootStat
+    kind: stat
+    label: Root cell
+    value: "$data.report.root.barcode"
+
+  - id: rootIndexStat
+    kind: stat
+    label: Root row index
+    value: "$data.report.root.index"
+
+  - id: rootModeStat
+    kind: stat
+    label: Root mode
+    value: "$data.report.root.mode"
+
+  - id: rootRuleNote
+    kind: alert
+    tone: info
+    text: "$data.report.root.rule"
+
+  # ── the caveat that outranks every number above ─────────────────────────────────────
+  - id: orderingNote
+    kind: alert
+    tone: warning
+    text: "$data.report.disclosures.pseudotime_is_not_time"
+
+  - id: rootDeterminesNote
+    kind: alert
+    tone: warning
+    text: "$data.report.disclosures.the_root_determines_everything"
+
+  - id: existenceNote
+    kind: alert
+    tone: warning
+    text: "$data.report.disclosures.no_method_tests_that_a_trajectory_EXISTS"
+
+  - id: branchNote
+    kind: alert
+    tone: info
+    text: "$data.report.disclosures.branch_detection_not_performed"
+
+  # ── reachability ────────────────────────────────────────────────────────────────────
+  - id: unreachableStat
+    kind: stat
+    label: Unreachable cells
+    value: "$data.report.connectivity.n_unreachable"
+
+  - id: componentsStat
+    kind: stat
+    label: Neighbour-graph components
+    value: "$data.report.connectivity.n_components"
+
+  - id: unreachableNote
+    kind: alert
+    tone: info
+    text: "$data.report.connectivity.note"
+
+  # ── the reproducibility surface ─────────────────────────────────────────────────────
+  - id: neighboursStat
+    kind: stat
+    label: Neighbours (k)
+    value: "$data.report.parameters.n_neighbors"
+
+  - id: metricStat
+    kind: stat
+    label: Metric
+    value: "$data.report.parameters.metric"
+
+  - id: pathStat
+    kind: stat
+    label: Neighbour path
+    value: "$data.report.parameters.neighbour_path"
+
+  - id: nCompsStat
+    kind: stat
+    label: Diffusion components computed
+    value: "$data.report.parameters.n_comps"
+
+  - id: nDcsStat
+    kind: stat
+    label: Components used by the distance
+    value: "$data.report.parameters.n_dcs"
+
+  - id: seedStat
+    kind: stat
+    label: Seed
+    value: "$data.report.parameters.seed"
+
+  - id: rangeMinStat
+    kind: stat
+    label: Pseudotime minimum
+    value: "$data.report.pseudotime.min"
+
+  - id: rangeMaxStat
+    kind: stat
+    label: Pseudotime maximum
+    value: "$data.report.pseudotime.max"
+
+  # ── the resolved library versions ───────────────────────────────────────────────────
+  #
+  # The scientific stack is not pinned in the sandbox image by explicit house style, so the
+  # versions that produced a result are only knowable at run time. Recorded, and shown.
+  - id: versionsHeading
+    kind: alert
+    tone: info
+    text: >-
+      The scientific libraries below are the ones that produced this result. They are not
+      pinned in the sandbox image, so two runs months apart can differ — which is why the
+      resolved versions travel with the run rather than being assumed.
+
+  - id: scanpyStat
+    kind: stat
+    label: scanpy
+    value: "$data.report.library_versions.scanpy"
+
+  - id: igraphStat
+    kind: stat
+    label: igraph
+    value: "$data.report.library_versions.igraph"
+
+  - id: scipyStat
+    kind: stat
+    label: scipy
+    value: "$data.report.library_versions.scipy"
+
+  - id: numpyStat
+    kind: stat
+    label: numpy
+    value: "$data.report.library_versions.numpy"
+
+# A readout fragment mutates nothing.
+actions: []

@@ -1,0 +1,155 @@
+# agent-kit app.config — EXAMPLE
+#
+# Copy this to `<your-app>/.claude/app.config` and fill in your app's paths.
+# It is a plain KEY=value data file (one key per line). It is READ, never
+# `source`d — a committed config a gate consumes must not be able to run
+# arbitrary shell.
+#
+# FORMAT RULES:
+#  - Comments (`#`) must be on their OWN line. An inline `KEY=val # note` is NOT
+#    supported — the `# note` becomes part of the value.
+#  - The value is everything after the first `=`, with leading/trailing
+#    whitespace trimmed (internal spaces are preserved, e.g. a space-separated
+#    list). On a duplicate key the FIRST occurrence wins.
+#
+# CONTRACT: every key is OPTIONAL. A check/gate whose key is UNSET is SKIPPED,
+# never failed — so the shared `preflight.sh` + `merge-gate.mjs` run unchanged
+# across every app; each app supplies only the keys that apply to it. With no
+# app.config at all, preflight runs only its generic checks (exit 0) and
+# merge-gate runs only its app-agnostic gates (C4/staging-merge/P2/C5).
+#
+# The values below are ZIEE's — a Rust(+cargo workspace)/React(npm workspaces)
+# monorepo. A different app (e.g. a Python/TS app) sets a different subset.
+
+# ── preflight.sh (Phase-1 environment gate) ───────────────────────────────
+# A build-embedded seed file that makes the build PANIC if absent.
+PREFLIGHT_SEED_FILE=src-app/server/binaries/hub-seed/index.json
+# One-line fix hint printed when the seed is missing.
+PREFLIGHT_SEED_HINT=rm -rf src-app/server/binaries/hub-seed && cargo check -p ziee (refetch), or cp it from another clone
+# A vendored git submodule that must be initialized before the build.
+PREFLIGHT_SUBMODULE=src-app/server/vendor/pgvector
+# npm workspaces (space-separated) that hoist to the repo-root node_modules.
+PREFLIGHT_NODE_WORKSPACES=src-app/ui src-app/desktop/ui
+# Env var name that toggles per-worktree build-DB isolation (=0 disables it).
+PREFLIGHT_BUILD_DB_ENV=ZIEE_BUILD_DB_PERWORKTREE
+# host:port of the local build-DB cluster (used to detect an external override).
+PREFLIGHT_BUILD_DB_HOSTPORT=127.0.0.1:54321
+# (optional) an extra committed DATABASE_URL sentinel treated as "local".
+PREFLIGHT_BUILD_DB_SENTINEL=sqlx-build-sentinel
+# Dev-config auto-seed: dir, the real (gitignored) file, its committed example,
+# and the placeholder secret value the app hard-refuses to boot on.
+PREFLIGHT_CONFIG_DIR=src-app/server/config
+PREFLIGHT_CONFIG_FILE=dev.yaml
+PREFLIGHT_CONFIG_EXAMPLE=dev.example.yaml
+PREFLIGHT_CONFIG_PLACEHOLDER=dev-secret-change-in-production-min-32-chars-long
+
+# ── merge-gate.mjs (merge-time gate) ──────────────────────────────────────
+# Migrations dir → C2 migration-collision + --verify-head duplicate-prefix.
+MERGE_MIGRATIONS_DIR=src-app/server/migrations
+# Cargo package for the C1 clean-build gate (`cargo clean -p <pkg> && cargo check`).
+MERGE_CARGO_PACKAGE=ziee
+# (optional) dir to run cargo from; default probes src-app/ then src-app/server/.
+MERGE_CARGO_DIR=src-app
+# (optional) a second cargo package checked only when the desktop prefix is touched.
+MERGE_CARGO_DESKTOP_PACKAGE=ziee-desktop
+MERGE_DESKTOP_TOUCH_PREFIX=src-app/desktop/tauri/
+# Codegen regen command → C3 regen-parity + C6 generated-coverage.
+# C3 runs MERGE_REGEN_CMD in the merged staging tree and then asks GIT what
+# changed — over the WHOLE tree, NOT scoped to MERGE_GENERATED. That is
+# deliberate: scoping the parity diff to a hand-maintained list has exactly the
+# failure mode the gate exists to prevent (cytoanalyst's regen writes five files
+# against a two-entry list, so three generated files could be merged
+# side-taken/stale and still pass). With an unscoped diff the guarantee — a
+# generated file is a function of its inputs, so REGENERATE, never take a side —
+# holds for every output, declared or not.
+MERGE_REGEN_CMD=just openapi-regen
+# The EXPECTED generated set. Now documentation + the C6 audit target, not the
+# scope of C3: C6 derives what the regen actually WROTE (stat-stamp diff across
+# the run) and FAILS when it writes a path this list does not name — so the next
+# added output is loud, not silent. C6 SKIPs (explicitly, never PASSes) when the
+# regen rewrites nothing, i.e. when the set cannot be derived.
+# ALSO consumed by lifecycle-check.mjs: every declared path joins its
+# generated-file exemption (diff classification + FE-touch detection) on top of
+# the built-in openapi.json / api-client/types.ts patterns, so a regen-only
+# diff stays classified backend even when the regen writes more than those two
+# files. Unset ⇒ the built-in patterns only (historical behavior).
+MERGE_GENERATED=src-app/ui/openapi/openapi.json src-app/ui/src/api-client/types.ts src-app/desktop/ui/openapi/openapi.json src-app/desktop/ui/src/api-client/types.ts
+# (optional) paths/dirs the regen may dirty WITHOUT failing C3 parity — e.g. a
+# lockfile a build legitimately refreshes. Space-separated, repo-relative; a dir
+# entry covers everything under it. Empty by default: anything the regen touches
+# is treated as generated output the gate is responsible for.
+#MERGE_REGEN_IGNORE=Cargo.lock
+# STAGING PROVISIONING. `git worktree add` materializes the TRACKED tree ONLY, so
+# the staging tree the heavy gates build from is missing two things the real
+# working tree has — and C1/C3 then fail SPURIOUSLY (a provisioning gap, NOT a
+# check failure):
+#  1. submodule working trees are EMPTY (a crate sourced from a submodule ⇒
+#     `failed to read <submodule>/…/Cargo.toml`). merge-gate therefore runs
+#     `git submodule update --init --recursive` in staging whenever the merged
+#     tree has a .gitmodules. Set to 0 to opt out (default: 1, no key needed).
+#MERGE_STAGING_SUBMODULES=1
+#  2. GITIGNORED per-machine files (e.g. a dev config the codegen needs ⇒ regen
+#     dies with `no config file found`) are absent by definition. Declare them
+#     here — space-separated repo-relative paths, files or dirs — and merge-gate
+#     copies each from the LIVE repo into staging. Nothing app-specific is baked
+#     into the shared gate; an absent declared path is WARNED about and the run
+#     continues, so the gate needing it still fails for its real reason. Only
+#     UNTRACKED paths are copied — a TRACKED path is refused (the merged tree
+#     already holds the authoritative version; overwriting it could mask a
+#     genuine C1/C3 failure).
+MERGE_STAGING_COPY_FILES=src-app/server/config/dev.yaml
+
+# Repo-relative DIRECTORIES mirrored from the source repo into staging as a tree
+# of symlinks (never copied — these are gigabytes; never hard-linked either, so a
+# build writing into node_modules/.cache cannot corrupt the source repo).
+# Workspace SELF-links are re-pointed at staging: a single symlink to the whole
+# node_modules would make `@app/ui -> ../../src-app/ui` resolve into the SOURCE
+# tree, and the check would grade the wrong code, mostly green. This exists for `node_modules`: a staging
+# worktree is the TRACKED tree only, so any gate that shells out to npm/tsc dies
+# with "command not found" or "Cannot find module" — a FALSE RED indistinguishable
+# from a real regression. Same TRACKED-path refusal as COPY_FILES.
+# Unset = no directories linked (and C7 will fail for a node-based check).
+MERGE_STAGING_LINK_DIRS=node_modules src-app/ui/node_modules
+
+# ── C7: the app's OWN check recipe, run on the MERGED tree ────────────────
+# C1 is `cargo check`; C3 is regen parity. NEITHER runs the repo's own `check`
+# target, so every gate wired into it — stale-brand lints, doc-reference checks,
+# design-token drift, testid-registry parity, frontend `tsc` — is invisible to
+# the merge gate. Measured: a DOCS-ONLY branch passed all nine gates and turned
+# `just check` red on main, because prose is exactly what a prose-grading lint
+# grades and nothing at merge time ran one.
+# Runs after C3/C1, only on a completed merge; skipped by --skip-heavy.
+# Unset SKIPS the gate.
+MERGE_CHECK_CMD=just check
+
+# ── lifecycle-check.mjs (per-phase gate) ──────────────────────────────────
+# lifecycle-check is otherwise app-agnostic; only these three ziee-specific
+# values are read from app.config. EACH KEY DEFAULTS TO ZIEE'S HISTORICAL
+# HARD-CODED VALUE (shown below) — so ziee behaves identically whether it sets
+# the key or omits it, and a differently-laid-out app overrides just what differs.
+#
+# Frontend npm workspaces, as ordered `<path-prefix>:<workspace-label>` pairs
+# (space-separated). A changed/planned file whose path starts with a prefix
+# belongs to that workspace; FIRST match wins, so list the more-specific prefix
+# first. Drives the phase-3 e2e-tier requirement + the phase-8 per-workspace
+# `npm run check (<label>): PASS` gate. An app with ONE frontend sets one pair;
+# a pure-backend app can set an empty/absent value (the FE gates then never fire).
+LIFECYCLE_FRONTEND_WORKSPACES=src-app/desktop/ui/:desktop/ui src-app/ui/:ui
+# openapi.json spec paths (space-separated) forming the live /api route registry
+# that the R2-5 e2e route-mock-staleness gate validates static `page.route('**/api/…')`
+# mocks against. Absent/unbuilt specs ⇒ R2-5 SKIPs (nothing to check against).
+LIFECYCLE_OPENAPI_SPECS=src-app/ui/openapi/openapi.json src-app/desktop/ui/openapi/openapi.json
+# Working-tree path substrings the A2 clean-tree gate ignores (noisy vendored
+# submodules etc.), space-separated. `*.log` scratch files are always ignored
+# on top of this. Default = ziee's vendored pgvector submodule.
+LIFECYCLE_CLEAN_TREE_IGNORE=vendor/pgvector
+
+# LIGHT-tier size threshold: the maximum number of changed lines (added+deleted
+# in base...HEAD, excluding .lifecycle artifacts and generated openapi/types) a
+# diff may have and still qualify for the LIGHT track. Size is necessary but not
+# sufficient — any ONE of {new permission, migration, new module, public
+# API/schema change} forces HEAVY regardless of size. LIGHT requires the core
+# artifacts and ONE audit round; every deterministic hardening check runs in
+# both tiers. Default 800 — a review-capacity judgement (two angles saturate
+# somewhere in the high hundreds of lines), not a blast-radius one.
+LIFECYCLE_LIGHT_MAX_LINES=800

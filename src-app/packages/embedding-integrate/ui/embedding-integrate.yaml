@@ -1,0 +1,623 @@
+# The dataset-integration form — ITEM-34 … ITEM-37.
+#
+# THE JOB THIS SERVES, and every control below is answerable against it:
+#   "I have two experiments and I believe their cell-type labels and their genes mean the same
+#    thing. I want to say so once, see how good that claim actually is before committing to it,
+#    and then work with the result as an ordinary dataset."
+#
+# So: the datasets (who), the identifier (how they join, WITH the measured evidence), the
+# columns to unify (what carries over), and what to do where they disagree. Nothing else.
+#
+# ── THE USER-FACING NAME IS "INTEGRATED DATASET" ────────────────────────────────────────
+# The word "virtual" is INTERNAL. It describes how the result is stored, which is not a fact
+# the reader of this form has any use for, and it reads as "not real" about a dataset that is
+# exactly as real as its sources. Any user-visible string here carrying it is a bug.
+#
+# ── WHAT THIS FORM DELIBERATELY DOES NOT HAVE ───────────────────────────────────────────
+# No order control, no `ordered`-specific prompt and no refusal branch for an ordered
+# categorical (ITEM-37 / INV-15). An ordered categorical is offered and fused exactly like any
+# other, by unioning the level sets. `ordered: true` earns its keep in ORDINAL analysis —
+# comparisons, monotonic tests, rank statistics — and this pipeline does none of that with
+# categoricals: it colours by them and filters by a value allow-list, and neither consults the
+# level sequence. How the legend is ordered is viz core's job.
+#
+# That absence is asserted POSITIVELY by the spec suite (an ordered pair appears in the offer
+# and its selection path is click-for-click identical to an unordered one), because "we did not
+# build a thing" is unfalsifiable as written and an unasserted absence is how a surface quietly
+# grows back.
+id: embedding.integrate
+title: Integrate datasets
+# The same gate every workbench compute surface uses — this analysis introduces no new
+# permission, and `jobs::use` (granted to Users) is what gates job create/run.
+permission: jobs::use
+
+state:
+  # The datasets being integrated. PLURAL and `multiple`, because an integration over one
+  # dataset is not an integration — the manifest says the same thing with `multiple: true`, and
+  # the compute enforces the minimum count (it has the sources).
+  datasets: { type: list, default: [] }
+  # The identifier the datasets are joined on. Empty until the user picks one FROM THE MEASURED
+  # TABLE below — never defaulted to the best-scoring candidate, see `keyTable`.
+  key: { type: string, default: null }
+  # Which shared columns are carried into the result as ONE unified column. The user's
+  # declaration (INV-1); the offer list only bounds what can be said here.
+  levelColumns: { type: list, default: [] }
+  # How to resolve a disagreement between the datasets. `strict` is the default, so choosing
+  # anything else is a deliberate act rather than the path of least resistance.
+  mode: { type: string, default: "strict" }
+  # Whose annotation wins under `authority`. Meaningless under `strict`, so the control is
+  # gated rather than merely ignored.
+  authority: { type: string, default: null }
+
+const:
+  # The core widget vocabulary ships no radio kind, so a closed two-option choice is a select
+  # (the same idiom `cellranger.yaml` uses for its booleans). The VALUES are the strings the
+  # compute compares against; the LABELS are the question as the user reads it.
+  #
+  # ── THE WORDING IS THE FEATURE (ITEM-36) ────────────────────────────────────────────
+  # "Use dataset A" reads as "use A's DATA" and it does not mean that. Authority mode selects
+  # whose ANNOTATION labels the unified feature; the expression values still come from BOTH
+  # datasets. The design says to state that in the UI and not only in a document, so the label
+  # says it and `modeExplainer` below says it again in full at the point of choice.
+  modes:
+    - { value: "strict", label: "Strict — drop features the datasets disagree about" }
+    - { value: "authority", label: "Authority — keep them, labelled by one dataset's annotation" }
+
+data:
+  # ── ITEM-34's EVIDENCE ────────────────────────────────────────────────────────────────
+  #
+  # The join-quality preflight's output. It is a `data/opaque` artifact, and a datatype is NOT
+  # a selector — the same datatype is emitted by this package's own summary sidecar and by
+  # other producers — so the slice is NARROWED to the analysis that produced it. Without that
+  # the form bound correctly until the first real run, after which a different artifact of the
+  # same datatype became newest and the table rendered its empty state.
+  #
+  # `shape: document` is load-bearing and was the blocker this item waited on. The preflight
+  # emits a DISCRIMINATED OBJECT — `{kind, sources[], normalize[], candidates[]}` — whose
+  # members have unequal lengths, and the reader's only reading of an opaque JSON blob used to
+  # be "a columnar table": it zipped every array-valued key to max(len), padded the short ones
+  # with nulls, and dropped `kind` entirely. Measured on the real producer's bytes with two
+  # sources and one candidate, `candidates` came back as TWO rows — one real, one blank — so a
+  # table bound to it rendered a phantom identifier with no counts.
+  #
+  # `kind` is declared here as well as `shape`, because it is precisely the field that used to
+  # vanish: naming it makes the form ASSERT the thing that was previously unobservable, and a
+  # document of another kind resolves `unsupported` instead of rendering as if it were this one.
+  jq:
+    source: job.result
+    args:
+      datatype: data/opaque
+      produced_by: embedding.join-quality
+      shape: document
+      kind: join_quality
+
+  # ── ITEM-35's OFFER ───────────────────────────────────────────────────────────────────
+  #
+  # Which per-entity columns the chosen datasets SHARE, and what their catalog declarations say
+  # about whether each could mean the same thing. Decided from catalog rows and NOTHING else
+  # (INV-11) — this slice issues one catalog query and opens no column body, which is why it
+  # can list every shared column of two datasets on merely opening the pane.
+  shared:
+    source: compatible_columns
+    # `cells`, NOT `rows`. `rows` was here and is not an axis in this tree at all: every
+    # datatype declares `cells` / `genes` (`single-cell-types/manifest.yaml`), and
+    # `siblingsOnAxis` filters on `declaredAxes(structure).includes(axis)` — so this slice
+    # matched NOTHING and the shared-column list was permanently empty on real data, under an
+    # empty state asserting "these datasets share no per-entity columns". A blank surface, and
+    # it passed every check because all three suites covering it built fixtures declaring
+    # `axis: "rows"` too: the tests agreed with this line while both disagreed with every
+    # producer. The columns to FUSE are obs categoricals, so they live on `cells`.
+    args: { of: "$state.datasets", axis: cells }
+
+  # ── THE BINDING PLAN (the slot rework) ────────────────────────────────────────────────
+  #
+  # Stage 1's rework made the compute's inputs a dataset x column GRID whose extent is DATA:
+  # `entity:<i>:<column>` and `level:<i>:<column>` slot FAMILIES, plus a literal `rows` slot
+  # carrying one obs axis index per dataset. `inputs_from` can bind that shape, but a binding
+  # needs each cell's ARTIFACT ID and `compatible_columns` returns none — it answers "could
+  # these mean the same thing", not "which artifact is it". So this slice returns the whole
+  # plan: the dataset dimension, the row indices, the two cell lists, and the KEYED content
+  # hashes the compute cross-checks the positional `rows` relay against.
+  #
+  # Catalog-only, exactly as `shared` is (INV-11): one `artifacts.query({})`, zero column
+  # reads. That matters more here — this plan names EVERY identifier column of EVERY selected
+  # dataset, so a body-reading version would open dozens of stores on merely opening the pane.
+  #
+  # ── THE TWO AXES ARE DECLARED HERE, AND THEIR ABSENCE WAS SILENT ────────────────────
+  #
+  # `resolveIntegrationGrid` carries NO default for either axis and returns the EMPTY plan
+  # when either is missing — deliberately, because a guessed axis matches no artifact and
+  # renders as "these datasets share nothing", the blank-surface failure this form has
+  # already paid for once. This slice shipped declaring NEITHER, so the plan was the empty
+  # one on every real input: `ready` was permanently false, `rows`/`datasetIds` permanently
+  # `[]`, and `ei.run` would have launched a run with no `rows` mount and no `entity:`/
+  # `level:` binding at all.
+  #
+  # Nothing caught it because the guard that checks a shipped view names a DECLARED axis
+  # reads the key `axis` only, so a slice that declares no axis key has nothing to check —
+  # an absence is invisible to a spelling check. That guard now also reads `entity_axis` /
+  # `level_axis`, and a companion one asserts an `integration_grid` slice declares BOTH.
+  #
+  # WHICH axis is which is this view's statement about its own domain (the resolver is
+  # axis-agnostic and string-matches whatever it is given):
+  #   · the ENTITY axis carries the identifiers the datasets are JOINED ON — the candidates
+  #     the key table measures, and what `entity:<i>:<column>` mounts;
+  #   · the LEVEL axis carries the row index (`rows`, one per dataset) and the categoricals
+  #     to FUSE. It is the SAME axis `shared` above slices for the compatible-column offer,
+  #     and it must stay the same one: `levelColumns` is chosen from that offer and is what
+  #     `level:<i>:<column>` binds.
+  grid:
+    source: integration_grid
+    args:
+      of: "$state.datasets"
+      levels: "$state.levelColumns"
+      entity_axis: genes
+      level_axis: cells
+
+widgets:
+  # ── WHO ───────────────────────────────────────────────────────────────────────────────
+  - id: datasetsPicker
+    kind: artifact_ref
+    multiple: true
+    # DEC-15 — DECLARED because the declaration is opt-IN and its absence is OFF. On a
+    # `multiple` picker the sole-candidate bind pre-selects the one candidate as a one-element
+    # list; the form still refuses to run on one dataset, so this saves a click without
+    # answering anything the user has to decide.
+    auto_bind_sole_candidate: true
+    label: Datasets to integrate
+    source: { subtypes_of: single-cell/expression }
+    value: "$state.datasets"
+    onChange: ei.setDatasets
+    require:
+      # `required` alone is satisfied by ANY non-empty list, so it accepted ONE dataset while
+      # the message beside it promised two — a requirement whose sentence and whose predicate
+      # disagreed. `min_items` is the vocabulary's own term for the claim actually being made.
+      required: true
+      min_items: 2
+      message:
+        required: Choose the datasets to integrate — at least two.
+        min_items: >-
+          Integration pairs datasets — one is not an integration. Add at least one more.
+    # What an EMPTY PROJECT is, said on the control that knows. A red "required" over a control
+    # offering nothing is an instruction nobody can follow.
+    empty_text: No single-cell dataset in this project yet. Import some to integrate them.
+
+  # ONE dataset chosen is not an error and not an empty project — it is the ordinary halfway
+  # state, and it has its own sentence because the two emptinesses beneath it (nothing chosen /
+  # one chosen / two chosen sharing nothing) are three different facts and a slice status
+  # carries one.
+  - id: needSecondDatasetAlert
+    kind: alert
+    tone: info
+    when: "$data.shared.datasets == 1"
+    text: >-
+      One dataset chosen. Integration pairs datasets, so add at least one more — the identifier
+      table and the shared-column list below both compare across them.
+
+  # ── ITEM-34 — HOW THEY JOIN, WITH THE MEASURED EVIDENCE ──────────────────────────────
+  #
+  # The counts come from the preflight and are RENDERED, never re-derived (INV-11): this
+  # surface owns no arithmetic over them.
+  #
+  # ── THE BEST MATCH IS NOT AUTOMATICALLY SELECTABLE, AND THAT IS THE POINT ────────────
+  #
+  # The obvious form of this control sorts by `matched` and enables the top row. It would be
+  # wrong, measurably: `align` refuses TWO MISSING keys as `duplicate key ''` — a key column
+  # carrying blanks cannot be joined on, because the blanks collide with each other — so the
+  # highest-matching candidate can be one the producer will reject on submit. The counts and
+  # the refusal are DIFFERENT QUESTIONS.
+  #
+  # So the action gate reads `$row.joinable`, the producer's own prediction of its own
+  # refusal, and never a threshold over the counts. `Blank` and `Duplicated` are shown beside
+  # it because they are the CAUSE the user can act on, but nothing here infers the verdict
+  # from them.
+  #
+  # The producer also sorts `(not joinable, -matched, key)`, so an unusable key never heads
+  # the list. This form does not re-sort: two sorts of one list is how the row a user reads
+  # first stops being the row the producer meant.
+  - id: keyTable
+    kind: table
+    rows: "$data.jq.candidates"
+    # THE COPY USED TO SAY THIS RUNS AUTOMATICALLY. It did not, and nothing in the tree made
+    # it: the slice narrows to `embedding.join-quality` and no action launched that analysis,
+    # so `$data.jq.candidates` was permanently absent and this empty state was permanent —
+    # while telling the user to wait for work that was never scheduled.
+    #
+    # `schedule: { class: interactive }` on the manifest is a PRIORITY class, not a trigger,
+    # and the `data:` source vocabulary is a closed dispatch table with no compute-on-demand
+    # kind. So the measurement is an explicit act, and the button below is it.
+    empty_text: >-
+      No identifiers measured yet. Choose the datasets above, then measure them — it takes a
+      moment and shows how well each identifier joins the datasets you picked.
+    columns:
+      - key: key
+        title: Identifier
+        value: "$row.key"
+        ellipsis: true
+      - key: matched
+        title: Matched
+        value: "$row.matched"
+      - key: conflicting
+        title: Conflicting
+        value: "$row.conflicting"
+      - key: duplicated
+        title: Duplicated
+        value: "$row.duplicated"
+      - key: missing
+        title: Blank
+        value: "$row.missing"
+      # The ACTION and the REFUSAL, as two parts of one column so a row spends its width on
+      # whichever of the two it actually has. Both are gated on `joinable` alone.
+      - key: use
+        title: ""
+        width: 190
+        parts:
+          - key: pick
+            cell:
+              button:
+                when: "$row.joinable"
+                label: Use this identifier
+                variant: primary
+                args: { key: "$row.key" }
+                onClick: ei.setKey
+          # A row the producer will refuse still SHOWS its action, disabled, with the reason —
+          # rather than showing nothing. A blank cell where other rows have a button is a
+          # question the user cannot answer: they can see it is not offered and not why.
+          - key: refused
+            cell:
+              button:
+                when: "$row.joinable == false"
+                label: Use this identifier
+                onClick: ei.setKey
+                unavailableReason: >-
+                  These datasets cannot be joined on this identifier — it is blank or repeated
+                  within a dataset, so rows would collide instead of pairing. The Blank and
+                  Duplicated counts say which.
+
+  # The act the table's evidence comes FROM. Placed directly under the table it fills, so the
+  # empty state and the way out of it are adjacent.
+  - id: measureKeysBtn
+    kind: button
+    label: Measure identifiers
+    onClick: ei.measureKeys
+
+  # WHICH identifier is currently chosen, stated where the choice was made. A table of buttons
+  # gives no persistent reading of what was picked.
+  #
+  # Gated on `!= null`, NOT `!= ''`: the field's declared default IS `null` and `evalWhen`'s
+  # comparison is strict, so `null != ''` is TRUE and this stat rendered from first paint —
+  # asserting a join key that had never been chosen. The gate must match the declared default.
+  - id: chosenKey
+    kind: stat
+    label: Joining on
+    value: "$state.key"
+    when: "$state.key != null"
+
+  # ── ITEM-35 — WHAT CARRIES OVER ───────────────────────────────────────────────────────
+  #
+  # The shared columns, with the catalog's verdict on each. The TABLE is the evidence and the
+  # multiselect beneath it is the DECLARATION: the user says what to fuse (INV-1), the list only
+  # bounds what can be said.
+  #
+  # ── THE UNVERIFIED ARM IS A PRIMARY PATH ──────────────────────────────────────────────
+  #
+  # A dataset publishes a comparable vocabulary only up to 6,144 categories — above that the
+  # writer drops it, deliberately, because inlining a 35,477-level set costs ~450 KB of a 1 MiB
+  # manifest. So EVERY real gene-symbol column, and most identifier-like columns, land in the
+  # unverified arm. It is not an exception being granted and it is not a degraded answer: it is
+  # what this list mostly contains, and the copy says so as a plain fact about the pair rather
+  # than as an apology.
+  - id: sharedColumnsTable
+    kind: table
+    rows: "$data.shared.columns"
+    when: "$data.shared.datasets > 1"
+    empty_text: >-
+      These datasets share no per-entity columns by name, so there is nothing to carry into the
+      integrated dataset beyond the measurements themselves.
+    columns:
+      - key: name
+        title: Column
+        value: "$row.name"
+        ellipsis: true
+      - key: kind
+        title: Kind
+        value: "$row.kind"
+      - key: levels
+        title: Categories
+        value: "$row.levels"
+      - key: note
+        title: What the datasets declare
+        value: "$row.note"
+        ellipsis: true
+
+  - id: levelColumnsPicker
+    kind: multiselect
+    # Gated exactly as the table above it is. Without this the picker rendered ENABLED with an
+    # empty option set before any dataset was chosen, and activating it changed nothing — an
+    # operable control that does nothing, which the conformance tier refuses and which is a
+    # worse answer than not drawing it.
+    when: "$data.shared.datasets > 1"
+    label: Columns to unify across the datasets
+    options: "$data.shared.options"
+    value: "$state.levelColumns"
+    onChange: ei.setLevelColumns
+    placeholder: "None — carry no shared columns"
+    # WHY A COLUMN YOU CAN SEE MAY NOT BE OFFERED. Without this the table above and the list
+    # here disagree with no explanation, which reads as a broken control rather than a rule.
+    # Deliberately states BOTH limits as current-and-temporary, because both are: the producer
+    # fuses categoricals only (a label column stored as plain text is refused for a read-side
+    # reason, and the real fix is upstream — store label columns as categoricals at import),
+    # and it requires every chosen dataset to carry the column (partial carriage is not built
+    # yet). Overstating either would train users to stop reading the table's reasons.
+    help: >-
+      Only label columns that every chosen dataset carries can be unified today. The table
+      above gives the reason for each column it does not offer.
+    # An EMPTY selection is a real answer (integrate on the identifier alone), so this control
+    # carries no `required`.
+    empty_text: >-
+      No column can be carried yet — they come from what the datasets chosen above share.
+
+  # ── ITEM-36 — WHAT TO DO WHERE THEY DISAGREE ─────────────────────────────────────────
+  - id: modeSelect
+    kind: select
+    label: Where the datasets disagree about a feature
+    options: "$const.modes"
+    value: "$state.mode"
+    onChange: ei.setMode
+
+  # The sentence the design asks for IN THE UI, not only in a document. It is rendered only
+  # under `authority`, where it is the thing that is easy to get wrong: `strict` needs no
+  # disclaimer because dropping a disputed feature is what it sounds like.
+  - id: modeExplainer
+    kind: alert
+    tone: info
+    when: "$state.mode == authority"
+    text: >-
+      Authority mode selects whose ANNOTATION labels a disputed feature — it does not select
+      whose data is used. Expression values still come from both datasets, and every cell of
+      both is present in the result.
+
+  - id: authorityPicker
+    kind: artifact_ref
+    # Declared for the same rule, and INERT here by construction rather than by luck: this
+    # control is only rendered under `authority`, which is only reachable once several datasets
+    # are being integrated — so there are always several candidates and the sole-candidate bind
+    # can never fire. Stated rather than omitted, because "it cannot happen here" is exactly the
+    # reasoning that goes stale when the surrounding gate changes.
+    auto_bind_sole_candidate: true
+    label: Whose annotation labels a disputed feature
+    when: "$state.mode == authority"
+    source: { subtypes_of: single-cell/expression }
+    value: "$state.authority"
+    onChange: ei.setAuthority
+    # NO `require` HERE, and the reason is the defect it caused. A top-level widget's `require`
+    # is evaluated even when its own `when` gate hides the widget — so under the default
+    # `strict` mode this picker, which is not drawn at all, held an unmet requirement and
+    # disabled Run with nothing on screen to name the cause. A disabled primary action with no
+    # stated cause reads as broken. The requirement is genuinely CONDITIONAL on the mode, so it
+    # belongs in `checks:` where the condition can be written down.
+
+  # NO phantom control carries the identifier requirement. A first fix put a `text` widget here
+  # solely to host it; the conformance tier then read that widget as an INPUT and reported the
+  # form and the launch gate as disagreeing. The requirement is a relation over state, not a
+  # field the user types, so it belongs in `checks:` beside the authority one.
+
+  # ── WHAT CANNOT TAKE PART, NAMED BEFORE THE RUN ──────────────────────────────────────
+  #
+  # A dataset the plan had to exclude is shown with its reason, never dropped quietly. The
+  # entity axis is an INTERSECTION, so silently integrating the sources that happen to be
+  # usable makes the result LARGER than the one asked for, and every count would agree while
+  # describing a join nobody requested. Gated on the COUNT rather than on a list length: the
+  # `when` grammar compares scalars, which is why the slice carries `blockedCount` beside the
+  # list it renders.
+  - id: blockedDatasetsTable
+    kind: table
+    when: "$data.grid.blockedCount > 0"
+    rows: "$data.grid.blocked"
+    # Declared even though the `when` gate above should make it unreachable — which is exactly
+    # why it is declared. The gate and the rows binding read two different fields of one
+    # payload, so they can drift apart; if they ever do, this table must say which of the three
+    # emptinesses it is in rather than drawing a headed table with no rows under it.
+    empty_text: >-
+      Every chosen dataset can take part. Nothing is excluded from this integration.
+    columns:
+      - key: dataset
+        title: Cannot be integrated
+        value: "$row.dataset"
+        ellipsis: true
+      - key: reason
+        title: Why
+        value: "$row.reason"
+        ellipsis: true
+
+  - id: runBtn
+    kind: button
+    # The verb is CONVENTIONAL, not decorative: the pane-conformance tier locates a form's run
+    # affordance by its accessible name (`/^(run|compute|commit|start)\b/`), so a button named
+    # "Create …" is a run affordance the gate cannot find — and an ungated Run is the one thing
+    # that tier exists to prevent. The RESULT is still called an integrated dataset everywhere
+    # the user reads about it.
+    label: Start integration
+    variant: primary
+    # Deliberately NOT `when:` — hiding Run behind the message telling the user to run is the
+    # deadlock `DeclarativeRegion` documents. It derives its disabled state from the form's own
+    # verdicts, which the engine lists underneath, so it never sits greyed with nothing said.
+    onClick: ei.run
+
+checks:
+  # The authority dataset is required ONLY under `authority`. As a `require` on the picker it
+  # fired under `strict` too — where the control is not even rendered — so the form refused to
+  # run for a reason it could not show. A `check` is the vocabulary's way to say "this field is
+  # required WHEN …", and it lands the message on the control that owns it.
+  # The identifier is REQUIRED and nothing said so: with none chosen, Run was enabled and
+  # submitted `key: null`, turning a form-level refusal into a failed job minutes later.
+  - id: joinKeyUnset
+    fails_when: "$state.key == null"
+    at: { widget: keyTable }
+    message: >-
+      Pick the identifier to join the datasets on — measure them above, then choose one. The
+      run refuses to guess.
+
+  # The plan itself must be complete. Deliberately gated on `$data.grid.datasets > 1` as well:
+  # without that it would ALSO fail at first paint, when nothing is chosen and the plan is
+  # trivially not ready — restoring the "Run disabled with nothing on screen naming the cause"
+  # defect the authority requirement above was moved here to fix. Below two datasets the
+  # picker's own `min_items` is the control that speaks, and it is the one that can be acted on.
+  - id: integrationPlanIncomplete
+    fails_when: "$data.grid.datasets > 1 && $data.grid.ready == false"
+    at: { widget: datasetsPicker }
+    message: >-
+      One or more of the chosen datasets cannot take part — see the reasons listed above.
+      Integrating only the rest would join a different set of datasets than the one chosen,
+      so remove or replace them before starting.
+
+  - id: authorityUnsetUnderAuthorityMode
+    fails_when: "$state.mode == authority && $state.authority == null"
+    at: { widget: authorityPicker }
+    message: >-
+      Authority mode needs the dataset whose annotation labels a disputed feature.
+
+# The check ABOVE is the only cross-field relation this form can state. One more was wanted and
+# is deliberately absent rather than approximated.
+#
+# The relation worth checking is "the chosen identifier is not one of the measured candidates"
+# — reachable, because `ei.setDatasets` writes one field and a key chosen against an earlier
+# pair of datasets survives a change of them. It cannot be STATED here: the `when` grammar has
+# no membership test, so every predicate I could write over `$data.jq.candidates` tests
+# something adjacent to the claim its message makes.
+#
+# A check whose predicate is adjacent to its sentence is the "reads correctly, means something
+# else" class this tree spends its comments closing, and it is worse than no check: it fires on
+# the wrong rows and is believed. So the relation is left to the LAUNCH, which genuinely
+# refuses it, and is recorded here so the gap is a known one rather than an unnoticed one.
+
+actions:
+  - id: ei.setDatasets
+    title: Set datasets to integrate
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { datasets: "$params.value" }
+
+  # ONE setter for the identifier, reached from a per-row button. The row forwards its own
+  # `key`, so the action needs no index and cannot pick a different row than the one clicked.
+  #
+  # It is the SAME action on the offered row and on the refused one (the refused button is
+  # disabled by its `unavailableReason`, not by pointing somewhere else) — which is what keeps
+  # the two parts one control with one meaning.
+  - id: ei.setKey
+    title: Set the joining identifier
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { key: string }
+    body:
+      - set: { key: "$params.key" }
+
+  # NOTE there is no second setter, no confirmation step and no order prompt for an ORDERED
+  # categorical (ITEM-37). It is selected through `ei.setLevelColumns` exactly as any other
+  # column is — same action, same params, same number of clicks.
+  - id: ei.setLevelColumns
+    title: Set the columns to unify
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { levelColumns: "$params.value" }
+
+  # Launch the join-quality preflight over the CURRENTLY SELECTED datasets. Its artifact is what
+  # `$data.jq` binds, narrowed to this analysis — so what the table shows was measured by a run
+  # this form started, over the datasets that were on screen when it did.
+  - id: ei.measureKeys
+    title: Measure identifiers
+    permission: jobs::use
+    mutating: true
+    params: {}
+    body:
+      # The SAME entity grid the integrator reads, and NOTHING else. No `rows` binding: the
+      # preflight never opens the row axis, because doing so would multiply a per-keystroke
+      # run by the cell count (ITEM-1 / INV-11) — and its compute is `with_rows=False`, so a
+      # `rows` mount here would stage artifacts nothing reads.
+      #
+      # `dataset_ids` is relayed from THE PLAN, never from `$state.datasets`: they differ
+      # whenever a dataset is excluded, and every `entity:<i>:…` index refers to the plan's
+      # list. Relaying state here would attribute one dataset's columns to another while
+      # every count still agreed.
+      - run_processor:
+          id: embedding.join-quality
+          inputs_from:
+            - for_each: "$data.grid.entityBindings as $c"
+              slot: "entity:{$c.index}:{$c.column}"
+              artifact: "$c.artifact"
+          params:
+            dataset_ids: "$data.grid.datasetIds"
+          into: measureJob
+      - wait_for: { job: "$measureJob", until: completed }
+      - toast: { success: "Identifiers measured" }
+
+  - id: ei.setMode
+    title: Set the disagreement mode
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { mode: "$params.value" }
+
+  - id: ei.setAuthority
+    title: Set the annotating dataset
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { authority: "$params.value" }
+
+  - id: ei.run
+    title: Create integrated dataset
+    permission: jobs::use
+    mutating: true
+    params: {}
+    body:
+      # `inputs` is passed EXPLICITLY from view state — what is launched is what was on screen
+      # (INV-4), never a catalog auto-resolution the user cannot see.
+      - run_processor:
+          id: embedding.integrate
+          # The LITERAL slot: one obs axis index per dataset, POSITIONALLY aligned with
+          # `dataset_ids`. It is the one statically-nameable input, which is why `appliesTo`
+          # can name it and why the view-compute gate's arm A has something to check.
+          inputs:
+            rows: "$data.grid.rows"
+          # The two FAMILIES. Both grid coordinates ride the slot NAME because neither is
+          # recoverable from the wire: a `metadata-column` store's member is always the
+          # constant `values`, and a mount name is a sanitized slot plus an ordinal.
+          inputs_from:
+            - for_each: "$data.grid.entityBindings as $c"
+              slot: "entity:{$c.index}:{$c.column}"
+              artifact: "$c.artifact"
+            # THE FUSED SET IS THIS BINDING, AND THERE IS NO `level_columns` PARAM.
+            # `params.level_columns` was here and is GONE: a params key naming information the
+            # binding already carries is a second channel that falls out of step with the
+            # mounts. The set of categoricals to fuse IS the set of bound `level:` slots.
+            - for_each: "$data.grid.levelBindings as $c"
+              slot: "level:{$c.index}:{$c.column}"
+              artifact: "$c.artifact"
+          params:
+            key: "$state.key"
+            # THE PLAN'S list, never `$state.datasets`. They differ whenever a dataset is
+            # excluded, and every `index` in the two families above refers to THIS one.
+            dataset_ids: "$data.grid.datasetIds"
+            # KEYED BY DATASET, and that is what gives the compute's cross-check its force:
+            # the `rows` relay above is positional, so the check compares a keyed channel
+            # against a positional one. A parallel LIST here would leave both sides relayed
+            # and neither tied to a dataset — measured in the producer, a reversed relay
+            # passed exactly that check.
+            dataset_content_hashes: "$data.grid.contentHashes"
+            mode: "$state.mode"
+            authority: "$state.authority"
+          into: integrateJob
+      - wait_for: { job: "$integrateJob", until: completed }
+      - toast: { success: "Integrated dataset created" }

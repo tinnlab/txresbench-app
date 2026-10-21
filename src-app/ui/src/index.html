@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content, viewport-fit=cover"/>
+    <!-- matches asurascans.com's setup for the immersive-scroll experiment -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+    <title>CytoAnalyst</title>
+    <!-- Ship a favicon so /favicon.ico is never auto-requested (it 404s on the
+         backend-less preview/prod host); a real SVG icon, theme-agnostic. -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg"/>
+    <!-- Static baseline so iOS Safari has a valid (hex) theme-color AT LOAD; it
+         rejects oklch and won't tint the bars without this. The pre-paint script
+         sets the right value per theme + route. Values mirror the tokens:
+         light --background/--card = #fff; dark --background = #0a0a0a,
+         --card = #1a1a1a. -->
+    <meta name="theme-color" content="#ffffff"/>
+    <!-- Pre-hydration: set the `dark` class + the theme-color before first paint
+         to avoid a flash of the wrong theme / status-bar color. The bar surface
+         differs per route (app shell = --card, blank/login = --background), so
+         pick the right one from the path. Key + shape must match the persisted
+         ConfigClient store (zustand persist name 'config-client-storage',
+         value `{ state: { themePreference } }`). -->
+    <script>
+      (function () {
+        try {
+          var p = 'system'
+          try {
+            var raw = localStorage.getItem('config-client-storage')
+            if (raw) p = JSON.parse(raw).state.themePreference || 'system'
+          } catch (e) {}
+          var dark = p === 'dark' || (p === 'system' && matchMedia('(prefers-color-scheme: dark)').matches)
+          document.documentElement.classList.toggle('dark', dark)
+          // Blank/login routes paint --background; everything else is the app
+          // shell (--card). Keep this list in sync with the BlankLayout routes.
+          var blank = /^\/(auth|setup|onboarding|link-account|login)/.test(location.pathname)
+          var color = !dark ? '#ffffff' : blank ? '#0a0a0a' : '#1a1a1a'
+          var m = document.querySelector('meta[name="theme-color"]')
+          if (m) m.setAttribute('content', color)
+        } catch (e) {}
+      })()
+    </script>
+</head>
+
+<body>
+<div id="root"></div>
+<script type="module" src="./main.tsx"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+# TEST-12 fixture — MALFORMED `schema`. `schema` must be a JSON-schema OBJECT (the
+# runtime compiles it into the enforced validator, DEC-6); here it is a bare
+# string, so the structural `check_schema` rejects it.
+id: badpkg
+name: Bad Package
+publisher: cyto
+version: 0.1.0
+apiVersion: "1.0"
+contributes:
+  datatypes:
+    - id: demo/widget
+      extends: data
+      title: Demo widget
+      schema: "this should be an object, not a string"
+      storage:
+        layout: { kind: opaque_as_is }
+        format: json

@@ -1,0 +1,36 @@
+# CytoAnalyst LOCAL BILLING-SIM — the B0 Stripe substrate (billing epic).
+#
+# ONE `stripe/stripe-mock` container: the official mock generated from Stripe's
+# OpenAPI spec. It returns SPEC-VALID canned responses for Customer / Product /
+# Price / Subscription / Checkout Session / Billing Portal Session / meter_events,
+# runs FULLY OFFLINE with NO key on loopback (HTTP :12111 / HTTPS :12112). An SDK
+# points at it via an API-base override (`STRIPE_API_BASE`).
+#
+# CREDENTIAL-FREE + NO-NETWORK by construction (INV-1): stripe-mock needs no key
+# and reaches nothing. It is deliberately STATELESS — data POSTed is validated but
+# not reflected on a later GET, and it emits/signs NO webhooks — which is exactly
+# why B0 also BUILDS the local signed-webhook injector (`tests/common/stripe_sim.rs`,
+# DEC-1/DEC-2) rather than relying on the mock for the webhook path.
+#
+# `scripts/billing-sim-guard.sh` FAILS the tier if a real Stripe key or a
+# non-loopback endpoint is ever present in the env.
+#
+# Ports are overridable for a shared multi-worktree box: CYTO_BILLING_SIM_HTTP_PORT
+# / _HTTPS_PORT. Endpoints stay LOOPBACK — the guard rejects a non-loopback base.
+
+name: cyto-billing-sim
+
+services:
+  # ---- Stripe API (official stripe-mock, spec-valid canned responses) --------
+  stripe-mock:
+    image: stripe/stripe-mock:latest
+    ports:
+      # host → container: HTTP 12111, HTTPS 12112 (stripe-mock's fixed defaults)
+      - "127.0.0.1:${CYTO_BILLING_SIM_HTTP_PORT:-12111}:12111"
+      - "127.0.0.1:${CYTO_BILLING_SIM_HTTPS_PORT:-12112}:12112"
+    # No compose healthcheck: the stripe-mock image is distroless (no shell, no
+    # curl/wget), so any in-container probe is a no-op that always reports healthy
+    # (misleading). Readiness is gated HOST-SIDE by scripts/billing-sim.sh
+    # `wait_mock` (curl a spec endpoint from the host) before use — same posture as
+    # cloud-sim's minio.
+    restart: unless-stopped

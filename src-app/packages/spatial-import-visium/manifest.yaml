@@ -1,0 +1,1089 @@
+# spatial-import-visium — the Visium bundle importer (#154, epic #151).
+#
+# The first thing in this arm a USER can see. #152 declared the spatial kinds and the
+# write-time contract; nothing produced one. This package produces the first ones.
+#
+# ── WHY THIS IS PURE DATA ────────────────────────────────────────────────────────────
+#
+# There is no package registry to edit. `extensions/embedded.rs` bakes the whole
+# `src-app/packages` tree in with one `include_dir!`, extracts it to `<data_root>/
+# processors/` on boot, and the loader SCANS the extracted folder. A directory that
+# exists is a package that is registered. So this file plus `compute/` is the whole of
+# the contribution, and the diff guard in `tests/test_zero_src_app_diff.py` is what holds
+# that shut.
+#
+# ── WHAT IS DELIBERATELY NOT HERE ────────────────────────────────────────────────────
+#
+# * NO `trigger: on-ingest` (DEC-1). `import-h5ad` is on-ingest and this is modelled on
+#   it in every other respect, so the divergence is stated rather than left to be noticed:
+#   an import that silently REINTERPRETS an upload is not recoverable by undo, and a
+#   Visium bundle is exactly the case where the reinterpretation is consequential — it
+#   mints a coordinate space every later image and every later section places itself into.
+#   A user confirms it by launching it.
+# * The `spatial/image` half is NOW HERE (#155), which retires #154's DEC-10. Each vendor
+#   image present in the bundle becomes its own `spatial/image` — a lossless, pyramidal
+#   OME-TIFF — placed into the SAME coordinate space by the INVERSE of its own
+#   scalefactor. `tifffile` and `pillow` are therefore declared below, and `pillow` gained
+#   a pin in `env-rootfs/single-cell/requirements.txt` (which had predicted exactly that);
+#   both libraries were ALREADY in the shipped image, so no rootfs republish is implied.
+# * The DOWNSAMPLING is NOW HERE (#176), which retires #155's refusal. A `spatial/image` is
+#   a DISPLAY DERIVATIVE: a source finer than the declared 0.5 um/pixel cap is downsampled
+#   to meet it by an integer-factor BOX MEAN (every emitted pixel the real average of a real
+#   block), the affine and the OME PhysicalSize both absorb the factor, and the recorded
+#   `applied_resolution_um` is the ACHIEVED resolution rather than the cap. The
+#   full-resolution ORIGINAL is not re-emitted — it stays in the retained
+#   `spatial/visium-bundle` upload, and `spatial_declarations.require_original_reference` is
+#   the consumer-side reach to it. Every standard Visium image is ~7x COARSER than the cap
+#   and so still passes through untouched; the downsample path exists for Xenium (#162),
+#   whose morphology image design §8.3 says must not be range-read at full size.
+#   The writer itself MOVED in #162: `compute/ome_writer.py` is now a byte-identical
+#   VENDORED COPY of `spatial-types/compute/ome_writer.py`, because a second importer needs
+#   the identical code and a leaf importer should not be the source of truth for a sibling.
+#   The one behavioural change is that `_reconcile_scale` resolves the space's scale through
+#   `SD.require_micron_scale` instead of reading `microns_per_pixel` directly — identical
+#   for every pixel space, and the only way a MICROMETRE space (Xenium) can carry
+#   display-derivative provenance at all.
+#   The registration overlay it used to defer is now #156's, below.
+# * The REGISTRATION QC is NOW HERE (#156) — which retires the "Still NOT here: the
+#   registration overlay" line this paragraph carried until now. It is the only check in this
+#   package with a referent OUTSIDE the artifact. `compute/registration_qc.py` measures two
+#   things:
+#     - the SCALE, against the Visium slide's manufactured 100 um centre-to-centre spot
+#       pitch, applied to the spot lattice measured off `tissue_positions.csv` — a file that
+#       never touches `scalefactors_json.json`. This is the only thing that can see a wrong
+#       `spot_diameter_fullres`, which `tests/test_image_downsample.py`'s TEST-11 asserts
+#       passes every other check this system has;
+#     - the REGISTRATION, per emitted image: the spots placed through the image's DECLARED
+#       `to_space` — read back from the artifact's own OME-XML — and scored against the tissue
+#       visible in that image's own pixels, with the vendor's `in_tissue` call as the
+#       independent label. This is the check `tests/test_sandbox_reachability.py`'s TEST-9
+#       says nothing else here has.
+#   Plus a rendered OVERLAY per image, embedded in the report HTML above the facts table, with
+#   spots drawn at their DECLARED physical diameter. It is a report output, never an artifact
+#   (design §7.2), so this contribution's `produces` and its output COUNT are unchanged — and
+#   NOTHING IN THIS APP RENDERS `report/html` (#223), so the verdict also rides in the report
+#   artifacts' `meta`, which is the one channel a human actually sees.
+#   What it does NOT do: refuse the import. A failing verdict is recorded loudly and every
+#   artifact is still emitted, which is the posture a damaged image already gets.
+# * NO `squidpy` dependency (DEC-2). Its `read.visium()` is the SEMANTIC reference — the
+#   member names, the headerless-vs-headered `tissue_positions` split, the column names —
+#   and the compute follows it, but importing it would put the reader behind a library
+#   that is in the rootfs and NOT on the `just check-py` host, i.e. behind the one gate
+#   that has to run this code. It would also return an `AnnData` we would immediately
+#   decompose, forcing a full in-memory materialisation that `cyto_csc`'s streaming
+#   transpose exists to avoid.
+#
+# ── EVERY DECLARED DEPENDENCY IS ALREADY PINNED ──────────────────────────────────────
+#
+# `server/build_helper/processor_manifest.rs` resolves each `run.dependencies[]` against
+# `env-rootfs/single-cell/requirements.txt` AT BUILD TIME, so a library that is absent
+# there — or a range the pin falls outside — fails `cargo check` rather than a user's
+# sandbox job. Measured against the pins on this branch: numpy 2.4.6, scipy 1.17.1,
+# pandas 2.3.3, h5py 3.16.0, tifffile 2026.3.3, pillow 12.3.0.
+id: spatial-import-visium
+name: Import Visium (Space Ranger)
+publisher: cyto
+# Bump on ANY file change in this package — the seed reconciliation keys on it.
+# A VERSION COLLISION, resolved UPWARD rather than by taking a side — twice now, against two
+# different mainline bumps (#214's 0.3.1 and #162's 0.3.2). This branch bumped 0.3.0 -> 0.4.0
+# for #156's new compute helper. All three changes are IN this tree, so the version must be a
+# bump relative to EVERY parent, which 0.4.0 is. Taking main's number would leave a version
+# that does not move against this branch's own base, and the seed reconciliation keys on
+# `version` — so a stale one keeps executing the pre-#156 kernel while the files have changed.
+#  0.5.0 — #211: the spatial declarations are MIRRORED into the coordinates store's own
+#          `attributes.cyto` (`structure['cyto_spatial']`), so a SANDBOXED consumer can
+#          read the coordinate space, the micron scale (and its provenance), the
+#          measured entity, the positioning and the section. `meta` never crossed into
+#          the sandbox; the store's own bytes do. Reader side: `require_spatial_declarations`,
+#          which REFUSES rather than defaulting. `coordinate_space()` gains optional
+#          `microns_per_pixel_source` / `coordinate_space_source` so a scale's provenance
+#          travels with the scale (#222). The coordinates entry's `meta` key set is
+#          UNCHANGED; a `spatial/image` entry gains `microns_per_pixel_source` in
+#          both its `meta` and its OME payload, because a scale without the record
+#          of which leg produced it is a number no consumer can audit. Additive and
+#          safe for an old decoder, but not "unchanged" — an integrator trusts a
+#          changelog line instead of re-reading the diff.
+#  0.6.0 — #222: THE MICRON SCALE MOVED. `microns_per_pixel` was derived as
+#          `55.0 / spot_diameter_fullres` and is now `65.0 / spot_diameter_fullres`, so
+#          every micron-denominated result from this importer changes by +18.2% (the old
+#          number was 15.6% LOW). `spot_diameter_fullres` is the circle Space Ranger writes
+#          for RENDERING, which is larger than the 55 um capture spot; dividing by the
+#          capture spot measured the wrong circle. The one constant that spelled both is
+#          split into `VISIUM_CAPTURE_SPOT_DIAMETER_UM` (55.0) and
+#          `VISIUM_RENDERED_SPOT_DIAMETER_UM` (65.0).
+#          `measured_entity.resolution_um` is UNCHANGED at 55.0 — the capture footprint is
+#          the area transcripts came from, and that is a different question from the scale.
+#          No meta key is added or removed; no artifact already produced is re-imported,
+#          backfilled or flagged (fix-forward-only, #222's owner ruling), so two datasets
+#          imported either side of this version disagree by that amount BY DESIGN.
+#          TWO REPORT-VISIBLE CONSEQUENCES an integrator should not have to derive:
+#          (a) `registration_qc`'s SCALE VERDICT on a standard Visium bundle flips
+#              `fail` -> `pass` (relative error against the slide's 100 um spot pitch goes
+#              15.573% -> 0.223% on the committed vendor bundle). The check was firing
+#              correctly; this is the defect it was firing about.
+#          (b) the registration OVERLAY draws a spot at 55 um / the NEW scale, so the drawn
+#              circle shrinks (14.716 -> 12.458 px on that bundle) and no longer coincides
+#              with the vendor's `spot_diameter_fullres`. That coincidence was the bug: the
+#              overlay draws the 55 um CAPTURE footprint, which is a smaller circle than the
+#              65 um one the vendor's field spans.
+#          The exact figures: the constant change is worth 1 - 55/65 = 15.4% on every bundle;
+#          15.6% (15.573%) is the committed bundle's error against the slide referent, which
+#          differs because that bundle's own files imply a 65.145 um circle, not exactly 65.
+#  0.7.0 — #227: the vendored `compute/ome_writer.py` becomes the byte-identical copy of the
+#          promoted file, which now writes TILED OME-TIFFs (`tile=(512, 512)`) at every
+#          pyramid level instead of full-image-width strips. This package's own compute,
+#          manifest surface and tests are UNCHANGED; what changes is the bytes every
+#          `spatial/image` it emits are packed into. Pixels, extents, OME-XML and the
+#          display-derivative provenance are identical — the layout tags are not.
+#  0.6.1 — #273: TESTS ONLY; no compute file, no emitted number and no declaration moved,
+#          which is why this is a PATCH and not a minor — `check-processor-seed-versions.sh`
+#          states the convention as "patch for a fix, minor for behavior".
+#          `tests/test_producer_end_to_end.py` pinned this very field by EQUALITY to 0.6.0,
+#          which contradicted that same gate: it REQUIRES a bump the moment any file here
+#          changes (tests included — it diffs the whole package dir), and the pin REQUIRED
+#          the field to stay 0.6.0, so the package could not be touched at all. The pin is
+#          now the relation it always meant — the version is at or above the 0.6.0 that
+#          #222's corrected micron scale shipped at — and this bump is what the gate compels
+#          for the test edit that made it. An integrator should expect NOTHING to differ in
+#          the output; the version moves because the package's bytes did, which is the whole
+#          contract the seed reconciliation keys on.
+#  0.9.1 — #243: TESTS AND FIXTURES ONLY, plus two corrected docstrings in
+#          `compute/registration_qc.py`. The committed `tissue_hires_image.png` becomes 10x's
+#          own 2000x2000 emission instead of a 200x200 downscale of it, so the bundle's own
+#          spots finally land on its own image. No compute BEHAVIOUR changes and no emitted
+#          number moves — but `check-processor-seed-versions.sh` diffs the whole package
+#          directory, so the bytes moving is what compels this. PATCH, per the same
+#          "patch for a fix, minor for behavior" convention recorded above; 0.9.0 arrived on
+#          main while this branch was out (#292's dtype refusal), and this is a bump relative to it.
+#
+# 0.9.2 — #296/#297/#298: the three image-failure escapes #292's sweep found. `read_plane`'s
+#          `_PROGRAMMING_ERRORS` deny-list is gone (it re-raised six types this module had
+#          already measured arriving from DATA, aborting the whole import over one damaged
+#          vendor file); `write_ome_tiff` converts its allocation and encode failures the way
+#          `read_image` and `downsample` already did; and the four smaller escapes — an
+#          unwrapped `tifffile` re-open, deferred imports outside their `try`,
+#          `_reconcile_scale`'s unvalidated types, the visium handler's own `KeyError` — are
+#          closed. PATCH, not minor: no input that emitted before emits anything different
+#          (pinned byte-for-byte against `origin/main`'s own writer); what changed is which
+#          failures cost ONE image instead of the matrix, the coordinates, the columns and
+#          the report. The version moves at all because `check-processor-seed-versions.sh`
+#          is base-relative over the whole package DIRECTORY, and because the vendored
+#          `compute/ome_writer.py` changed in ALL THREE packages — bumping only the one that
+#          "owns" the change is the exact miss that
+#          `test_a_vendoring_package_whose_files_changed_also_moved_its_manifest_version` closes.
+#
+# 0.10.0 — #257: the micron scale's numerator is per SLIDE DESIGN, not one number for all of
+#          Visium. 10x documents `spot_diameter_fullres` as varying "for different slide
+#          designs, ranging from 60-70 um", and 24 real vendor bundles measure three designs:
+#          65 um (6.5 mm, fiducial/spot 21/13), 70 um (6.5 mm CytAssist V4 — and pre-1.1
+#          Space Ranger direct placement, 3/2) and 60 um (11 mm CytAssist V5, 7/4). The
+#          design is read from the bundle's own fiducial/spot ratio, in which the pixel scale
+#          cancels; the ASSAY is detected separately, from `regist_target_img_scalef`, and
+#          NAMED in the report, because a CytAssist bundle used to import with nothing
+#          anywhere saying it was one. `cytassist_image.tiff` is now explicitly reported as
+#          not-emitted with the reason, instead of silently absent.
+#
+#          MINOR, not patch: a CytAssist or DLPFC-era bundle imported by 0.9.2 got a
+#          `microns_per_pixel` that is 7-8% wrong, and 0.10.0 gives it a different number.
+#          The committed `Visium_Mouse_Olfactory_Bulb` bundle is UNCHANGED — its ratio matches
+#          the 65 um design, so the numerator resolved is the identical float 65.0 — but
+#          "behaviour changed for some inputs" is a minor by this file's own convention, and
+#          understating it as a patch would hide exactly the class of change a reader of this
+#          log is looking for. Existing artifacts are left as-is, not re-imported and not
+#          flagged, per #222's own ruling for the same situation.
+#          See `docs/design/visium-slide-design-scale.md`.
+# 0.11.0 — #330: the two parse boundaries where a vendor string this importer CANNOT WRITE was
+#          accepted. `filtered_feature_bc_matrix.h5`'s ROOT ATTRIBUTES and
+#          `scalefactors_json.json` are now walked by ONE predicate before the first artifact
+#          byte is written, and a document carrying such a string is refused BY NAME
+#          (`VisiumImportError` -> `main()` -> stderr + exit 2) instead of aborting a writer.
+#          See `docs/design/vendor-text-encodability-refusal.md` §6. This is #329's rule, ported
+#          from `spatial-import-xenium`, at this package's own boundaries.
+#
+#          MINOR, not patch: by this log's own convention (see 0.10.0) "behaviour changed for
+#          some inputs" is a minor, and two classes of bundle that PRODUCED A SUCCESSFUL JOB
+#          before now refuse. Understating it as a patch would hide exactly the class of change
+#          a reader of this log is looking for.
+#
+#          AN INTEGRATOR SHOULD EXPECT:
+#          * A bundle whose h5 root attribute (`software_version`, `chemistry_description`,
+#            `library_ids`) holds bytes that are not valid UTF-8 no longer imports. In the
+#            `utf-8` string dtype it used to die with an UNCAUGHT `UnicodeEncodeError`, exit 1
+#            and a traceback, with 59-117 paths already under `/outputs` and NO `manifest.json`;
+#            in the fixed-length `|S` dtype — the shape the real bundles use for `library_ids` —
+#            it used to COMPLETE and ship a SANITISED identifier. MEASURED: `b"\xff\xfeSR"`,
+#            `b"\xfe\xffSR"` and `b"\x80\x81SR"` all emitted the SAME
+#            `provenance.library_id` and the SAME `coordinate_space` — three slides that are not
+#            the same slide collapsing into one frame. It is refused, never repaired.
+#          * A bundle whose `scalefactors_json.json` carries a lone-surrogate escape no longer
+#            imports. `json.loads` accepts `"\ud800"` out of a PURE-ASCII file, and the whole
+#            scale document is echoed into `visium-import-report.json`, which `serde_json` — the
+#            crate the server parses it with — then refuses. Both doors are guarded; a fix at
+#            one of them would not have been a fix.
+#          * `read_scalefactors` KEEPS its degrade-to-`{}` contract for an UNPARSEABLE scale
+#            file: such a bundle still imports and simply declares no micron scale. Only a file
+#            that parses cleanly and carries unwritable text is refused. (An ABSENT scale file
+#            is a different case and always was: `locate_members` refuses the bundle before this
+#            function is reached. An earlier draft of this line said "ABSENT or UNPARSEABLE",
+#            which was wrong about the absent half on 0.10.0 too.)
+#          * A BUNDLE THAT IMPORTED BEFORE CAN NOW BE REFUSED, and not only the two hostile
+#            classes above. The guard walks ALL of `dict(h5.attrs)`, but only three attributes
+#            are ever read, so an h5 carrying an unreadable-by-us ROOT ATTRIBUTE — a checksum,
+#            an opaque vendor blob, perfectly legal HDF5 — is refused for a value that could
+#            never have reached an artifact. MEASURED on the committed fixture with
+#            `vendor_blob = np.array([b"\x89PNG\xff\xfe"], dtype="|S10")`: exit 2, 0 paths. That
+#            is the disclosed cost of guarding at the boundary instead of at each consumer —
+#            which attributes are read onto an artifact is a property of THIS revision of the
+#            module, and a rule scoped to today's readers silently stops covering one the day
+#            someone reads one more (the #320 defect this importer has shipped once already).
+#            What is NOT walked is stated as a DENY-list (bool, int, uint, float, complex,
+#            datetime64, timedelta64) rather than as an allow-list, so an unknown dtype is
+#            walked; and a text-dtype array past a 1 MiB cap is refused by name rather than
+#            walked, because materialising it is a denial of service (the largest root attribute
+#            on any committed real bundle is 27 bytes).
+#          * A `/matrix/barcodes`, `/matrix/features/id` or `/matrix/features/name` entry that is
+#            not valid UTF-8 now fails with a NAMED refusal saying which dataset and which ROW.
+#            Before it was an uncaught `UnicodeDecodeError` traceback and exit 1. The decode
+#            stays STRICT — those values are join keys and a loose decode would pair one spot's
+#            position with another spot's counts — so no bundle that imports today stops
+#            importing; only the failure MESSAGE changes, from a traceback to an instruction.
+#          * A `scalefactors_json.json` too deeply nested for `json.loads` (>= 992 levels) now
+#            degrades to "no scale declared" like any other unparseable scale file, instead of
+#            escaping as a raw `RecursionError` traceback. `RecursionError` subclasses
+#            `RuntimeError`, not `ValueError`, so it walked past the existing narrowing.
+#          * WHAT DOES NOT MOVE: every bundle whose vendor text this importer can actually write
+#            still imports, with byte-identical artifacts. All three committed real bundles are
+#            pinned by the suite. Legitimate non-ASCII vendor text — including ASTRAL characters
+#            — still imports and round-trips; the predicate tests the ENCODE, not a codepoint
+#            range.
+#          * A LOCALE FIX with no hostile input involved. The three text writes now name
+#            `encoding="utf-8"` instead of taking the locale default. MEASURED on the ORDINARY
+#            committed fixture under `LC_ALL=C`: `visium-import-summary.html` raised
+#            `UnicodeEncodeError` on this module's OWN em dash, so EVERY import on a non-UTF-8
+#            machine died with a traceback and exit 1 after 117 paths were on disk. Only that
+#            write was load-bearing (the other two are `json.dumps` at `ensure_ascii=True` and
+#            were pure ASCII by construction); all three are named for consistency.
+#          * AND THE SAME FIX ON THE WAY IN, which is the half that changes RESULTS rather than
+#            just failure messages. `tissue_positions.csv`, `scalefactors_json.json` and
+#            `metrics_summary.csv` were all read at the LOCALE default. MEASURED on ORDINARY
+#            bundles carrying LEGITIMATE UTF-8: under `LC_ALL=C` the scale file was swallowed
+#            into "no scale declared" (`microns_per_pixel: null`, plus a `scale_note` making a
+#            FALSE statement about the vendor's file), the metrics file's `Sample ID` was lost
+#            so `spatial/coordinates.zarr` was stamped with a DIFFERENT `section.sample_id` than
+#            the same bundle got under a UTF-8 locale, and the positions file died with an
+#            uncaught traceback and 51 paths on disk. All three now name `encoding="utf-8"`, and
+#            a positions table that is not valid UTF-8 gets a named refusal instead of a
+#            traceback. `read_json` in the shared compute runtime block is deliberately NOT
+#            touched: that block is byte-identical across every builtin's compute, so changing it
+#            is a cross-package change. It is NOT harmless, and the measurement is on the record
+#            rather than glossed: `inputs.json`'s `sandbox_path` carries a user-chosen mount name
+#            that the server does not ASCII-escape, so under `LC_ALL=C` a COMPLETE ordinary
+#            bundle whose directory name has one non-ASCII byte is refused with "the bundle has
+#            no filtered feature-barcode matrix" -- a false statement about a complete bundle.
+#            See `docs/design/vendor-text-encodability-refusal.md` §6.8 item 9.
+#          * A `/matrix` member that is ABSENT, a rank-0 scalar, an `h5py.Empty` null dataspace
+#            or a GROUP where a dataset belongs is now a named refusal instead of a raw
+#            `KeyError`/`ValueError`/`TypeError` traceback.
+#          * A COMPOUND or OPAQUE (`V`-dtype) root attribute is walked like any other. It is
+#            called out because the first draft of this release skipped it: `V` is not only the
+#            HDF5 opaque dtype, it is the STRUCTURED dtype whose fields can be text, and
+#            `vendor_provenance` really does turn those into text. MEASURED, a `library_ids`
+#            written as `np.array([(b"\xff\xfeSR",)], dtype=[("v","S8")])` imported cleanly and
+#            shipped `coordinate_space = 'visium:<U+FFFD><U+FFFD>SR'` -- the false collision this
+#            release exists to remove, by a shape the first draft's dtype check let through.
+#          * A HEADERLESS `tissue_positions_list.csv` WITH A BOM now imports. The positions read
+#            takes `utf-8-sig` (matching `spatial-import-xenium`'s `read_cells_csv`); before, the
+#            BOM survived into the first barcode and the matrix join failed with "1 of the
+#            matrix's N barcodes have no row". The headered spelling was never affected.
+#          * `read_positions` now runs at the TOP of `run_import`, beside `read_scalefactors` and
+#            for the same reason: its refusals used to fire after the expression store and both
+#            axis stores were on disk (51 paths). Every refusal this release adds now leaves
+#            NOTHING behind. The visible consequence is ORDERING -- a bundle that is bad in
+#            several ways reports whichever of these reads refuses first, rather than the matrix
+#            refusal.
+#
+# 0.10.1 — #321: the vendored `compute/ome_writer.py` re-vendored from the corrected
+#          `spatial-types` copy — #158's TEN consecutive strips are NINE, with the
+#          arithmetic carried as a visible amendment (a 512-row band spans nine of the
+#          fixture's 62-row strips, 36,383 B at y=0; 41,891 - 36,383 = 5,508 over 5 GETs is the
+#          file's measured open). The count is not maintained by hand any more:
+#          `spatial-types/tests/test_wire_measurement_strip_count.py` derives it from
+#          `spatial-image-hires-stripped.ome.tif`'s own tags and holds every copy under
+#          `src-app/packages/` to it — this one included, which is the point of a whole-tree
+#          scan rather than a guard per package.
+#          The clause is comment prose in a `#:` block and, for `spatial-types`, two
+#          docstrings: NO emitted byte, no declaration, no computed number moves. The version
+#          moves anyway because `check-processor-seed-versions.sh` is base-relative over the
+#          whole package DIRECTORY, the seed is reconciled on this number, and the vendored
+#          `compute/ome_writer.py` changed in ALL THREE packages — bumping only the one that
+#          "owns" the change is the exact miss
+#          `test_a_vendoring_package_whose_files_changed_also_moved_its_manifest_version` closes.
+#          Lands together with #333's single-entry `libs/viz` allowlist deletion, and had to:
+#          `staleClaims.test.ts` asserts every allowlisted path STILL contains the old sentence,
+#          so correcting the writer without shrinking that list turns main RED.
+#
+# 0.12.0 — #336: EVERY refusal this module can emit is now safe to put in a log row, not just
+#          the one #330 added. #330 built one escaping funnel (`_quoted_for_refusal`) and routed
+#          ONE refusal through it; every other refusal interpolated attacker-chosen vendor text
+#          RAW and UNBOUNDED, and a hostile bundle reaches several of them EARLIER than the
+#          guarded one. That matters because `scheduler.rs::drain_logs` reads the compute's
+#          stderr with `BufReader::lines()` and writes EACH LINE as its own `job_logs` row with
+#          no per-line cap, and the UI renders the text HTML-safe but ANSI-unsafe. MEASURED on
+#          `c34b3a1f` through the shipped entrypoint, stderr captured as BYTES:
+#            - the ambiguous-member refusal put raw ESC/CR/BEL on stderr AND, through a raw `\n`
+#              in a directory name, a FORGED `spatial.import-visium: import SUCCEEDED` line as
+#              its OWN log row  ->  now 1 row, ASCII, control-free;
+#            - a positions header of 60 fields x 120,000 characters produced a 7,200,587-byte
+#              SINGLE stderr line  ->  now 1,630 B, and it no longer grows with the input;
+#            - one h5 top-level member name produced 600,212 B of RAW non-ASCII (`list.__repr__`
+#              escapes control characters but PASSES printable non-ASCII and bounds nothing)
+#              ->  now 987 B;
+#            - three unmatched barcodes produced 1,800,513 B  ->  now 2,816 B.
+#          A SEQUENCE funnel is added beside the scalar one (`_quoted_list_for_refusal` /
+#          `_REFUSAL_QUOTE_ITEMS = 8`) because bounding each element is not bounding the message.
+#          ALSO CLOSED, found by reproducing the above rather than reported in it: a positions
+#          field over `csv`'s own 131,072-character limit raised `_csv.Error`, which is not a
+#          `VisiumImportError`, so `main()` did not catch it — rc=1 and a raw TRACEBACK. It is
+#          now a named refusal, exit 2.
+#          USER-VISIBLE: refusal messages change shape. A quoted value now appears `ascii()`-
+#          escaped and clipped at 120 units with its true length stated, a file name appears
+#          quoted, and legitimate non-ASCII in a MESSAGE reads as an escape. What IMPORTS does
+#          not change: the funnel is on messages only, and an ordinary bundle — including one
+#          carrying legitimate non-ASCII and astral vendor text — imports byte-identically.
+#          The guard is STRUCTURAL: `tests/refusal_sites.py` walks the module's own AST for every
+#          `raise VisiumImportError(...)` and proves each interpolation is either funnelled or
+#          incapable of carrying a vendor byte, so a refusal written tomorrow is covered without
+#          anyone updating a list. It reports 26 unprovable interpolations on `c34b3a1f` and 0
+#          here. What this release does NOT change, stated CORRECTLY after a blind angle
+#          measured the first draft of this sentence and found it FALSE: the refusal that still
+#          leaves 51 paths is the BARCODE JOIN in `run_import`, which runs after
+#          `write_csc_zarr`. It is NOT `read_positions` — #330 HOISTED that call above the first
+#          writer (design §6.9 item 4, which supersedes §6.5's INV-2 scope note), so every
+#          `tissue_positions.csv` refusal leaves **0** paths, MEASURED on `c34b3a1f` and here.
+#          The general form — every refusal a bundle can trigger should be reachable before the
+#          first writer — is §6.7's open item and is not claimed closed by this one.
+#
+# 0.12.1 — #336: TEST-10's base-count `git show` moved into TEST-22 behind
+#          `zero_core_guard.require_introducing_file`, keyed on `refusal_sites.py` — the file
+#          whose ADDITION *is* this guard, so the measurement runs in full on the branch that
+#          introduced it and SKIPS VISIBLY, with a reason, anywhere else. On `main`, `c34b3a1f`
+#          is just an old commit and "the base" is a fact about somebody's branch, so an
+#          ungated read of it asserts nothing here and something false on every later branch
+#          (`derived-guards.md` §3; `_lib/test_zero_core_guard.py`'s sweep named this file).
+#          It had to MOVE rather than be gated in place: the gate raises `Skipped`, so wrapping
+#          TEST-10 would have taken TEST-10's own live claim — that this module has ZERO
+#          unprovable interpolations — down with it, trading a stale number for a disabled
+#          guard. The 19 refusal sites / 26 unprovable interpolations measured on `c34b3a1f`
+#          and the 0 measured here are UNCHANGED and still asserted; only where they are
+#          asserted from moved. Not an allowlist entry, not a prefix exemption, not a deleted
+#          assertion — §5 names all three as not the repair.
+#          Tests only — no emitted byte, no refusal text, no behaviour changes.
+# 0.13.0 — #327: `coordinate_space` stops being a value two unrelated runs can share, and the
+#          bundle-directory rung is GONE. Read this before re-importing.
+#          WHAT CHANGED. A bundle whose matrix declares an identifying `library_ids` is UNTOUCHED
+#          (`visium:<library_id>`, verbatim — all three committed real bundles are on that rung, and
+#          a single stated identity cannot be framed non-injectively, so there was nothing to
+#          escape). Everything else moves: the `library_id` rung now reads through the same
+#          `vendor_statement` / `non_identifying_vendor_label` predicates
+#          `spatial-import-xenium` has shipped since #320 — and "identifying" now means ONE TEXT
+#          value: a NUMERIC `library_ids` (`[0]`, legal in the array shape every real bundle uses)
+#          and a MULTI-VALUED one (`[b"LibA", b"LibB"]`, which `spaceranger aggr` writes) are BOTH
+#          non-answers, because the identity predicates are blind to a number and because joining
+#          several values with `", "` is not injective — `[b"LibA", b"LibB"]` and `[b"LibA, LibB"]`
+#          are two different statements. `vendor_provenance` still records the raw decoded value
+#          for both; only the IDENTITY path refuses them. The fallback is no longer
+#          `Path(bundle_root).name` but `visium:unverified-space:<digest>` over the run's own
+#          measurement — the matrix's barcodes and the positions joined to them — with
+#          `coordinate_space_source` reading `unverified-space-non-identifying-labels` (the vendor
+#          wrote something you can replace) or `unverified-space-no-vendor-statement` (it wrote
+#          nothing). `section.sample_id` follows the same ladder and falls back to
+#          `unverified-sample:<space_id>` instead of a raw library id or a bare frame id. This
+#          package also RESERVES the sibling's `slide_id+region_name:` token even though it never
+#          emits one: reserving is a different question from emitting, and without it a
+#          `library_ids` opening with that token was emitted verbatim as a stated frame inside a
+#          namespace the scheme writes itself.
+#          WHY. MEASURED on 4b63a482, and every row is two unrelated experiments declared to share
+#          one coordinate frame: `library_ids: "unknown"` -> BOTH `visium:unknown`;
+#          `library_ids: "0000000_0000000"` -> BOTH `visium:0000000_0000000`; no `library_ids`, two
+#          uploads that both kept Space Ranger's own `outs/` directory name -> BOTH `visium:outs`;
+#          no `library_ids`, artifact-backed -> BOTH `visium:bundle`, for every Visium import in the
+#          deployment, because that basename is the SANDBOX MOUNT NAME derived from the SLOT.
+#          `resolveOverlayBinding` compares the frame VALUE by equality, so none of them errored —
+#          each was one tissue's image registered against another's spots, with no warning and a
+#          picture that looked right.
+#          WHAT IT COSTS an integrator: a dataset imported through the old fallback will NOT bind to
+#          its own re-import. That is the direction this module chose by name — a MISSED collision
+#          is visible and recoverable, a FALSE one is silent wrong data — and the recovery is to
+#          re-export with a real `library_ids`. `docs/design/xenium-declaration-residues.md` §3/§4.
+#
+# 0.14.0 — #349: the `/matrix` counts arrays — `data`, `indices`, `indptr` — are validated
+#          BEFORE the first writer, by `refuse_malformed_counts` in `compute/import_visium.py`.
+#          Previously their content and shape were first touched INSIDE
+#          `cyto_csc.write_csc_zarr`, i.e. after artifact bytes already existed on disk. The
+#          consequence that made this P1: a bundle with `/matrix/indices` truncated below what
+#          `indptr[-1]` declares imported at exit 0, wrote a manifest, and produced a store
+#          holding 100 of 17,677 stored values with every count attributed to feature 0 — the
+#          operator was told the import SUCCEEDED. That is now a named refusal, and it is ONE
+#          of THREE silent-corruption classes this release closes. A VIRTUAL `/matrix` dataset
+#          whose source file is missing imported the same way: h5py returns the fill value (0)
+#          for every element with no error, so it reached exit 0 with every count attributed
+#          to feature 0. And an `indptr[-1]` that UNDER-DECLARES while `data` and `indices`
+#          agree with each other landed the store silently SHORT at exit 0, because `nnz` is
+#          read from `indptr[-1]`. Eleven further
+#          malformations — `data` or `indices` as a group, as a scalar, 2-D, or
+#          length-mismatched; `indptr` decreasing, not starting at zero, of the wrong length,
+#          or declaring a total that `indices` does not carry; `indices` values at or beyond
+#          the declared feature count — previously escaped as raw Python tracebacks at exit 1,
+#          seven of them leaving a five-path partial `expression.zarr` behind. All are now
+#          refusals, restoring this package's INV-1 (refused by name, never a traceback and
+#          never an exit-1) and INV-2 (the refusal fires before any artifact byte is written,
+#          so nothing is left on disk). The `indices` range check is blockwise, so it stays
+#          out-of-core — at the cost of a FULL EXTRA STREAMING PASS over `indices`, on top of
+#          the counting pass and the write pass; in a package whose design story is staying
+#          bounded by a block rather than by the matrix, an added pass is a fact an integrator
+#          is entitled to. A `/matrix` member held in a VIRTUAL dataset or in HDF5 EXTERNAL
+#          raw storage is now refused outright, because its values come from files outside the
+#          bundle and an unresolvable source is FILLED rather than raised. This is the one
+#          change most likely to affect a re-exported or repacked bundle: Space Ranger itself
+#          never writes these, but a bundle round-tripped through another tool might, and it
+#          will now refuse rather than import something unverifiable. A member that is present
+#          but UNREADABLE — e.g. an `ExternalLink` to a file that does not exist — is refused
+#          too, where it previously escaped as a raw `KeyError`. And `/matrix/data` with a
+#          NON-NUMERIC dtype (a string, compound or vlen dtype) is refused: the allowed dtype
+#          kinds are `i`, `u`, `f`, `b`, matching the `spatial-import-visium-hd` sibling
+#          exactly. A compound dtype additionally used to put over 61,000 bytes of raw
+#          non-ASCII on stderr through the traceback; the refusal is now bounded and ASCII.
+#          A LEGITIMATE bundle is unaffected: the committed vendor fixture still imports at
+#          exit 0.
+# 0.15.0 — #345/#451/#445: the `/matrix`, `/matrix/shape` and `/matrix/features` reads that
+#          surrounded #349's counts validation are now refusals by name. Nine failures
+#          reachable from a hostile `.h5` escaped `main()`'s `except VisiumImportError` and
+#          reached the operator as exit 1 and a raw Python traceback with absolute source
+#          paths — deleting `/matrix/shape`; a one-element, byte-string, 2-D or scalar
+#          `/matrix/shape`; deleting `/matrix/features`; a `/matrix` that is a Dataset rather
+#          than a group; and a matrix file that is not HDF5 at all. Each is now a named
+#          refusal at exit 2 with nothing left on disk, restoring INV-1 and INV-2 for the
+#          whole seam.
+#          THE `H5Lexists` HOLE, BY NAME. `/matrix` and `/matrix/shape` were read unguarded:
+#          the presence test `"matrix" not in h5` is `H5Lexists`, which returns True for a
+#          dangling SoftLink or ExternalLink — the link exists, its target does not — so the
+#          presence refusal was skipped and `h5["matrix"]` raised a bare `KeyError`. A link
+#          whose target is missing is now refused by name, like any other absent member.
+#          THE EMPTY-MATRIX DECISION. An empty but internally consistent `/matrix` (`data`
+#          and `indices` of length zero, `indptr` all zeros, `shape` unchanged) used to
+#          import at exit 0, write a manifest and 117 paths, and produce an `expression.zarr`
+#          with `nnz=0` — the operator was told the import SUCCEEDED and downstream analysis
+#          ran on an empty matrix. It now REFUSES, before the first writer, together with the
+#          zero-barcode case, rather than importing-and-disclosing: an import of an empty
+#          matrix is reported as SUCCESS at exit 0, and there is no outcome REPORTED TO THE
+#          OPERATOR as anything other than SUCCESS (the report's `image_warnings` and
+#          `images_not_emitted` lists, the `registration_qc` block, the `scale_note` field
+#          and every output entry's `meta` are PASSIVE channels that change nothing about the
+#          exit code or stderr) — so for the `nnz == 0` shape the streamed progress and
+#          the report do not distinguish it from a real one (the manifest's expression
+#          entry differs in its machine-readable structure record (the stored-value
+#          count, the shapes and the byte counts), which no note field restates), and
+#          the operator is told SUCCESS and downstream analysis runs on nothing (the
+#          zero-barcodes shape is the other case:
+#          its stream and report show the zeros — measured and stated in 0.20.0). That
+#          reason alone carries both refusals; it does not
+#          depend on any claim about vendor internals. — the reason sentence is corrected
+#          in 0.20.0 (#503/#489) rather than removed; its exact wording now lives in the
+#          module constant `REASON_NO_USABLE_COUNTS`, which every copy states, and the
+#          per-shape visibility differences are stated in the 0.20.0 entry.
+#          THE `features/name` LENGTH, CROSS-CHECKED. `/matrix/features/name`'s length was
+#          never cross-checked against the declared shape; it is consumed much later, at the
+#          gene-symbol write, and `_lib` then raised a bare `ValueError` AFTER the first
+#          writer — MEASURED: exit 1, a raw traceback, 39 paths left on disk. It is now a
+#          named refusal before the first writer, with nothing left on disk.
+#          THE `barcodes` MEMBER, GUARDED. `/matrix/barcodes` had no dangling-link,
+#          wrong-kind or VIRTUAL/EXTERNAL guard; a VIRTUAL `/matrix/barcodes` was silently
+#          accepted and yielded fill-value bytes — MEASURED: exit 2 for an unrelated
+#          positions reason, 51 paths on disk. It now gets the same four-state treatment as
+#          the features members, before the first writer.
+#          THE UNDECODABLE CHUNK, NAMED. `decoded_h5_strings` did not catch `OSError`, so a
+#          dataset whose metadata is fine but whose bytes are undecodable (an unavailable
+#          filter, a truncated chunk, a checksum failure) escaped as a raw traceback. It is
+#          now a named refusal, like the other unreadable-member cases.
+#          A LEGITIMATE bundle is unaffected: the committed vendor fixture still imports at
+#          exit 0.
+#          THE FEATURES MEMBERS' VIRTUAL/EXTERNAL ARMS, DISCLOSED. `/matrix/features/id`
+#          and `/matrix/features/name` also gained the VIRTUAL / EXTERNAL-raw-storage
+#          refusal when the four-state check was hoisted into the shared helper — a
+#          widening that is strictly more protective and is now pinned by tests.
+# 0.16.0 — #462: an `h5py.ExternalLink` anywhere under `/matrix` — including `/matrix`
+#          itself — is now refused BY NAME, closing the hole where a bare `group[member]`
+#          followed the link transparently and the counts came from a file OUTSIDE the
+#          bundle. MEASURED on this base through the shipped entrypoint: `/matrix/data`
+#          as an ExternalLink to an outside file holding all-7s data imported at rc 0
+#          with a full store built from the outside file's values, and `/matrix/barcodes`
+#          as an ExternalLink to the bundle's own barcodes REVERSED imported at rc 0 with
+#          a silently MISLABELED store. The refusal is STRUCTURAL, not enumerated:
+#          `refuse_outside_matrix_objects` walks every object reachable under `/matrix`
+#          by hand — `visititems` does not follow links and would skip exactly these —
+#          inspecting each link with `getlink=True` before resolving it, refusing every
+#          ExternalLink wherever it points and every object whose realpath is not this
+#          bundle's own matrix file, with a depth cap so the walk stays bounded.
+#          A HARD LINK or SAME-FILE SoftLink chain aliasing two of the seven consumed
+#          `/matrix` members — `barcodes`, `features/id`, `features/name`, `shape`,
+#          `data`, `indices`, `indptr` — to the SAME object is refused by name too
+#          (`refuse_aliased_matrix_members`), because the realpath comparison cannot see
+#          a same-file alias: MEASURED, `/matrix/data` as a hard link to `/matrix/indices`
+#          imported at rc 0 with `expression.zarr/data` holding feature-id values instead
+#          of counts. And HDF5's own link-chain-depth limit, which previously escaped as
+#          a raw `RuntimeError`, is now caught and turned into the same named refusal as
+#          the surrounding unreadable-member cases — every widened
+#          `except (KeyError, OSError, TypeError, RuntimeError)` is preceded by
+#          `except VisiumImportError: raise`, so the package's own named refusals are
+#          never swallowed by the widened tuple. A LEGITIMATE bundle is unaffected: the
+#          committed vendor fixtures still import at exit 0.
+# 0.17.0 — #474/#478/#505/#506/#517: the `/matrix` content validation tightens on five
+#          fronts. THE ALL-ZERO DECISION (#474): a matrix whose `nnz > 0` but whose every
+#          `/matrix/data` value is exactly 0 is now REFUSED before the first writer. The
+#          #445 empty-matrix reasoning extends verbatim, because it is agnostic to WHY the
+#          matrix has no usable counts: `nnz == 0` and "every stored value is 0" are both
+#          "downstream analysis runs on nothing usable", and an all-zero matrix is reported
+#          as SUCCESS at exit 0 with no outcome REPORTED TO THE OPERATOR as anything other
+#          than SUCCESS (the report's `image_warnings` and `images_not_emitted` lists, the
+#          `registration_qc` block, the `scale_note` field and every output entry's `meta`
+#          are PASSIVE channels that change nothing about the exit code or stderr) — so
+#          in the streamed progress and the report the operator-visible signal does not
+#          distinguish an all-zero matrix from a real one (measured in 0.20.0: the
+#          streamed progress lines are byte-identical to a real import and nothing in
+#          the report states the matrix's stored values or their count); the
+#          machine-readable difference is the expression entry's byte count — measured
+#          in 0.22.0 with the refusal set aside (a real all-zero/mixed run refuses
+#          before the first writer; the probe stubs only `refuse_malformed_counts`)
+#          against the full committed fixture, `data.stored_bytes` is
+#          19,504 B for the real fixture vs 339 B for the all-zero variant and 362 B
+#          for the mixed zero/NaN variant, while the stored-value count (`nnz`) and
+#          the shape are unchanged for both variants and `data`'s dtype is float32 in
+#          every case (the writer upcasts), so the machine difference is byte counts,
+#          not dtype (re-scoped and amended in place in 0.22.0, #615/#624/#625).
+#          — the reason sentence is corrected in 0.20.0 (#503/#489) rather than removed.
+#          The boundary is the only one that is not a guess: SOME stored zeros among
+#          non-zeros is unremarkable (sparse formats permit explicit zeros) and still
+#          imports; EVERY stored value zero is the same "nothing usable" as `nnz == 0`
+#          and refuses. THE DUPLICATE-BARCODE REFUSAL (#478): a `/matrix/barcodes` that
+#          lists the same decoded barcode more than once is now refused before the first
+#          writer — two matrix columns mapping onto one spot made `axis/barcode.zarr`
+#          ship a non-unique key sequence and every downstream `aligned_to` join on the
+#          cells axis ambiguous, and the digest self-check could not see it. THE
+#          FULL-DECODABILITY SCAN (#505): the one-element `data[0:1]` probe is widened
+#          into a full blockwise, out-of-core scan of the ENTIRE `/matrix/data` dataset,
+#          so a corrupt chunk BEYOND element 0 (a truncated chunk, a fletcher32 checksum
+#          failure, an unavailable filter) is refused by name before the first writer
+#          instead of dying inside the store writer with a raw traceback and a partial
+#          store — at the cost of a THIRD full streaming pass over `/matrix/data`, on top
+#          of the counting pass and the write pass; in a package whose design story is
+#          staying bounded by a block rather than by the matrix, an added pass is a fact
+#          an integrator is entitled to. THE STRING DTYPE CHECKS (#506):
+#          `/matrix/barcodes`, `/matrix/features/id` and `/matrix/features/name` must now
+#          be stored as HDF5 strings (`S` fixed-length or `O` variable-length) — an int
+#          or other dtype used to be `str()`-coerced into plausible-looking garbage and
+#          imported at rc 0 (and `barcodes` as an int died at the positions join AFTER
+#          the first writer, leaving 51 paths on disk). The check is
+#          `h5py.check_string_dtype`, not a numpy-kind test: kind `O` is ALSO how h5py
+#          spells every variable-length type, so a vlen-INT (`h5py.vlen_dtype(np.int32)`)
+#          used to pass the `"SO"` kind check and be stringified as "[0 1]", "[1 2]", ...
+#          — the same silent-garbage harm, now refused before the first writer too.
+#          THE GUARD-ORDERING TEST (#517): a
+#          new structural test walks the module's own AST and proves every widened
+#          `except (..., RuntimeError, ...)` is preceded by `except VisiumImportError:
+#          raise` in the same `try` — `VisiumImportError` subclasses `RuntimeError`, so
+#          the 18 reraise guards are now falsifiable rather than decorative. A LEGITIMATE
+#          bundle is unaffected: the committed vendor fixtures still import at exit 0.
+# 0.17.1 — #453: the vendored `tests/refusal_sites.py` AST guard is renamed to
+#          `tests/visium_refusal_sites.py` — TEST-ONLY, no `compute/` change. Three
+#          packages each carried a copy of a test-support module with the SAME basename,
+#          and a shared-process pytest run bound `sys.modules["refusal_sites"]` to
+#          whichever copy imported FIRST, so xenium's suite could be scanned with
+#          visium's classifier (expecting `VisiumImportError`) and three tests went red.
+#          Distinct basenames make the collision impossible; the version moves because
+#          check-processor-seed-versions.sh is base-relative over the whole package
+#          directory, tests/ included.
+# 0.17.2 — #432: the two vendored shared modules' false registration-overlay claims are
+#          corrected and RE-VENDORED byte-identically. The `ome_writer.py` and `spatial_declarations.py`
+#          docstrings carried the #176-era sentences ("#156's registration overlay is the only
+#          real check" and "`spatial-import-xenium` does that cross-check and refuses the image on a
+#          disagreement") as LIVE claims; they are now quoted beside their retirement markers and
+#          followed by the true statement: a registration overlay now exists for ALL THREE producers
+#          — Visium (#156), Xenium (#301) and Visium HD (#313) — and they measure DIFFERENT
+#          referents, because what lies outside the artifact is a property of the PLATFORM (this
+#          package's scores its spot lattice against the slide's manufactured 100 µm glass pitch and
+#          the vendor's own `in_tissue` call). #269 replaced Xenium's refusal with measure-and-emit:
+#          `stated_scale_agreement` measures the TWO vendor statements and returns
+#          `(stated_scales, warning_or_None)`, the call site appends the warning to `pending_warnings`,
+#          and the image is EMITTED with both raw numbers and `applied_source` recorded; when they
+#          disagree, the Xenium overlay scores both placements side by side. The residue is stated
+#          measured rather than closed: a vendor wrong the SAME way in both statements, by a uniform
+#          error under about 2%, still passes every INTERNAL check, and the overlay is what
+#          NARROWED the hole rather than closed it — a 2% misscale already scores signal-lift
+#          0.303, BELOW the 0.4 floor, so about 2% is the boundary and the unresolved band lies
+#          strictly under it.
+#          Docstring prose + re-vendor only: no emitted byte, no declaration, no computed number moves.
+# 0.18.0 — #548: the all-zero `/matrix/data` refusal is EXTENDED to all non-finite stored
+#          values (NaN/Inf), in both directions of its boundary: the scan predicate becomes
+#          "usable = finite AND non-zero" (`np.isfinite(blk) & (blk != 0)`, inside the SAME
+#          blockwise scan #474 added), so a matrix with NO usable stored value — all-NaN,
+#          all-Inf, all-zero, or any mix with no finite non-zero value — is now refused
+#          before the first writer, while a matrix that merely CONTAINS some NaN/Inf among
+#          real counts still imports (the boundary is ALL stored values unusable, mirroring
+#          #474's "every one of them exactly 0"). #474's boundary comment ("does not cover
+#          NaN/Inf … deliberately out of scope") is retired with this repo's
+#          corrected-rather-than-removed idiom. The non-finite diagnosis gets its own
+#          message with its own marker ("every one of them non-finite") and
+#          corrupt/mis-written-FILE cause language — damage, truncation or a faulty write —
+#          distinct from the all-zero diagnosis's failed-run language (re-scoped in
+#          0.22.0, #615/#624/#625: the non-finite message now states BOTH readings — a
+#          corrupt or mis-written file, or a genuine run whose reads produced no usable
+#          UMI and whose matrix was then damaged or truncated — and that they cannot be
+#          told apart from the file alone, so THIS sentence's "distinct from the
+#          failed-run language" is retired here; the 0.22.0 entry is the record); a
+#          no-usable MIX gets its own third diagnosis (own marker). The all-zero message
+#          is unchanged. MINOR,
+#          not patch: by this log's own convention (see 0.11.0) "behaviour changed for some
+#          inputs" is a minor, and a class of bundle (a `/matrix/data` whose every stored
+#          value is non-finite) that PRODUCED A SUCCESSFUL JOB before now refuses.
+#          Understating it as a patch would hide exactly the class of change a reader of this
+#          log is looking for — the same class the 0.17.0 (#474) entry here and the HD
+#          sibling's 0.10.0 (#533) entry recorded. `spatial-import-visium-hd` ships the same extension (0.12.0), so the
+#          agreement #533 established between the two importers is preserved, not widened.
+#          New tests: TEST-127 (all-NaN refusal), TEST-128 (all-Inf refusal), TEST-129
+#          (some-NaN positive control), TEST-130 (mixed zero/NaN refusal).
+# 0.19.0 — #508: the #462 refusal prose is scoped to what it enforces — every
+#          "a dataset whose values depend on files outside this bundle …" sentence now
+#          says "outside the bundle's matrix file", and the matrix rule's scope is
+#          stated in the two docstrings a reader looks at — the `.h5` only. This is the
+#          one half of #508 that is correct under BOTH of the owner's options (every
+#          bundle member realpath-checked, or the rule explicitly `.h5`-only and stated
+#          as such): MEASURED on this branch, a SYMLINKED non-h5 member
+#          (tissue_positions.csv, scalefactors_json.json, a vendor image) pointing
+#          OUTSIDE the bundle still imports at exit 0 with the outside bytes read into
+#          the store, and the general-claim prose was claiming the rule reached those
+#          members when the check does not — an overclaiming refusal is its own defect
+#          (#476/#503 class; the reason #470 corrected the sibling). NOT the option-1
+#          half: NO realpath check is added and no bundle that imports today changes
+#          rc or bytes. WHAT DOES NOT MOVE: the predicate, the control flow, every exit
+#          code, every emitted byte, every declaration and every computed number — the
+#          committed vendor fixtures still import at exit 0 with byte-identical
+#          artifacts; only the refusal MESSAGES of the matrix-side refuses now name the
+#          matrix file rather than "this bundle". MINOR, not patch: by this log's own
+#          convention (see 0.11.0) a user-visible refusal-text change is a minor, and
+#          the HD sibling's own 0.11.0 (#540) text-only correction is the precedent;
+#          the patch precedents (0.10.1/0.11.1/0.12.1/0.17.1/0.17.2) all state "no
+#          refusal text" changed. New tests: tests/test_508_symlinked_members.py pins
+#          TODAY's behavior (rc 0 + outside marker read back, per member, in absolute
+#          and relative spellings and inside links), the scoped prose (fails on a
+#          return of the general claim), and the sandbox staging mechanics;
+#          tests/test_matrix_content_validation.py's TEST-58 fragment pin follows the
+#          scoped wording; TEST-14's floor moves to > 0.18.0.
+#          THE MATRIX-PATH ROW, MEASURED TOO: an ABS symlink AT `filtered_feature_bc_matrix.h5`
+#          imports at rc 0 with the outside file's values (TEST-17; the inside-relative
+#          sibling at rc 0, TEST-18) — the walk's realpath derives from the LOCATED path, so
+#          the check is a SAME-FILE check, not an inside-bundle containment check, and no
+#          bundle that imports today changes rc or bytes.
+# 0.20.0 — #503/#489: the empty-matrix refusal's stated reason is corrected in EVERY
+#          copy, and the duplication that let it rot is enforced rather than remembered.
+#          #503's inaccuracy is corrected rather than left: `main()` has exactly two
+#          DESIGNED outcomes — refuse (`sys.exit(2)`) or succeed (an uncaught exception
+#          exits 1 with a raw traceback, which is INV-1's PROHIBITED outcome, not a
+#          designed one; MEASURED through the shipped entrypoint on this node) — and
+#          there is no outcome REPORTED TO THE OPERATOR as anything other than SUCCESS:
+#          the process exits 0 and emits the same closing `progress("done", 100, ...)`
+#          line whether the matrix is empty or full (MEASURED: `progress: done|100|16
+#          outputs` is the identical closing line in every measured case — full,
+#          zero-barcodes, empty-nnz, all-zero and mixed, all of them on this node's
+#          committed fixture; the count in that line is `len(entries)` — one entry per
+#          emitted artifact, including one per emitted vendor image — so it is
+#          bundle-dependent, and what is identical for every measured shape is that the
+#          SUCCESS path emits it at the end), and the report's
+#          `image_warnings` and `images_not_emitted` lists, the `registration_qc` block,
+#          the `scale_note` field and every output entry's `meta` are PASSIVE channels —
+#          they change nothing about the exit code or stderr and are only visible to
+#          someone who opens the report or manifest artifact. The harm is the plausible
+#          wrong answer: the operator is told the import SUCCEEDED and downstream
+#          analysis runs on nothing usable. The claim is SCOPED — it does NOT say the
+#          emptiness is invisible: the zero-barcodes shape streams
+#          `progress: matrix|15|0 spots ...` and `progress: coordinates|65|0 spot
+#          positions`, a report with `n_spots: 0` and a manifest with `structure.nnz: 0`
+#          (MEASURED with the refusals set aside), and each refusal message states its
+#          own shape's measured visibility. #489's duplication is closed: the reason is
+#          ONE module-level constant (`REASON_NO_USABLE_COUNTS`), interpolated verbatim
+#          into the zero-barcode refusal, the `nnz == 0` refusal, the all-zero refusal
+#          and the mixed no-usable refusal, and the decision comment's point 1, point 3,
+#          supporting note and Refusal C comment, the 0.15.0 and 0.17.0 changelog
+#          entries (corrected rather than removed) and the test docstring all restate the
+#          SAME claim. A NEW package-wide absence scan (TEST-131..135,
+#          tests/test_retracted_reason_absent.py) forbids the four retracted #488
+#          fragments, the two #503 overstatement fragments AND this round's recovered
+#          overstatement fragment in every `.py` and `.yaml` under the package — checked
+#          whitespace-normalized AND in the quote- and `#`-free joined form (the phrase
+#          shipped split across adjacent string literals, and a `#`-comment-wrapped or
+#          escape-split reintroduction must be caught too) — plus the DECODED RUNTIME
+#          values of every string literal, every constant-folded `+`-concatenation and
+#          every constant `%`-format in the `.py` files, and every string leaf of every
+#          `.yaml` document (a document its stream cannot parse ends the pass — PyYAML
+#          cannot resynchronise — so the remaining documents are skipped, while the two
+#          source-text levels have scanned the whole file anyway), so a second-document
+#          escape is not skipped any more and
+#          interleaved escapes, line continuations and `%`-format reassembly are no
+#          longer hiding places (the residual — ANY assembly whose runtime value needs
+#          code the detector does not execute: a call-built string, a name-interpolating
+#          f-string, a variable-mediated `+` or `+=` — is the tracked ceiling: issue
+#          #614; the deliberately non-scanned suffix surface stays stated as a
+#          deliberate exclusion). The agreement legs assert the
+#          surviving copies carry the canonical claim: the emitted stderr of both refused
+#          shapes, the manifest changelog entries, the test docstring and EACH
+#          decision-comment region (preamble, point 1, point 3, supporting note, Refusal
+#          C comment — per-region, not one coarse window). The #548 non-finite-only
+#          message is untouched — it carries its own corrupt-file diagnosis rather than
+#          restating the reason; its audit certainty note is PRE-EXISTING and filed as
+#          #615, not fixed here. The HD sibling's #488 phrase-carrying state is #613 (out
+#          of scope by mandate, filed). PROSE ONLY: no predicate, trigger, control flow,
+#          exit code or computed number moves — the committed vendor fixtures still
+#          import at rc 0 and reproduce 59 of the 60 artifact files byte-identically, the
+#          exception being the nondeterministic OME-XML UUID field in
+#          `spatial-image-hires.ome.tif` (10 bytes in the base-vs-branch measurement, 11
+#          in this round's run-to-run re-measurement — tifffile writes a fresh UUID per
+#          run, so two runs of the same HEAD differ there too; the 0.19.0 entry's
+#          unqualified "byte-identical" claim is the same overstatement and predates this
+#          node). MINOR, not patch: by this log's own convention (see 0.11.0) a
+#          user-visible refusal-text change is a minor, and the HD sibling's own
+#          text-only corrections (0.11.0/#540, 0.16.0/#488) are the precedent. A14/A12
+#          note: the floor pins in the other suites are floors and stay satisfied —
+#          TEST-14's floor moves to > 0.19.0 and the test_508_symlinked_members.py
+#          TEST-10 pin moves to >= 0.20.0; no unmerged ref claims 0.20.0.
+# 0.21.0 — #508: the owner's option-1 decision — every bundle member must realpath to
+#          a path under the bundle root — is implemented as ONE containment check at the
+#          END of `locate_members`, the single choke point every consumer reads through.
+#          This SUPERSEDES the 0.19.0 (`.h5`-only) scope statement: the located matrix
+#          file is now just another located member, so the `.h5` OWN-path gap is closed
+#          — the #462 walk's `matrix_realpath` derives from the LOCATED path, so a
+#          symlink AT `filtered_feature_bc_matrix.h5` followed it cleanly (MEASURED
+#          before this node: rc 0, marker `data[0]=6049` landing in `expression.zarr`;
+#          the inside-relative sibling TEST-18 stays rc 0). The walk remains the
+#          same-FILE HDF5-object check on top of the containment check. The refusal
+#          names the member (its basename) and the quoted resolved path, exits 2 with
+#          ZERO paths under /outputs, before the first writer — the shape every refusal
+#          in this importer uses. THE STAGED-ROOT CRUX (MEASURED — the over-refusal
+#          trap): `root` at that point is the UNRESOLVED `/inputs/<name>` staging
+#          symlink, so the comparison realpaths BOTH sides (`realpath(member)` vs
+#          `realpath(root) + os.sep`) — and the values that are not paths
+#          (`non_placeable_images` spec DICTS, `ambiguous_images` basename STRINGS) are
+#          checked through the `found` candidates they were built from instead of being
+#          realpath'd (dict = TypeError; bare basename = CWD-relative — both MEASURED);
+#          the `cytassist_image` bool is exempt and `metrics is None` is skipped. The
+#          untouched staged-bundle control and the inside-relative rows (TEST-9/TEST-18)
+#          stay rc 0, MEASURED. The nine outside-link today-pins flip to "refused by
+#          name" (TEST-2..7, 15, 16, 17), the scope prose now states the uniform rule,
+#          and the anti-overclaim/realpath-site pins are re-pointed.
+#          `spatial-import-visium-hd` has the same seam — logged as #593, the next node
+#          (HD untouched here). MINOR, not patch, by this log's own 0.11.0 convention:
+#          behaviour changed for some inputs — a bundle that imported at rc 0 with a
+#          member symlinked outside the bundle root now refuses. A14/A12 note: the floor
+#          pins move with this entry — test_refusal_escaping.py's TEST-14 floor moves to
+#          > 0.20.0 and the test_508_symlinked_members.py TEST-10 pin moves to >= 0.21.0;
+#          no unmerged ref claims 0.21.0. New tests: tests/test_508_bundle_containment.py
+#          (TEST-19..22).
+# 0.21.1 — #508: the option-1 CROSS-PACKAGE divergence pin is re-pointed to the CLOSED
+#          state — spatial-import-visium-hd (#593, the HD half of this same owner
+#          decision) landed its OWN containment seam (`locate_bins`, the locator that
+#          plays this package's `locate_members` role) and the cross-package pin
+#          `test_508_the_HD_sibling_locates_non_h5_members_with_no_realpath_check_too`
+#          now counts THREE realpath sites where #508 recorded TWO. Every bundle member
+#          must realpath to a path under the bundle root at HD's seam too, so the pin
+#          that documented the divergence is re-pointed to the state it awaited.
+#          TEST-ONLY: no visium behavior moves — the predicate, its refusal shape and
+#          its rc are identical to 0.21.0 (the HD sibling's own bump is 0.17.0 ->
+#          0.18.0, its own round). PATCH by this log's 0.11.0 convention (test-support
+#          change, no importer behavior delta); A14/A12: the floors are unchanged
+#          (>= 0.21.0 / > 0.20.0) and no unmerged ref claims 0.21.1.
+# 0.22.0 — #615/#624/#625: the claim-accuracy residuals the #503/#489 round filed are
+#          corrected — prose only, no importer behaviour change. #615 (PRIMARY): the
+#          #548 every-value-non-finite refusal no longer states a vendor fact as settled —
+#          "is not a count a well-formed 10x Space Ranger matrix stores; its `/matrix/data`
+#          holds real read counts" becomes the block's own INFERRED reading ("a matrix of
+#          real read counts stores"), and the certainty aligns with the mixed message's:
+#          BOTH readings (a corrupt or mis-written file, OR a genuine run whose reads
+#          produced no usable UMI and whose matrix was then damaged or truncated) are
+#          possible and "cannot be told apart from this file alone". #624: the 0.17.0
+#          all-zero clause is re-scoped exactly as the other four copies ("in the
+#          streamed progress and the report the operator-visible signal does not
+#          distinguish …") and the machine-readable exception is stated honestly —
+#          MEASURED by probe against the full committed fixture, the expression entry's
+#          `data.stored_bytes` is 19,504 B for the real fixture vs 339 B (all-zero) and
+#          362 B (mixed zero/NaN), while `data`'s dtype is float32 in every case (the
+#          writer upcasts; the fixture's `/matrix/data` itself is int32, 17,677 values)
+#          — the machine difference is byte counts, not dtype, and the "one artifact
+#          difference" wording is replaced everywhere (the nnz == 0 structure record
+#          differs in TEN structural fields — the stored-value count, the shapes and
+#          the byte counts among them). #625: the
+#          six honesty fixes — the ceiling sentence states the six NOT-caught controls
+#          and names the rest of the class as unpinned; the not-scanned basis names
+#          PROVENANCE.json as prose and the exclusion as deliberate (with the dangling
+#          sentence grammatical); the closing-line claim gains its fixture-scoping /
+#          `len(entries)` note; the six "one artifact difference" sites now state their
+#          SHAPE-TRUE form — the five `nnz == 0` copies say the machine-readable
+#          structure record differs (stored-value count, shapes, byte counts), while the
+#          0.17.0 all-zero clause says the byte count is the machine difference (nnz and
+#          shape unchanged, per the probe); the "every string leaf of every .yaml
+#          document" clause gains the
+#          unparsable-document caveat. MINOR, not patch: the change edits
+#          operator-visible refusal text — the class this log has treated as a minor
+#          since 0.19.0/0.20.0 (0.11.0's rule: behaviour changed for some inputs) —
+#          the #548 non-finite message and the nnz == 0 clause are shipped messages,
+#          and the HD sibling's text-only corrections (0.11.0/#540, 0.16.0/#488) and
+#          this log's own 0.20.0 (#503/#489) are the precedent; no rc, trigger,
+#          predicate, control flow or emitted byte moves, and the committed vendor
+#          fixture still imports at rc 0
+#          (MEASURED at this round: test_TEST_79_the_unmutated_fixture_still_imports,
+#          rc 0). A14/A12: TEST-14's floor moves to
+#          > 0.21.1 with the `#615` literal and the claim-accuracy subject, and
+#          test_508_symlinked_members.py's TEST-10 pin re-points to >= 0.22.0; no
+#          unmerged ref claims 0.22.0. New/enforced tests: TEST-127/128 (the corrected
+#          non-finite sentence/certainty on emitted stderr), TEST-136 (the #625 honesty
+#          clauses).
+# 0.23.0 — #638: the same-class vendor-claim residuals the #615/#624/#625 close run
+#          filed are corrected — the five enumerated prose-only sites across the two
+#          importers, no importer behaviour change. Site 1: the #548 MIXED message's
+#          head ("This is not a shape a well-formed 10x Space Ranger matrix produces …")
+#          is downgraded to the block's inferred reading ("a matrix of real read counts
+#          produces"), keeping "and it supports BOTH readings honestly:" and the
+#          cannot-be-told-apart certainty. Site 2: the decision comment's "10x Space
+#          Ranger never emits NaN in `/matrix/data`" vendor claim is corrected IN PLACE
+#          (no measurement in this tree supports a vendor-wide claim; the block's own
+#          inferred reading is stated instead), keeping the corrected-rather-than-removed
+#          idiom and the #533 sibling-divergence note. Site 3: the Refusal-B docstring's
+#          bare "(MEASURED)" gains the fixture-scoping / `len(entries)` note the other
+#          copies carry (the count stays 16 for visium; HD's 17 is HD's). Site 4 (HD):
+#          the #615 defect that shipped VERBATIM in HD's every-value-non-finite message
+#          is corrected in HD's voice — HD keeps its `--` dash style and its pinned
+#          markers — so the two importers' non-finite messages now state the SAME reading
+#          with the SAME certainty. Site 5 (HD): the stale "(0.21.1)" mirror note is
+#          re-pointed to the sibling's post-run TEST-10 (0.23.0). MINOR, not patch:
+#          the change edits operator-visible refusal text — the class this log has
+#          treated as a minor since 0.19.0/0.20.0 (0.11.0's rule: behaviour changed for
+#          some inputs) — this package's own 0.22.0 and 0.20.0 text-change entries and
+#          the HD sibling's 0.11.0/#540 text-only correction are the precedent; no rc,
+#          trigger, predicate, control flow or emitted byte moves beyond the corrected
+#          message text. A14/A12: TEST-14's floor moves to > 0.22.0 with the `#638`
+#          literal and the five-residual subject, and test_508_symlinked_members.py's
+#          TEST-10 pin re-points to >= 0.23.0; the HD sibling ships the same round as
+#          0.19.0; no unmerged ref claims 0.23.0.
+# 0.24.0 — #471: the LAST unguarded read in the matrix block — the ROOT-ATTRIBUTE
+#          read, `attrs = dict(h5.attrs)` in `run_import` — is now a named refusal.
+#          WHAT CHANGED. `dict(h5.attrs)` MATERIALISES every attribute value the matrix
+#          file's root object carries, and h5py raises while doing so on a truncated or
+#          corrupt attribute, an attribute whose datatype it cannot map, or an
+#          attribute whose object header / global-heap backing is damaged. None of
+#          those is a `VisiumImportError`, so every one escaped `main()`'s
+#          `except VisiumImportError` as rc 1 and a raw Python traceback with absolute
+#          source paths — INV-1's prohibited outcome. It is the same class #345/#451,
+#          #349, #330 and #323 each closed once for this module, and the ONE read that
+#          sweep left (found by the independent adversarial review, filed rather than
+#          widened into).
+#          MEASURED on this node through the shipped entrypoint: a vlen root attribute
+#          whose global-heap object length is corrupt raised
+#          `OSError: Can't synchronously read data (ran off end of input buffer while
+#          decoding)` at this exact line — rc 1, 0 paths. It is now a named
+#          `VisiumImportError`, exit 2, with NOTHING on disk.
+#          THE MESSAGE. `filtered_feature_bc_matrix.h5's root attributes cannot be read
+#          (<h5py's own exception text>). A 10x feature-barcode matrix carries its
+#          identity there: `library_ids`, `software_version`, `chemistry_description`
+#          and `filetype`. A file whose root attributes cannot be materialised cannot
+#          be named by this importer, and its coordinate frame cannot be declared.
+#          Check that the matrix file is complete, or re-export the Space Ranger
+#          `outs/` bundle. Refusing rather than shipping a matrix this importer cannot
+#          describe.` Every interpolated value routes through `_quoted_for_refusal`
+#          (the h5py exception text included, `noun='message'`), so the structural AST
+#          guard (`tests/visium_refusal_sites.py`) covers the new message from the
+#          moment it is written — the suite measures 0 unprovable interpolations.
+#          THE GUARD IS NARROW IN POSITION AND IN MEMBERSHIP, both on purpose. Only the
+#          `dict(h5.attrs)` expression is wrapped, so a genuine internal error in the
+#          hundreds of lines below is not laundered into a refusal about the customer's
+#          bundle; and `refuse_unencodable_vendor_text` (the parse boundary immediately
+#          below) is NOT wrapped and its semantics are unchanged. The widened tuple
+#          `except (KeyError, OSError, TypeError, RuntimeError)` keeps
+#          `except VisiumImportError: raise` FIRST (#517's structural test
+#          `test_runtimeerror_guard_ordering.py`): `VisiumImportError` subclasses
+#          `RuntimeError`, so the order is what stops this package's own named refusals
+#          being re-wrapped as a different one.
+#          WHAT DOES NOT MOVE. The read is already BEFORE the first writer
+#          (`cyto_csc.write_csc_zarr`), so no bundle that imports today changes rc or
+#          bytes: the three committed vendor fixtures still import at rc 0 (the new
+#          TEST-139 positive control runs the UNMUTATED fixture through the same
+#          entrypoint). This is the diagnostics half INV-1 cares about — INV-2 held by
+#          ordering, and the new tests still assert ZERO paths on disk, because that
+#          assertion is what keeps the ordering true.
+#          MINOR, not patch, by this log's own 0.11.0 convention: behaviour changed for
+#          some inputs — a bundle whose root attributes cannot be materialised went
+#          from rc 1 + traceback to rc 2 + named refusal (the #345/#451/#349 class).
+#          A14/A12: the floor pins move with this entry —
+#          test_refusal_escaping.py's TEST-14 floor moves to > 0.23.0 with the `#471`
+#          literal and the root-attribute subject, and the
+#          test_508_symlinked_members.py TEST-10 pin moves to >= 0.24.0; no unmerged
+#          ref claims 0.24.0. New tests: tests/test_matrix_access_refusals.py TEST-138
+#          (the corrupt-root-attribute refusal through the shipped entrypoint) and
+#          TEST-139 (the mutation's own proof plus the unmutated positive control).
+# 0.25.0 — #359: the `binned_outputs/` HD refusal no longer names a closed issue — it
+#          points at the HD importer instead. WHAT CHANGED. `locate_members`'s refusal
+#          for a Visium HD bundle deferred the reader to #160 — which CLOSED without
+#          ever shipping an importer (measured 2026-09-26), so the deferral outlived
+#          the issue it deferred to. The corrected message keeps every true clause —
+#          HD bundle per `binned_outputs/`; standard Visium only; several bin
+#          resolutions under identically-named files defeat the bundle container's
+#          basename member matching entirely; needs a per-bin upload or a
+#          directory-aware matcher; picking one bin here would hide the platform gap
+#          rather than close it — and replaces the issue pointer with the HD importer's
+#          own name: `Import Visium HD (Space Ranger binned_outputs)`. The corrected
+#          message names no issue number at all. The comment above the refusal is
+#          corrected in place: #160 is named there only as HISTORY (a previous version
+#          deferred to it; it closed without an importer), never as a destination.
+#          MINOR, not patch: the change
+#          edits operator-visible refusal text — the class this log has treated as a
+#          minor since 0.19.0/0.20.0 (0.11.0's rule: behaviour changed for some
+#          inputs) — this package's own 0.22.0 and 0.20.0 text-change entries and the
+#          HD sibling's 0.11.0/#540 and 0.16.0/#488 text-only corrections are the
+#          precedent; no rc, trigger, predicate, control flow or emitted byte moves
+#          beyond the corrected message text. A14/A12: TEST-14's floor moves to
+#          > 0.24.0 with the `#359` literal and the HD-refusal subject, and
+#          test_508_symlinked_members.py's TEST-10 pin re-points to >= 0.25.0; no
+#          unmerged ref claims 0.25.0 (census 2026-09-26). SEAM, NOT HIDDEN (DEC-7):
+#          the HD sibling's TEST-25 derives our version and our pin function name by
+#          regex every run and will redden on its next run — recorded as the owner
+#          action, never fixed or suppressed here.
+# 0.25.1 — #654: the `binned_outputs/` HD refusal's importer name is DERIVED from HD's
+#          manifest every run, not a literal with no pin. WHAT CHANGED. Nothing in the
+#          message: `Import Visium HD (Space Ranger binned_outputs)` stays a LITERAL in
+#          `locate_members`'s refusal — visium cannot read HD's manifest at import time
+#          (the packages are independent contributions; a runtime cross-package read would
+#          be a worse coupling than a stale string). The change is a TEST that derives:
+#          `tests/test_hd_importer_name_derive.py` reads `spatial-import-visium-hd/`
+#          `manifest.yaml` at a path derived from the test's own location, extracts the
+#          `spatial.import-visium-hd` analysis `title:` (the operator-facing name —
+#          analyses are displayed by title in the launcher), asserts the extraction
+#          anti-vacuously (the entry must exist and the title/name be non-empty, BEFORE
+#          the containment leg), and asserts the RUNTIME refusal message — driven through
+#          the shipped `locate_members`, never the source text — contains that derived
+#          name. The needle is scoped to the EMITTED message so the same name inside the
+#          retirement comment above the refusal can never satisfy it (#646), and the
+#          test's docstring states it reddens BY DESIGN when HD renames: the redness is
+#          the signal, and the fix is then to update visium's message, not to relax the
+#          test. The top-level `name:` is also extracted (anti-vacuity); divergence rule:
+#          the operator-facing needle is the analysis `title:`, and a name-only divergence
+#          does not redden by design. PATCH, not minor: a TEST-only addition — no rc,
+#          trigger, predicate, control flow or emitted byte moves, and no importer
+#          behaviour changes (the seed-version guard compels the bump for ANY file change
+#          under the package). A14/A12: TEST-14's floor moves to > 0.25.0 with the `#654`
+#          literal and the derive subject, and test_508_symlinked_members.py's TEST-10 pin
+#          re-points to >= 0.25.1 (renamed
+#          `test_654_the_manifest_bump_and_its_changelog_entry_are_at_0_25_1_and_name_this_issue`
+#          to keep the shape HD's TEST-25 derives by regex); no unmerged ref claims
+#          0.25.1 (census 2026-09-26). SEAM, NOT HIDDEN (DEC-4): the HD sibling's TEST-25
+#          derives our version and our pin function name by regex every run and will
+#          redden on its next run (HD 0.23.1/#359 measured exactly this shape) — recorded
+#          as the owner action at merge, never fixed or suppressed here.
+version: 0.25.1
+apiVersion: "1.0"
+contributes:
+  analyses:
+    - id: spatial.import-visium
+      category: data-io
+      title: Import Visium (Space Ranger)
+      description: >-
+        Read an uploaded 10x Visium Space Ranger `outs/` bundle and emit the expression
+        matrix, the tissue map in full-resolution pixels, and the per-spot columns — so a
+        spatial dataset becomes an ordinary, analysable dataset with a place on a slide.
+      whenHint: >-
+        the user uploaded a Space Ranger outs bundle (a filtered matrix, tissue positions,
+        scale factors and a tissue image) and wants the tissue map and the counts imported
+      examples:
+        - import this Visium bundle
+        - load the space ranger outs folder
+        - bring in the tissue positions and the counts
+      safety: read-run
+      # WHICH ANALYSIS ENVIRONMENT these pins must be satisfiable in.
+      #
+      # Required since E3 landed a SECOND recipe (`single-cell-r`). The #80 build gate
+      # resolves every declared dependency against every recipe on disk, so an undeclared
+      # contribution would demand that numpy/pandas/scipy/h5py be installed in the
+      # deliberately-narrower R env too. The gate's own doc-comment prescribes exactly this
+      # fix: *"the right relaxation is for a contribution to DECLARE the env it targets, not
+      # for this gate to guess"*.
+      #
+      # `single-cell` is the correct target and not merely the convenient one: DEC-2 still
+      # declines `squidpy`, and every one of this importer's pins lives there — numpy
+      # 2.4.6, scipy 1.17.1, pandas 2.3.3, h5py 3.16.0, and (since #155) tifffile 2026.3.3
+      # and pillow 12.3.0.
+      env: single-cell
+      # ONE slot. The bundle is already ONE dataset by the time it reaches here —
+      # `spatial/visium-bundle` declares `mtx-trio-target`, so the upload planner
+      # auto-groups the four Space Ranger members into a single dataset (#152). Binding
+      # the members individually here would re-open a grouping the container already did.
+      appliesTo:
+        - slot: bundle
+          type_id: spatial/visium-bundle
+          auto_bind_sole_candidate: true
+      # `single-cell/counts`, not the abstract `single-cell/expression`: a Visium
+      # `filtered_feature_bc_matrix.h5` holds INTEGER UMI COUNTS, which is what
+      # `single-cell/counts` means and what `qc.10x` requires. It `extends:
+      # single-cell/expression`, so every shipped `subtypes_of: single-cell/expression`
+      # selector still resolves it — which is INV-7, and the whole basis of the
+      # backwards-compatibility claim: nothing downstream needs to know it is spatial.
+      produces:
+        - single-cell/counts
+        - spatial/coordinates
+        # #155. One artifact per vendor image present, each placed into the SAME
+        # coordinate space by its own INVERSE-scalefactor affine.
+        - spatial/image
+        - metadata-column
+        - report/qc
+        - report/html
+      run:
+        kind: sandbox
+        runtime: python
+        entry: compute/import_visium.py
+        # `spatial_declarations.py` is VENDORED VERBATIM from `spatial-types` and staged
+        # beside the entry. The platform confines `run.helpers` to a package's OWN tree,
+        # so vendoring is the idiom (`embedding` vendors `cell-filter`'s predicate kernel
+        # the same way), not an exception. `tests/test_vendored_contract.py` byte-compares
+        # the copy against its source of truth — a vendored file that drifts is a second
+        # implementation wearing the first one's name.
+        helpers:
+          - compute/spatial_declarations.py
+          # The OME-TIFF writer (#155). This package's own, not vendored — it is domain
+          # code nobody else has a copy of.
+          - compute/ome_writer.py
+          # The registration QC (#156). This package's own too, and staged for the same
+          # reason: the entry imports it by bare name, and in `/code` a bare name resolves to
+          # whatever `run.helpers` put beside the entry. An undeclared helper is an
+          # ImportError inside a user's sandbox with no build-time signal at all.
+          - compute/registration_qc.py
+        dependencies:
+          - { library: numpy, version: ">=2.0,<3" }
+          - { library: pandas, version: ">=2.2,<3" }
+          - { library: scipy, version: ">=1.14,<2" }
+          - { library: h5py, version: ">=3.10,<4" }
+          # #155's imaging pair. Ranges, not pins, because the HOST that runs
+          # `just check-py` carries older builds than the rootfs (tifffile 2025.5.10 vs
+          # 2026.3.3, pillow 12.2.0 vs 12.3.0) and BOTH must satisfy the declaration —
+          # otherwise the gate that has to run this code cannot.
+          #
+          # `pillow` is here because `tifffile` CANNOT read a PNG (verified: it raises
+          # `TiffFileError` on `tissue_hires_image.png`) and the vendor ships one.
+          # `env-rootfs/single-cell/requirements.txt` predicted this exact declaration.
+          #
+          # `imagecodecs` is deliberately NOT declared: it is the LZW backend, and DEC-2
+          # writes `deflate`, which tifffile serves from stdlib `zlib`. Declaring a
+          # library no code path imports is the unconsumed-pin shape that file refuses.
+          - { library: tifffile, version: ">=2024.1.1" }
+          - { library: pillow, version: ">=10,<14" }
+      schedule:
+        class: normal
+      arch: [x86_64, aarch64]
+      methodsText: >-
+        Imported the 10x Visium Space Ranger outputs: the filtered feature-barcode matrix
+        was re-emitted as a cells x genes count matrix, and per-spot tissue positions were
+        recorded as coordinates in the full-resolution pixel frame of the capture area,
+        with the vendor's scale factors preserved as the physical scale of that frame.

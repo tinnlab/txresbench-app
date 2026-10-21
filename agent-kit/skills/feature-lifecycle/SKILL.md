@@ -1,0 +1,1477 @@
+---
+name: feature-lifecycle
+description: >
+  Binding 8-phase state machine for ALL feature work in the ziee repo. Enforces
+  plan → plan-audit → explicit test enumeration → up-front decisions → implement
+  + drift-convergence loop → blind multi-angle audit with full diff coverage →
+  fix/re-audit loop → gated test run. Every phase writes machine-checkable
+  artifacts under .lifecycle/<feature>/ (committed on the branch); a deterministic
+  validator gates each phase and a pre-push hook enforces the whole chain. Use
+  whenever you start, resume, or review a feature/bugfix branch of nontrivial size.
+---
+
+# Feature Lifecycle
+
+A phase state machine. **You may not enter phase N+1 until the validator passes
+phase N:**
+
+```bash
+node .claude/lifecycle/lifecycle-check.mjs --phase <N> --repo <worktree-root> --dir <feature-dir>
+# exit 0 → proceed.  non-zero → read the gap list, fix, re-run.
+```
+
+All artifacts live in `.lifecycle/<feature>/` **inside the feature worktree** and
+are **committed on the branch** so they ride the PR and the pre-push hook can
+read them. `<feature>` is a short kebab slug (e.g. `project-search`).
+
+**Push the feature branch to origin as you go — do not leave it local-only.** The
+`.lifecycle/<feature>/` artifacts (plan, decisions, ledger, fix rounds) are real,
+often-large work; a machine move or a lost worktree wipes anything only committed
+locally. Push `feat/<slug>` to origin for durability/portability — it is a WIP
+branch, never merged to main without sign-off. **Push it normally** (`git push -u
+origin feat/<slug>`): the pre-push hook runs `lifecycle-check --wip`, which exists
+so an honest mid-round push PASSES — the phases you have COMPLETED must be green,
+the one in progress is exempt. Re-push after each round so the backup stays current.
+
+**If that push is refused, do NOT reach for `--no-verify`** (see *Never bypass a
+hook yourself*, below). A `--wip` failure means a **completed** phase has a gap,
+which is a real signal about your branch, not hook noise. Fix the gap; if the repo
+is running an epic, check `--dir`/`LIFECYCLE_SCOPE` first, because a mis-scoped
+gate is a tooling defect to report rather than route around.
+
+**PASS `--dir` WHENEVER THE REPO IS RUNNING AN EPIC.** `--dir` may be omitted only
+when `.lifecycle/` holds exactly one directory and that directory holds the phase
+artifacts. Under `epic-lifecycle` the layout is `.lifecycle/<epic>/<item>/`, so the
+sole subdirectory is the EPIC ROOT — it holds `GRAPH.md`/`RECONCILE.md`, not
+`PLAN.md` — and a `--dir`-less run grades the wrong directory. It used to grade it
+silently and report `OK — phases 1..0 complete (0/9)` with exit 0; it now refuses
+and tells you to pass `--dir`. Unknown flags are likewise fatal (`--feature` is not
+a flag), so a typo can no longer be dropped in favour of auto-discovery.
+
+Work in a dedicated worktree off `origin/main`:
+
+```bash
+git worktree add -b feat/<slug> /data/pbya/ziee/tmp/<slug>-wt origin/main
+mkdir -p /data/pbya/ziee/tmp/<slug>-wt/.lifecycle/<feature>
+```
+
+> The validator is **deterministic** — it enforces *structure and completeness*,
+> not judgment. Passing it is necessary, not sufficient; the phases below carry
+> the judgment. Never write filler to satisfy the parser.
+>
+> **Gate weight scales to BLAST RADIUS — check your tier first.** Every run
+> prints `tier=LIGHT` or `tier=HEAVY` and the reason, on the header line. The
+> evidence says this process is not uniformly heavy: across 22 completed features
+> the MEDIAN ran ONE fix round and 17 of 22 ran ≤3. What it has is an unbounded
+> TAIL. But a 3-line auth change and a 900-line generated-registry diff were
+> getting identical treatment, which is the wrong axis — what should buy extra
+> rounds is how far a mistake can REACH, not how many lines moved.
+>
+> **LIGHT** = the diff is under `LIFECYCLE_LIGHT_MAX_LINES` (default 800 changed
+> lines, excluding lifecycle artifacts + generated files) **AND** none of the four
+> blast-radius signals: a **new permission** (an authz mistake is unrecoverable
+> and invisible), a **migration** (a schema mistake is not revertible in place), a
+> **new module** (a seam nothing has exercised yet), or a **public API/schema
+> change** (every downstream consumer inherits the error). Any one of those ⇒
+> HEAVY.
+>
+> LIGHT requires the core artifacts and **ONE audit round**. HEAVY is the full
+> flow. **Every deterministic hardening check (A1–A11, R2-5, FB-7, the invariant ↔
+> acceptance-test binding) runs identically in BOTH tiers** — they are nearly free
+> and they are what catch the silent failures, so there is nothing to save by
+> tiering them.
+>
+> **The phase gates are necessary-not-sufficient; the `## Invariants` + their
+> `[acceptance]` tests are the SUFFICIENT anchor.** A green 9/9 proves the process
+> ran — it does NOT prove the shipped feature still means what the design meant.
+> That gap is real: `declarative-canvas-plots` reframed its design's "UI is data,
+> not code / no processor UI in the workbench" invariant into bespoke widgets and
+> the gates certified it 9/9. The defense is: derive the plan from a NAMED design
+> (phase 1 `## Design source`), lift its non-negotiables VERBATIM as invariants
+> (phase 1 `## Invariants`), verify the plan upholds each (phase 2
+> `DESIGN_FIDELITY.md`), and pin each to an executable `[acceptance]` test that
+> would FAIL if the invariant were violated (phase 3 / phase 8). Everything else
+> is process; the invariants are the promise.
+
+---
+
+## Artifact grammar (the validator parses these EXACT shapes)
+
+Match these line formats precisely or the gate will not pass.
+
+- **Design source** (`PLAN.md`, `## Design source` section) — ≥1 line naming the
+  upstream design doc + the section(s) this plan realizes (e.g. "Realizes
+  `docs/design/foo.md` §10/§11"). The plan is DERIVED from a design; it does not
+  invent intent.
+- **Invariant** (`PLAN.md`, `## Invariants` section) —
+  `- **INV-1**: <non-negotiable lifted VERBATIM from the design>`
+  ≥1 required. Each INV is a design promise the plan may not silently reframe; it
+  is pinned to a fidelity verdict (phase 2) and an executable acceptance test
+  (phase 3). Lift the design's words — do not paraphrase them into your plan's
+  framing (that paraphrase is exactly where intent gets dropped).
+- **Design-fidelity verdict** (`DESIGN_FIDELITY.md`) —
+  `- **INV-1** — fidelity: UPHELD | AT-RISK | DROPPED — <how the plan upholds it>`
+  One line per INV. **A missing verdict OR any `DROPPED` fails phase 2** — a plan
+  that drops a design invariant is reframing, not realizing, the design.
+- **Plan item** — `- **ITEM-3**: <description>`
+- **Descoped plan item** — `- **ITEM-30**: [DESCOPED] <what is being cut this round>`
+  A `[DESCOPED]` item is EXEMPT from needing a covering test, but ONLY if
+  DECISIONS.md records an approved disposition for it (below). Otherwise it fails
+  the **plan-coverage gate** — see Phase 3.
+- **Descope approval** (`DECISIONS.md`) — `- DESCOPED: ITEM-30 — <reason> [approved: <who/when>]`
+  The `[approved: …]` token (or `· approved` / `human-approved`) is the human
+  sign-off. A descope without it is a silent cut and FAILS.
+- **Audit verdict** — `- **ITEM-3** — verdict: PASS — <rationale>`
+  (verdict ∈ `PASS | CONCERN | BLOCKED`; `BLOCKED` fails the gate)
+- **Test** — `- **TEST-2** (tier: integration) [covers: ITEM-1, ITEM-3] file: \`path/to/test.rs\` — asserts: <what it proves>`
+  (tier ∈ `unit | integration | e2e`). **UI work must enumerate ≥1 `tier: e2e`
+  test** — the gate refuses an all-unit plan for a frontend-touching diff.
+- **Acceptance test** (design-invariant proof) —
+  `- **TEST-1** (tier: e2e) [acceptance] [invariant: INV-1] [covers: ITEM-4] file: \`...\` — asserts: a new-processor fixture renders+runs with ZERO src-app changes`.
+  REQUIRED — **every `INV-N` must be pinned by ≥1 `[acceptance]` test tagged
+  `[invariant: INV-N]`** (phase 3), and every `[acceptance]` test must PASS
+  (phase 8). An `[acceptance]` test with no `[invariant: …]`, or an `[invariant:]`
+  tag not on an `[acceptance]` test, fails the gate. This is the executable
+  anchor: a green phase-gate is necessary but NOT sufficient; the invariant ↔
+  acceptance-test binding is what makes "the design's intent still holds"
+  machine-checkable.
+- **Restricted-user e2e** (`[negative-perm]` + `[positive-control]`) — `- **TEST-7** (tier: e2e) [negative-perm] [positive-control] [covers: ITEM-3] file: \`.../foo.spec.ts\` — asserts: a user LACKING foo::use still LOADS the dashboard and can open /settings (positive control), and sees NO Foo UI (nav entry, page, composer, buttons all absent)`.
+  REQUIRED whenever the diff introduces a user-facing permission
+  (`X::use`/`X::read`/`X::manage` defined in a `modules/*/permissions.rs` or
+  granted in a migration). This is the FRONTEND half of the authz gate (A10),
+  paired with the backend deny test (A9). It must be `tier: e2e` — a 403/deny
+  integration test does NOT satisfy it (that's A9).
+  **The `[positive-control]` half is not optional bookkeeping — it is what makes
+  the test mean anything.** "The UI is absent for a restricted user" passes
+  VACUOUSLY when the page never loaded at all: a failed route, a login bounce, a
+  render crash, a blank shell all satisfy "the affordance is not visible". One
+  real spec was confounded exactly this way and **would have passed with the
+  permission gate DELETED**. So the same spec must also assert the subject
+  page/resource LOADS for that same restricted user — that is the control that
+  makes "absent" mean "gated" instead of "never rendered". The gate accepts the
+  explicit `[positive-control]` tag, or a plain affirmative claim in the
+  `asserts:` prose ("…can open the dashboard…", "…the page still loads…", "…200…").
+- **Decision** — `### DEC-1: <question>` then a `**Resolution:** <answer>` line
+  and a `**Basis:** <convention|user|codebase>` line.
+  **Numbering must be CONTIGUOUS from DEC-1, with no holes.** Any heading depth
+  (`##`, `###`, `####`) counts, with or without a trailing colon — real files mix
+  depths because owners append at different times. Re-using an id for a later
+  correction/amendment/withdrawal record (`## DEC-11 CORRECTION — …`) is fine and
+  expected; only *holes* are rejected. A `DEC-N` that appears only in prose, a code
+  fence, or a blockquote is a citation, not a record, and does not fill a hole.
+  A decision that was approved and dispatched to an implementer but never written
+  here is unrecoverable once the conversation carrying it ends — that happened, at
+  DEC-25 with DEC-24 the highest recorded, and the withdrawing agent had to
+  reconstruct it. If a decision was withdrawn or superseded, **still record it**, in
+  withdrawn form with the reasoning; do not renumber over the hole. Non-numeric ids
+  (`DEC-5b`, `DEC-A1`) are exempt from the sequence.
+- **Drift entry** — `- **DRIFT-1.2** — verdict: plan-wins — <text>`
+  (verdict ∈ `plan-wins | impl-wins | none | resolved`); each DRIFT-*.md needs a
+  `**Unresolved drifts:** <N>` summary line
+- **Ledger row** (`LEDGER.jsonl`, one JSON/line) —
+  `{"angle":"correctness","file":"src/...","line":42,"severity":"high","corroborated_by":2,"round":3,"finding":"...","triage":"confirmed","resolution_state":"open"}`
+  **`triage` and `resolution_state` are two different questions.** `triage`
+  (`confirmed | rejected`) is "is this a REAL finding?" — settled once at audit time,
+  never revisited. `resolution_state` (`open | fixed | superseded | obsolete | wontfix`,
+  default `open`) is "is it STILL TRUE?" — and it must be written back when the
+  finding is dealt with. `triage: "confirmed"` was long spelled `status`, which read
+  as "still open" and was never updated, so every open-set derived from a ledger
+  silently over-counted. `status` is still accepted as a legacy spelling of `triage`
+  and an absent `resolution_state` still means `open`, so existing ledgers parse unchanged.
+  (The field is `resolution_state`, not `resolution` — `resolution` is already used in
+  real ledgers as free-text prose and is left alone.)
+  **`fixed` requires `fixed_in` and `superseded` requires `superseded_by`** (a sha,
+  `DEC-N`, or finding id). Superseded is the dangerous state: such a finding was
+  correct when filed and was inverted by a later change, so it still reads as true —
+  without the pointer, the next implementer acts on it and reverts the fix that
+  superseded it. **Before working any finding, verify it against current code**: on
+  one real stage's tail, 6 of ~20 were already fixed (including the only
+  high-severity item) and one claiming five untested branches had six of them
+  acquire tests since filing.
+  `corroborated_by` = how many angles independently reported it (1 or 2). It
+  decides what becomes WORK (≥2, or oracle-confirmed, or severity
+  security/data-loss/authz) **and** it is the input to the phase-7 T1 estimate —
+  omit it and the loop falls back to the slower decay rule. `round` + `file` are
+  what let the guard-substitution tripwire attribute a round's findings.
+  There is **no `AUDIT_COVERAGE.tsv`** — it was removed; the ledger is the record.
+- **Fix round** (`FIX_ROUND-1.md`) — a `**New confirmed findings:** <N>` line
+- **Test result** (`TEST_RESULTS.md`) — `- **TEST-2**: PASS`
+- **Self-revert proof** (`TEST_RESULTS.md`, REQUIRED once the diff touches
+  anything but prose) — a `## SELF-REVERT PROOF` section with three lines:
+  ```
+  ## SELF-REVERT PROOF
+  - **commit**: <sha of THIS branch's fix commit that was reverted>
+  - **reddened**: TEST-3 FAILED        (or a node: tests/x.py::test_y FAILED)
+  - **restored**: `git diff --quiet HEAD` clean
+  ```
+  The commit must resolve, be an ancestor of `HEAD`, and **not** already be in
+  the base ref — it has to be work this branch did.
+- **Frontend gate line** (`TEST_RESULTS.md`, REQUIRED once the diff touches a UI
+  workspace) — `npm run check (ui): PASS` — one line per touched workspace; the
+  label is `ui` (→ `src-app/ui`) or `desktop/ui` (→ `src-app/desktop/ui`)
+- **Human-feedback entry** (`HUMAN_FEEDBACK.md`) —
+  `- **FB-1** [status: resolved] — <verbatim feedback> → <resolution> [generalizable: yes — <rule>]`
+  (`status` ∈ `open | resolved | wontfix`; any `open` fails phase 9)
+
+---
+
+## Phase 1 — PLAN.md
+
+**Preflight FIRST** — before writing a line of the plan, run the environment
+gate so a setup problem surfaces now, not three phases deep into a red build:
+
+```bash
+bash .claude/lifecycle/preflight.sh --repo <worktree-root>
+# exit 0 → env ready. non-zero → fix the printed problem (hub-seed, build-DB
+# isolation, node_modules, pgvector submodule, stale Vite) before proceeding.
+```
+
+(This is the same gate on Linux, macOS, and Windows git-bash — it avoids
+GNU-only tool flags and guards Unix-only tools.)
+
+Write `.lifecycle/<feature>/PLAN.md` with these required sections:
+
+- `## Design source` — name the upstream design doc + the exact section(s) this
+  plan realizes (≥1 line). **The plan is DERIVED from a named design; it does not
+  invent its own intent.** A plan with no design source can silently reframe the
+  design into bespoke work and still pass every structural gate — this is the
+  `declarative-canvas-plots` failure (the §10 "UI-is-data-not-code" design was
+  reframed into bespoke widgets and the gates certified it 9/9). If there is
+  genuinely no prior design doc, WRITE one first (research/design pass) and name
+  it — never plan against thin air.
+- `## Invariants` — lift the design's **non-negotiables VERBATIM** as
+  `- **INV-N**: <invariant>` lines (≥1). These are the promises the plan may not
+  drop or paraphrase-away. Each INV is checked two ways downstream: a fidelity
+  verdict in phase 2 (`DESIGN_FIDELITY.md`) and an executable `[acceptance]` test
+  in phase 3. Lift the design's WORDS — a paraphrase into your plan's framing is
+  exactly where intent leaks out (FB-15/FB-16).
+- `## Items` — every unit of work as `- **ITEM-N**: <desc>`. IDs are the spine of
+  the whole lifecycle: audits, tests, drift, and results all reference them.
+- `## Files to touch` — the concrete files you expect to add/edit.
+- `## Patterns to follow` — for each area, name the **closest existing module**
+  to mirror (file structure, naming, idioms). This is a hard project rule
+  ([[feedback_match_existing_patterns]]).
+
+**UI-surface plan checklist** (harvested from live human review — answer these
+IN the plan for EVERY page/drawer/card/panel the feature adds; a surface that
+skips them ships as a defect):
+
+- **Precedent** — which existing sibling surface is this the twin of (the
+  Projects card ⇄ a new entity card; a settings list ⇄ a new settings list)?
+  Mirror its structure / typography / tokens / container layout FIRST, then add
+  feature-specific elements. Divergence from the sibling is a bug, not a variant.
+- **Scale / cardinality** — what is the MAX size of every list/collection this
+  surface renders? What bounds the initial load? Never "fetch all + render all"
+  for an unbounded/high-cap set — specify server-side paging or virtualization,
+  a bounded first page, and a "Showing N of M" affordance. Pick the pagination
+  IDIOM by surface type: a settings/detail list uses the numbered `ListPagination`
+  (default page size 10); a top-level nav feed uses Load-More.
+- **Device size / responsive** — what is the behavior at mobile (~390px), tablet,
+  and desktop? What stacks / reflows / hides / scrolls, and which sibling's
+  breakpoint behavior does it mirror? A surface that only works at desktop width
+  is a defect. Its gallery coverage MUST include a narrow-viewport (390px) state
+  (enforced at Phase 8 / `gate:ui`), not only the desktop state.
+- **Populated-render review** — the visual DoD is NOT met until a POPULATED
+  (seeded, representative-data) render of every list/card surface has been through
+  the design-critic vision pass, at each viewport. An empty/loading state hides
+  real-data layout bugs (a control stranded far from its title once the card has
+  content, text overflow, a count pushing a button off-screen). Every gallery
+  surface needs a loaded-with-data state, not just empty/error — review THAT.
+- **User-visible progress** — any surface that ingests or produces work (upload,
+  index, fetch) must show the live status the user expects (%, thumbnails, index
+  state, itemized errors), answering "what does the user want to SEE and DO
+  here?" — a silent boolean spinner is a defect.
+- **Input economy** — never make the user type what the system can supply or pick.
+  Auto-detect client-known values (timezone via `Intl…`, locale) and show them
+  read-only, never as an input. Collect a structured value via a form generated
+  from the target's declared schema (one typed field per input), NEVER a raw-JSON
+  textarea (last-resort fallback only). Offer multi-select where a field naturally
+  takes multiple values (e.g. days-of-week), not single-select. (Entity references
+  → pickers is already covered above.)
+- **JTBD design (mandatory deliverable)** — write an explicit **jobs-to-be-done /
+  user-experience design** stating what a real human wants to DO with this feature,
+  enumerated across EVERY surface it exposes (list, detail, drawer/form,
+  notifications, thread/conversation, empty/error/loading, mobile). Reconcile each
+  surface against it before implementing. A code-mechanism description is NOT a UX
+  design. This feeds the checklist above; it is what caught a feature shipping a
+  bare `timestamp — status` row where the user actually wanted an evolving,
+  followable result stream.
+- **Multi-instance / workspace surfaces** — if the feature lets the same view
+  exist in more than one place at once (split panes, tabs, side-by-side, multiple
+  windows), design the ENTIRE interaction model up front: every open / navigate /
+  persist / edge case (open an EXISTING item next to another — not only newly
+  created ones; what a sidebar click does when the item is/ isn't already shown;
+  leaving and returning; per-instance state persistence). The happy path alone is
+  a design hole. Build it on the meta-framework SEAMS — a per-instance store
+  (`defineLocalStore` + a React context/`useX()` hook), extensions bound through a
+  per-instance runtime, UI composed via slots — NEVER a monolithic god-component
+  that reaches across modules. A "context-aware bridge" that only covers reactive
+  READS does NOT isolate a multi-instance surface: actions, `.$`/getState,
+  subscribe must bind to the INSTANCE, or state silently leaks to the focused one.
+  **Per-window layout state must NOT be per-user `localStorage`** — that is shared
+  across ALL tabs, so "restore my layout" replays into every window. Scope
+  per-window state to the tab (`sessionStorage`); and note a `window.open`/
+  link-opened tab receives a COPY of the opener's `sessionStorage`, so per-tab
+  storage alone doesn't isolate a pop-out — gate restore to a real reload
+  (`navigation.type === 'reload'`) to defeat the copy.
+- **URL-as-view-into-focus** — when a URL reflects some focused entity, EVERY way
+  of changing that focus (sidebar click, focus-click, programmatic open) must
+  reconcile the URL; otherwise any URL-consuming action (open-in-new-tab,
+  deep-link copy, back/forward) silently operates on the wrong entity. A
+  bidirectional "X always tracks Y" invariant asserted in a comment must be
+  verified in BOTH directions — the common bug is wiring only the happy-path
+  direction and leaving the others stale.
+- **Platform-provided affordances** — do not ship in-app chrome the platform
+  itself already provides (a web browser's native "open in new tab"); gate such
+  redundant affordances by platform (runtime `__TAURI__` check) via a pure
+  predicate, and challenge every affordance's value in EACH context it renders in.
+
+**P3 — conflict-surface scoping (BASE.md).** Also write a short
+`.lifecycle/<feature>/BASE.md` recording what CURRENT main touches that this
+branch will also touch: the highest existing migration number
+(`ls src-app/server/migrations | tail -1`), any files/modules you expect to
+edit that main is actively changing, and whether an `openapi.json` regen is
+implied. This makes a migration-number or file collision visible at plan time
+rather than as a build.rs failure after a long merge — and it is exactly what
+the merge-gate re-checks against real main at merge time.
+
+Gate: `--phase 1`.
+
+## Phase 2 — PLAN_AUDIT.md
+
+**`DESIGN_FIDELITY.md` is no longer required, and `PLAN_AUDIT.md` is no longer a
+separate file.** Across 22 audited features the fidelity artifact recorded
+**84 UPHELD / 0 DROPPED** — it never once fired — and where it mattered it was
+*wrong*: one feature self-certified all six invariants UPHELD while the blind
+design-conformance auditor found two violated in reachable states. An author's own
+verdict on whether they honoured the design is the one verdict that carries no
+information.
+
+The invariants themselves still matter, and are now proven rather than attested:
+declared in PLAN.md (phase 1) → pinned by an `[acceptance]` test per invariant
+(phase 3) → judged **blind** by the `design-conformance` angle (phase 6) → those
+tests recorded PASS (phase 8). Write the fidelity file if it helps you think; a
+`DROPPED` verdict in it is still refused. Its absence is not a gap.
+
+Likewise the plan-audit **activity** stays (it produced 120 code-verified CONCERNs
+and several were substantive) but the separate document is gone — it was cited by
+zero other artifacts. Put the `- **ITEM-N** — verdict: PASS|CONCERN|BLOCKED — <what
+you verified in the codebase>` lines in PLAN.md. A `BLOCKED` verdict still blocks.
+
+Audit the plan *against the codebase* before writing code. Required dimension
+sections (`## Breakage risk`, `## Pattern conformance`, `## Migration collisions`,
+`## OpenAPI regen`) plus a per-item verdict line for **every** ITEM:
+
+```
+- **ITEM-1** — verdict: PASS — mirrors project/repository.rs; no new migration
+- **ITEM-2** — verdict: CONCERN — needs `just openapi-regen` (new response field)
+```
+
+Check: does any item break an existing caller? Does it conform to the reference
+module? Do migration numbers collide with `ls migrations/`? Does a type change
+require `just openapi-regen` in BOTH ui and desktop? Any `BLOCKED` verdict fails
+the gate — resolve it (amend the plan) first.
+
+**Design-fidelity gate — `DESIGN_FIDELITY.md` (REQUIRED).** Also write, alongside
+the plan audit, one fidelity verdict per invariant:
+
+```
+- **INV-1** — fidelity: UPHELD — the plan interprets the declared spec as data at
+  load; adding a processor needs zero src-app edits (ITEM-4 registers via the seam)
+- **INV-2** — fidelity: AT-RISK — ITEM-9 introduces a bespoke widget; narrow it to
+  the declared-control vocabulary before phase 5
+```
+
+`fidelity ∈ UPHELD | AT-RISK | DROPPED`. **The gate fails phase 2 if any INV lacks
+a fidelity line, OR any verdict is `DROPPED`.** A `DROPPED` invariant means the plan
+has reframed the design — you may NOT proceed by dropping it. Re-scope the plan to
+uphold it; or, if the invariant itself is genuinely wrong, renegotiate it with the
+owner and amend BOTH the design doc and PLAN's `## Invariants` (never delete an
+inconvenient invariant to make the gate pass). `AT-RISK` is allowed to pass phase 2
+but is a standing debt the phase-6 audit and the acceptance test must resolve.
+
+Gate: `--phase 2`.
+
+## Phase 3 — TESTS.md
+
+Enumerate **every** test up front. The gate enforces a bipartite mapping:
+**every ITEM is covered by ≥1 TEST**, and every TEST names a valid ITEM, a tier,
+a target file, and what it asserts.
+
+**Design-invariant acceptance gate (MANDATORY).** On top of item coverage, **every
+`INV-N` from PLAN's `## Invariants` must be pinned by ≥1 `[acceptance]` test tagged
+`[invariant: INV-N]`**, and that test must assert the invariant DIRECTLY — the
+design's promise, not merely whatever the code does. A test written against the
+implementation cannot fail on "implementation ≠ design"; it is a tautology (FB-16).
+So an acceptance test for "a new processor renders+runs with ZERO src-app changes"
+must add a NEW-processor fixture and drive it end-to-end — not assert that the one
+processor you happened to build works. The gate fails phase 3 if any `INV-N` has no
+covering `[acceptance]` test, if an `[acceptance]` test names no invariant, or if an
+`[invariant:]` tag sits on a non-`[acceptance]` line.
+
+**Plan-coverage gate (FB-7) — no silent scope-dropping.** Every PLAN ITEM must be
+either (a) covered by an enumerated TEST (implemented), or (b) explicitly
+`[DESCOPED]` in PLAN.md **with an approved `DESCOPED: ITEM-N … [approved: …]`
+disposition in DECISIONS.md**. An item that is neither — quietly cut so the tree
+goes green — FAILS the gate. This exists because a feature once shipped "green"
+with ~16 planned, user-facing sub-features silently absent; descoping is now a
+recorded, human-approved DECISION, never an omission. Be comprehensive — mirror the codebase's
+existing tier pattern (unit `#[cfg(test)]` / integration `tests/<module>/` / e2e
+`ui/tests/e2e/`) ([[feedback_comprehensive_tests]]). No cosmetic tests — mock
+only the external boundary ([[feedback_no_cosmetic_tests]]).
+
+Enumerate tests per tier for each ITEM. A backend item usually gets unit +
+integration; **a user-visible UI item MUST also get an `e2e` spec** for the flow:
+
+```
+- **TEST-4** (tier: unit)        [covers: ITEM-3] file: `src-app/ui/src/modules/foo/Foo.store.ts` — asserts: store reducer maps the response
+- **TEST-5** (tier: e2e)         [covers: ITEM-3] file: `src-app/ui/tests/e2e/foo/foo.spec.ts` — asserts: user opens Foo, submits, sees the result
+```
+
+The gate computes touched areas from the diff (or, before any code exists,
+PLAN.md's *Files to touch*). If a **frontend** path (`src-app/ui/**` or
+`src-app/desktop/ui/**`, ignoring the mechanically-generated
+`openapi.json`/`api-client/types.ts`) is touched and **no `tier: e2e` test is
+enumerated, the gate fails** — an all-unit plan for UI work is refused. Budget
+the e2e specs here; phase 8 runs them.
+
+**Permission-gating rule (A10) — MANDATORY when your feature adds a
+permission.** If the feature introduces a user-facing permission (a
+`X::use`/`X::read`/`X::manage` defined in a `modules/*/permissions.rs` OR
+granted in a migration), you MUST verify + test that **unpermitted users see
+NOTHING** at every layer, and enumerate the **restricted-user e2e** that proves
+the UI is ABSENT — not just 403-on-use. Walk all four gating layers from
+`.claude/PERMISSION_GATING.md` — **slot → route → `<Can>` → `usePermission`** —
+and assert, in a spec that logs in as a user LACKING the permission, that every
+surface (sidebar/nav entry, route/page, composer, action buttons, menu items)
+is absent. Tag it `[negative-perm]` at `tier: e2e`. The happy-path e2e (which
+runs WITH the permission) can never catch an ungated surface; this spec is the
+only thing that forces the negative case. The gate fails phase 3 if a permission
+is introduced but no `(tier: e2e) [negative-perm]` spec is enumerated. This is
+the FRONTEND half of the authz proof — paired with the backend deny test
+(A9, phase 8).
+
+> **Honest limit of the gate.** A10 enforces only that ONE restricted-user e2e
+> *exists and passes* — it CANNOT verify that spec covers EVERY gated surface (a
+> test could assert the nav entry is hidden yet miss an ungated composer). That
+> is why the rule above is to walk ALL FOUR layers inside the spec; the gate is
+> a floor, not a ceiling. Under-covering here is exactly how live2/live3/live4
+> shipped ungated surfaces past a green 8/8 lifecycle.
+
+Gate: `--phase 3` (fails loudly if any ITEM is unmapped, any `INV-N` has no
+`[acceptance]` test, a UI diff has no e2e test, or a new permission has no
+restricted-user `[negative-perm]` e2e).
+
+## Phase 4 — DECISIONS.md
+
+Identify **every** human/product input the whole implementation will need, UP
+FRONT, and resolve each — so implementation then runs nonstop. Prefer resolving
+by existing convention and record the rationale; batch anything genuinely
+ambiguous into ONE `AskUserQuestion` at plan time. **Zero** `TBD`/`TODO`/`ASK`/
+`???` markers may remain (the gate greps for them).
+
+**Enumerate the full option space, and escalate genuine product choices as
+pickers.** Exhaustively list every decision the feature requires (surfaces,
+defaults, behaviors, tunables). Resolve by convention ONLY those with an
+unambiguous codebase precedent. For any decision that is a genuine product/human
+choice about WHAT to build or modify, present it as an explicit `AskUserQuestion`
+**option picker** for the human to choose — never silently pick a default and
+proceed, and never a bare "I recommend X, proceeding." Give the human the options.
+
+```
+### DEC-1: How is the search matched — prefix or substring?
+**Resolution:** case-insensitive substring (ILIKE '%q%')
+**Basis:** convention — matches conversations title filter in chat/repository.rs
+```
+
+**Configurable-settings rule (mandatory DEC).** Any operational tunable the
+feature introduces — resource limits (memory/CPU/timeout/size caps), retention
+periods, rate/quota limits, concurrency caps, feature enable/disable toggles,
+model/provider selection, thresholds — MUST get an explicit DEC answering
+**"fixed constant, or admin-configurable settings row?"** Default to
+**admin-configurable** following the existing singleton-settings pattern
+(`code_sandbox_settings` / `session_settings` / `memory_admin_settings`: a
+settings table + migration with sane defaults, read-at-use with cache
+invalidation, REST GET/PUT gated by a `<feature>::settings::{read,manage}`
+permission, a sync entity, an admin settings card mirroring the closest
+existing one, and bounds validation so an admin can't footgun the server).
+Choose a fixed constant ONLY with an explicit rationale (e.g. a security
+boundary that must not be operator-weakened) — and even then, structure it as a
+`Limits`-style struct (not inline magic numbers) so it can be promoted to
+configurable later without a rewrite. Never ship an operational tunable as a
+bare hardcoded constant by omission. Enumerate the settings CRUD + gate + sync +
+validation in TESTS.md when configurable.
+
+Gate: `--phase 4`.
+
+## Phase 5 — Implement + drift loop
+
+**Two mandatory walks per item, before/while implementing it** (record findings
+in an `INFRA_INTEGRATION.md` artifact): (1) a **user-experience walk** — how does a
+real user actually encounter, trigger, and live with this item end-to-end? (2) an
+**infrastructure-integration walk** — enumerate EVERY existing subsystem the item
+touches (chat pipeline, MCP tool-call + approval flow, permissions, notifications,
+sync, streaming, workflow runner, settings, …) and, for each, check whether it has
+specific behaviors/constraints that must be handled, not assumed. This is what
+surfaced the unattended-tool-approval gap that drove a safe-default policy rather
+than a silent security hole. (3) an **entity-lifecycle walk** — enumerate every
+entity the surface holds (a conversation in a pane, an attached file, a selected
+item) and, for EACH, prove add / remove / **delete** / mutate / access-loss is
+handled from BOTH paths: the LOCAL mutation and the SYNC/SSE path (they are
+separate handlers — the originating device's own echo is suppressed, so a
+`sync:X` handler that only covers the cross-device case misses the local delete).
+"What happens when it's deleted / access is revoked?" must be ANSWERED BY RUNNING
+it (delete it, watch the surface), never inferred from a handler.
+
+> **Entity-lifecycle audit (mandatory sub-check of the infra walk).** For EVERY
+> entity a surface holds, displays, or caches (conversation, pane, file, message,
+> membership, …), enumerate what happens on **ADD / REMOVE / MUTATE / access-loss**
+> — and prove each is handled from **BOTH** origins: the **local same-session**
+> mutation path AND the **cross-device / sync (SSE)** path. These are DIFFERENT
+> code (the originating device's sync echo is self-suppressed), so a handler that
+> covers `sync:X delete` does NOT cover the user deleting it themselves, and
+> vice-versa. Answer each "what happens when it's removed?" by RUNNING it (remove
+> it, watch the surface) — not by pointing at a sync handler. This is exactly the
+> gap that shipped a split pane going stale on a local delete (FB-23): the
+> cross-device path was wired, the local one wasn't.
+
+**Parallelize with sub-agents when items are independent.** Implementation is the
+one phase you can fan out: spawn sub-agents to implement multiple ITEMs at once
+where they are genuinely independent. Rules:
+
+- **Only parallelize INDEPENDENT items** — ones that touch **disjoint files/modules**
+  and have **no ordering dependency** on each other (item B doesn't need item A's
+  code). Partition the ITEMs into independent groups; items that share a file or
+  depend on another stay sequential (or run in dependency order). A quick way to
+  find the groups: from PLAN.md's *Files to touch*, cluster items by non-overlapping
+  file sets.
+- **Isolate writers.** If two sub-agents would edit the same file, they conflict —
+  either keep those in one agent, or give each its own `isolation: "worktree"` and
+  merge after. When items are cleanly file-disjoint, no isolation is needed.
+- **Give each sub-agent the same discipline** — its ITEM(s), the relevant
+  *Patterns to follow*, and the mandatory per-item walks (UX / infra-integration /
+  entity-lifecycle). It returns exactly what it changed (files + a summary).
+- **The PARENT owns the fan-in, NOT the sub-agents:** regenerate the derived files
+  ONCE after all agents finish (openapi/types.ts/testids/state-matrix — never
+  per-agent, they'd clobber each other), then run the **drift loop over the combined
+  result** yourself, and own all of Phases 6–8. Parallelism speeds the *writing*;
+  it does not parallelize or skip the audit, drift-convergence, or gates.
+- Don't force it — for a small or tightly-coupled feature, sequential is simpler and
+  parallel fan-out isn't worth the coordination. Use it when there's real
+  independent breadth (e.g. N backend modules, or backend + several disjoint UI
+  surfaces).
+
+**Implementers read the sources that govern their file.** When delegating
+implementation, a sub-agent that touches a file governed by a cited design/research
+doc — one named in `## Design source`, `## Required reading`, or a per-ITEM `read:`
+pointer — MUST be handed that doc as REQUIRED reading in its brief, and must follow
+it. The design/research is additionally enforced by the Phase-3 `[acceptance]`
+tests, but the doc carries the correct APPROACH plus the gotchas the one-line
+invariants only summarize; a green test is not a substitute for having read it. An
+implementer delegated WITHOUT its governing doc is a process error.
+
+Implement all items (only `cargo check` / `tsc` mid-flight; don't run the full
+suites yet — [[feedback_finish_all_before_testing]]). Then audit
+**implementation vs plan** and write `DRIFT-1.md`. For each divergence:
+
+- `plan-wins` → the impl is wrong; re-implement that part to match the plan.
+- `impl-wins` → the plan was wrong; **amend PLAN.md** (and re-run `--phase 1..3`)
+  with the rationale captured in the drift entry.
+- `none`/`resolved` → reconciled.
+
+End each round with `**Unresolved drifts:** <N>`. Repeat (`DRIFT-2.md`, …) until a
+round records **0** unresolved drifts.
+
+**DRIFT is authored DURING phase 5, never backfilled (FB-18).** The drift file's
+whole job is catching implementation-vs-plan/design divergence AS each item lands
+— so write it live, item by item, while the code is fresh. A `DRIFT-*.md`
+reconstructed later at phase 9 just to satisfy the gate is a false artifact: the
+one mechanism designed to catch drift never ran when it could have. The gate cannot
+tell a live drift file from a backfilled one (its git history would; the gate does
+not inspect that today) — so this is a **binding discipline**, not a machine check.
+Reconcile every item against BOTH the plan AND the named design's invariants here;
+a divergence from an invariant is a `plan-wins` re-implement, never a quiet accept.
+
+Gate: `--phase 5` (checks the final round is 0).
+
+## Phase 6 — Blind multi-angle audit
+
+**Two angles, not ten — and they must differ in KIND.** The old rule (≥10 distinct
+angles, every hunk covered by ≥3) has no empirical support and is now removed:
+
+- Porter/Siy/Votta (*IEEE TSE* 1997), **88 randomized industrial inspections**:
+  defect yield saturates **at two** reviewers. One is worse than two; four is no
+  better than two — bigger teams bought effort and elapsed time, not defects.
+- "Perspective-based reading" *is* the ≥3-angles idea, and 25 years of replication
+  failed to confirm it: 3 of 8 studies significant, **all three positives from the
+  originating research network**; every arms-length replication null, including the
+  two largest (N=223, N=177). A replication by the original authors got
+  perspective **p = .655**.
+- Locally: across 22 audited features the coverage TSV (435 generated rows) caught
+  **zero** defects, while four angles carried **74%** of confirmed HIGHs.
+
+Run **two** genuinely different angles per round, at least one from the core
+roster — `correctness` · `tests-quality` · `design-conformance` · `security` —
+plus a conditional angle when the change warrants it (`authz` for a new
+permission, `db` for a migration, `api-contract` for a schema change,
+`concurrency-resource` for async/subprocess/cache, `ux-a11y`/`responsive-fidelity`
+for UI, `perf` for list/stream). Two rewordings of the same reading are one angle.
+
+**Corroboration, not union.** A finding becomes WORK only when **corroborated by
+≥2 angles**, **oracle-confirmed** (a compiler/type/test failure reproduces it), or
+of severity `security` / `data-loss` / `authz`. Record `corroborated_by`,
+`oracle_confirmed` and `severity` per ledger row. Everything else stays in the
+ledger as a triage candidate — it does not enter the fix loop and does not keep it
+alive. Accumulating every angle's raw output is what made the loop unbounded.
+
+**`AUDIT_COVERAGE.tsv` is gone.** It was generated from a file-group map, proved
+only that the audit named the files, and caught nothing. `LEDGER.jsonl` is the
+record.
+
+Spawn **fresh/blind** subagents (diff-only context: `git diff main...HEAD`) — do
+NOT hand them your reasoning. The roster the two angles are SELECTED from (a
+roster to choose from, not a count to satisfy):
+
+`correctness · security · error-handling · concurrency · perms/authz ·
+api-contract · state-management · stale-snapshot · a11y · patterns-conformance ·
+tests-quality · perf · i18n/copy · modularity · extensibility · maintainability ·
+api-friendliness · design-conformance`
+
+**`design-conformance` is a REQUIRED angle (FB-19), and it — plus any explicit
+conformance pass — audits against the DESIGN + its `## Invariants`, NOT against
+PLAN.md.** PLAN.md is downstream of the design and can itself have reframed the
+intent; auditing the code against a reframed plan certifies the reframing. So the
+design-conformance reviewer reads the named design doc and each `INV-N`, then for
+every hunk/behavior asks "does this uphold the invariant it implements?" — a
+different question from "is this code correct?" (which is why the phase-6 audit that
+ran a correctness/security lens missed the conformance divergences). Flag any
+behavior that satisfies the plan but violates a design invariant, and any INV whose
+`[acceptance]` test is hollow (passes without actually exercising the invariant).
+
+**Code-quality angles** (weigh heavily for framework/SDK/shared code — these are
+the qualities a reusable platform lives or dies on):
+- **modularity** — is the change a self-contained unit with a narrow, explicit
+  boundary, or does it reach across modules and couple things that should be
+  independent? A new capability should plug into a seam (module/registry/trait),
+  not thread state through unrelated code. Flag hidden cross-module coupling,
+  god-objects, and a domain-specific crate leaking into a generic one.
+- **extensibility** — can the next feature / the next app extend this WITHOUT
+  editing it? Prefer an open seam (a trait, a registered provider, a slot) over a
+  closed `match`/enum/if-chain that every addition must edit. Flag a closed switch
+  where a new case will force a central edit (the `SyncEntity`-closed-enum class).
+- **maintainability** — will someone six months out understand and safely change
+  this? Flag magic numbers without a named constant/rationale, duplicated logic
+  that should be one function, a public surface with no doc-comment on WHY,
+  and anything that can only be understood by reading the whole call graph.
+- **api-friendliness** — is the API (REST endpoint, function signature, store
+  action, MCP tool) obvious and hard to misuse? Good defaults, names that say what
+  they do, errors that tell the caller how to fix them, no required-arg soup, no
+  "call these three things in the right order or it breaks." Distinct from
+  api-contract (which checks the contract is CORRECT); this checks it's ERGONOMIC.
+- **stale-snapshot state** (FB-8) — state captured at time T and consulted at time
+  T+n is a defect generator whenever the user (or another writer) can change the
+  underlying thing in between. Prefer reading the live source at the moment of use.
+  If something genuinely must be remembered, capture it at the moment it is known
+  to be true, and keep whatever *pairs* with it captured at that same moment —
+  decoupling a remembered value from the thing it describes is what turns a stale
+  read into corruption.
+  **Instance:** voice dictation remembered the caret at record-start to decide where
+  to write, so a decode landing after the user moved the caret wrote to the old
+  position — and once the restore payload was captured separately from the span it
+  restored, cancelling spliced seconds-old text over what the user had since typed.
+  Five successive rounds each added a staleness guard; none could work, because for
+  a bare caret the remembered text is `''` and `value.slice(n,n) === ''` for ANY
+  in-range `n` — the guard was **vacuous, not merely weak**. It ended only when the
+  snapshot was deleted and the one genuinely-remembered value moved to first-write
+  time, where it pairs with its span by construction.
+  **Diff tells:** a field captured in `init`/`start`/`mount` and read in a later
+  `tick`/`stop`/`cancel`; two fields describing the same thing captured at different
+  moments (an offset and the text at it; an id and its resolved object); a staleness
+  guard — ask what it compares when the snapshot is empty or zero-length; and the
+  behavioural tell, **two consecutive fix rounds landing in the same function**.
+
+**UI surfaces additionally require these angles** (harvested from human review —
+each traces to real rework that shipped despite a green gate):
+
+- **precedent-fidelity** — does each new surface mirror its closest sibling's
+  structure/typography/tokens, or did it diverge (a bold heading where the sibling
+  uses `!font-normal !text-sm`, a stray leading icon)? Match the pagination IDIOM
+  of the same KIND of page (settings numbered vs feed Load-More), not just "some
+  pagination exists."
+- **affordance-parity / reuse** — did it REUSE the existing component (`FileCard`,
+  `ProjectFilesManagePanel`, `ListPagination`) via its slots, or hand-roll a
+  parallel implementation? A reimplementation of something that already exists is
+  a finding. **Before building a component that has a single-context sibling** (a
+  header, toolbar, drop-zone), OPEN the sibling and understand WHY each non-obvious
+  value exists (a `50px` height, a `paddingLeft: 118`, a `z-10`, a magic offset —
+  they almost always encode a real constraint: macOS traffic-lights, a fixed
+  overlay's z, a WCAG tap target). Hand-rolling a parallel version silently drops
+  those constraints and ships regressions invisible without running the real
+  chrome. Reuse the sibling or share its logic via a hook; never re-derive.
+- **new-rendering-context affordance audit** — when the change introduces a NEW
+  context the same UI now renders in (a pop-out window, a split pane, a mobile
+  tab), audit EVERY pre-existing affordance rendered there for whether its behavior
+  still makes sense. A navigate/global-state action that was correct in the single
+  context routinely breaks the new one (a back button collapses the whole split; a
+  window-wide navigate escapes a chat-only pop-out). Do this at implementation
+  time, not after the human points it out.
+- **scale-performance** — does every list bound its initial load (paging/
+  virtualization) instead of fetch-all/render-all, and show "Showing N of M"? A
+  list that renders its entire potentially-large set fails.
+- **responsive-fidelity** — verify the surface at ~390px / tablet / desktop: no
+  horizontal page scroll, no clipped/overlapping content, adequate tap targets,
+  and breakpoint behavior matching its sibling. Desktop-only = defect.
+- **design-in-context** — does the component fit its container and siblings
+  (counts in the container title, primary actions in `extra`/top-right, no
+  duplicated headers), or was it designed in isolation and now fights its parent?
+- **reactive-read-in-loop (Rules of Hooks)** — a store read INSIDE a `.map()`, a
+  loop, or a conditional render MUST use the non-subscribing `.$` snapshot, never
+  the reactive proxy (which is a hook) — else the hook count varies per render and
+  React crashes. Pure unit tests can't catch this; only a live render / an e2e
+  that actually shows the component does. Flag any reactive proxy access under a
+  `.map()`/conditional.
+- **high-frequency write to reactively-read state** — a store field read reactively
+  by a large subtree must NOT be written on every `pointermove` of a drag/resize
+  (the whole subtree re-renders per frame). Write to the DOM imperatively during
+  the gesture and commit to the store ONCE on release. Flag any per-frame/
+  per-pointermove store write of a field a big tree subscribes to.
+- **plan-coverage / scope-drift** — reconcile EVERY PLAN ITEM against shipped code
+  with file:line evidence. An item with no implementation and no approved
+  `[DESCOPED]` disposition is a finding (this is the human-judgment complement to
+  the deterministic FB-7 gate — the gate catches missing dispositions; the audit
+  catches an item "covered" on paper but absent in code).
+- **wired-and-behaving (FB-17)** — for EVERY deliverable, verify it is actually
+  INVOKED on the real runtime path: grep for a production caller AND drive the live
+  path. "Exists and is unit-tested" is NOT "used" — a unit test of a helper proves
+  the helper works, never that anything calls it. Dead-but-tested code
+  (a validator never called, a declared block never read, an enforcement never
+  reached) is an unfinished feature, not a done one (§15), and it is the same
+  false-pass family as the original custom-regex incident. Flag any invariant whose
+  mechanism is present + tested but not on the runtime path.
+- **test-reality / paper-9/9 (do this every round)** — FB-7 only checks a TEST
+  *line* exists; a hollow test that passes trivially still satisfies it, so a
+  feature can be "covered on paper" yet never built. For EACH TEST, OPEN the spec
+  and confirm it actually exercises everything its TESTS.md line claims — mounts
+  the real surface, asserts real DOM/behavior, drives the real path. Flag:
+  (a) a spec whose assertions are NARROWER than its TESTS.md prose (a phantom
+  leg — the claim exceeds the code); (b) an **isolation/"other side unaffected"
+  test whose control is IDLE** (an empty quiescent pane/tab proves nothing — the
+  other side must be ACTIVELY doing the thing, e.g. two simultaneous streams,
+  both directions); (c) **one spec file mapped to many TEST-IDs** that share a
+  single assertion (coverage inflation — each TEST-ID must be a distinct exercised
+  assertion); (d) a mocked unit standing in for render/behavior that only the
+  real surface can prove. This is the systematic form of rule B7 — the human
+  keeps finding these when the audit doesn't.
+
+**Audit-vs-user-decision rule:** when an audit angle surfaces that a feature's
+cost/behavior conflicts with a decision the human explicitly made (e.g. a perf
+tradeoff on a UX choice they picked), record it as a tracked `HUMAN_FEEDBACK`
+item and surface it — do NOT silently reverse the human's decision.
+
+Each angle appends its findings to `LEDGER.jsonl`. There is **no coverage law and
+no coverage file** — `AUDIT_COVERAGE.tsv` proved only that the audit had NAMED the
+files and caught nothing across 22 features. The ledger is the record. (Forks that
+share the parent's cached context are the cheap way to fan out —
+[[feedback_fork_cache_review]].)
+
+> The audit excludes the lifecycle artifacts and **mechanically-generated files**
+> (`**/openapi.json`, `**/api-client/types.ts`) — those are derived
+> deterministically from reviewed source by a golden-tested generator, so review
+> the *source* hunks, not the generated output. (The same exclusion is why a
+> backend feature that merely regenerates the client is **not** treated as UI
+> work by the phase 3 / phase 8 frontend gates.) A regen may produce a large
+> positional (key-order) diff in `openapi.json` with a tiny content delta; verify
+> the content delta with `comm` on sorted files and record it as a drift entry.
+
+**Record `corroborated_by` on every row — it is the input to the T1 estimate.**
+Beyond deciding what becomes work, the OVERLAP between your two angles is the one
+measurement that lets phase 7 terminate on an ESTIMATE of defects remaining rather
+than on the observation that a round found none. Set `corroborated_by` to the
+number of angles that independently reported that finding (1 or 2), and give each
+row its `angle`, `file` and `severity`. A ledger without `corroborated_by` still
+passes every gate — phase 7 simply falls back to the decay rule, and you pay for
+the extra rounds that buys.
+
+Gate: `--phase 6`.
+
+## Phase 7 — Fix / re-audit loop
+
+Merge the ledger → fix every confirmed finding → **re-run a blind round over
+THAT ROUND'S diff**. Record each round in `FIX_ROUND-<n>.md` ending with
+`**New confirmed findings:** <N>`. (Reject false positives explicitly in the
+ledger; a dismissed finding is not a fix.)
+
+**Termination — do NOT "repeat until 0".** That rule is unsound, not merely slow:
+a reviewer with a non-zero false-positive rate has a non-zero chance of emitting a
+finding on *any* round, so the expected number of rounds to a zero-round is
+unbounded. It produced a real 17-round run here. Every defect-estimation model
+assumes a **decreasing** detection profile, so a flat or rising profile falsifies
+the model rather than meaning "converging slowly".
+
+The loop ends in one of six ways:
+
+| | condition | outcome |
+|---|---|---|
+| **LIGHT** | the change is LIGHT-tier (below) **and** one round is complete | done |
+| **T1** | the capture-recapture estimate says **< 1** promotable defect remains | done — even with findings still open |
+| **Converged** | a round yields 0 **and** the profile decayed | done |
+| **ABORT** | profile flat/rising at round ≥5 (final round ≥ median of the prior) | **re-scope — do NOT run another round** |
+| **GUARD-SUB** | ≥60% of a round's findings target ONE test/guard file (round ≥2) | **stop + escalate — replace the guard** |
+| **Cap** | 6 rounds with findings still open | escalate to a human |
+| — | otherwise | continue |
+
+### T1 — terminate on the ESTIMATE, not on the observation
+
+The inspection literature never stops because a round found nothing; it stops on
+an estimate of what is STILL in the artifact. Two angles per round give exactly
+the input that needs — the overlap between them:
+
+```
+n1 = findings angle A reported    n2 = findings angle B reported
+m  = findings BOTH reported (corroborated_by ≥ 2)
+N̂  = (n1+1)(n2+1)/(m+1) − 1        ← Chapman (Lincoln-Petersen is badly
+                                      biased and undefined at small m)
+remaining = N̂ − observed;  terminate when remaining × promoted-fraction < 1
+```
+
+High overlap means the two angles have SATURATED the artifact — they are finding
+the same things, so there is little left to find, and another round buys reviewer
+noise. Low overlap means they are each finding things the other missed, so there
+is more in there: keep going. **This is the payoff that made the 2-angle reform
+worth the corroboration bookkeeping**, and it is why `corroborated_by` matters.
+
+**Its assumptions do not hold, and you should know which way that cuts.** Capture-
+recapture assumes (1) equal catchability — every defect equally likely to be
+caught, false, defects vary enormously in obviousness — and (2) INDEPENDENCE of
+the two samples, which is worse here than in the human studies the model comes
+from: our two "angles" are **two prompts to one model**. They share weights,
+training data, and whatever the diff makes salient, so they co-find and co-miss
+together. Both violations inflate `m`, which deflates `N̂`. **The estimate is
+biased LOW — it is a floor on remaining defects, not a measurement.** That is
+exactly why T1 is an ADDITIONAL termination condition rather than a replacement:
+the decay rule, the guard tripwire and the round cap all still apply on top of it,
+and a **non-decaying profile overrides T1 entirely** (a flat/rising profile
+falsifies the decreasing-detection model the estimate itself rests on, so an
+estimate computed from it is not evidence).
+
+Below a small-sample floor (≥5 findings observed, ≥2 corroborated) the estimator
+declines rather than guessing, and a ledger with no `corroborated_by` at all is
+never guessed at. In both cases the decay rule decides alone.
+
+### ABORT and GUARD-SUB — "this artifact was not ready for audit"
+
+The ABORT is a distinct outcome the loop previously could not express. Its usual
+cause is a **hand-written static-analysis guard standing in for a behavioural
+test** — a guard that pattern-matches a SEMANTIC property has an unbounded evasion
+space, so 0 findings is unreachable by construction and each round only finds
+another spelling.
+
+**GUARD-SUB names that cause directly instead of inferring it, and it fires
+earlier than the ABORT can.** When ≥60% of a round's confirmed findings land on a
+single test/guard file, the loop has stopped auditing the feature and started
+playing whack-a-mole with a guard. The real case: one feature's rounds 13-17 put
+46 of 59 findings on one AST source-guard (round 17 was 21 of 22) — and at its
+round 12 the concentration was already 8 of 9 (89%) **while the profile was still
+decaying**, i.e. while the decay rule read "converging fine". Concentration
+detects the wrong KIND of work; decay only detects the wrong RATE of it.
+
+The remedy is never another predicate. Replace the syntactic guard with a test
+that asserts the BEHAVIOUR it was standing in for, then restart the loop against
+the new artifact. (Round 1 is exempt — the first round may legitimately land on
+the tests it just wrote — and a round concentrated on the feature's own SOURCE
+file is normal work, not guard substitution.)
+
+Two rules that make rounds cheap enough to be worth running:
+
+**`cargo check` while iterating; `cargo build` only when you must RUN something.**
+Measured on this repo, warm, one-file edit:
+
+| command | cost | what it does |
+|---|---|---|
+| `cargo check -p <crate>` | **21.7 s** | type/borrow check only — no codegen, no link |
+| `cargo build -p <crate>` | **41.9 s** | the above **+ codegen + link** (~3.5 s of it linking) |
+
+So checking is ~2× faster per iteration, and the difference is codegen — which is
+wasted work if you are not about to execute the binary. Build only when you
+genuinely need an executable: running the server, the integration suite (it spawns
+a server subprocess per test), or a live rig. "Does it compile" never needs a build.
+
+Two things that make this easy to get wrong:
+- **check and build keep SEPARATE artifact caches** (`.rmeta` vs `.rlib`).
+  Alternating check → build → check pays for both. The efficient shape is: check
+  repeatedly while iterating, then **one** build when you are ready to run tests.
+- **Warm cost is dominated by ONE unit, not by build scripts.** A `--timings` run on
+  a one-file edit rebuilt 1204 units: the crate itself at 20.23 s and *every other
+  unit at 0.00 s*. No build script re-runs on a warm build — no dependency fetch, no
+  native compile. Those are cold-build costs, paid once per fresh worktree. If a
+  warm build feels slow, the cause is that the crate is large, not that the build
+  script is doing work.
+
+The corollary: a very large single crate makes even `check` slow, because touching
+any file re-checks all of it. Splitting it is what unlocks a fast edit loop —
+`cargo check -p <small-crate>` instead of re-checking everything.
+
+**Implement the WHOLE round before running anything — never write-one/test-one.**
+Land every fix in the round (code **and** its tests) first, then run once. Do not
+fix one finding, run a suite, fix the next, run again. Each test invocation here
+costs a real server spawn / Playwright boot / cargo link — paying that per
+finding is the same waste as re-running the full suite, just sliced thinner, and
+it serializes work that had no reason to be serial. Batch the round, then measure
+it. The same applies in phase 5: write the implementation and its tests, then run.
+
+(This is about BATCHING, not about skipping the red-first step: where a fix needs
+a failing test to prove the defect, still write that test first and observe it
+RED. Observing one new test go red is not a suite run.)
+
+**Re-running tests inside the loop — scope to the ROUND's diff, never the whole
+feature.** A fix round changes a handful of files; it does not invalidate the
+rest of the suite. Re-run ONLY the tests that cover the files **that round**
+touched, plus a typecheck. Do **NOT** re-run the full suite, and do **NOT**
+re-run the feature's whole enumerated test set, after every round.
+
+Nothing requires it: the phase-8 gate has **no staleness rule** — no timestamp
+check, nothing that voids a prior observed PASS when unrelated code changes. The
+habit is pure cost. Measured on one branch: ~17 rounds × a 32-minute serial
+real-LLM Playwright run of the whole family, which became the dominant cost of
+the entire branch while surfacing almost nothing new per round.
+
+- Scoped run goes red → widen from there until you've bounded the blast radius.
+- The full enumerated set runs **exactly once**, in phase 8 — that run is what
+  `TEST_RESULTS.md` records.
+- Same rule for the audit rounds themselves: audit the round's diff, not the
+  whole tree again.
+- Exempt: an experiment whose evidence IS the run (e.g. a two-worktree `gate:ui`
+  concurrency proof, a mutation battery proving a guard goes RED).
+
+This does not relax the standard — every enumerated test still needs a real
+observed PASS before READY. It cuts wasted wall-clock, not evidence.
+
+Gate: `--phase 7` (checks the final round is 0).
+
+## Phase 8 — Gated test run (conditional on the touched areas)
+
+ONLY NOW run tests, scoped to what you built ([[feedback_test_scope]]). This is
+the **single** full run of the enumerated set — phase 7 iterations run scoped
+subsets, and their results stand; a prior PASS is not voided by a later
+unrelated change. **Which
+gates apply is computed from `git diff main...HEAD`** (generated
+`openapi.json`/`api-client/types.ts` excluded, so they never make a backend diff
+look like UI work). A diff that touches both back- and front-end runs BOTH
+chains.
+
+**If the diff touches the backend** (`src-app/server/**`, `src-app/desktop/tauri/**`):
+
+```bash
+# integration (source the env file first — real LLM keys live there)
+source src-app/server/tests/.env.test
+cargo test --test integration_tests <module>:: -- --test-threads=1 \
+  2>&1 | tee /data/pbya/ziee/tmp/lifecycle-logs/<feature>-int.log
+```
+
+**If the diff touches a frontend workspace** (`src-app/ui/**` and/or
+`src-app/desktop/ui/**`), ALL of the following are required, per touched
+workspace:
+
+1. **`npm run check` — the one gate command, run in EACH touched workspace.** It
+   chains the whole static frontend contract: `tsc` + the biome guardrails +
+   `lint:colors` + `lint:settings-field` + `check:kit-manifest` +
+   `check:testid-registry` + `check:design-spec` + `check:gallery-coverage` +
+   `check:state-matrix`. Don't run these individually — run the one command and
+   record its result:
+   ```bash
+   cd src-app/ui && npm run check          # and src-app/desktop/ui if touched
+   ```
+   Write a `npm run check (ui): PASS` line (and `npm run check (desktop/ui): PASS`)
+   in `TEST_RESULTS.md` — the gate requires one per touched workspace.
+2. **New conditional render states need gallery coverage.** Any new
+   loading/empty/error/variant state your diff introduces must have a gallery
+   entry (or an explicit allowlist reason). This is enforced by the
+   `check:state-matrix` gate *inside* `npm run check` above — budget for it: if
+   you added a state, add its gallery cell or the gate (and thus phase 8) fails.
+3. **UI evaluator gate** (per CLAUDE.md's "UI Build Gate"): zero console
+   errors / uncaught exceptions / failed requests / AA-contrast failures on the
+   touched gallery surfaces, and the visual-regression baseline matches. Run the
+   gallery runtime + gate scripts:
+   ```bash
+   cd src-app/ui && npm run gate:ui                     # runtime-health + Layer A/axe + tsc/lint
+   VISUAL_SNAPSHOTS=1 npm run gate:ui                   # + Layer B pixel regression vs baseline
+   ```
+4. **e2e specs for the user-visible flows** you enumerated as `tier: e2e` in
+   phase 3 (TESTS.md) — run them and record each TEST-ID:
+   ```bash
+   cd src-app/ui && npx playwright test tests/e2e/<file> --workers=1
+   ```
+   This includes any `[negative-perm]` **restricted-user** spec (A10): run it
+   and record its TEST-ID as PASS — the gate requires the negative-permission
+   e2e to pass, not just the happy-path one.
+
+Write `TEST_RESULTS.md` with a `- **TEST-N**: PASS` line for **every** TEST-ID
+from Phase 3 (plus the `npm run check (<ws>): PASS` line(s) above for a UI diff).
+The gate fails if any phase-3 test is missing/not PASS, if a touched workspace has
+no passing `npm run check` line, or if any enumerated `tier: e2e` spec is not
+PASS. Never `#[ignore]` (or `.skip`) to go green — only genuine
+platform-incompatibility is a legit skip ([[feedback_no_ignore_unless_platform]]).
+
+**Phase 8 also enforces these deterministically** (from the diff + `TEST_RESULTS.md`),
+so budget for them — they are not optional polish:
+
+- **A2** clean working tree — every load-bearing file committed on the branch
+  (no uncommitted change the gate can't see).
+- **A3** no diff-added `#[ignore]`/`.skip`/`.only`; **A4** no cosmetic/always-true
+  assertion (`assert!(true)`, `expect(x).toBe(x)`).
+- **A5** TESTS.md may not shrink — a previously-enumerated TEST-ID cannot vanish.
+- **A RUN MAY NOT SILENTLY STOP** (`--assert-terminal`). A12 below gates a run that
+  *claims to be finished*. A run that dies at phase 5 never writes `TEST_RESULTS.md`, so
+  phase 8 is PENDING, no gate fires, and `--all` prints `OK — phases 1..5 complete (5/9)`
+  and exits **0**. *"Stopped early" and "finished badly" need different detectors.*
+  A detector cannot fire on an absence, so stopping must become an **artifact**: a run is
+  terminal when it reached 9/9 **or** committed `STOPPED.md` in the node dir with all four
+  fields, each with a value **on its own line**:
+  ```
+  - **stopped at**: phase 7
+  - **reason**: fix-round cap reached with findings open
+  - **unresolved**: F1 (mechanism unpinned), F3-F6 deferred to #561
+  - **next**: human triage — F1 blocks merge
+  ```
+  `--assert-terminal` then exits 1 when it finds neither, and reports **STOPPED (recorded)
+  — this is NOT a pass** when it finds the record. An empty value is a shrug and fails.
+  The record must be **committed** (A2 enforces that: an uncommitted stop record is not a
+  record). *Measured: a node stopped at a failing phase-7 gate, never ran 8-9, and its
+  defect — a mechanism whose removal reddened nothing — reached review anyway.*
+- **A13** you must measure against **the tip you will merge into**, not the one you branched
+  from. A result taken on a stale base is evidence about a tree that will not exist. The gate
+  finds your integration branch mechanically (the remote ref that diverged from HEAD *exactly
+  at* the graded base, preferring integration-shaped names) and fails when it is ahead of you.
+  *Measured: a branch 43 commits behind its epic reported "10 reds → 1"; a test merge onto the
+  real tip conflicted in 8 hunks across 4 files, and the most-conflicted file was the one
+  holding the reds it existed to retire — the conflict resolution, not the branch, would have
+  decided whether the number survived.* Reconcile, resolve, **then** re-measure.
+- **A14** a **version claim is checked against the open SIBLING branches**, not only the tip —
+  a sibling's claim is invisible from the tip. It also fails when a package you changed is not
+  bumped at all (merging then lands the work under the tip's existing version, with no version
+  of its own). *Measured: the same collision shipped four times; and a branch with `+1171/−180`
+  retiring 8 real failures declared a version three releases stale while touching no manifest,
+  so nothing flagged it.* Remember a bump has **three halves** — manifest `version:`, the
+  changelog entry, and the pin test's function **name** plus its asserted string; moving fewer
+  turns the pin red in a way that reads as unrelated.
+  A sibling collision is **waivable per-ref, with a reason**, because *unmerged* is not
+  *will merge* — an abandoned branch claims its version forever, and without this a live
+  branch can be blocked by a dead one. Name the ref and say why in `DECISIONS.md`:
+  `- **version-collision-waived**: origin/dsh/560-x — retired by owner redirect; will not merge`.
+  Per-ref and reason-bearing on purpose: a blanket "ignore A14" would be the same hole in a
+  different shape. *Measured: a re-implementation reaching **1000 passed / 0 failed** could
+  not clear phase 8 because two branches the owner had explicitly retired still declared the
+  same version — the finding was true and the block was wrong. A gate nothing can satisfy
+  trains people to bypass it, which is the failure this check exists downstream of.*
+- **A CONFIRMED FINDING NOBODY DISPOSITIONED BLOCKS PHASE 9**, whatever round raised it.
+  The fix-loop check reads the LAST fix round, so a finding raised *after* it — an
+  adjudication in round 2 following a round-1 loop that converged at zero — was never asked
+  about again. *Measured: a node reported `phases 1..9 complete` while carrying six open
+  CONFIRMED findings, two of them medium; from outside that is indistinguishable from a clean
+  run.* Resolve each, or set `resolution_state` to `fixed` / `wontfix` / `obsolete` with the
+  reason recorded. Dispositioning is cheap; limbo is what is not allowed.
+- **An angle that ran and found NOTHING is recorded as an angle-record, not a finding.**
+  Phase 6 counts angles from ledger rows, so a clean angle used to have to pose as a
+  pseudo-finding to be counted — and the promotion check then complained that nothing
+  qualified. Write `{"angle": "correctness", "round": 2, "no_findings": true, "note": "…"}`:
+  it counts toward breadth and is excluded from the promotion population. *A reviewer's
+  verdict on the row that prompted this: "the row is honest and the counter is wrong."*
+  Breadth is still enforced — one clean angle is still one angle.
+- **A12** the change must be **load-bearing**: revert your own fix commit whole,
+  re-run the suite, and record the `## SELF-REVERT PROOF` above. **If nothing
+  reddens, the change has no enforcement and phase 8 FAILS** — fix it; it is
+  *not* deferrable to a follow-up issue and is **exempt from the fix-round cap**,
+  because a capped count must never ship a change that does nothing. A `low`/
+  `medium` severity on "no test detects the removal of the feature" is wrong by
+  construction. Revert the **whole** commit, never one file of it (a partial
+  revert of a producer/consumer change is a *directional* false green reading as
+  "the fix wasn't load-bearing"), and note `git checkout <sha> -- <paths>`
+  **stages** the revert — clean up with
+  `git restore --source=HEAD --staged --worktree` and assert
+  `git diff --quiet HEAD`, or the mutant leaks into the next run.
+  Prose-only diffs (`.md`/`.txt`/`docs/`) are exempt — no mechanism to prove.
+  *Why a gate and not an audit item: this exact defect WAS found by a blind
+  audit, graded `medium`, and deferred to a follow-up by a run that then reported
+  success. ~325 lines of new tests did not detect the removal of the mechanism
+  they were written to protect (8 failed before the revert, 8 after, zero new).
+  A finding someone may defer is weaker than a gate that cannot pass.*
+- **Acceptance** every `[acceptance]` test (a design-invariant proof) must be
+  recorded PASS in `TEST_RESULTS.md` — a design invariant left unproven fails
+  phase 8. This is stricter than "all TESTs pass": it names the invariant proofs
+  explicitly so a soft/dropped acceptance leg is unmissable.
+- **A7** a UI diff must record a boot/runtime canary line — a green e2e can still
+  ship a non-booting app or a root ErrorBoundary crash on an un-exercised path.
+  A7 is **baseline-controlled**: the branch must be **no worse than its base**,
+  not absolutely clean. Two accepted forms:
+  `gate:ui (ui): PASS` (zero findings — can't be worse than any base) or
+  `gate:ui (ui): branch 3 vs base 5` (passes iff branch ≤ base). Measure both
+  runs **back-to-back on the SAME box**; an absolute bar the environment can move
+  is a bar people learn to route around ("took three attempts / the box was
+  busy"). A regression against the base is still refused.
+  **Capture the gate's OWN exit code.** A recorded PASS sitting in the same file
+  as pasted output reading `GATE FAILED` is refused: that combination is a
+  pipeline artifact, not a result — `cmd | tail` exits with *tail's* status, and
+  one recorded PASS here was exactly that. Use `set -o pipefail` or read
+  `${PIPESTATUS[0]}`.
+  **A6:** the gallery + `gate:ui` + `runtime-health` IS the browser-verify
+  harness — "I can't verify in a browser" is not a valid gap.
+- **A8** a new built-in MCP server must include BOTH `mcp.rs` edits
+  (`auto_attach_builtin_ids` + `is_builtin_server_id`) — else it registers but
+  the model never sees the tools.
+- **A9** a new permission must have a BACKEND DENY-path test (403/forbidden),
+  not only the allow path.
+- **A10** a new user-facing permission (`X::use`/`X::read`/`X::manage` in a
+  `modules/*/permissions.rs` or a migration grant) must ALSO have a
+  **restricted-user e2e** — `(tier: e2e) [negative-perm]` — that logs in as a
+  user LACKING the permission and asserts the feature UI is ABSENT, and it must
+  be enumerated (phase 3) and PASS (phase 8). A9 proves the API refuses; A10
+  proves the UI is hidden. Both are required — a 403 backend test alone leaves
+  an ungated menu item / composer / nav entry invisible to the gate. That spec
+  must carry a **positive control** (`[positive-control]`, or the equivalent in
+  its `asserts:` prose): it must also assert the subject page/resource LOADS for
+  that restricted user, or "absent" is indistinguishable from "never rendered"
+  and the spec passes with the gate deleted.
+- **A11** a `TEST-N: PASS` line must be EARNED BY THIS BRANCH: the ID has to
+  appear in an **added line of `git diff <base>...HEAD`** (`.lifecycle/` is
+  excluded from that diff, so citing it in the artifacts does not count — the
+  citation must be in the test). `TEST-N` is a **per-feature namespace** that
+  every lifecycle restarts from 1, so a bare grep binds an ID to a STRANGER's
+  test in another feature's directory; one repo carried ~1,900 such citations.
+  On a real branch ten IDs inherited a PASS that way and one of them was an
+  `[acceptance]` test — a design invariant recorded as proven by a test that
+  asserted nothing about the feature, with the gate reporting 9/9. Two
+  resolutions and no third: **earn it** (bind the ID to a test this branch added
+  — write it, or add the citation to the test that really asserts the claim —
+  and run it), or **admit it** (`NOT VERIFIED`, with the reason). `NOT VERIFIED`
+  is deliberately NOT a pass: phase 8's all-PASS loop still fails, because a
+  gate that let "nobody ran this" reach 9/9 is the same false certification in a
+  politer font. It polices PASS only — FAIL/SKIP already fail on their own. It
+  cannot catch an ID cited on an added line of a test that asserts the wrong
+  thing; what it removes is the SILENT case.
+- **R2-5** every `/api/` e2e route-mock the diff adds must match a live route in
+  `openapi.json` — a renamed route makes the mock a silent no-op that
+  false-greens the spec.
+
+**P4 — full-output capture.** Save the FULL test log as an artifact
+(`| tee /data/pbya/ziee/tmp/lifecycle-logs/<feature>-{int,e2e}.log`), never just
+an inline tail — the failing test's assertion/panic is in the body, and a
+re-run to recover it wastes minutes ([[feedback_periodic_check_stuck]]).
+
+Gate: `--phase 8`.
+
+## Phase 9 — HUMAN_FEEDBACK.md (the human-review gate; last before merge)
+
+Maintain `.lifecycle/<feature>/HUMAN_FEEDBACK.md` as a **living ledger** from the
+moment the feature is testable. When the human reviews the running feature and
+gives feedback — a UX critique, a missed convention, a "no user would do this" —
+record it **VERBATIM** immediately, then resolve it and log how. Never
+paraphrase-away or silently drop a human critique.
+
+One entry per feedback item, in this exact shape (the gate parses it):
+
+```
+- **FB-1** [status: resolved] — <verbatim human feedback> → <how you addressed it> [generalizable: yes — <candidate lifecycle rule the whole fleet should follow>]
+- **FB-2** [status: open] — <verbatim feedback not yet fixed>
+- **FB-3** [status: wontfix] — <feedback> → <rationale for not doing it>
+```
+
+- `[status: …]` ∈ `open | resolved | wontfix`. **Any `open` item FAILS the gate**
+  — the feature is not merge-ready with unaddressed human feedback.
+- `[generalizable: yes — <rule>]` flags feedback that isn't specific to this
+  feature but is a **convention the whole fleet should follow** (e.g. "select an
+  entity with a picker, never a raw ID text input"; "reuse existing page/drawer
+  layouts, don't build bespoke"). The orchestrator HARVESTS every
+  `generalizable: yes` item at merge and folds it into this skill / a lint — so
+  one human's feedback improves every future feature. Once folded in, the
+  orchestrator marks that entry
+  `[generalizable: yes — <rule> · harvested@<commit>]` (or moves it under a
+  `## Harvested` heading). This matters for a feature that merges MULTIPLE times
+  (see **Iteration mode**): the harvest mark stops the same rule being applied
+  twice and leaves an audit trail of which feedback became which rule.
+- If the human gave **no** feedback, the file must exist and state
+  **"no human feedback received"** explicitly — absence is a deliberate claim.
+
+This gate is **PENDING** (informational, does not block the build) while the file
+is absent — a feature can be 8/8 and still awaiting human review. It reaches
+**9/9 (truly merge-ready)** only once the file exists and every item is resolved.
+The merge does not happen until the orchestrator has read this ledger.
+
+**The owner signs off against the ACCEPTANCE TESTS, not "all green."** When you
+present the feature for review, show the owner each `INV-N` and the `[acceptance]`
+test that proves it (and demonstrate the invariant live) — not a "9/9 passed"
+summary. "All gates green" is the process certifying itself; the invariants are
+what the owner actually cares about. Before this hand-off the orchestrator has
+already done the D3 whole-feature behavior-vs-design reconciliation, so the sign-off
+is against demonstrated invariants, never against a gate tally.
+
+Gate: `--phase 9` (fails on any `[status: open]`; pending while the file is absent).
+
+---
+
+## Iteration mode (re-entering an already-merged feature)
+
+A merged feature is rarely final — the human comes back to refine it gradually,
+conversationally. Iteration mode is the SAME lifecycle, entered against a feature
+that already shipped, with three adjustments:
+
+1. **Reuse, extend — don't rebuild.** Cut a fresh worktree off *current*
+   `origin/main` and carry the feature's existing `.lifecycle/<feature>/`
+   artifacts forward (copy them in). Only THIS round's DELTA needs new PLAN items
+   + new TESTS.md rows; prior items stay as satisfied context. Do NOT re-plan or
+   re-test the whole feature — and do NOT drop prior test-IDs (A5 still guards
+   shrinkage).
+
+2. **Red between checkpoints is fine; green at the checkpoint is mandatory.**
+   While you and the human are chatting and trying things, the tree may be red —
+   that's iterating, not a stall. The gate only has to be a genuine `--all` 9/9
+   at a **checkpoint** — when the orchestrator is about to merge a coherent round
+   of changes. Batch a round of related feedback into ONE merge; don't merge
+   every single tweak (keeps main clean and each merge-gate run meaningful).
+
+3. **The ledger is the spine AND the memory.** `HUMAN_FEEDBACK.md` persists on the
+   branch and survives a context `/clear`: a session re-opening the feature reads
+   the ledger to recover what was asked and decided. Each new piece of feedback is
+   a new `FB-N` (verbatim, `status: open`) → implement it → add the test that
+   covers it → flip `resolved`. Phase 9 fails while any `open` remains, so "all
+   gates pass at the end" is automatic: you cannot merge with unaddressed
+   feedback.
+
+Across an iterated feature's multiple merges, the orchestrator harvests only the
+NOT-yet-harvested `generalizable: yes` items each round (per the harvest mark in
+Phase 9), so each rule is folded into this skill exactly once.
+
+---
+
+## Phase discipline (binding behavioral rules)
+
+These are the human-judgment rules the deterministic gate cannot encode. They
+are binding, not advisory — each traces to a specific failure that reached main
+or wasted many sessions.
+
+- **B1 — box load is NOT a deferral reason.** "The machine is busy, I'll do it
+  later" is not a valid stop. Check actual CPU headroom (`%idle`/`%iowait` via
+  `top`/`iostat`/Activity Monitor/`Get-Counter` on Windows), not the load
+  average — a high load average with idle CPU is fine. "Blocked" requires a
+  SPECIFIC error (a port bind failure, a docker daemon down, a compile error),
+  never a resource metric.
+- **B6 — a gate must survive the merge strip.** If your feature ADDS a check to
+  `npm run check` / CI / the build, that check must read its config /
+  source-of-truth from a PERMANENT committed path (a product-tree file), NEVER
+  from a `.lifecycle/` artifact — `.lifecycle/` is stripped at merge, so a gate
+  that reads it passes in your worktree and then fails `npm run check`
+  PERMANENTLY on main. Verify any new gate against a lifecycle-stripped tree
+  (temporarily move `.lifecycle/` aside, re-run the gate, confirm it still
+  passes) before declaring done. (Caught on the desktop-override gate, which
+  read its approval list from `.lifecycle/…/DECISIONS.md`.)
+- **B7 — verification means RUNNING it, never reading the code.** "I determined
+  this behaves correctly by reading the code" is a GUESS, not verification, and it
+  is a recurring miss. Every behavioral claim must be proven by a test that
+  actually EXERCISES the behavior. For UI/render behavior specifically: mount the
+  route/component and assert the DOM (e.g. "the pop-out route renders NO sidebar/
+  app-nav and DOES render the ConversationPane") — a mocked unit that covers the
+  window-API mechanics does NOT cover what actually renders. No item ships with
+  "0 tests" or a read-and-assert stand-in; the FB-7 coverage for a render/behavior
+  item must be a test that genuinely runs it.
+- **B8 — do not stop to ask about IMPLEMENTATION approach.** You are authorized to
+  implement. Once you have worked out the right approach, DO it and keep going —
+  never pause on "want me to start there?" / "should I proceed?". The only things
+  you escalate to the human are genuine PRODUCT choices about what the feature
+  should DO, surfaced as explicit option pickers (the Phase-4 rule). Implementation
+  decisions are resolved by precedent/convention and executed, not asked.
+- **B9 — reproduce a reported bug LITERALLY before fixing it.** When the human
+  hands you a concrete step-by-step repro, reproduce that EXACT sequence and watch
+  what happens before designing a fix — do not fix a plausible-adjacent symptom
+  (a stale URL) when the real mechanism is different (shared hydration). The
+  regression test must be EXACTLY the reported sequence and nothing more: every
+  extra step you add (a reload, a wait, a nav) is a chance to diverge from the
+  repro and mask the real behavior; test unrelated features in their OWN tests.
+  And when the human asks "what renders?", SCREENSHOT it and LOOK — a green
+  assertion (esp. one that waits up to 30s for an element) can mask a
+  hangs-on-a-spinner defect. Trust the human's causal diagnosis over your first
+  unproven hypothesis, and PROVE the real cause by running.
+- **B3 — never edit the SHARED test harness to route around YOUR feature's
+  problem.** `tests/common/*`, the gallery cassette, `playwright.*.config`, the
+  build DB helper are shared infrastructure. If your test needs them changed,
+  that's a signal your feature is wrong or the change belongs in its own
+  reviewed commit — not a silent workaround that breaks everyone else.
+- **B4 — a warm build is NOT a clean build.** New SSE/content-block variants,
+  proc-macro registrations, and codegen inputs can compile against a STALE
+  expansion in an incremental tree yet fail from clean. Validate them with
+  `cargo clean -p <crate> && cargo check` before believing them. (The
+  authoritative catch is the merge-gate's C1; this is the cheap local mitigation.)
+- **B5 — don't stop to ask permission mid-task.** Continue authorized work to
+  completion; surface genuinely ambiguous PRODUCT decisions once, up front, in
+  Phase 4 — not as a mid-implementation halt ([[feedback_autonomous_loop]]).
+- **P1 — independently re-verify the load-bearing gate yourself.** Trust the
+  ARTIFACT you re-ran, not a sub-agent's "it passes" self-report. Before
+  declaring a phase done, re-run its gate in the actual worktree and read the
+  output. This is the single biggest clean-vs-red differentiator.
+- **P5 — native-verify a cfg-gated arm on ITS OWN platform.** A
+  `#[cfg(target_os = "windows")]` / `#[cfg(target_os = "macos")]` block is
+  invisible to a Linux `cargo check` — it is never compiled. Before pushing
+  platform-specific code you MUST `cargo check` it on that OS (the Mac / Windows
+  build hosts — [[project_crossplatform_build_test_hosts]]) and give it a
+  cfg-gated unit test that runs there. A Linux-only green is not coverage of a
+  Windows/macOS arm.
+- **R2-3 — diff-review desktop `ui/` overrides against the server `ui/`
+  equivalent (SECURITY).** `src-app/desktop/ui/` carries HAND-WRITTEN overrides
+  (not just codegen). When you change logic in `src-app/ui/`, diff the desktop
+  counterpart and confirm no security-relevant logic was dropped — a dropped
+  `evaluatePermission` filter once reached desktop prod. Codegen'd files
+  (`openapi.json`/`api-client/types.ts`) are regenerated for both by
+  `just openapi-regen`; the hand-written surfaces are the risk.
+
+- **D1 — a green gate is never a stand-in for "conforms to the design" (FB-15).**
+  A PLAN-CONFORMANCE / design-conformance pass is a STANDARD closing step of the
+  lifecycle, not an ask-only extra: for each ITEM and each `INV-N`, read the intent
+  and verify the shipped BEHAVIOR matches it (by running it, not reading the code).
+  "All gates green" is necessary, not sufficient — the conformance lens is the
+  missing sufficient check. `declarative-canvas-plots` shipped a green 9/9 with
+  forced metrics, a never-called validator, an unenforced `area:center`, and an
+  orphaned config block — none caught until the owner asked for a conformance audit.
+- **D2 — a test must assert the DESIGN's promise, not the code's behavior (FB-16).**
+  A test written against the implementation is a tautology: it cannot fail on
+  "implementation ≠ design." When enumerating tests (phase 3), tie each
+  `[acceptance]` test to its `INV-N`'s STATED promise; in review, flag any test
+  whose assertion would still pass if that promise were violated. If flipping the
+  invariant off wouldn't turn the test red, the test proves nothing about the
+  invariant.
+- **D3 — the orchestrator owns a whole-feature behavior-vs-design reconciliation
+  (FB-20).** Per-slice "my slice is green" reports and per-diff blind audits verify
+  LAYERS; they do not sum to whole-feature conformance. Before claiming "matches the
+  design," the orchestrator itself holds the ENTIRE shipped behavior against every
+  `INV-N` (and every ITEM) — running the feature, not trusting delegated green
+  reports. Never state "conforms to the design" on the strength of gate-green alone.
+
+**Cross-platform reality.** This infra runs on Linux, macOS, and Windows.
+`lifecycle-check.mjs`, `merge-gate.mjs` are pure Node (portable); `preflight.sh`,
+`selftest*.sh`, and the git hook run under bash — present on all three via
+git-bash on Windows (git runs its hooks through that same bash). Keep any new
+shell in this dir POSIX-portable (no GNU-only flags; guard Unix-only tools with
+`command -v`).
+
+---
+
+## Finishing
+
+```bash
+node .claude/lifecycle/lifecycle-check.mjs --all --repo <worktree-root> --dir <feature-dir>  # must be all-green
+# Read the LAST line: `phases 1..9 complete (9/9)`. Anything less than 9/9 is not done,
+# and `(0/9)` means it graded a directory with no artifacts in it (it now fails instead).
+git add -A && git commit && git push        # pre-push hook runs --wip
+```
+
+**The pre-push hook runs `--wip`, not `--all`.** `--wip` gates the phases the branch
+has COMPLETED and lets the one it is currently working be in progress, so a mid-round
+push passes without a bypass. It still fails a regression in a completed phase, still
+fails an unresolved drift, and once every phase has artifacts it demands all nine
+exactly like `--all`. Set `LIFECYCLE_SCOPE=<name>` so a stage gates on its own
+artifacts and a peer stage's open round cannot fail your push.
+
+`--all` (every phase, no exemption) is the **pre-merge** gate — run it yourself before
+handing the branch over, as above.
+
+### Never bypass a hook yourself — hand the push to the human
+
+**`git push --no-verify` is not yours to use.** A bypass is the human's to grant. If a
+hook blocks a push you believe is correct:
+
+1. **Stop.** Do not push, and do not look for another route around it.
+2. **Report precisely** — the exact command, the **verbatim** hook output, and which leg
+   failed. Diagnose honestly: `git push --dry-run` on an up-to-date branch exits 0
+   **without running the hook at all**, so it proves nothing; probe with a real ref
+   update (`git commit --allow-empty`) if you need to see the hook run.
+3. **File it as an issue** if it is a tooling defect, so it stops being folklore.
+4. **Ask**: *"the hook blocks this push — please push it, or authorise the bypass."*
+   One message, and the decision sits with the person who owns the repo.
+
+**The sanctioned escape is an env var, and it is the HUMAN's to set:**
+
+```bash
+I_MIGHT_GET_FIRED_FOR_THIS=1 git push ...     # human-only; never an agent
+```
+
+It is deliberately named so it cannot appear in a transcript, a shell history or a CI log
+without being obvious. For a **lifecycle-leg failure** it is better than `--no-verify`:
+it bypasses only that leg, leaves **every other check running** (the pinned-guard
+integrity check keeps working), and prints a loud banner naming who bypassed what, on
+which branch, at what time.
+
+### `--no-verify` is still the right tool sometimes — just not YOUR tool
+
+It is not forbidden, and pretending otherwise would be a lie that gets ignored the first
+time it is inconvenient. Use it when **the hook cannot run at all**, which the env var
+cannot help with because the hook never reaches that check:
+
+- `lifecycle-check.mjs` is **missing** — e.g. a fresh `git worktree add`, which
+  initialises no submodules, so a symlinked gate simply is not there. (Fix the cause
+  first: `git submodule update --init --recursive`.)
+- no `node` on PATH, or the gate crashes rather than failing.
+- a branch **deletion** push, or another ref update with nothing to grade.
+- a genuine emergency where the repo state is broken and the fix has to land.
+
+**In every one of those cases it is still the human's call, not the agent's.** The split
+is not "env var good, flag bad" — it is:
+
+| failure | escape |
+|---|---|
+| a lifecycle phase genuinely has gaps | `I_MIGHT_GET_FIRED_FOR_THIS=1` (keeps other checks) |
+| the hook or gate cannot run at all | `--no-verify`, after fixing the cause if you can |
+| merge-gate on `main` | **no bypass** — main is the gated branch; that check *is* the gate |
+
+If you are an agent and you find yourself reaching for either one, you are granting
+yourself a permission that was not yours. Stop, report the verbatim output, and ask.
+The hook says the same thing when it blocks you.
+
+**This holds even when your diagnosis is right and the hook is genuinely broken.** Being
+correct about the cause does not make the bypass yours to authorise, and a self-granted
+bypass is indistinguishable from one that hid a real failure.
+
+The concrete harm is not hypothetical: **`--no-verify` disables the ENTIRE hook, not the
+leg that failed.** *Measured*: an epic's pre-push hook ran `lifecycle-check --wip` without
+`--dir`, so it auto-discovered an epic ROOT holding ~48 node subdirectories and refused —
+every node branch in that epic was being pushed with `--no-verify`, by more than one
+session, and the **pinned-guard integrity check — which was passing — was skipped on every
+one of those pushes.** Nobody intended that; it was collateral from one leg that could not
+run. A guard bypassed for a good reason is just as absent as one bypassed for a bad one.
+
+`--wip` exists so you should rarely be here at all: it passes an honest mid-round push and
+fails only a regression in a COMPLETED phase. If `--wip` fails, that is signal about your
+branch. If the gate is mis-scoped on an epic (`--dir` / `LIFECYCLE_SCOPE`), that is a
+tooling defect to report.
+
+## Notes
+
+- Keep commit messages clean — no Claude trailers ([[feedback_no_claude_trailers]]).
+- If a decision genuinely can't be resolved by convention, surface it EARLY
+  rather than guessing ([[feedback_research_landscape_before_plan]]).
+- The lifecycle artifacts are committed; the skill/validator/hook are machine-local.
+
+## Merge hygiene (required)
+
+`.lifecycle/<feature>/` artifacts live ON THE FEATURE BRANCH so the validator
+and pre-push hook can gate it. They are process records, not product code —
+**strip them when merging to main**: the merge driver (or the final commit
+before merge) runs `git rm -r .lifecycle` so main never accumulates lifecycle
+artifacts. The branch history preserves them for audit.
+
+## Merge-gate (required before ANY push to main)
+
+The per-branch `--all` gate CANNOT catch a collision with *current* main: the
+pre-push hook EXEMPTS pushes to main by design, so a migration-number clash, a
+stale branch, a dropped desktop regen, or a proc-macro variant that only fails
+from a clean tree are all invisible to it. **Before merging/pushing to main, run
+the merge-gate** — it stages the merge onto fresh `origin/main` and re-checks
+against reality:
+
+```bash
+node .claude/lifecycle/merge-gate.mjs <feature-branch>
+# C4 stale-branch · C2 migration-collision · staging-merge + P2 completeness ·
+# C5 .lifecycle strip · C3 regen-parity (BOTH ui/ + desktop/ui/) · C1 clean build
+# exit 0 → the merge onto current main is clean. non-zero → fix the reported gate.
+```
+
+Add `--keep-staging` to push the validated merge straight from the staging
+worktree; `--skip-heavy` to run only the fast deterministic gates (C2/C4/P2/C5)
+when iterating. This codifies — and replaces — the by-hand
+staging-merge/`cargo clean`/regen-both-workspaces discipline.

@@ -1,0 +1,17 @@
+# TEST-12 fixture — BAD FIELD TYPE. `capabilities` must be a sequence of strings;
+# here it is a bare string, so serde fails with `invalid type: string, expected a
+# sequence`.
+id: badpkg
+name: Bad Package
+publisher: cyto
+version: 0.1.0
+apiVersion: "1.0"
+contributes:
+  datatypes:
+    - id: demo/widget
+      extends: data
+      title: Demo widget
+      capabilities: not-a-list   # <-- must be a list of strings
+      storage:
+        layout: { kind: opaque_as_is }
+        format: json

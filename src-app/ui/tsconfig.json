@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "types": ["node"],
+    "baseUrl": ".",
+    // TS 6.0 deprecates `baseUrl` (removed in 7.0). The SDK's @ziee/shell pins
+    // typescript ~6.0.3, which surfaces the deprecation; silence it until the
+    // paths below are migrated to baseUrl-free form workspace-wide.
+    "ignoreDeprecations": "6.0",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@ziee/kit": ["../../sdk/packages/kit/src/index.ts"],
+      "@ziee/kit/*": ["../../sdk/packages/kit/src/*"],
+      "@ziee/framework": ["../../sdk/packages/framework/src/index.ts"],
+      "@ziee/framework/*": ["../../sdk/packages/framework/src/*"],
+      "@ziee/shell": ["../../sdk/packages/shell/src/index.ts"],
+      "@ziee/shell/*": ["../../sdk/packages/shell/src/*"]
+    }
+  },
+  "include": ["src", "vite.config.ts"]
+}

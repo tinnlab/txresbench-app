@@ -1,0 +1,558 @@
+<title>Visualize pane — proposed contribution model</title>
+
+<style>
+  /* ── Tokens lifted verbatim from sdk/packages/kit/src/styles/tokens.css, so the
+     specimen is credible as THIS app rather than a generic mock. Page chrome uses a
+     slightly cooler neutral than the app ground, so the pane reads as an inset
+     specimen and not as the page itself. ───────────────────────────────────────── */
+  :root {
+    --app-bg: oklch(1 0 0);
+    --app-fg: oklch(0.145 0 0);
+    --app-card: oklch(1 0 0);
+    --app-primary: hsl(220 47% 43%);
+    --app-primary-fg: hsl(0 0% 100%);
+    --app-muted-fg: oklch(0.52 0 0);
+    --app-accent: oklch(0.97 0 0);
+    --app-border: oklch(0.922 0 0);
+    --app-warning: hsl(32 80% 34%);
+    --app-radius: 0.625rem;
+
+    /* page chrome — cooler, so it recedes behind the specimen */
+    --page-bg: oklch(0.982 0.004 250);
+    --page-surface: oklch(1 0 0);
+    --page-fg: oklch(0.19 0.015 260);
+    --page-dim: oklch(0.48 0.02 258);
+    --page-rule: oklch(0.9 0.008 255);
+    --page-accent: hsl(220 47% 43%);
+    --page-note-bg: oklch(0.968 0.008 250);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --app-bg: oklch(0.145 0 0);
+      --app-fg: oklch(0.985 0 0);
+      --app-card: oklch(0.205 0 0);
+      --app-primary: hsl(216 56% 64%);
+      --app-primary-fg: hsl(222 47% 11%);
+      --app-muted-fg: oklch(0.708 0 0);
+      --app-accent: oklch(0.269 0 0);
+      --app-border: oklch(1 0 0 / 14%);
+      --app-warning: hsl(38 90% 60%);
+
+      --page-bg: oklch(0.155 0.012 262);
+      --page-surface: oklch(0.196 0.012 262);
+      --page-fg: oklch(0.94 0.006 250);
+      --page-dim: oklch(0.71 0.015 255);
+      --page-rule: oklch(1 0 0 / 12%);
+      --page-accent: hsl(216 56% 64%);
+      --page-note-bg: oklch(0.225 0.014 262);
+    }
+  }
+  :root[data-theme="dark"] {
+    --app-bg: oklch(0.145 0 0); --app-fg: oklch(0.985 0 0); --app-card: oklch(0.205 0 0);
+    --app-primary: hsl(216 56% 64%); --app-primary-fg: hsl(222 47% 11%);
+    --app-muted-fg: oklch(0.708 0 0); --app-accent: oklch(0.269 0 0);
+    --app-border: oklch(1 0 0 / 14%); --app-warning: hsl(38 90% 60%);
+    --page-bg: oklch(0.155 0.012 262); --page-surface: oklch(0.196 0.012 262);
+    --page-fg: oklch(0.94 0.006 250); --page-dim: oklch(0.71 0.015 255);
+    --page-rule: oklch(1 0 0 / 12%); --page-accent: hsl(216 56% 64%);
+    --page-note-bg: oklch(0.225 0.014 262);
+  }
+  :root[data-theme="light"] {
+    --app-bg: oklch(1 0 0); --app-fg: oklch(0.145 0 0); --app-card: oklch(1 0 0);
+    --app-primary: hsl(220 47% 43%); --app-primary-fg: hsl(0 0% 100%);
+    --app-muted-fg: oklch(0.52 0 0); --app-accent: oklch(0.97 0 0);
+    --app-border: oklch(0.922 0 0); --app-warning: hsl(32 80% 34%);
+    --page-bg: oklch(0.982 0.004 250); --page-surface: oklch(1 0 0);
+    --page-fg: oklch(0.19 0.015 260); --page-dim: oklch(0.48 0.02 258);
+    --page-rule: oklch(0.9 0.008 255); --page-accent: hsl(220 47% 43%);
+    --page-note-bg: oklch(0.968 0.008 250);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--page-bg);
+    color: var(--page-fg);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1080px; margin-inline: auto; padding: 3rem 1.5rem 6rem; }
+  .col { max-width: 68ch; }
+
+  h1 {
+    font-size: clamp(1.7rem, 1.2rem + 1.7vw, 2.3rem);
+    line-height: 1.15; letter-spacing: -0.02em; margin: 0 0 0.6rem;
+    text-wrap: balance; font-weight: 620;
+  }
+  h2 {
+    font-size: 1.28rem; letter-spacing: -0.01em; margin: 3.6rem 0 0.9rem;
+    text-wrap: balance; font-weight: 600;
+    padding-top: 1.4rem; border-top: 1px solid var(--page-rule);
+  }
+  h3 { font-size: 1.02rem; margin: 2rem 0 0.5rem; font-weight: 620; text-wrap: balance; }
+  p { margin: 0 0 1rem; }
+  .lede { font-size: 1.06rem; color: var(--page-dim); }
+
+  .eyebrow {
+    font-size: 0.7rem; letter-spacing: 0.09em; text-transform: uppercase;
+    color: var(--page-dim); font-weight: 620; margin: 0 0 0.9rem;
+  }
+
+  code, .mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  code { font-size: 0.87em; background: var(--page-note-bg); padding: 0.1em 0.34em; border-radius: 4px; }
+
+  a { color: var(--page-accent); }
+  :focus-visible { outline: 2px solid var(--page-accent); outline-offset: 2px; border-radius: 3px; }
+
+  .note {
+    background: var(--page-note-bg);
+    border-inline-start: 3px solid var(--page-accent);
+    padding: 0.85rem 1rem; border-radius: 0 6px 6px 0; margin: 1.4rem 0;
+    font-size: 0.95rem;
+  }
+  .note p:last-child { margin-bottom: 0; }
+
+  /* ── the specimen band ─────────────────────────────────────────────────────── */
+  .band {
+    margin: 1.8rem 0 1rem;
+    padding: 1.6rem;
+    background: var(--page-surface);
+    border: 1px solid var(--page-rule);
+    border-radius: 10px;
+    overflow-x: auto;
+  }
+  .band-row { display: flex; gap: 1.6rem; align-items: flex-start; min-width: min-content; }
+
+  .caption { font-size: 0.83rem; color: var(--page-dim); margin: 0.7rem 0 0; max-width: 46ch; }
+
+  /* ── the pane itself: rendered at its REAL width. The workbench left region is
+     300px, giving a 284px content box. Everything inside is sized to that. ────── */
+  .pane {
+    width: 300px; flex: 0 0 300px;
+    background: var(--app-bg); color: var(--app-fg);
+    border: 1px solid var(--app-border);
+    border-radius: var(--app-radius);
+    overflow: hidden;
+    font-size: 13px; line-height: 1.45;
+  }
+  .pane-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px; padding: 8px 10px;
+    border-bottom: 1px solid var(--app-border);
+  }
+  .pane-title { font-size: 12px; font-weight: 620; letter-spacing: 0.01em; }
+  .pane-body { padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+
+  /* The `.anchor` block — pane chrome asking WHICH ROWS — was DELETED on 2026-08-13 (owner).
+     Its rules are gone with it rather than left behind: an unused class in a binding reference
+     is an invitation to render it again. See the callout beside the specimen. */
+
+  /* a contributed section */
+  .sec { border: 1px solid var(--app-border); border-radius: 8px; background: var(--app-card); }
+  .sec-head {
+    display: flex; align-items: center; gap: 6px; padding: 6px 8px;
+    border-bottom: 1px solid var(--app-border);
+  }
+  .grip { color: var(--app-muted-fg); font-size: 11px; letter-spacing: -1px; cursor: grab; flex: 0 0 auto; }
+  .sec-title { font-size: 11px; font-weight: 620; text-transform: uppercase; letter-spacing: 0.07em; flex: 1 1 auto; }
+  .sec-body { padding: 6px 8px 8px; display: flex; flex-direction: column; gap: 3px; }
+
+  .opt { display: flex; align-items: center; gap: 7px; padding: 3px 2px; }
+  .opt-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sw {
+    width: 26px; height: 15px; border-radius: 999px; flex: 0 0 auto;
+    background: var(--app-accent); border: 1px solid var(--app-border); position: relative;
+  }
+  .sw::after {
+    content: ""; position: absolute; inset-block-start: 1px; inset-inline-start: 1px;
+    width: 11px; height: 11px; border-radius: 50%; background: var(--app-muted-fg);
+  }
+  .sw.on { background: var(--app-primary); border-color: var(--app-primary); }
+  .sw.on::after { inset-inline-start: 12px; background: var(--app-primary-fg); }
+
+  .radio { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid var(--app-muted-fg); flex: 0 0 auto; }
+  .radio.on { border-color: var(--app-primary); border-width: 4px; }
+
+  .grp {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--app-muted-fg); font-weight: 620; margin: 6px 0 1px;
+  }
+  .grp:first-child { margin-top: 0; }
+
+  .kind { font-size: 10px; color: var(--app-muted-fg); flex: 0 0 auto; }
+
+  /* Per-column shape: level COUNT for a categorical, min–max for a continuous. Free when
+     the producer declared it; otherwise it costs a full column read, so an undeclared
+     column says "not read" rather than blocking the list or quietly scanning 10M rows. */
+  .stat { font-size: 10px; color: var(--app-muted-fg); flex: 0 0 auto; white-space: nowrap; }
+
+  /* Which annotation names a feature — symbol, Ensembl id, whatever the axis declares.
+     Governs DISPLAY only: search matches every annotation, and a row says which one it
+     matched when that is not the one shown. The entry key stays the identity. */
+  .annsel {
+    font-size: 10px; color: var(--app-muted-fg); flex: 0 0 auto;
+    border: 1px solid var(--app-border); border-radius: 4px; padding: 0 4px; cursor: pointer;
+  }
+
+  /* Emit button — one click puts a cell on the canvas. Icon-only, so it carries a
+     name: the repo's own guard gates every icon-only control on having hover text. */
+  .emit {
+    flex: 0 0 auto; width: 18px; height: 18px; border-radius: 4px;
+    border: 1px solid var(--app-border); background: var(--app-card);
+    color: var(--app-muted-fg); font-size: 12px; line-height: 16px;
+    text-align: center; cursor: pointer; user-select: none;
+  }
+  .opt:hover .emit { color: var(--app-primary); border-color: var(--app-primary); }
+
+  /* How many cells this column currently occupies on the canvas. Absent at zero —
+     a count of nothing is noise. */
+  .plotted {
+    flex: 0 0 auto; font-size: 10px; min-width: 14px; text-align: center;
+    color: var(--app-primary-fg); background: var(--app-primary);
+    border-radius: 999px; padding: 0 4px; line-height: 14px;
+  }
+
+  .mark {
+    font-size: 9px; font-weight: 700; letter-spacing: 0.04em;
+    color: var(--app-warning); border: 1px solid currentColor;
+    border-radius: 3px; padding: 0 3px; flex: 0 0 auto;
+  }
+
+  .search {
+    display: flex; align-items: center; gap: 6px;
+    border: 1px solid var(--app-border); border-radius: 6px;
+    padding: 4px 7px; color: var(--app-muted-fg); font-size: 12px;
+  }
+
+  .empty {
+    color: var(--app-muted-fg); font-size: 11.5px; line-height: 1.45;
+    padding: 4px 2px;
+  }
+  .empty b { color: var(--app-fg); font-weight: 600; }
+  .linkish { color: var(--app-primary); text-decoration: underline; text-underline-offset: 2px; }
+
+  /* the canvas stub beside the pane, for proportion */
+  .canvas-stub {
+    flex: 1 1 380px; min-width: 260px; align-self: stretch; min-height: 430px;
+    border: 1px dashed var(--app-border); border-radius: var(--app-radius);
+    background: var(--app-bg);
+    display: grid; grid-template-columns: 1fr 1fr; gap: 1px;
+    padding: 10px;
+  }
+  .stub-cell {
+    border: 1px solid var(--app-border); border-radius: 6px; margin: 4px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--app-muted-fg); font-size: 11px; text-align: center; padding: 6px;
+  }
+
+  /* annotation callouts */
+  .calls { flex: 0 0 240px; display: flex; flex-direction: column; gap: 0.9rem; padding-top: 4px; }
+  .call { font-size: 0.82rem; line-height: 1.45; color: var(--page-dim); }
+  .call b { color: var(--page-fg); font-weight: 620; display: block; font-size: 0.8rem; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 0.9rem; margin: 1rem 0; }
+  th, td { text-align: start; padding: 0.5rem 0.7rem; border-bottom: 1px solid var(--page-rule); vertical-align: top; }
+  th { font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--page-dim); font-weight: 620; }
+  .tw { overflow-x: auto; }
+
+  ul { margin: 0 0 1rem; padding-inline-start: 1.2rem; }
+  li { margin-bottom: 0.4rem; }
+
+  .states { display: flex; gap: 1.2rem; flex-wrap: wrap; }
+  .state { flex: 0 0 300px; }
+  .state h4 { font-size: 0.85rem; margin: 0 0 0.5rem; font-weight: 620; }
+
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<div class="wrap">
+
+  <p class="eyebrow">CytoAnalyst · workbench · design proposal</p>
+  <h1>The Visualize pane</h1>
+  <p class="lede col">
+    The pane exists, renders, and is empty — nothing in the codebase contributes to it, and a
+    processor package has no way to. This proposes what fills it, and what a single-cell project
+    looks like when it does.
+  </p>
+
+  <div class="note col">
+    <p>
+      <strong>One contribution kind, one canvas key.</strong> A package declares a
+      <em>section</em>: a normal declarative view spec with no owning analysis, bound to data by
+      <em>capability</em> rather than by producer. Sections stack inside the one pane and the user
+      drags them into order. Nothing gains a pane; the centre canvas stays reserved.
+    </p>
+  </div>
+
+  <h2>What a single-cell project looks like</h2>
+  <p class="col">
+    Rendered at the pane's real width — a 300&nbsp;px region, a 284&nbsp;px content box. That
+    constraint is not incidental: it is the same width that made the QC metrics table overflow
+    this morning, and any section designed at desktop width will meet it.
+  </p>
+
+  <div class="band">
+    <div class="band-row">
+
+      <div class="pane">
+        <div class="pane-head">
+          <span class="pane-title">Visualize</span>
+          <span class="mono" style="font-size:11px;color:var(--app-muted-fg)">14,416 cells</span>
+        </div>
+        <div class="pane-body">
+
+          <div class="sec">
+            <div class="sec-head"><span class="grip">⠿</span><span class="sec-title">Coordinates</span></div>
+            <div class="sec-body">
+              <div class="grp">Dataset 1</div>
+              <div class="opt"><span class="radio"></span><span class="opt-name">UMAP</span><span class="emit" title="Plot UMAP uncoloured">▶</span></div>
+              <div class="grp">Integration · run 4c9f</div>
+              <div class="opt"><span class="radio on"></span><span class="opt-name">UMAP</span><span class="emit" title="Plot UMAP uncoloured">▶</span></div>
+              <div class="opt"><span class="radio"></span><span class="opt-name">t&#8209;SNE</span><span class="emit" title="Plot t-SNE uncoloured">▶</span></div>
+            </div>
+          </div>
+
+          <div class="sec">
+            <div class="sec-head"><span class="grip">⠿</span><span class="sec-title">Colour by</span></div>
+            <div class="sec-body">
+              <div class="grp">Categorical</div>
+              <div class="opt"><span class="opt-name">cell_type</span><span class="stat mono">14</span><span class="plotted mono">2</span><span class="emit" title="Plot cell_type">+</span></div>
+              <div class="opt"><span class="opt-name">leiden</span><span class="stat mono">23</span><span class="emit" title="Plot leiden">+</span></div>
+              <div class="opt"><span class="opt-name">sample</span><span class="stat mono">6</span><span class="emit" title="Plot sample">+</span></div>
+              <div class="opt"><span class="opt-name">batch</span><span class="mark">?</span><span class="stat mono">2</span><span class="emit" title="Plot batch">+</span></div>
+              <div class="grp">Continuous</div>
+              <div class="opt"><span class="opt-name">n_genes</span><span class="stat mono">201–8,231</span><span class="emit" title="Plot n_genes">+</span></div>
+              <div class="opt"><span class="opt-name">pct_mito</span><span class="stat mono">0–41.2</span><span class="plotted mono">1</span><span class="emit" title="Plot pct_mito">+</span></div>
+              <div class="opt"><span class="opt-name">doublet_score</span><span class="stat mono">shape not declared</span><span class="emit" title="Plot doublet_score">+</span></div>
+            </div>
+          </div>
+
+          <div class="sec">
+            <div class="sec-head">
+              <span class="grip">⠿</span><span class="sec-title">Features</span>
+              <span class="annsel" title="Show features by">Symbol ▾</span>
+            </div>
+            <div class="sec-body">
+              <div class="search"><span>Search “CD3”</span></div>
+              <div class="grp">RNA <span class="stat mono">1 of 18,204</span></div>
+              <div class="opt"><span class="opt-name">CD3E</span><span class="stat mono">ENSG…98851</span><span class="emit" title="Plot CD3E (RNA)">+</span></div>
+              <div class="grp">ADT <span class="stat mono">1 of 137</span></div>
+              <div class="opt"><span class="opt-name">CD3</span><span class="emit" title="Plot CD3 (ADT)">+</span></div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <div class="canvas-stub" aria-label="the centre canvas, for proportion">
+        <div class="stub-cell">UMAP · cell_type</div>
+        <div class="stub-cell">UMAP · pct_mito</div>
+        <div class="stub-cell" style="grid-column:1/-1">one cell per click — same coordinate, plotted two ways, side by side</div>
+      </div>
+
+      <div class="calls">
+        <p class="call"><b>The coordinate set IS the choice — there is no row-space question</b>
+          <em>Superseded 2026-08-13 (owner).</em> This pane opened with a <em>Row space</em> block
+          above Coordinates. It is deleted: an axis is not a thing anybody picks, and the words
+          do not exist in the owner's vocabulary. Coordinates is the pane's first block, it lists
+          with nothing chosen first, and <em>which rows</em> is DERIVED from the set you pick —
+          Dataset 1's UMAP and the integration's UMAP are simply two entries under two headings.
+          The heading is dropped when there is only one dataset.</p>
+        <p class="call"><b>Sections stack and reorder</b>
+          Each is an independent contribution with its own store. The grip is the drag handle;
+          order persists per project. A section installed later sorts to the end rather than
+          being frozen out.</p>
+        <p class="call"><b>Only 2-D sets are listed</b>
+          <em>Divergence, recorded 2026-08-13 (owner).</em> This block used to list
+          <span class="mono">PCA</span> as a third option. A decomposition declares fifty
+          components and this pane draws in two, so offering it means either a component picker
+          or a silent "first two" — <span class="mono">layouts[0]</span> wearing a default. A set
+          declaring more than two components is not offered at all. Do not restore
+          <span class="mono">PCA</span> here; <code>ui/coordinates.yaml</code> records the same
+          divergence beside its <code>dims: 2</code>.</p>
+        <p class="call"><b>The coordinate is a radio</b>
+          One at a time. It says <em>which points, positioned how</em> — the frame every plot
+          below is drawn in, and the rows every section below is scoped to.</p>
+        <p class="call"><b>Colour by and Features EMIT</b>
+          The button on the right puts a cell on the canvas. Two clicks, two cells: the same
+          coordinate plotted two ways, side by side. The pane is not holding one current
+          colouring — it is a launcher, and the canvas holds the result.</p>
+        <p class="call"><b>Features group by what the axis declares</b>
+          Uniqueness holds WITHIN a modality and deliberately not across, so RNA
+          <span class="mono">CD3</span> and ADT <span class="mono">CD3</span> are both
+          <span class="mono">CD3</span> — and the group heading carries the difference instead of
+          a per-row qualifier. It also makes a 137-entry protein panel findable beside 18,204
+          genes. One group ⇒ no heading. The storage index carries a
+          <span class="mono">CD3&#8209;1</span>; it must never be shown.</p>
+        <p class="call"><b>A feature has several names</b>
+          The header picks which annotation is <em>shown</em>; search matches all of them, and a
+          row says which one it matched. The entry key is the identity — a symbol is a label, and
+          symbols are reused.</p>
+        <p class="call"><b>Every row states its shape</b>
+          A categorical shows its level count, a continuous its range — the two facts that decide
+          whether a column is worth plotting. Both are read from the catalog summary, never by
+          downloading the column; a producer that declared neither says so, and is never scanned
+          to fill a list.</p>
+        <p class="call"><b>Categorical before continuous</b>
+          A categorical column answers <em>what are the groups</em> — the question people open
+          the pane with. Continuous is usually the QC follow-up. The ordering is the package's
+          to declare, not the engine's to assume.</p>
+        <p class="call"><b>The <span class="mono">?</span> marks unverified alignment</b>
+          No producer declares alignment yet, so this is the migration state, not a permanent
+          tier. It is offered but never pre-selected, and the mark follows the choice into the
+          legend.</p>
+      </div>
+
+    </div>
+    <p class="caption">
+      Content is a real single-cell shape: two datasets, an integration run, and the columns that
+      survive the union.
+    </p>
+  </div>
+
+  <h2>Why the integration can be coloured at all</h2>
+  <p class="col">
+    <code>cell_type</code> exists in both datasets, so every cell in the integrated embedding has a
+    value — ds1's cells from ds1's column, ds2's from ds2's. Coverage is <em>complete</em>, by union.
+    A ds1&#8209;only column is the different case, where half the points have nothing.
+  </p>
+  <p class="col">
+    The pane does not guess which situation it is in. The integrator already computes the union
+    alignment and already stamps <code>coverage</code> into the artifact's metadata, so
+    <code>coverage.missing == 0</code> is the machine-checkable boundary between the two. The
+    producer measured it; the viewer reads it.
+  </p>
+
+  <div class="note col">
+    <p>
+      <strong>Same name, different kind, is two columns.</strong> If ds1's <code>cell_type</code> is
+      categorical and ds2's is continuous, they do not compose — neither coercion is honest.
+      Categorical&nbsp;→&nbsp;continuous invents an ordering the data has no claim to; the reverse
+      invents bin edges nobody chose. The pane offers both, distinguished by kind, and says why
+      they are not one option.
+    </p>
+  </div>
+
+  <h2>The states that are not the happy path</h2>
+  <p class="col">
+    Every one of these has to say what is missing. A blank section passes every automated check
+    this repo has — that failure has already been paid for once.
+  </p>
+
+  <div class="band">
+    <div class="states">
+
+      <div class="state">
+        <h4>No 2-D coordinates in this project</h4>
+        <div class="pane" style="width:300px">
+          <div class="pane-head"><span class="pane-title">Visualize</span></div>
+          <div class="pane-body">
+            <div class="sec">
+              <div class="sec-head"><span class="grip">⠿</span><span class="sec-title">Coordinates</span></div>
+              <div class="sec-body">
+                <div class="empty">
+                  <b>No 2&#8209;D coordinates in this project yet</b> — run an analysis that
+                  produces some.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="caption">The remedy names the analysis, derived from what the section consumes — no view names another package.</p>
+      </div>
+
+      <div class="state">
+        <h4>An integration with no merged columns</h4>
+        <div class="pane" style="width:300px">
+          <div class="pane-head"><span class="pane-title">Visualize</span></div>
+          <div class="pane-body">
+            <div class="sec">
+              <div class="sec-head"><span class="grip">⠿</span><span class="sec-title">Colour by</span></div>
+              <div class="sec-body">
+                <div class="empty">
+                  <b>No column covers all 14,416 cells.</b> Dataset&nbsp;1 and Dataset&nbsp;2 each have
+                  <code>cell_type</code>, but nothing has merged them onto these rows —
+                  <span class="linkish">merge annotations</span>.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="caption">The diagnosable gap: nothing can force a producer to emit merged columns, so the pane detects the absence and names the fix.</p>
+      </div>
+
+      <div class="state">
+        <h4>Nothing selected yet</h4>
+        <div class="pane" style="width:300px">
+          <div class="pane-head"><span class="pane-title">Visualize</span></div>
+          <div class="pane-body">
+            <div class="sec">
+              <div class="sec-head"><span class="grip">⠿</span><span class="sec-title">Colour by</span></div>
+              <div class="sec-body">
+                <div class="grp">Categorical</div>
+                <div class="opt"><span class="opt-name">batch</span><span class="mark">?</span><span class="emit" title="Plot batch">+</span></div>
+                <div class="empty" style="margin-top:6px">
+                  The canvas stays empty until you plot something. The one available column has
+                  <b>unverified alignment</b>.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="caption">Sole candidacy is not consent. One option does not become the default, and neutral is a real state rather than a colour that looks like data.</p>
+      </div>
+
+    </div>
+  </div>
+
+  <h2>The rule underneath all of it</h2>
+  <p class="col">
+    <strong>A name is not an identity.</strong> Six defects found in one sweep are the same mistake
+    wearing different clothes, and the two places the codebase already applies the rule are the two
+    places the bug does not exist.
+  </p>
+
+  <div class="tw">
+    <table>
+      <thead>
+        <tr><th>Where</th><th>The name that wasn't an identity</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Two artifact labellers</td><td>One artifact read two ways depending on the surface</td></tr>
+        <tr><td><code>umap1</code> vs <code>umap3</code></td><td>Same label, different row space</td></tr>
+        <tr><td>The mask column</td><td>Two runs, one column name, no refusal</td></tr>
+        <tr><td><code>source_dataset_of</code></td><td>Returns the first edge — an integration reports one input</td></tr>
+        <tr><td><code>layouts[0]</code></td><td>Position is a name's degenerate form: "whichever was first"</td></tr>
+        <tr><td>Columns keyed by label</td><td>Same name, different kind, silently one option</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Still open</h2>
+  <ul class="col">
+    <li><strong>Is Features a section, or a third group inside Colour by?</strong> Same act, very
+      different interaction — and a section is also the drag unit.</li>
+    <li><s><strong>Does the anchor default when there is exactly one row space?</strong></s>
+      Settled 2026-08-13 (owner): there is no anchor and no such question. See the callout
+      beside the specimen.</li>
+    <li><strong>What is single-cell-specific here?</strong> If Coordinates and Colour by are generic
+      over any plottable&#8209;XY plus aligned columns, they are not single-cell at all — and that is
+      a result, not a gap.</li>
+    <li><strong>The naming.</strong> The unit becomes an <em>extension</em>; <em>processor</em>
+      narrows to the compute inside one. Four stages, no data migration.</li>
+  </ul>
+
+  <p class="col" style="color:var(--page-dim);font-size:0.9rem;margin-top:2.5rem">
+    Design only — nothing implemented. The full written design runs to ~1,800 lines with the
+    verification behind each claim, the widget vocabulary, the cross-package binding rule and the
+    migration staging.
+  </p>
+
+</div>

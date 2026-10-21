@@ -1,0 +1,244 @@
+# § Coordinates — THE PANE'S FIRST BLOCK, and its only question (visualize-pane ITEM-42 /
+# ITEM-43).
+#
+# Generic over the `plottable-xy` CAPABILITY plus a declared 2-component shape. Nothing in this
+# file is single-cell: it never names a datatype, an axis label, a column or a modality. That is
+# INV-14 as a fact about this file, not an aspiration — the section would work unchanged against
+# a package that contributes plottable positions for anything.
+#
+# ── IT LISTS WITH NO PRIOR SELECTION (owner, 2026-08-13) ───────────────────────────────
+#
+# The source used to be `aligned_to: "$scope.axis"`, i.e. the list was empty until the pane's
+# first block had been answered. That block was a control asking WHICH ROWS, and the owner's
+# ruling is that the question does not exist. So the source is project-wide, this section is the
+# first thing on the pane, and the rows every OTHER section is scoped to are DERIVED from the
+# coordinate set picked here (`core/runtime/coordinateAxis.ts`). Nothing is ever asked about an
+# axis, in any branch.
+#
+# ── ONLY 2-D — A DELIBERATE DIVERGENCE FROM THE BINDING MOCKUP ─────────────────────────
+#
+# THE DIVERGENCE LIVES HERE. `docs/design/visualize-pane-mockup.html` lists three coordinate
+# sets and the third is `PCA`. A typical decomposition declares FIFTY components, and this pane
+# draws a picture in TWO. Offering it would mean either a component picker (a question about
+# which of fifty projections was meant) or a silent "first two" — which is `layouts[0]` wearing
+# a default, the exact defect this pane exists against. So `dims: 2` narrows the offer and an
+# artifact declaring more components IS NOT OFFERED AT ALL. Do not "restore" PCA to this list;
+# the mockup records the same divergence beside its own PCA row.
+#
+# ── One at a time ──────────────────────────────────────────────────────────────────────
+#
+# The coordinate is the FRAME (owner, DEC-10: *"Coordinates are RADIO — one active choice"*), so
+# this control holds exactly one value — and unlike § Colour by, whose rows are ONLY verbs, a row
+# here is a choice AND a verb: the radio says which frame the other sections are scoped to, the
+# ▶ beside it draws that row.
+#
+# ── AND THE FIRST ONE IS SELECTED ON OPEN (owner, ledger #24) ──────────────────────────
+#
+# This block used to say the opposite — *"it is NEVER chosen for the user … a frame picked for
+# you is a picture you did not ask a question about"* — and that rule was about a SILENT binding,
+# which is a different thing from this one. `auto_select_first` picks the first candidate into a
+# radio the reader is looking at, marks it `auto`, and leaves it one click from any other. What
+# the old rule bought was a first screen that lists the project's coordinate sets and then scopes
+# nothing until a gesture with exactly one sensible answer; that is what the owner asked to stop
+# paying for. `auto_bind_sole_candidate` stays ABSENT: it is the invisible-binding affordance, and
+# nothing here wants it.
+#
+# ── The coordinate is the PANE's value, not this section's (ITEM-11) ───────────────────
+#
+# `coordinate` declares `scope: pane`, so this control writes THROUGH to `$scope.coordinate` and
+# every other section reads the same value — and `$scope.axis` is derived from it, so choosing
+# here scopes § Colour by and § Features without either of them being asked anything. Pane state
+# stays CLOSED at two values — `parseViewSpec` refuses `scope: pane` on any other field name, so
+# this file could not mint a third.
+id: sc.viz.coordinates.section
+title: Coordinates
+permission: projects::use
+# R6 (ITEM-64) — what this section is HOLDING, so its host frame can mark it when COLLAPSED.
+# Collapse is display, not reset, and the open plots are the state a user would miss. The
+# section says WHAT counts; the host learns a number and never a field name.
+badge: "$state.plots.length"
+state:
+  # `null`, never `""` — R1/INV-2, and `parseViewSpec` now REFUSES `""` as the default of a
+  # field bound to a closed-set control, naming the field.
+  coordinate: { type: string, default: null, scope: pane }
+  # THE EMITTED CELLS this section owns (ITEM-31). Each section keeps its OWN list and its
+  # `canvas:` block is a `for_each` over it; the canvas COMPOSES the sections' contributions.
+  # It is state, not a canvas mutation: the canvas is a PROJECTION that is re-derived on every
+  # change, so "append a cell" as an effect op would be a mutation of something re-derived —
+  # the shape the reopen-loop guard exists to prevent (which is why `EFFECT_OPS` stays closed).
+  plots: { type: array, default: [] }
+data:
+  # WHAT THE FRAME IS CALLED (ITEM-35/ITEM-43). Pane scope carries two opaque identities; a
+  # control that says *"Plot UMAP"* and a cell titled `PBMC donor A · UMAP` need their NAMES.
+  # Meta-only — this resolves from catalog declarations and reads no column body (INV-11).
+  frame:
+    source: pane_frame
+    args: { axis: "$scope.axis", coordinate: "$scope.coordinate" }
+widgets:
+  - id: coordinatePicker
+    kind: artifact_ref
+    # NO `label:`. The section header above this widget already says "Coordinates" (this file's
+    # own `title:`, rendered by the host's `SectionFrame`), and the picker is the only control
+    # in the section — so a `label: Coordinates` printed the word twice, one line apart, and
+    # the second one carried no information the first had not already given.
+    #
+    # `aria_label`, not `label`: dropping the visible word must not drop the CONTROL'S NAME.
+    # The radiogroup's accessible name is derived from `label`, so removing it alone would have
+    # degraded the name to a generic fallback — a sighted reader would have gained a line and a
+    # screen-reader user would have lost the one word that says what the control is. The two
+    # are separate declarations for exactly that reason.
+    aria_label: Coordinates
+    # THE RADIO, and it is now the control and not only the semantics (owner, DEC-10). The
+    # prose at the top of this file has asserted "§ Coordinates IS the radio" since it was
+    # written while a dropdown shipped; a design and its implementation describing different
+    # things is drift whether or not anything is red. Every candidate is visible at once —
+    # which is the point for the FRAME, because a closed picker reading `UMAP` gives no hint
+    # that a second embedding exists, and a picture drawn in the wrong frame is the failure
+    # this whole pane is written against. Above the engine's declared threshold it falls back
+    # to a searchable list and says so.
+    control: radio
+    # ── ALWAYS SELECT THE FIRST ONE (owner, ledger #24) ───────────────────────────────────
+    #
+    # It reverses what the prose above this block used to assert (*"it is NEVER chosen for the
+    # user"*), and the reversal is the owner's, not a drift: the objection that rule answered
+    # was a SILENT binding nobody could see, and this control is a radio where the selection is
+    # visible, marked `auto`, and one click from being changed. What it removes is a first
+    # screen that lists the project's coordinate sets and then refuses to scope anything until
+    # a gesture with exactly one sensible answer.
+    auto_select_first: true
+    # PROJECT-WIDE, so the list is there on the first screen. Two DECLARED narrowings and no
+    # third: the capability (positions a picture can be drawn in) and the component count (two —
+    # see the divergence recorded at the top of this file). The engine groups what comes back
+    # under its source dataset and DRAWS that heading always, including at one dataset (owner,
+    # ledger #8/#16 — the omission was never asked for).
+    source: { capabilities: [plottable-xy], dims: 2 }
+    value: "$state.coordinate"
+    onChange: sc.viz.chooseCoordinate
+    # ── THE ▶, ON EVERY ROW (owner, ledger #27) ──────────────────────────────────────────
+    #
+    # *"The plot embedding button should be just like the visualize button in feature and
+    # colour by, not on the bottom of the card but beside each of embedding."* THE MOCKUP
+    # ALREADY SHOWED THIS (`UMAP ▶ / t-SNE ▶ / PCA ▶`); a single wide button at the foot of the
+    # card is what shipped instead, and it could only ever draw the ONE set that happened to be
+    # selected — so plotting a second one bare meant moving the frame first, i.e. reframing
+    # every other section as a side effect of asking for a picture.
+    #
+    # A row is now a CHOICE and a VERB at once: the radio picks the frame the other sections
+    # are scoped to, and the ▶ draws THAT row, whichever row is checked. Every argument comes
+    # from `$option`, so a cell is a picture of the row that was pressed and keeps the name it
+    # was born with (ITEM-57).
+    row_action:
+      label: Plot
+      icon: plot
+      onClick: sc.viz.plotFrame
+      args:
+        artifact: "$option.id"
+        coordinate_name: "$option.label"
+        row_space: "$option.dataset"
+    # INV-5 — the view's OWN sentence for "nothing to offer", declared on the control because a
+    # view cannot observe candidate availability at all. ONE LINE (owner feedback #6: a ~300px
+    # rail is not the place for a paragraph).
+    empty_text: No 2-D coordinates in this project yet — run an analysis that produces some.
+
+  # ── THE ALIGNMENT ALERT IS DELETED (owner, ledger #28) ────────────────────────────────
+  #
+  #   *"remove the 'Alignment not declared — these coordinates may not line up with the
+  #    anchored rows. Plots made from them carry the mark.' warning please"*
+  #
+  # It is deleted rather than shortened again: the previous round answered a complaint about
+  # this same alert by collapsing four paragraphs into the one line quoted above, and the
+  # owner's next message was about the line. The widget is gone, `pane_frame` no longer
+  # resolves the fact it was bound to, and ledger #29 took the plot's copy of it with it —
+  # so there is nothing left to re-render this from.
+actions:
+  - id: sc.viz.chooseCoordinate
+    title: Choose coordinates
+    permission: projects::use
+    mutating: false
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { coordinate: "$params.value" }
+
+  # ITEM-36 / DEC-9 — a second click opens a SECOND cell. It does not toggle the first off and
+  # does not replace it: a row is a VERB, not a choice, so pressing it twice is asking for two
+  # pictures. `listAppend` is the whole of that rule.
+  - id: sc.viz.plotFrame
+    title: Plot the coordinates
+    permission: projects::use
+    mutating: false
+    stateful: true
+    params: { artifact: string, coordinate_name: string, row_space: string }
+    body:
+      - listAppend:
+          path: plots
+          value:
+            # WHICH artifact supplies the positions, captured AT EMIT TIME — and taken from the
+            # ROW THAT WAS PRESSED, never from `$scope.coordinate`. A cell keeps the frame it
+            # was born in (ITEM-57's rule, applied to the frame rather than to a feature):
+            # re-reading the pane's live selection would silently redraw an open figure the
+            # moment the picker moved, and would also make a row's ▶ draw a DIFFERENT row.
+            artifact: "$params.artifact"
+            # …and what that row was CALLED, and whose data it is. Both captured at emit for
+            # the same reason, and both from the pressed row rather than from the frame.
+            row_space: "$params.row_space"
+            coordinate_name: "$params.coordinate_name"
+            # NO `note:`. The cell used to be born carrying the frame's alignment mark, which
+            # viz rendered as the plot's `provenanceNote` — *"remove the alignment not declared
+            # in the plot too"* (owner, ledger #29). An emitted cell now carries what it is a
+            # picture OF and nothing about what nobody declared.
+
+  # ITEM-32 — the cell's close is routed to the EMITTING section's own declared action, which
+  # removes the entry from THIS section's list. One owner, one path: a raw pane removal would
+  # be re-created by the next `for_each` render (the reopen loop).
+  - id: sc.viz.unplotFrame
+    title: Close this plot
+    permission: projects::use
+    mutating: false
+    stateful: true
+    params: { index: number }
+    body:
+      - listRemove: { path: plots, index: "$params.index" }
+
+# ── THE PROJECTION ──────────────────────────────────────────────────────────────────────
+#
+# One dataset base and one scatter PER EMITTED CELL. The bases are `plots.$i` — a path into
+# this section's own `plots` state rather than a `data:` slice — because a `data:` block's
+# keys are literals an author wrote and an emitted cell is minted by the user. `$i` is the
+# key, and a position in a list is unique in that list by construction.
+#
+# This paragraph used to carry a second rationale — that a canvas dataset is also an identity
+# SPACE, so per-cell bases keep the emphasis of one cell out of its neighbour. That rationale is
+# SUPERSEDED and was removed rather than left to mislead. (The superseded sentence is deliberately
+# NOT quoted: TEST-18 asserts its ABSENCE from this file, and a quotation inside a note explaining
+# its removal is indistinguishable from the live claim to any guard that reads text.)
+# It describes the DECLARATION layer,
+# and those declared bases are exactly what `canvasFeed.ts`'s `sharedCoordinateBase` folds.
+# Panes drawn in ONE coordinate artifact resolve to ONE dataset base and DO brush together —
+# `450efed6`, ledger row 34, closed by the owner as the DESIRED behaviour. Selection emphasis
+# auto-links on canonical-id intersection with zero config; only camera fan-out is opt-in.
+#
+# This section deliberately carries NO canvas-level `controls`/`selection`/`filters`/`mask`:
+# those keys are LAST-WRITER-WINS across contributors (ITEM-31c), so at most one section on
+# the pane may carry them.
+canvas:
+  grid: []
+  datasets:
+    - id: "frame-$i"
+      for_each: "$state.plots as $c, $i"
+      # ITEM-29's `coords` — this base is drawn in the artifact the CELL declared, not in the
+      # project's first plottable-xy artifact. That is the `layouts[0]` defect deleted for
+      # every surface this round adds. The base binds NO column (that is what makes it the
+      # BARE frame), so its point count comes from these positions.
+      coords: { artifact: "$c.artifact" }
+  series:
+    - id: "s-frame-$i"
+      for_each: "$state.plots as $c, $i"
+      type: scatter
+      coordId: "frame-$i"
+      datasetId: "frame-$i"
+      controlled: true
+      # R10 at the cell level (ITEM-35): a cell SAYS whose row space it is, which is what makes
+      # a canvas holding two of them readable. Joined here from the halves captured at emit.
+      title: "$c.row_space · $c.coordinate_name"
+      close: { action: sc.viz.unplotFrame, args: { index: "$i" } }

@@ -1,0 +1,224 @@
+# open-kinds — the 3 ZERO-CORE kinds SOMA structurally cannot hold, as pure DATA.
+#
+# universal-tiledb-serving Slice 4 (INV-2 new-kind-zero-core, INV-7 open-axis DATA).
+# The whole thesis of this lifecycle: SOMA's axis vocabulary is CLOSED to obs/var with
+# no unstructured slot, so a `geneset×gene` membership, a `node×node` attributed graph,
+# and a `comparison×gene` DE table have NO home in it (R4 §2.4/§2.6/§2.7). Here they
+# become DECLARED DATA kinds — each a datatype that declares its `arrays[]` over an
+# OPEN axis set — and are served with ZERO new core Rust: `GET /artifacts/{id}/data
+# [/{*member}]` hands over opaque byte ranges and the CLIENT decodes from the
+# producer-declared `structure` (artifact-model INV-1/ITEM-12), so a geneset membership
+# (CSC), a graph adjacency (CSC) and a DE stat matrix (dense) are all just members of a
+# Zarr store and none of them needs a core branch.
+#
+# Adding this whole package is a NEW `packages/<id>/` folder (auto-baked by
+# `extensions/loader.rs::include_dir!`) — it touches ZERO app-core file. The
+# un-gameable proof is `scripts/check-kinds-zero-core.sh` + the Rust grep-guard test
+# `kinds_zero_core_scope` (mirrors processor-separability's no-domain-in-builtin gate):
+# none of these kind ids may appear in serve_core / datatype-builtin / workstore.
+#
+# Datatypes-only, converter-less manifest (the loader tolerates a run-entry-free
+# manifest — it only iterates converters, DEC-3). Parsed at boot by
+# `extensions/loader.rs`; merged into the datatype registry by
+# `datatype/mod.rs::init` via `DatatypeRegistry::build_from_embedded()`.
+id: open-kinds
+name: Open Kinds (geneset / graph / DE)
+publisher: cyto
+# 0.2.0 — drops the RETIRED `storage.selector_map` / `storage.tiers` and
+# `arrays[].selector_map` keys (artifact-model ITEM-14; §0.3 Deleted). The core structs
+# that accepted-and-discarded them are gone and both are `deny_unknown_fields`, so an
+# extracted manifest still spelling either key now FAILS to parse. Seed reconciliation
+# is version-keyed — this bump forces a provisioned deployment to re-extract.
+# 0.3.0 — declares `entity_axis` on all three kinds, and TWO of them are dense over
+# their SECOND declared axis: `geneset/collection`'s primary `(gene × geneset)`
+# membership is dense over `gene` (a geneset column's non-zeros are gene indices) and
+# `de/result`'s `(gene × comparison)` stat arrays are dense over `gene`. The consumer's
+# former `axes[0]` rule answered `geneset` and `comparison` for those — plausible
+# numbers, wrong axes. Seed reconciliation is version-keyed; this bump forces the
+# re-extract.
+#
+version: 0.3.0
+apiVersion: "1.0"
+contributes:
+  datatypes:
+    # ── geneset — a collection of gene groups (GMT/MSigDB-shaped) SOMA can't axis ──
+    # Membership `(geneset, gene)` sparse, per-cell scores `(obs, geneset)` dense, and
+    # per-set metadata `(geneset)` table (R4 §2.6). `geneset` is a NEW axis — neither
+    # obs nor var — so AnnData smuggles gene sets into `uns`; here it is first-class.
+    - id: geneset/collection
+      extends: data
+      title: Gene-set collection
+      description: >-
+        A collection of gene sets (GMT/MSigDB-shaped): a (geneset × gene) membership
+        incidence, optional per-cell (obs × geneset) activity scores, and per-set
+        metadata. `geneset` is an axis SOMA's fixed obs/var vocabulary cannot express.
+      is_abstract: false
+      # ── PRODUCER CONTRACT (increment-1 freeze) vs DECLARED SHAPE ──────────────────────
+      # The `arrays` below (membership / scores / metadata) are the type's FULL shape. A
+      # producer MAY emit a subset (the platform routes each store on ONE structure.kind, so
+      # a single artifact cannot co-locate a CSC membership store and a columnar metadata
+      # table — see .lifecycle/geneset-increment-1 IMPL_NOTES). The increment-1 freeze
+      # producer (`geneset/compute/freeze.py`) therefore emits ONLY the `membership` CSC and
+      # rides the per-set metadata (name/description/collection + kind/origin/data_driven,
+      # GS-INV-12) in the artifact's producer-declared `structure.sets` channel (the sanctioned
+      # `stamp_cyto_attributes` seam DE uses). That per-set metadata is read back END-TO-END
+      # through ingest→catalog by `server/tests/geneset/freeze_test.rs` (it asserts each set's
+      # kind/origin/data_driven off the frozen artifact's catalog `structure`) — INV-4/5 proven
+      # on the emitted artifact, not merely on this declaration. The `scores` +
+      # `metadata`-columnar-table arrays are the increment-2 materialization target (per-cell
+      # scoring + a real columnar metadata store); a subset emit is conformant today.
+      axes:
+        - { name: geneset, key_label: geneset_id }
+        - { name: gene, key_label: gene_id }
+        - { name: obs, key_label: barcode }
+      # WHICH declared axis is the ENTITY axis — the axis whose entries a value of
+      # this type has exactly ONE PER (a layout point, a dense column entry). The
+      # `axes` list above is UNORDERED IDENTITY, so this may not be read off a
+      # position; the consumer refuses rather than guessing when it is absent on a
+      # multi-axis type. Build-gated: it must name one of the axes above.
+      entity_axis: gene
+      # PRIMARY served array = the membership incidence (CSC: a geneset column is
+      # contiguous), so the chunks covering one geneset's column are contiguous byte
+      # ranges the client fetches from `/data/membership/…` and decodes itself.
+      storage:
+        layout: { kind: chunked_sparse, orientation: csc }
+        format: zarr
+        file_layout: single
+      capabilities: [sliceable, collection]
+      arrays:
+        - name: membership
+          kind: geneset-membership
+          dims: [{ axis: gene }, { axis: geneset }]
+          attrs: [{ name: member, dtype: f32 }]
+          layout: { kind: chunked_sparse, orientation: csc }
+        - name: scores
+          kind: embedding
+          dims: [{ axis: obs }, { axis: geneset }]
+          attrs: [{ name: score, dtype: f32 }]
+          layout: { kind: chunked_dense }
+        - name: metadata
+          kind: annotation-table
+          dims: [{ axis: geneset }]
+          attrs:
+            - { name: name, dtype: str }
+            - { name: description, dtype: str }
+            - { name: collection, dtype: categorical }
+            # Provenance/consumer flags (doc 17 GS-INV-12): how the set was made
+            # (`origin`), whether it is a double-dipped hypothesis (`data_driven`),
+            # and whether it is annotation-consumable (`kind`: celltype-markers vs
+            # signatures). Additive to the declared name/description/collection.
+            - { name: kind, dtype: categorical }
+            - { name: origin, dtype: categorical }
+            - { name: data_driven, dtype: bool }
+          layout: { kind: columnar_table }
+
+    # ── graph — attributed nodes + edges (the trajectory/PAGA shape SOMA can't hold) ──
+    # Adjacency `(node, node)` sparse (both dims the SAME axis), an edge-list `(edge)`
+    # table with typed edge attrs, and node attributes `(node)` (R4 §2.4). A cluster- or
+    # node-anchored graph has no obsp/varp home in SOMA — its axis is neither obs nor var.
+    - id: graph/attributed
+      extends: data
+      title: Attributed graph
+      description: >-
+        An attributed graph: a (node × node) sparse adjacency, an edge-list with typed
+        edge attributes, and per-node attributes. The abstracted-graph / trajectory
+        shape whose axis is neither obs nor var, so SOMA (obsp/varp only) cannot hold it.
+      is_abstract: false
+      axes:
+        - { name: node, key_label: node_id }
+        - { name: edge, key_label: edge_id }
+      # WHICH declared axis is the ENTITY axis — the axis whose entries a value of
+      # this type has exactly ONE PER (a layout point, a dense column entry). The
+      # `axes` list above is UNORDERED IDENTITY, so this may not be read off a
+      # position; the consumer refuses rather than guessing when it is absent on a
+      # multi-axis type. Build-gated: it must name one of the axes above.
+      entity_axis: node
+      # PRIMARY served array = the adjacency (CSC: a node's column is contiguous), so a
+      # node's weighted neighbours are one contiguous range in `/data/adjacency/…`.
+      storage:
+        layout: { kind: chunked_sparse, orientation: csc }
+        format: zarr
+        file_layout: single
+      capabilities: [sliceable, graph]
+      arrays:
+        - name: adjacency
+          kind: graph
+          dims: [{ axis: node }, { axis: node }]
+          attrs: [{ name: weight, dtype: f32 }]
+          layout: { kind: chunked_sparse, orientation: csc }
+        - name: edges
+          kind: annotation-table
+          dims: [{ axis: edge }]
+          attrs:
+            - { name: src, dtype: i64 }
+            - { name: dst, dtype: i64 }
+            - { name: weight, dtype: f32 }
+          layout: { kind: columnar_table }
+        - name: node_attrs
+          kind: annotation-table
+          dims: [{ axis: node }]
+          attrs:
+            - { name: degree, dtype: i64 }
+            - { name: cluster, dtype: categorical }
+          layout: { kind: columnar_table }
+
+    # ── de/result — ONE comparison's 2D GENE TABLE (DEC-13, differential-expression) ──
+    # RESHAPED from the former stacked `(comparison × gene)` matrix: ONE comparison = ONE
+    # 2D `de/result` whose single entity axis is `gene` (the synthetic `comparison` axis is
+    # DROPPED). This is the gene-axis analog of a `metadata-column`, served through the
+    # ordinary gene-axis annotation-table path (no bespoke comparison-axis byte-range decode).
+    # It is the physical layout the workstore's one-table-per-artifact grain wants, and it is
+    # what makes ABSENCE-IS-ABSENCE (INV-3) enforceable: different comparisons in one run can
+    # have different regimes (one R1 with `padj`, one R2 without), which a single stacked
+    # `padj` matrix could not represent without NaN-fill. Column names are DOMAIN-NEUTRAL
+    # (strip-lint safe): `neglog10p` is stored, NOT raw `pval` (G1 — f32 p underflows to 0
+    # below ~1e-45, destroying the ranking among the top hits). The per-artifact `regime`
+    # (G3) + `multiplicity_family` (G4) ride the artifact's `attributes.cyto.de`. R2/R3
+    # artifacts OMIT `neglog10p`/`padj`/`padj_across` entirely (absent, not 1 — INV-3).
+    - id: de/result
+      extends: tabular
+      title: DE result (per-comparison gene table)
+      description: >-
+        One differential-expression comparison as a 2D gene table — a per-gene annotation
+        table over the `gene` axis carrying effect size (`logFC`), a ranking `score`,
+        detection rates (`pct_1`/`pct_2`), cell counts (`n_1`/`n_2`) and mean expression
+        (`base_mean`), plus (only when the regime is inferential) `neglog10p`, `padj`, the
+        across-comparison `padj_across`, and the pseudobulk-sample counts per side
+        (`n_samples_1`/`n_samples_2`). `-log10(p)` is stored, never raw `p`. There is NO
+        `comparison` axis — one comparison is one artifact; a run's set is indexed by its
+        `report/qc`.
+      is_abstract: false
+      axes:
+        - { name: gene, key_label: gene_id }
+      # The single entity axis — a value of this type has exactly ONE per gene.
+      entity_axis: gene
+      # Served through the ordinary gene-axis annotation-table (columnar) path.
+      storage:
+        layout: { kind: columnar_table }
+        format: zarr
+        file_layout: single
+      capabilities: [de-result]
+      arrays:
+        # ONE per-gene annotation table. The p-family members (`neglog10p`/`padj`/
+        # `padj_across`) are DECLARED here as the type's schema but are WRITTEN by a producer
+        # only in an inferential (R1) regime — an R2/R3 artifact omits them (INV-3).
+        - name: table
+          kind: annotation-table
+          dims: [{ axis: gene }]
+          attrs:
+            - { name: logFC, dtype: f32 }
+            - { name: neglog10p, dtype: f32 }
+            - { name: padj, dtype: f32 }
+            - { name: padj_across, dtype: f32 }
+            - { name: base_mean, dtype: f32 }
+            - { name: pct_1, dtype: f32 }
+            - { name: pct_2, dtype: f32 }
+            - { name: n_1, dtype: f32 }
+            - { name: n_2, dtype: f32 }
+            # C7 — n_1/n_2 are always CELL counts; in an R1 (pseudobulk) result the DISTINCT
+            # pseudobulk-SAMPLE counts per side are `n_samples_1`/`n_samples_2` (written only in
+            # R1, absent otherwise — the same producer-opt-in rule as the p-family members).
+            - { name: n_samples_1, dtype: f32 }
+            - { name: n_samples_2, dtype: f32 }
+            - { name: score, dtype: f32 }
+          layout: { kind: columnar_table }

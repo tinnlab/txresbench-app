@@ -1,0 +1,435 @@
+# da.neighbourhoods run form — "Find shifting populations". Same idiom as `ui/clusters.yaml` and
+# `differential-expression`'s `ui/compare.yaml`: widgets render in DECLARATION ORDER, every input
+# the run consumes is a VISIBLE control passed EXPLICITLY on run_processor, and the regime is a
+# RESOLVED consequence of the CONDITION's provenance rather than a user toggle.
+#
+# The one structural difference from the cluster-level form: the anchor is an EMBEDDING, not a
+# population column. There is no population picker at all — that is the whole point of the
+# analysis: the regions are DISCOVERED from the graph rather than named in advance, so no
+# clustering resolution is ever chosen.
+#
+# Reuses `jobs::use` — no new permission.
+id: da.neighbourhoods
+title: Find shifting populations
+permission: jobs::use
+
+state:
+  # The reduced embedding (PCA/latent) the neighbourhood graph is rebuilt from. Single-select,
+  # seeded from the sole candidate. A 2-D UMAP/t-SNE layout is refused BY NAME by the compute,
+  # from the declared structure, before any read.
+  embedding: { type: string, default: null }
+  condition: { type: string, default: null }
+  sample: { type: string, default: null }
+  group1: { type: string, default: null }
+  group2: { type: string, default: null }
+  covariates: { type: array, default: [] }
+  # READABILITY ONLY — labels each discovered region with its majority cell type. It never enters
+  # the model, and the run report records that it did not.
+  annotation: { type: string, default: null }
+  method: { type: string, default: "pydeseq2" }
+  # Neighbourhood construction. `prop` and `seed` are load-bearing: the refinement dedups, so the
+  # NUMBER of neighbourhoods is itself seed-dependent, and matching neighbourhoods across runs (or
+  # against a reference) is by index cell at a fixed prop + seed.
+  prop: { type: string, default: "0.1" }
+  k: { type: string, default: "15" }
+  seed: { type: string, default: "0" }
+  minCells: { type: string, default: "10" }
+  fdr: { type: string, default: "0.1" }
+  # The committed table's label — the `{label}` the exported methods document names.
+  name: { type: string, default: "abundance" }
+
+data:
+  obs:
+    source: axis_columns
+    args: { of: "$state.embedding", axis: cells }
+  obsSources:
+    source: axis_columns
+    args: { of: "$state.embedding", axis: cells, as: sources }
+
+const:
+  methods:
+    - { value: "pydeseq2", label: "PyDESeq2 · Wald" }
+    - { value: "nb_glm", label: "NB-GLM" }
+
+derived:
+  catColumns: { columns_of: { obs: "$data.obs", only: categorical } }
+  categoriesByColumn: { categories_by_column: { obs: "$data.obs" } }
+
+widgets:
+  - id: questionCallout
+    kind: alert
+    tone: info
+    text: >-
+      This asks "is there ANY REGION of the data whose composition shifts between conditions?" —
+      without choosing a clustering resolution first. Regions are DISCOVERED, they overlap, and a
+      shift that straddles cluster boundaries is visible here. The price is that a region is not a
+      name: bind an annotation below to label each one by its majority cell type. Compare
+      population abundance answers the other question — whether THIS NAMED population changes —
+      and is nameable but resolution-bound.
+
+  - id: embeddingPicker
+    kind: artifact_ref
+    auto_bind_sole_candidate: true
+    label: Embedding
+    help: >-
+      The reduced representation (PCA / latent, ≥3 dims) the neighbourhood graph is rebuilt from.
+      A 2-D UMAP or t-SNE layout is refused by name: a region discovered on a picture is an
+      artefact of the drawing, not of the data. No expression matrix is read — abundance counts
+      cells, not reads.
+    source: { type_id: embedding }
+    value: "$state.embedding"
+    onChange: dan.setEmbedding
+    require:
+      required: true
+      message: Choose the embedding to find shifting regions in.
+    empty_text: No embedding in this project yet — run Reduce dimensions first.
+
+  - id: conditionPicker
+    kind: select
+    label: Condition column
+    help: >-
+      The external condition being tested. THIS is the column whose provenance decides the regime;
+      the neighbourhoods themselves are matrix-derived by construction and were built without ever
+      seeing the condition label.
+    options: "$derived.catColumns"
+    value: "$state.condition"
+    onChange: dan.setCondition
+    empty_text: No categorical column to use as the condition — they come from the embedding's dataset.
+
+  - id: samplePicker
+    kind: select
+    label: Replicate / sample column
+    help: >-
+      The SAMPLE is the unit of replication: cells are not replicates. With ≥2 samples per side
+      this is a genuine inferential test (R1); with one sample per side it is unreplicated (R3)
+      and the p-value and FDR are ABSENT, not 1.
+    options: "$derived.catColumns"
+    value: "$state.sample"
+    onChange: dan.setSample
+    empty_text: No categorical column to use as the sample/replicate axis.
+
+  - id: group1Picker
+    kind: select
+    label: Condition 1 (numerator)
+    options: "$derived.categoriesByColumn[$state.condition]"
+    value: "$state.group1"
+    onChange: dan.setGroup1
+    empty_text: Pick a condition column above to list its levels.
+
+  - id: group2Picker
+    kind: select
+    label: Condition 2 (denominator)
+    options: "$derived.categoriesByColumn[$state.condition]"
+    value: "$state.group2"
+    onChange: dan.setGroup2
+    empty_text: Pick a condition column above to list its levels.
+
+  - id: covariatePicker
+    kind: multiselect
+    label: Covariates (optional)
+    help: >-
+      Additive terms in the design formula. Each must be constant within a sample, because the
+      design frame's row IS a sample.
+    options: "$derived.catColumns"
+    value: "$state.covariates"
+    onChange: dan.setCovariates
+    empty_text: No categorical column available as a covariate.
+
+  - id: annotationPicker
+    kind: select
+    label: Label regions by (optional)
+    help: >-
+      Labels each discovered region with its majority cell type and that label's purity, so a
+      result is readable. It NEVER enters the model — the moment it did, it would reintroduce
+      exactly the cluster-boundary arbitrariness this analysis exists to avoid.
+    options: "$derived.catColumns"
+    value: "$state.annotation"
+    onChange: dan.setAnnotation
+    empty_text: No categorical column available to label regions with.
+
+  - id: compositionCallout
+    kind: alert
+    tone: info
+    text: >-
+      Cell-population proportions are COMPOSITIONAL — they sum to 1 — so a real rise in one region
+      mechanically depresses every other one's proportion. This analysis therefore tests INTEGER
+      COUNTS per (region × sample) under robust size factors, which assume MOST REGIONS ARE
+      UNCHANGED. There is no raw-proportion option: if that normalization cannot be established
+      the run refuses by name rather than falling back to one.
+
+  - id: relativeCaveat
+    kind: alert
+    tone: warning
+    text: >-
+      Differential abundance measures RELATIVE composition. Without a spike-in or a total-cell
+      count, "this region went up" and "everything else went down" are indistinguishable — both
+      readings fit the same data.
+
+  - id: methodPicker
+    kind: select
+    label: Count model
+    help: >-
+      Negative-binomial count models over the (region × sample) integers. Both engines are handed
+      the SAME size factors, so the normalization — not the engine — carries the compositional
+      claim.
+    options: "$const.methods"
+    value: "$state.method"
+    onChange: dan.setMethod
+
+  - id: propInput
+    kind: text
+    label: Index-cell proportion
+    help: >-
+      The fraction of cells drawn as neighbourhood index cells before refinement. Refinement then
+      collapses duplicates, so the NUMBER of regions is itself seed-dependent — it is reported,
+      never assumed.
+    value: "$state.prop"
+    placeholder: "0.1"
+    onChange: dan.setProp
+    require:
+      number: { min: 0.001, max: 1 }
+      message: The index-cell proportion must be a number between 0.001 and 1.
+
+  - id: kInput
+    kind: text
+    label: Neighbours (k)
+    help: The k of the k-nearest-neighbour graph the regions are built from.
+    value: "$state.k"
+    placeholder: "15"
+    onChange: dan.setK
+    require:
+      number: { integer: true, min: 2 }
+      message: k must be a whole number ≥ 2.
+
+  - id: seedInput
+    kind: text
+    label: Seed
+    help: >-
+      Recorded, and load-bearing: the index cells are drawn with it, so the same seed gives the
+      same regions — and a different seed legitimately gives a different NUMBER of them.
+    value: "$state.seed"
+    placeholder: "0"
+    onChange: dan.setSeed
+    require:
+      number: { integer: true, min: 0 }
+      message: The seed must be a whole number ≥ 0.
+
+  - id: nameInput
+    kind: text
+    label: Result label
+    help: >-
+      Names the committed table, so a second run of the same comparison does not read as the same
+      artifact. It is also the label the exported methods document names the commit by.
+    value: "$state.name"
+    placeholder: "abundance"
+    onChange: dan.setName
+    require:
+      required: true
+      message: Give the committed table a label.
+
+  - id: minCellsInput
+    kind: text
+    label: Min cells / sample
+    help: Samples contributing fewer than this many cells are dropped — and listed in the run report.
+    value: "$state.minCells"
+    placeholder: "10"
+    onChange: dan.setMinCells
+    require:
+      number: { integer: true, min: 1 }
+      message: The minimum cells per sample must be a whole number ≥ 1.
+
+  - id: fdrInput
+    kind: text
+    label: FDR threshold
+    help: >-
+      The spatial (connectivity-weighted) false-discovery rate a region is called significant at.
+      Regions OVERLAP, so plain BH would be anti-conservative exactly where the graph is dense;
+      the weighted value is what every threshold reads, and the plain one is recorded beside it.
+    value: "$state.fdr"
+    placeholder: "0.1"
+    onChange: dan.setFdr
+    require:
+      number: { min: 0, max: 1 }
+      message: The FDR threshold must be a number between 0 and 1.
+
+  - id: regimeCallout
+    kind: alert
+    tone: info
+    text: >-
+      The regime is decided by the CONDITION's provenance, not by the analysis: an external
+      condition with ≥2 samples per side is inferential (R1 — p-values and FDR are written). A
+      condition carrying no external provenance, or with one sample per side, returns ranked
+      effects with the p-value and FDR ABSENT — not a fabricated significance.
+
+  - id: runBtn
+    kind: button
+    label: Find shifting populations
+    variant: primary
+    onClick: da.neighbourhoods.run
+
+actions:
+  - id: dan.setEmbedding
+    title: Set the embedding
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { embedding: "$params.value" }
+  - id: dan.setCondition
+    title: Set the condition column
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { condition: "$params.value" }
+  - id: dan.setSample
+    title: Set the sample column
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { sample: "$params.value" }
+  - id: dan.setGroup1
+    title: Set condition 1
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { group1: "$params.value" }
+  - id: dan.setGroup2
+    title: Set condition 2
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { group2: "$params.value" }
+  - id: dan.setCovariates
+    title: Set the covariates
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { covariates: "$params.value" }
+  - id: dan.setAnnotation
+    title: Set the region label column
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { annotation: "$params.value" }
+  - id: dan.setMethod
+    title: Set the count model
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { method: "$params.value" }
+  - id: dan.setProp
+    title: Set the index-cell proportion
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { prop: "$params.value" }
+  - id: dan.setK
+    title: Set the neighbour count
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { k: "$params.value" }
+  - id: dan.setSeed
+    title: Set the seed
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { seed: "$params.value" }
+  - id: dan.setName
+    title: Set the result label
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { name: "$params.value" }
+
+  - id: dan.setMinCells
+    title: Set min cells per sample
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { minCells: "$params.value" }
+  - id: dan.setFdr
+    title: Set the FDR threshold
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { fdr: "$params.value" }
+
+  - id: da.neighbourhoods.run
+    title: Find shifting populations
+    permission: jobs::use
+    mutating: true
+    params: {}
+    body:
+      - run_processor:
+          id: da.neighbourhoods
+          inputs:
+            embedding: "$state.embedding"
+          inputs_from:
+            - when: "$state.condition"
+              slot: "condition"
+              artifact: "$data.obsSources[$state.condition]"
+            - when: "$state.sample"
+              slot: "sample"
+              artifact: "$data.obsSources[$state.sample]"
+            - when: "$state.annotation"
+              slot: "annotation"
+              artifact: "$data.obsSources[$state.annotation]"
+            - for_each: "$state.covariates as $c"
+              when: "$c"
+              slot: "covariate:{$c}"
+              artifact: "$data.obsSources[$c]"
+          params:
+            group1: "$state.group1"
+            group2: "$state.group2"
+            method: "$state.method"
+            normalization: "poscounts"
+            prop: "$state.prop"
+            k: "$state.k"
+            seed: "$state.seed"
+            name: "$state.name"
+            min_cells: "$state.minCells"
+            fdr: "$state.fdr"
+            # The `threshold_list` the manifest's `methods.params` declares — sent as a NON-EMPTY
+            # list of `{metric, min|max}` entries. The methods narrator appends the `note` (which
+            # carries the whole compositional-correctness disclosure) only when at least one
+            # constraint was narrated, so an empty or absent list would silently drop that
+            # disclosure from the exported `methods.md`.
+            thresholds:
+              - { metric: "spatial false-discovery rate", max: "$state.fdr" }
+              # NAMED for what this analysis actually counts. The neighbourhood floor is applied
+              # to a sample's cells INSIDE THE UNION of the neighbourhoods — a cell in none of
+              # them contributes to no column and can support no test — while the cluster
+              # analysis applies its floor to all of a sample's cells. Same control, two
+              # quantities, so the narrated constraint says which one it was.
+              - { metric: "cells per sample inside the neighbourhoods", min: "$state.minCells" }
+          into: daJob
+      - wait_for: { job: "$daJob", until: completed }
+      - toast: { success: "Shifting populations found" }

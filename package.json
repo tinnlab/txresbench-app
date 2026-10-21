@@ -1,0 +1,9 @@
+{
+  "name": "cytoanalyst-root",
+  "private": true,
+  "workspaces": [
+    "sdk/packages/*",
+    "src-app/libs/*",
+    "src-app/ui"
+  ]
+}

@@ -1,0 +1,591 @@
+# doublet.scdblfinder declarative view_spec — the RUN FORM.
+#
+# The SECOND doublet caller in this package (#195 / E7, epic #169), beside `doublet.detect`'s
+# Scrublet. A user searching for "doublet" finds both and picks by METHOD; that shape is also
+# FORCED rather than chosen, because `run.runtime` is a single scalar per analysis and
+# `run.entry` a single path, so one analysis id cannot dispatch to both a `.py` and an `.R`
+# entry (E7/DEC-1). The two forms are therefore siblings, not variants of one form.
+#
+# The MANIFEST declares `ui: [ui/scdblfinder.yaml, ui/scdblfinder-report.yaml]`, so this view
+# does NOT name its analysis (no `analysis:` back-pointer — the parser refuses one) and does
+# NOT declare a `layout:` — one analysis renders into ONE pane and widgets render in
+# DECLARATION ORDER, so the order below IS the layout. The manifest declares only
+# load/enable/execute; THIS file owns everything the user sees + selects and declares its OWN
+# option sources. Every input the run consumes is a visible control passed EXPLICITLY on
+# `run_processor` — what is launched is what was shown.
+#
+# Deliberately the SAME SHAPE as `ui/doublet.yaml`: one raw-count matrix picker, a batch/sample
+# column picker whose options DERIVE from the chosen matrix's cells axis, `text` +
+# `require.number` parameter fields (the core vocabulary ships no numeric widget kind), and one
+# Run action. Reading the two side by side, the ONLY differences should be the parameters —
+# which are scDblFinder's rather than Scrublet's — and the one control that is absent.
+#
+# ── THE ONE CONTROL THAT CAN PREVENT A SILENTLY WRONG ANSWER ────────────────────────────
+# The sample/batch picker below is where a user prevents this analysis' central failure, and
+# the reasoning is the method-independent one: a doublet is one droplet that captured two
+# cells, so cells from separately captured libraries cannot form one. A merged multi-sample
+# matrix scored as ONE population fails twice, both times invisibly: artificial doublets cross
+# sample boundaries (inventing profiles no droplet could produce), and the expected-rate prior
+# is derived from the merged total instead of per lane. The compute REFUSES to guess which
+# shape the data is: sniffing for a column named "sample" is exactly the plausible-wrong-answer
+# heuristic this codebase removed elsewhere. So the rule is DISCLOSURE, NOT INFERENCE — the
+# reason is stated at the control, an unbatched run is permitted, and the report records
+# `batched: false` so the export always says which it was.
+#
+# ── THE CONTROL THAT IS DELIBERATELY ABSENT: NO INLINE PRE-FILTER ───────────────────────
+# `ui/doublet.yaml` offers a `criteria` builder — `cell-filter`'s predicate recipe, applied
+# inline at run time — and this form offers NOTHING equivalent. That is not an omission to be
+# filled in later; the R entry REFUSES the parameter BY NAME (`scdblfinder.R`'s first check in
+# `main()`), and it is right to. The recipe is evaluated by `_criteria.py`, `cell-filter`'s
+# predicate KERNEL, which the python lane consumes as a byte-for-byte vendored helper.
+# `run.helpers` staging is python-gated, so that kernel cannot be staged beside an R entry, and
+# porting a predicate language to R is a second library-sized commitment this item did not
+# scope. The alternative — accepting `criteria` and quietly ignoring it — would describe a
+# filter that never ran, in the form, in the report AND in the exported methods paragraph,
+# which is the worst of the three available answers. So the gap is LOUD: no control here, a
+# named refusal in the compute, and the remedy is either run `cell.filter` first or use
+# `doublet.detect`, which vendors the kernel.
+id: doublet.scdblfinder
+title: Detect doublets (scDblFinder)
+# Reuse the EXISTING permission — this analysis introduces no new gate, exactly as its python
+# sibling introduces none. The workbench dispatches compute jobs, so `jobs::use` (granted to
+# Users) is the gate. It is also what the synthesized `doublet.scdblfinder::describe` action
+# is gated on, which is why a view spec must declare one at all.
+permission: jobs::use
+
+state:
+  # The single RAW count matrix this run scores. SINGULAR: this is an RNA-count method and the
+  # compute REFUSES >1 (protein/ATAC doublets need dedicated methods entirely).
+  matrix: { type: string, default: null }
+  # The per-sample / batch column. Empty is a REAL answer — a one-artifact-per-sample project
+  # is already per-sample — and it is recorded as such, never inferred away. Null, never "": a
+  # closed-set control's default is null (the parser refuses `""` here by name).
+  batchColumn: { type: string, default: null }
+  # Parameters, EXPOSED. Text-valued because a numeric widget kind is not in the core
+  # vocabulary; `require.number` holds them to the shared decimal grammar the compute reads.
+  # Blank is meaningful for two of them and the placeholders say so: an empty expected rate is
+  # DERIVED per sample, and an empty rate SD leaves the library's own uncertainty model alone.
+  expectedDoubletRate: { type: string, default: "" }
+  doubletRatePer1k: { type: string, default: "0.008" }
+  doubletRateSd: { type: string, default: "" }
+  nfeatures: { type: string, default: "1352" }
+  dims: { type: string, default: "20" }
+  includePcs: { type: string, default: "19" }
+  propRandom: { type: string, default: "0" }
+  propMarkers: { type: string, default: "0" }
+  # The classifier's scoring mode. A CLOSED set, so the default is a real member and never "".
+  score: { type: string, default: "xgb" }
+  seed: { type: string, default: "0" }
+  # The output column PREFIX (the run commits `<label>_score` and `<label>_call`). Not "" — a
+  # column name has no empty answer, so a blank default would ship a form invalid the instant
+  # it opens.
+  #
+  # It defaults to `scdblfinder` and NOT to the compute's own headless fallback (`doublet`,
+  # the same word the python lane's form defaults to), which is a deliberate divergence from
+  # the sibling and the only one in this block. The two methods are DESIGNED to be run on the
+  # same matrix — that is the entire point of shipping both, and the readout's measured
+  # comparison exists to inform exactly that choice — and the compute refuses a run whose
+  # `<label>_score` / `<label>_call` names are already on the cells axis. Defaulting to
+  # `doublet` would therefore open this form pre-loaded with the name the previous run took,
+  # on the commonest path through the feature. The distinct default also keeps the two runs'
+  # columns tellable apart in Cell filter and in the colour-by, which is what "the user picks
+  # by method" needs downstream.
+  label: { type: string, default: "scdblfinder" }
+
+data:
+  # The cells-axis metadata columns of the CHOSEN matrix's dataset — including columns no
+  # analysis declared. Before a matrix is chosen this resolves to nothing and is skipped.
+  #
+  # NO `values_for:` here, unlike `ui/doublet.yaml`. That argument narrows the EAGER read to
+  # the columns a criteria list actually names, and this form has no criteria list — there is
+  # nothing to be lazy for, and a `values_for` naming nothing would narrow the read to nothing
+  # and empty the picker below. So the slice is eager, exactly as
+  # `differential-expression/ui/markers.yaml`'s is, and for the same reason: the values are
+  # what tell a continuous column from a categorical one, which is what `catColumns` sorts on.
+  obs:
+    source: axis_columns
+    args: { of: "$state.matrix", axis: cells }
+  # The SAME axis relation asked for the ARTIFACT ID behind each column (`as: sources` →
+  # `{ column: artifact_id }`). Two uses: it is the taken-set `label.require.not_in` reads, AND
+  # it is what the `batch` slot binds to — a `metadata-column` store cannot carry its own name,
+  # so the id has to arrive with the binding.
+  obsSources:
+    source: axis_columns
+    args: { of: "$state.matrix", axis: cells, as: sources }
+
+const:
+  # The classifier's scoring modes — the CLOSED set `scDblFinder`'s `score=` accepts, in the
+  # library's own order (default first), and the SAME three the R entry's `str_param` allows.
+  # A fourth would be refused by the compute by name, so the two lists must stay equal; this
+  # is the braces and `str_param(..., c("xgb", "weighted", "ratio"))` is the belt.
+  #
+  # The labels say what each mode COSTS, not which is best: `xgb` is the trained classifier
+  # over all features and is what the published benchmarks measured; the other two are simpler
+  # statistics that need no fit and are the reachable answers when the fit is the problem.
+  scoreMethods:
+    - { value: "xgb", label: "Gradient-boosted classifier (xgb) — the library default" }
+    - { value: "weighted", label: "Weighted kNN score — no classifier fit" }
+    - { value: "ratio", label: "Ratio of artificial to real neighbours — simplest" }
+
+derived:
+  # The CATEGORICAL cells-axis columns — the sample/batch picker's options. A sample key is a
+  # categorical column, so `only: categorical` narrows the offer; the list is OPEN (any
+  # categorical column present on the axis), never a closed literal and never name-sniffed.
+  catColumns: { columns_of: { obs: "$data.obs", only: categorical } }
+
+widgets:
+  # ── the INPUT ─────────────────────────────────────────────────────────────────────
+  #
+  # RAW counts only, mirroring the manifest's `excludes`. scDblFinder does its own
+  # normalization, feature selection and PCA internally, so a normalized matrix silently
+  # produces meaningless scores — the compute re-checks this FROM THE STORED VALUES (an
+  # agent/MCP call reaches it without ever rendering this form) and refuses one outright
+  # rather than scoring it.
+  - id: matrixPicker
+    kind: artifact_ref
+    auto_bind_sole_candidate: true
+    label: Count matrix
+    source:
+      subtypes_of: single-cell/expression
+      excludes: [single-cell/normalized]
+    value: "$state.matrix"
+    onChange: ds.setMatrix
+    require:
+      required: true
+      message: Choose the raw-count matrix to score for doublets.
+    empty_text: >-
+      No raw-count expression matrix in this project yet. Import one — doublet detection needs
+      raw counts, and a normalized matrix is refused rather than scored.
+
+  # ── THE SAMPLE / BATCH COLUMN — the correctness control ────────────────────────────
+  #
+  # Options DERIVE from the data: the categorical columns of the chosen matrix's cells axis.
+  # Nothing here or in the compute guesses which one is the sample key. The per-sample loop is
+  # THIS ENTRY'S OWN and not `scDblFinder(samples=)`: the library's own path does score per
+  # batch, but it would not give each level an expected-rate prior derived from that level's
+  # own recovered-cell count, and it would not make a too-small level a named refusal. Both
+  # follow from running one population per call.
+  - id: batchColumnPicker
+    kind: select
+    label: Sample / batch column
+    help: >-
+      Doublets cannot form across separately captured libraries, so scoring runs INDEPENDENTLY
+      within each level of this column — its own artificial-doublet population, its own
+      classifier, its own threshold, and an expected-rate prior derived from that sample's own
+      cell count. Leave this empty ONLY if this dataset is a single capture; on a merged
+      multi-sample matrix an unbatched run is a wrong answer, not a different one. Either way
+      the run records whether it was batched.
+    options: "$derived.catColumns"
+    value: "$state.batchColumn"
+    onChange: ds.setBatchColumn
+    empty_text: >-
+      No categorical column to use as a sample key — they come from the matrix chosen above. If
+      this dataset is one capture, that is the expected state and the run is scored as one
+      population.
+
+  # ── THE EXPECTED-DOUBLET-RATE PRIOR ───────────────────────────────────────────────
+  #
+  # scDblFinder's own default is to derive the rate from the cell count at `dbr.per1k`, which
+  # is the right shape — the 10x rate scales ~linearly with recovered cells — and this entry
+  # keeps it, applied PER LEVEL rather than once over the merged total. The rate-per-1k field
+  # exists so nobody is ever asked to compute a rate by hand for an HT chip.
+  - id: expectedRateInput
+    kind: text
+    label: Expected doublet rate
+    help: >-
+      Leave empty to derive it per sample from that sample's own recovered-cell count, at the
+      per-1,000-cell rate below. Set it only if you know the loading for this experiment; the
+      report records, per sample, which of the two was used.
+    value: "$state.expectedDoubletRate"
+    placeholder: "auto — derived per sample"
+    onChange: ds.setExpectedDoubletRate
+    # The bounds MATCH the compute's, which for this parameter is `num_param(..., lo = 1e-6,
+    # hi = 0.999999)`. They have to: the form is the braces and the compute is the belt, and a
+    # form that accepts a value the compute refuses is a shipped deadlock — the user fixes
+    # nothing by re-typing it.
+    require:
+      number: { min: 0.000001, max: 0.999999 }
+      message: >-
+        The expected doublet rate is a probability strictly between 0 and 1 (e.g. 0.076 for
+        7.6%). It cannot be 0 and it cannot be 1 — at either end the prior stops separating
+        cells. Leave it empty to derive it per sample from that sample's own cell count.
+  - id: ratePer1kInput
+    kind: text
+    label: Doublet rate per 1,000 cells
+    help: >-
+      The chip's multiplet rate per 1,000 recovered cells, used to derive the rate above.
+      0.008 for a standard 10x chip — which is both this app's figure and scDblFinder's own
+      `dbr.per1k` default; 0.004 for an HT chip, which halves it.
+    value: "$state.doubletRatePer1k"
+    placeholder: "0.008"
+    onChange: ds.setDoubletRatePer1k
+    require:
+      number: { min: 0.000001, max: 1 }
+      message: >-
+        The per-1,000-cell rate is a fraction above 0 and at most 1 (0.008 standard, 0.004
+        HT). It cannot be 0 — a zero rate carries no information about the chip, and every
+        sample's derived prior would collapse to the same number regardless of size, which is
+        the opposite of what deriving it per sample is for.
+  - id: rateSdInput
+    kind: text
+    label: Expected doublet rate — uncertainty (SD)
+    help: >-
+      How much the true rate is allowed to differ from the expected one when the cut point is
+      chosen. Leave empty for the library's own default, which scales with the expected rate.
+      Widening it lets the threshold move further from the prior — useful when you trust the
+      scores more than you trust the loading estimate; narrowing it pins the call count close
+      to the prior. This is the honest lever when the number of called doublets looks wrong
+      but the ranking looks right.
+    value: "$state.doubletRateSd"
+    placeholder: "auto — the library's default"
+    onChange: ds.setDoubletRateSd
+    require:
+      number: { min: 0, max: 1 }
+      message: >-
+        The rate uncertainty is a standard deviation on a probability, so it lies between 0
+        and 1. 0 is meaningful and permitted — it pins the called fraction to the expected
+        rate exactly. Leave it empty for the library's default.
+
+  # ── scDblFinder PARAMETERS, exposed ───────────────────────────────────────────────
+  #
+  # Every one of these is passed EXPLICITLY by the compute even where its value equals the
+  # library default (INV-6), so the run is reproducible from the recorded request. What the
+  # library fixes INTERNALLY and this entry does not control is not invented as a control
+  # here — it is recorded in the report under `fixed_by_scDblFinder` and disclosed as the
+  # library's, never re-described as ours.
+  #
+  # NOTE ON THE UPPER BOUNDS, or rather on their absence: the R entry declares a LOWER bound
+  # for each of the three counts below and no upper one, and these `require.number` blocks say
+  # exactly that. Inventing a ceiling here would refuse a value the compute accepts, which
+  # is the mirror image of the deadlock the matching lower bounds prevent — the user would be
+  # blocked by the form from a run that would have succeeded, with no way to tell that the
+  # limit was the form's.
+  - id: nfeaturesInput
+    kind: text
+    label: Features used
+    help: >-
+      How many top features the classifier sees. 1352 is the library's own default and is
+      not a round number by accident — it is the value its authors tuned against their
+      benchmark, so moving it moves you off the configuration those results were measured on.
+    value: "$state.nfeatures"
+    placeholder: "1352"
+    onChange: ds.setNfeatures
+    require:
+      number: { integer: true, min: 2 }
+      message: >-
+        The feature count must be a whole number of at least 2 — a single feature cannot
+        separate anything.
+  - id: dimsInput
+    kind: text
+    label: Principal components computed
+    help: >-
+      The size of the PCA the artificial and real cells are embedded in together. The
+      neighbour search that produces the score runs in this space.
+    value: "$state.dims"
+    placeholder: "20"
+    onChange: ds.setDims
+    require:
+      number: { integer: true, min: 2 }
+      message: >-
+        The number of principal components must be a whole number of at least 2 (the
+        embedding is dense over the real AND artificial cells, so a large rank is the memory
+        bound).
+  - id: includePcsInput
+    kind: text
+    label: Principal components given to the classifier
+    help: >-
+      How many of the components above are handed to the classifier as features in their own
+      right, alongside the neighbour statistics. 0 means the classifier sees only the
+      neighbour statistics. The library's default pair is 19 of 20.
+    value: "$state.includePcs"
+    placeholder: "19"
+    onChange: ds.setIncludePcs
+    require:
+      number: { integer: true, min: 0 }
+      message: >-
+        The number of components given to the classifier must be a whole number, and 0 is a
+        real answer — it means the classifier sees the neighbour statistics only.
+  - id: propRandomInput
+    kind: text
+    label: Proportion of random artificial doublets
+    help: >-
+      What share of the artificial doublets is formed from RANDOM cell pairs rather than from
+      the informed pairing the library chooses. 0 — the library's default — leaves the whole
+      artificial population informed. Raise it if you suspect the informed pairing is missing
+      the doublets you actually have.
+    value: "$state.propRandom"
+    placeholder: "0"
+    onChange: ds.setPropRandom
+    require:
+      number: { min: 0, max: 1 }
+      message: The proportion of random artificial doublets is a fraction between 0 and 1.
+  - id: propMarkersInput
+    kind: text
+    label: Proportion of marker-based features
+    help: >-
+      What share of the feature set is chosen as cluster MARKERS rather than by the library's
+      default selection. 0 — the library's default — uses no marker-based features.
+    value: "$state.propMarkers"
+    placeholder: "0"
+    onChange: ds.setPropMarkers
+    require:
+      number: { min: 0, max: 1 }
+      message: The proportion of marker-based features is a fraction between 0 and 1.
+  - id: scorePicker
+    kind: select
+    label: Score
+    help: >-
+      Which statistic becomes the doublet score. The gradient-boosted classifier is the
+      library's default and the mode its published performance was measured under; the two
+      simpler scores need no classifier fit, which is what makes them the reachable answers on
+      a population where the fit fails or is not trusted. The choice is RECORDED in the
+      report, not recommended here.
+    options: "$const.scoreMethods"
+    value: "$state.score"
+    onChange: ds.setScore
+  - id: seedInput
+    kind: text
+    label: Random seed
+    help: >-
+      Seeded per sample (the first sample gets this seed, the next the one after it), so a
+      batched run is reproducible sample by sample rather than only as a whole.
+    value: "$state.seed"
+    placeholder: "0"
+    onChange: ds.setSeed
+    # 2^31 - 1, NOT the sibling's 2^32 - 1. This is a genuine difference in the belt rather
+    # than a stricter brace: `int_param` refuses any magnitude above `.Machine$integer.max`
+    # by name, because the host carries the value as a 64-bit integer and R cannot. A form
+    # offering the python lane's range here would accept a seed this compute refuses.
+    require:
+      number: { integer: true, min: 0, max: 2147483647 }
+      message: >-
+        The seed must be a whole number between 0 and 2147483647 (2^31 - 1). R carries an
+        integer in 32 bits, so this method's range is half the Scrublet form's and a larger
+        seed is refused by the compute rather than wrapped.
+
+  # ── the OUTPUT LABEL — the cells-axis columns this run commits ────────────────────
+  #
+  # `not_in` the whole cells axis (`obsSources`' KEYS): runs coexist provenance-immutable, so a
+  # second column under an existing name would leave two columns with one name and a reader
+  # keeps whichever came last.
+  - id: labelInput
+    kind: text
+    label: Output label
+    help: >-
+      The run commits two cells-axis columns named after this: `<label>_score` (continuous) and
+      `<label>_call` (singlet / doublet). Both are then available to Cell filter and to the
+      colour-by on any embedding — the same kinds the Scrublet method emits, which is what lets
+      either method's output be consumed unchanged.
+    value: "$state.label"
+    placeholder: "e.g. scdblfinder"
+    onChange: ds.setLabel
+    # `not_in` tests the value AS TYPED against the axis's existing column names. NOTE this is
+    # a WEAKER guard than it looks: this analysis commits `<label>_score` and `<label>_call`,
+    # so re-running with the same label passes THIS check while still colliding. The compute
+    # therefore re-checks the names it will actually commit and refuses the collision by name —
+    # the form's braces catch the obvious case early, the compute's belt catches the real one.
+    # The label is also interpolated into an output PATH, so the compute holds it to a
+    # character set as well; that one is the compute's alone.
+    require:
+      required: true
+      not_in: "$data.obsSources"
+      message:
+        required: >-
+          The run needs a label — it names the two cells-axis columns this run commits, and the
+          run refuses to invent one.
+        not_in: >-
+          "{value}" is already a column on this matrix's cells axis. Committing another column
+          under that name would leave two columns with one name, so pick another.
+
+  - id: runBtn
+    kind: button
+    label: Detect doublets (scDblFinder)
+    variant: primary
+    # Deliberately NOT `when:` — hiding Run behind the message telling the user to run is a
+    # deadlock. It DERIVES its disabled state from the form's own verdicts, which the engine
+    # lists underneath, so it never sits greyed silently.
+    onClick: ds.run
+
+# ── cross-field constraints: there are none, and that is a decision ───────────────────
+#
+# No `checks:` block. Two candidates were considered and both were rejected:
+#
+#   · "the components given to the classifier must not exceed the components computed"
+#     (`include_pcs` vs `dims`). It reads obvious and it is NOT a relation this entry can
+#     assert: the R entry validates the two independently, the library is what decides what an
+#     over-large `includePCs` means, and a form-side refusal would block a run the compute
+#     accepts with no way for the user to tell the limit was the form's. If the library's
+#     behaviour there is ever pinned by a test, this is where the check belongs.
+#   · "this looks like a merged multi-sample matrix, you should pick a sample column" — the
+#     same check `ui/doublet.yaml` declines to write, for the same reason. It cannot be written
+#     honestly: the two shapes are indistinguishable without inferring intent from a column
+#     NAME, which is the heuristic this analysis refuses. The picker's own help text and the
+#     report's `batched` disclosure carry that burden instead.
+
+actions:
+  - id: ds.setMatrix
+    title: Set the count matrix
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      # Clear the batch column: it is a column of the PREVIOUS matrix's cells axis, and a kept
+      # value would name a column the new matrix may not carry. Re-seeded by the picker over
+      # the new axis. Silently keeping a stale value is how a pairing rots — and here it would
+      # rot into the single most consequential parameter in the analysis.
+      - set: { matrix: "$params.value", batchColumn: null }
+
+  - id: ds.setBatchColumn
+    title: Set the sample / batch column
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { batchColumn: "$params.value" }
+
+  - id: ds.setExpectedDoubletRate
+    title: Set the expected doublet rate
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { expectedDoubletRate: "$params.value" }
+
+  - id: ds.setDoubletRatePer1k
+    title: Set the doublet rate per 1,000 cells
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { doubletRatePer1k: "$params.value" }
+
+  - id: ds.setDoubletRateSd
+    title: Set the doublet rate uncertainty
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { doubletRateSd: "$params.value" }
+
+  - id: ds.setNfeatures
+    title: Set the feature count
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { nfeatures: "$params.value" }
+
+  - id: ds.setDims
+    title: Set the PC count
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { dims: "$params.value" }
+
+  - id: ds.setIncludePcs
+    title: Set the PCs given to the classifier
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { includePcs: "$params.value" }
+
+  - id: ds.setPropRandom
+    title: Set the random artificial-doublet proportion
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { propRandom: "$params.value" }
+
+  - id: ds.setPropMarkers
+    title: Set the marker-feature proportion
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { propMarkers: "$params.value" }
+
+  - id: ds.setScore
+    title: Set the score
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { score: "$params.value" }
+
+  - id: ds.setSeed
+    title: Set the random seed
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { seed: "$params.value" }
+
+  - id: ds.setLabel
+    title: Set the output label
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { label: "$params.value" }
+
+  # Run — a DECLARED run_processor → wait_for → toast, the same three effects the sibling's
+  # `dd.run` declares. Every input the run consumes is passed EXPLICITLY from view state:
+  #   · `inputs.matrix` — the chosen raw-count matrix.
+  #   · `inputs_from` binds the `batch` SLOT to the chosen column's metadata-column artifact,
+  #     gated on a column being chosen — no column, no binding. It is a SLOT and not a param
+  #     because a `metadata-column` store cannot carry its own name (its values live under the
+  #     constant member `values`); the NAME still travels as `params.batch_column` so the
+  #     report and methods.md can say WHICH column was used. `inputs` and `params` are separate
+  #     channels and must stay so — passing the column as a param instead of a slot is the
+  #     realistic way the per-sample invariant silently regresses.
+  #   · NO `column:<name>` bindings, because there is no inline pre-filter to mount columns
+  #     for. See the header: the predicate kernel is python and cannot be staged for an R
+  #     entry, and the compute refuses the parameter by name rather than accepting it inertly.
+  #   · `criteria` is ABSENT from `params` for the same reason, and its absence is load-bearing
+  #     rather than incidental: passing it — even empty — reaches a `fail()` that names it.
+  - id: ds.run
+    title: Detect doublets (scDblFinder)
+    permission: jobs::use
+    mutating: true
+    params: {}
+    body:
+      - run_processor:
+          id: doublet.scdblfinder
+          inputs:
+            matrix: "$state.matrix"
+          inputs_from:
+            - when: "$state.batchColumn"
+              slot: "batch"
+              artifact: "$data.obsSources[$state.batchColumn]"
+          params:
+            batch_column: "$state.batchColumn"
+            expected_doublet_rate: "$state.expectedDoubletRate"
+            doublet_rate_per_1k: "$state.doubletRatePer1k"
+            doublet_rate_sd: "$state.doubletRateSd"
+            nfeatures: "$state.nfeatures"
+            dims: "$state.dims"
+            include_pcs: "$state.includePcs"
+            prop_random: "$state.propRandom"
+            prop_markers: "$state.propMarkers"
+            score: "$state.score"
+            seed: "$state.seed"
+            label: "$state.label"
+          into: scdblfinderJob
+      - wait_for: { job: "$scdblfinderJob", until: completed }
+      - toast: { success: "Doublet scores computed (scDblFinder)" }

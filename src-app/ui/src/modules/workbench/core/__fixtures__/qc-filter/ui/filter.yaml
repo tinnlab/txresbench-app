@@ -1,0 +1,58 @@
+# A declarative `view_spec` FIXTURE (processor-registry ITEM-10 / TEST-6). A
+# reduced twin of the real "Filter cells" view: it declares a UI + its OWN
+# actions as data. The collector (`scripts/collect-actions.mjs`) globs
+# `<root>/<processor>/ui/*.yaml`, extracts these actions, and merges them into
+# the AI manifest exactly like a hand-written `defineAction`. Not under the real
+# `packages/` tree, so the production collector run never picks it up.
+id: fixture/qc-filter
+title: Filter cells (fixture)
+permission: jobs::use
+state:
+  selectedEmbedding: { type: string, default: umap }
+  ranges: { type: map, default: {} }
+const:
+  criteria: [nCount, nFeature]
+derived:
+  idents: { unique: "$data.obs.ident" }
+  ranges: { for_each: "$const.criteria as $c", key: "$c", value: { extent: "$data.obs[$c]" } }
+widgets:
+  - { id: vizPicker, kind: select, label: Embedding, options: "$const.criteria", value: "$state.selectedEmbedding", onChange: qc.setEmbedding }
+  - id: qcGroup
+    for_each: "$const.criteria as $c"
+    kind: group
+    label: "$c"
+    children:
+      - { kind: range_slider, label: "$c", range: "$derived.ranges[$c]", value: "$state.ranges[$c]", onCommit: qc.setFilter }
+  - { id: saveBtn, kind: button, label: Save data, variant: primary, onClick: qc.save }
+actions:
+  - id: qc.setEmbedding
+    title: Set embedding
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { selectedEmbedding: "$params.value" }
+  - id: qc.setFilter
+    title: Set metric threshold
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { criterion: string, range: "[number, number]" }
+    body:
+      - set: { "ranges.{$params.criterion}": "$params.range" }
+  - id: qc.save
+    title: Save filtered cells
+    permission: jobs::use
+    mutating: true
+    params: {}
+    body:
+      - progress: "Saving data"
+      - toast: { success: "Data saved" }
+  - id: qc.internalOnly
+    title: Human-only helper (not AI-drivable)
+    permission: jobs::use
+    mutating: false
+    surfaces: { ai: false }
+    params: {}
+    body: []

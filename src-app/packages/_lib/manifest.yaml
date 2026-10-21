@@ -1,0 +1,183 @@
+# `_lib` — the RESERVED, `_`-prefixed producer-format package (DEC-7, ITEM-1..4).
+#
+# Like `_helpers` it is NOT a domain processor: it contributes NO datatype, converter
+# or view. Its sole job is to be a home ON DISK for the shared FORMAT code every
+# processor writes its outputs through — the Zarr v3 sharded writer (`cyto_zarr.py`)
+# — so it resolves FROM THE EXTRACTED FOLDER (`<data_root>/processors/_lib/…`) at run
+# time like every other package.
+#
+# ## Why it is its own package and not part of `_helpers`
+# `_helpers` ships DOMAIN-ADJACENT compute helpers (an alignment engine, a column
+# summarizer). `_lib` ships the STORAGE FORMAT, which is the thing the framework's
+# conformance suite gates against and the thing the browser reader must agree with
+# byte-for-byte. Keeping them apart means a change to the format is visible as a change
+# to `_lib` alone, and it keeps the format module free of the pandas/scipy imports the
+# compute helpers carry — `cyto_zarr` is numpy + stdlib, which is what lets it be
+# vendored anywhere without dragging a dependency graph along (DEC-7).
+#
+# ## Two kinds of file live here, and the split is load-bearing
+# `cyto_zarr.py` / `cyto_columns.py` / `cyto_csc.py` / `cyto_zarr_read.py` are STAGED into
+# the sandbox `/code` dir (see `PY_HELPER_FILES` in the server's sandbox processor
+# resolver) — a processor imports them and they run in the processor's own process.
+#
+# `conformance.py` (ITEM-18/19) is deliberately NOT staged and must not be added to that
+# table. It is the framework-owned gate that JUDGES what a processor emitted, so putting it
+# in the processor's process is the arrangement DEC-8 rules out ("invoked by the ingest
+# path, not by the processor"). It runs over an emitted `/outputs` directory from outside:
+# `python3 -m conformance <outputs_dir>`, as a verification processor or a CI step.
+# `test_conformance.py::test_the_gate_is_not_reachable_from_the_processors_own_process`
+# fails if a staged module ever imports it.
+#
+# The dependency is one-way, not absent: `conformance.py` DOES import `cyto_zarr` (for
+# ITEM-19's `key_sequence_digest`, which the producer declares and the gate recomputes —
+# a comparison that is only meaningful if both sides digest identically). Gate→writer is
+# fine; writer→gate is the arrangement DEC-8 forbids, and is what the test above pins.
+# `conformance.py` is entry-scoped-staged for the verification entry, and `cyto_zarr.py`
+# is globally staged, so the import resolves in that job's `/code` dir.
+#
+# ## The `_` prefix
+# The folder-scan registry (`ExtensionRegistry::build_from_dir`) SKIPS `_`-prefixed
+# dirs, so `_lib` contributes nothing to `GET /api/extensions`. It still carries this
+# manifest so the embedded-seed extractor treats it as a seed package and EXTRACTS its
+# files to disk, and so the manifest lint validates it. A separate-repo contributor
+# must NOT use a `_`-prefixed id for a real (contributing) package.
+id: _lib
+name: Shared output-format library
+publisher: cyto
+# 0.3.2 — adds `zero_core_guard.py`, the derived self-limiting scope shared by the
+# package zero-src-app-diff guards (fix/zero-core-derived, docs/design/derived-guards.md
+# §3). NOT staged into any sandbox `/code` (absent from `PY_HELPER_FILES` and
+# `RESERVED_ENTRY_HELPERS`), so no processor's runtime changes; the bump exists for seed
+# reconciliation hygiene, which keys on the package version when its file set moves.
+#
+# 0.3.3 — edits `model_coverage_exempt.json`: the two `trajectory.*` producer register
+# rows, and the `graph/attributed` lattice entry rewritten from a stated undecidable to a
+# stated decision now that its first producer has landed (feat/trajectory-analysis,
+# DEC-11). Same mechanical reason as 0.3.2 and no runtime change: the register file is
+# not staged into any sandbox `/code` either. This is 0.3.3 rather than a merge that
+# keeps 0.3.2, because `check-processor-seed-versions.sh` is BASE-RELATIVE — it compares
+# against `merge-base(origin/main, HEAD)`, which for this merged tree IS `origin/main`,
+# where `_lib` already reads 0.3.2. Keeping 0.3.2 would leave `_lib` changed-without-a-
+# bump against that base and fail the guard.
+#
+# 0.3.4 — `model_coverage_exempt.json` gains the `spatial/boundaries` lattice disposition
+# (#152). The file is DATA the model-coverage guard reads, and it lives here rather than
+# beside the Rust guard because every entry necessarily names a datatype and an axis while
+# `server/tests/**` is domain-scanned. Same reconciliation reasoning as 0.3.2: a file
+# under the package moved, so the version moves with it — the runtime picks the change up
+# from the per-file digest either way, but an operator reading two builds' versions must
+# be able to tell them apart.
+#
+# THIS IS 0.3.4 RATHER THAN A MERGE THAT KEEPS 0.3.3, and #152 reached that by APPLYING
+# DEC-11's generalizable rule above rather than by re-deriving it. Both sides of this
+# conflict independently bumped to 0.3.3 for the same mechanical reason (each edits
+# `model_coverage_exempt.json`), so "take both rationales, highest version" — the
+# resolution #152's own BASE.md predicted — would have kept 0.3.3 and reddened the guard:
+# `check-processor-seed-versions.sh` measures against `merge-base(origin/main, HEAD)`,
+# which on this merged tree IS `origin/main`, where `_lib` NOW reads 0.3.3. The rule is
+# to move forward FROM the merge target's value, not to take the higher of the two sides.
+# Verified rather than argued: the guard reports `ok _lib — changed, version 0.3.3 ->
+# 0.3.4` and exits 0.
+#
+# 0.3.5 — `model_coverage_exempt.json` gains the three `spatial.import-visium` producer
+# register rows (#154). It is the FIRST producer of `spatial/coordinates`, so the
+# model-coverage guard's producer arm goes red on it until somebody decides what the pair
+# states; the register is complete in BOTH directions, so there is no way to add a
+# row-bearing output without stating its disposition. Same reconciliation reasoning as
+# 0.3.2, and the same rule DEC-11 generalized and #152 applied: move FORWARD from the
+# merge target's value (`origin/main` reads 0.3.4), never take the higher of two sides.
+#
+# 0.4.2 — `model_coverage_exempt.json` gains the three `da.*` producer register rows plus the
+# `da/result` lattice row (#75). `da.clusters` and `da.neighbourhoods` are new producers with
+# row-bearing outputs, and `da/result` declares `entity_axis: population` — a level set of a
+# clustering, or a derived kNN neighbourhood — which no dataset anchors. The register is complete
+# in BOTH directions, so neither could land without stating a disposition; all four are
+# `rows-undeclared`, matching the `trajectory.paga`/`dpt` precedent rather than claiming the
+# stronger `rows-declared` the compute does not support (it passes no `membership=`, and the
+# platform's membership channel takes positions on a dataset axis, which a partition's levels are
+# not).
+#
+# WHY THIS BUMP WAS NEARLY MISSED, recorded because the near-miss is the useful part: the
+# pre-merge run of `check-processor-seed-versions` was CLEAN on this branch, and the failure
+# appeared only when the change was staged onto current `origin/main`. `_lib` is the shared
+# package EVERY analysis depends on, so a provisioned host that skips re-extraction on an
+# unchanged version keeps a stale `_lib` for the whole tree, not for one package. Same rule as
+# 0.3.5 and DEC-11: move FORWARD from the merge target's value (`origin/main` reads 0.4.1),
+# never take the higher of two sides.
+#
+# 0.4.3 — `model_coverage_exempt.json` gains the `doublet.detect x metadata-column` producer
+# register row (#101). `doublet.detect` emits its score and call columns over the whole cells
+# axis, so it is a new producer with a row-bearing output and the guard's producer arm goes red
+# until a disposition is stated. `rows-undeclared`, matching the `trajectory.dpt` precedent: the
+# compute passes no `membership=` to the writer. The reason field records the wrinkle that is the
+# mirror image of `cell.filter`'s — there the rows are a strict SUBSET while `aligned_to` looks
+# identical; here the rows really are the whole axis and it is the VALUES that are partial (`NaN`
+# plus the `not_evaluated` level), stated in the column itself rather than needing a membership
+# to be readable.
+#
+# THE SAME NEAR-MISS AS 0.4.2, AND IT IS RECORDED AGAIN BECAUSE IT REPEATED: this branch's own
+# run of `check-processor-seed-versions` was CLEAN — the recipe exempts a branch-born package
+# from the version-bump rule, and `doublet` is branch-born, so the `_lib` edit rode in under that
+# exemption. The failure appeared ONLY when the change was staged onto current `origin/main`.
+# `_lib` is the shared package EVERY analysis depends on, so a provisioned host that skips
+# re-extraction on an unchanged version keeps a stale `_lib` for the WHOLE TREE, not for one
+# package — which is why this bump lands harder than a per-package one. Same rule as 0.3.5,
+# 0.4.2 and DEC-11: move FORWARD from the merge target's value (`origin/main` at `0122baa1`
+# reads 0.4.2), never take the higher of two sides.
+# 0.4.4 — `model_coverage_exempt.json` gains `doublet.scdblfinder` x `metadata-column`
+# (#195 / E7). NO CODE CHANGED: the register is pure DATA under this package, asserted in
+# BOTH directions against the derived (producer x row-bearing datatype) pair set, so a new
+# producer reddens the tree until somebody states a disposition for it. The version moves
+# because `check-processor-seed-versions.sh` is base-relative over the whole package
+# DIRECTORY, and an unchanged version here keeps a stale `_lib` for the WHOLE tree rather
+# than for one package.
+# 0.4.5 — #163: `model_coverage_exempt.json` gains the `spatial.import-xenium` x
+#          `spatial/boundaries` producer row, and the `spatial/boundaries` LATTICE entry's
+#          reason is rewritten from an undecidable into a DECISION. That entry's own text
+#          said "Remove this entry when the importer lands, and decide it then"; the importer
+#          landed. The entry stays (the vertex axis is still outside the model and
+#          `the_exempt_list_and_the_tree_agree` checks that set BOTH ways) but it no longer
+#          claims there is no producer. Data only; no code in this package moved.
+#
+# 0.4.6 — #299/#265/#238/#268/#282: `zero_core_guard.py` gains `require_introducing_file`,
+#          the MARKER-keyed sibling of `require_introducing_branch`. Same premise, same
+#          add-only detection, same visible skip; the difference is that the subject's
+#          introduction is marked by a NAMED added path rather than by the calling module's
+#          package `manifest.yaml`. It exists because not every branch-diff proof is about a
+#          package being introduced — #163 introduced a PRODUCER inside a package #162 had
+#          already landed — and it is a promotion of code the tree already ran twice as a
+#          private `_armed()`, not a new mechanism. `test_zero_core_guard.py` widens its
+#          DERIVED guard set (the old glob keyed on the canonical basename, which is why the
+#          `doublet` and `differential-abundance` copies escaped its both-ways controls for
+#          five filed issues) and adds the repo-wide sweep #265 and #282 both asked for in
+#          prose. NOT staged into any sandbox `/code` — absent from `PY_HELPER_FILES` and
+#          `RESERVED_ENTRY_HELPERS` — so no processor's runtime changes; the bump exists for
+#          seed reconciliation hygiene. Forward from the merge target (`origin/main` @
+#          `20ff18e5` reads 0.4.5), never the higher of two sides. TEST-13 is the
+#          `scripts/check-processor-seed-versions.sh` run that observes every touched
+#          package's version actually moved, rather than asserting that it was intended to.
+#
+# 0.4.9 — #567: new acceptance test `test_cross_package_shared_module_collision.py` runs
+# the decisive multi-package pytest invocations as subprocesses and asserts they exit 0.
+# Test-only; no staged module or runtime changes. Seed reconciliation is version-keyed,
+# hence the bump.
+#
+# 0.4.7 — #321/#336: two `<path>::<test>` entries join `_SWEEP_EXCEPTIONS`, each with the
+#          mechanism that makes it self-limiting written down, which is the fourth remedy
+#          `test_no_package_test_reads_a_branch_diff_without_a_scope_gate`'s own failure
+#          message offers after the three `derived-guards.md` §5 refuses. They replace a pair
+#          of `require_introducing_file` gates that were MEASURED unarmable: both markers
+#          (`spatial-types/tests/test_wire_measurement_strip_count.py` since `6fa8126f`,
+#          `spatial-import-visium/tests/refusal_sites.py` since `aeeea949`) were already on
+#          `origin/main`, so `--diff-filter=A` can never match either again and both guards
+#          skipped on every branch that can ever be cut — self-limiting becoming
+#          SELF-DISABLING, which `require_introducing_file`'s own docstring names as strictly
+#          worse than the unscoped guard. Nothing in the sweep is weakened: both functions are
+#          still DETECTED as reading history without a gate, which is what
+#          `test_every_sweep_exception_still_exists_and_still_reads_history` asserts of every
+#          such entry, and the pardon is one FUNCTION rather than a module — a second unscoped
+#          copy in either file is still caught. `zero_core_guard.py` itself is UNCHANGED, so
+#          no processor's runtime moves; the bump is seed-reconciliation hygiene.
+version: 0.4.9
+apiVersion: "1.0"
+contributes: {}

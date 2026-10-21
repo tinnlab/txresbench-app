@@ -1,0 +1,28 @@
+# The env-id this recipe tree DECLARES as its default — the env THE BUILD targets when no
+# `CYTO_ENV_ROOTFS_ID` override is given. Read by `rootfs::version::declared_default_recipe`,
+# through `select_env_recipe_in`, from `build_helper/sandbox_rootfs.rs`.
+#
+# ── WHAT THIS FILE DOES *NOT* DO ─────────────────────────────────────────────────────
+# It does NOT choose what `scripts/publish-env-rootfs.sh` publishes. That script reads
+# nothing from here: with more than one recipe on disk it PRINTS THE CANDIDATES AND EXITS
+# 2 unless you pass `--env`. That is deliberate and it is not the same question. A build
+# picks which rootfs to stage into a binary you are about to run; a publish RE-POINTS THE
+# MOVING TAG `schema<N>-latest-<arch>` THAT EVERY RUNNING DEPLOYMENT RESOLVES, and doing
+# that to the wrong environment is not a recoverable mistake. An earlier version of this
+# header claimed the script honoured this file; it never did.
+#
+# WHY THIS FILE EXISTS (#191 / E3 DEC-5). Build selection used to fall back to
+# `available.first()` of a SORTED list. With one recipe that is unambiguous. With two it
+# is alphabetical luck: `single-cell` sorts before `single-cell-r`, so adding the R env
+# would have left the default correct BY COINCIDENCE — and a recipe named `bioc-*` would
+# silently have become the default instead, re-pointing which image the built binary
+# stages and expects to find. So the default is STATED here rather than derived from sort
+# order, and a declaration naming a recipe that does not exist is an error rather than a
+# fall-through.
+#
+# It lives in the recipe tree, not in server source, because the set of environments is
+# deployment DATA declared beside the recipes — an env-name literal in `version.rs` would
+# put an analysis domain into the build surface (INV-4 / R3-F2).
+#
+# First non-blank, non-comment line wins.
+single-cell

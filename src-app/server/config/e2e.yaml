@@ -1,0 +1,45 @@
+# CytoAnalyst E2E backend config (COMMITTED — test-only jwt secret, no real creds).
+#
+# Uses the EXTERNAL docker Postgres on :54321 (the shared build cluster,
+# src-app/docker-compose.yaml) instead of embedded PG: the embedded-PG subprocess
+# is SIGKILLed (exit 144) when booted inside the process-killing Bash-tool
+# harness, which blocked the FE e2e. An external DB has no subprocess to reap, so
+# the backend survives. The playwright webServer (or the e2e-in-harness recipe)
+# DROP+CREATEs `cytoanalyst_e2e` before boot for a clean first-run-setup each run;
+# the backend migrates it on boot. Requires the :54321 cluster up.
+postgresql:
+  use_embedded: false
+  external:
+    host: "127.0.0.1"
+    port: 54321
+    username: "postgres"
+    password: "password"
+    database: "cytoanalyst_e2e"
+  pool:
+    max_connections: 10
+    min_connections: 1
+    acquire_timeout_secs: 5
+    idle_timeout_secs: 30
+    max_lifetime_secs: 300
+server:
+  host: "127.0.0.1"
+  port: 3155
+  api_prefix: "/api"
+  trust_forwarded_headers: true
+  rate_limit:
+    # Explicitly OFF. Omitting this block does not mean "off" — `RateLimitConfig`
+    # in the SDK defaults `enabled` to TRUE to preserve the DoS posture for real
+    # deployments, so a config that says nothing gets the limiter. An e2e run is
+    # exactly the traffic shape that trips it (fast scripted clicks plus loopback
+    # built-in MCP calls, which share one peer-IP bucket with user traffic), which
+    # is why `dev.example.yaml` turns it off and this file should too.
+    enabled: false
+logging:
+  level: "warn"
+  format: "pretty"
+jwt:
+  secret: "e2e-test-secret-key-for-jwt-tokens-min-32-chars-long"
+  issuer: "cytoanalyst"
+  audience: "cytoanalyst-api"
+  access_token_expiry_hours: 24
+  refresh_token_expiry_days: 30

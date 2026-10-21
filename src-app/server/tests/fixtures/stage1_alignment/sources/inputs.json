@@ -1,0 +1,52 @@
+{
+  "inputs": [
+    {
+      "slot": "entity:0:code",
+      "kind": "artifact",
+      "content_hash": "sha256:ds-a-code",
+      "sandbox_path": "/inputs/entity_0_code.zarr"
+    },
+    {
+      "slot": "entity:0:alias",
+      "kind": "artifact",
+      "content_hash": "sha256:ds-a-alias",
+      "sandbox_path": "/inputs/entity_0_alias.zarr"
+    },
+    {
+      "slot": "rows",
+      "kind": "artifact",
+      "content_hash": "sha256:ds-a-rows",
+      "sandbox_path": "/inputs/rows.zarr"
+    },
+    {
+      "slot": "level:0:group",
+      "kind": "artifact",
+      "content_hash": "sha256:ds-a-group",
+      "sandbox_path": "/inputs/level_0_group.zarr"
+    },
+    {
+      "slot": "entity:1:code",
+      "kind": "artifact",
+      "content_hash": "sha256:ds-b-code",
+      "sandbox_path": "/inputs/entity_1_code.zarr"
+    },
+    {
+      "slot": "entity:1:alias",
+      "kind": "artifact",
+      "content_hash": "sha256:ds-b-alias",
+      "sandbox_path": "/inputs/entity_1_alias.zarr"
+    },
+    {
+      "slot": "rows",
+      "kind": "artifact",
+      "content_hash": "sha256:ds-b-rows",
+      "sandbox_path": "/inputs/rows_1.zarr"
+    },
+    {
+      "slot": "level:1:group",
+      "kind": "artifact",
+      "content_hash": "sha256:ds-b-group",
+      "sandbox_path": "/inputs/level_1_group.zarr"
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+# TEST-2 control fixture (ITEM-1) — a package whose ONLY contribution is Visualize
+# sections: no analysis, no datatype, no converter. It must lint clean, because that
+# is the shape the whole contribution seam rests on — a package may contribute a
+# section without producing anything.
+#
+# It exercises every declared section key AND every `applies_to` selector key
+# (`type_id`, `subtypes_of`, `capabilities`, `excludes`). That is not decoration: the
+# lint's `SectionSelector` is `deny_unknown_fields` and `build.rs` PANICS on it, so a
+# selector key present in the runtime parser but missing here is a broken build for the
+# first package that declares it. The fixture used to declare `capabilities` alone, so
+# it survived deleting the other three — `every_section_selector_key_is_exercised_by_the_fixture`
+# below now derives the required set from the runtime type and fails if this file drifts.
+id: sectionpkg
+name: Section Package
+publisher: cyto
+version: 0.1.0
+apiVersion: "1.0"
+contributes:
+  sections:
+    - id: demo.coordinates
+      title: Coordinates
+      pane: visualize
+      order: 10
+      collapsed: false
+      # capability-only: matches any datatype holding them (the cross-package binding).
+      applies_to: [{ capabilities: [plottable-xy] }]
+      ui: [ui/coordinates.yaml]
+    - id: demo.exact
+      title: Exact
+      pane: visualize
+      order: 20
+      # exact id + a rejection list
+      applies_to: [{ type_id: demo.matrix, excludes: [demo.matrix.sparse] }]
+      ui: [ui/exact.yaml]
+    - id: demo.subtypes
+      title: Subtypes
+      pane: visualize
+      order: 30
+      # lattice match
+      applies_to: [{ subtypes_of: demo.projection }]
+      ui: [ui/subtypes.yaml]
+    - id: demo.minimal
+      title: Minimal
+      pane: visualize

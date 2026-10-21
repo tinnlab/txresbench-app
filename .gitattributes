@@ -1,0 +1,24 @@
+# ai-mcp ITEM-15: the frontend-action manifest is a generated/committed
+# golden artifact whose `collect-actions.mjs --check` gate does a raw
+# byte-diff against the collector's (always-LF) output. Force LF at checkout
+# so a Windows clone with `core.autocrlf=true` doesn't check it out with CRLF
+# and fail `--check` as spurious drift.
+src-app/server/src/modules/mcp/frontend-actions.json text eol=lf
+
+# visualize-pane round 2: a `.tsx` shipped a literal NUL byte (a section-reorder sentinel
+# written `'\0append'`). Git's binary heuristic is "a NUL in the first 8000 bytes", so from
+# that commit the file was a BINARY blob: `git diff`/`git show` printed "Binary files differ"
+# for a 9,000-byte change, and every review gate downstream — including a blind auditor told
+# to cover every hunk — read an empty diff for the largest change in the commit.
+#
+# This forces git to render source as TEXT regardless. It is the BELT; the brace is
+# `src-app/ui/scripts/lint-text-source-bytes.mjs`, which refuses the byte at the source. The
+# attribute alone would fix the diff and leave an invisible byte in a string literal, which
+# compares unequal to what every editor shows the reader.
+*.ts   text diff
+*.tsx  text diff
+*.js   text diff
+*.mjs  text diff
+*.cjs  text diff
+*.rs   text diff
+*.py   text diff

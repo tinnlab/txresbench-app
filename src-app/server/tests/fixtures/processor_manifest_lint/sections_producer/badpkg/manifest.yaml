@@ -1,0 +1,15 @@
+# INV-18 fixture (ITEM-1) — "A section declares what kind of data it applies to. It
+# never names a producer." The selector below names the producing ANALYSIS, which is
+# exactly the cross-package coupling the rule forbids, so it must fail the BUILD
+# naming `analysis` rather than being silently ignored.
+id: badpkg
+name: Bad Package
+publisher: cyto
+version: 0.1.0
+apiVersion: "1.0"
+contributes:
+  sections:
+    - id: demo.coordinates
+      title: Coordinates
+      pane: visualize
+      applies_to: [{ analysis: qc }]

@@ -1,0 +1,17 @@
+# CytoAnalyst Cargo build configuration.
+#
+# Cargo config lookup walks up from the INVOCATION dir, so this applies whether
+# you run from the repo root or from src-app/server.
+[env]
+# Embedded-Postgres binary version. `postgresql_embedded`'s build script (pulled
+# in transitively via ziee-framework) reads this to pick the theseus-rs binary.
+# Keep it identical to `postgresql.embedded.version` in dev.yaml and the
+# POSTGRES_VERSION const in src-app/server/src/database.rs.
+POSTGRESQL_VERSION = "=18.3.0"
+
+# The committed build cluster (shared docker pgvector at :54321). Only read by
+# build scripts that do sqlx compile-time `query!` verification — currently just
+# the SDK's ziee-auth crate (which auto-isolates its own `ziee_auth_build_<key>`
+# database keyed by its manifest path, so CytoAnalyst's SDK submodule never
+# collides with another checkout's auth build DB).
+DATABASE_URL = "postgresql://postgres:password@127.0.0.1:54321/postgres"

@@ -1,0 +1,476 @@
+# embedding.reduce declarative view_spec (Stage-0 Stage-C, ITEM-6..11).
+#
+# The MANIFEST declares `ui: [ui/reduce.yaml]`, so this view does NOT name its analysis
+# (no `analysis:` back-pointer) and does NOT declare a `layout:` — one analysis renders
+# into ONE pane and widgets render in DECLARATION ORDER, so the order below IS the layout
+# (INV-3). The manifest declares only load/enable/execute (INV-16); THIS file owns
+# everything the user sees + selects and declares its OWN option sources (INV-17). Every
+# input the run consumes is a visible control passed EXPLICITLY on `run_processor` — what
+# is launched is what was shown (INV-18). The batch/covariate options are DERIVED from the
+# chosen matrix's cells axis (INV-20), never a hardcoded closed list.
+#
+# The twin of `qc/ui/qc.yaml` (one input, a handful of parameters, one Run) with
+# `cell-filter`'s criteria builder grafted in for the INLINE metadata filter (ITEM-2b/2c/2d).
+# The criteria list is passed EXPLICITLY on `run_processor` (`params.criteria` + one
+# `column:<name>` slot per criterion), and the compute subsets the matrix at read BEFORE the
+# fit — what is shown is what is launched (INV-18), the embedding is re-derived on survivors
+# (INV-12). The criteria vocabulary is `cell-filter`'s SHIPPED one (DEC-11), so this builder
+# mirrors `cell-filter/ui/cell-filter.yaml`'s obs/criteria idiom rather than inventing a fourth.
+id: embedding.reduce
+title: Reduce dimensions
+# Reuse the EXISTING permission — this feature introduces no new gate. The workbench
+# dispatches compute jobs, so `jobs::use` (granted to Users) is the gate.
+permission: jobs::use
+
+state:
+  # The single count matrix this run reduces. SINGULAR (single-select, DEC-12): Stage-0
+  # reduce is single-dataset, and the compute REFUSES >1. Seeded from the sole compatible
+  # candidate when there is one; a picker when there are more.
+  matrix: { type: string, default: null }
+  # The batch / covariate column. ONE column drives BOTH the seurat_v3 HVG `batch_key`
+  # split AND, when integration is on, the covariate Harmony corrects on (ITEM-8/INV-15).
+  # Empty ⇒ no batch (a whole-dataset HVG, no Harmony). Null, never "" — a closed-set
+  # control's default is null.
+  batchColumn: { type: string, default: null }
+  # `none` | `harmony`. Default `none` (DEC-7/ITEM-20c): Harmony is opt-in — it needs a
+  # batch column AND a republished rootfs (harmonypy), and an uncorrected embedding is the
+  # honest default that never silently claims batch correction.
+  integration: { type: string, default: "none" }
+  # The INLINE metadata filter — a list of `{ column, control, min?, max?, keep? }` criteria
+  # (ITEM-2b/2c). Empty by default (no filter → the whole dataset is embedded); `er.addCriterion`
+  # appends a blank row. The ONE encoding the compute reads (`params.criteria` → the vendored
+  # `criteria_keep_mask`), so there is no second DSL to fall out of step with it.
+  criteria: { type: list, default: [] }
+  # PCA / HVG parameters, EXPOSED (INV-5 "expose it" / INV-14). Text-valued because a
+  # numeric widget kind is not in the core vocabulary; `require.number` holds them to the
+  # shared decimal grammar the compute's `int()`/`float()` reads.
+  nHvg: { type: string, default: "2000" }   # seurat_v3 n_top_genes (INV-15)
+  nPcs: { type: string, default: "50" }     # PCA n_comps, arpack (INV-5)
+  seed: { type: string, default: "0" }
+  # The output embedding member NAME (the cells-axis column the run commits). Not "" — a
+  # column name has no empty answer (the run invents none), so a blank default would ship
+  # a form invalid the instant it opens. `X_pca` is the compute's own fallback.
+  name: { type: string, default: "X_pca" }
+
+data:
+  # The cells-axis metadata columns of the CHOSEN matrix's dataset (INV-5/INV-6/INV-20) —
+  # including columns no analysis declared. `columns_of` / `catColumns` below answer from
+  # the catalog declaration sidecar, so this needs no `values_for`: it lists NAMES + kinds,
+  # not bodies (INV-11). Before a matrix is chosen it resolves to nothing and is skipped.
+  # ITEM-2d — the filter column selector's option source: the cells-axis columns of the
+  # CHOSEN matrix (INV-20, open set), the SAME `axis_columns` relation `cell-filter` reads.
+  # `values_for` makes the read LAZY (ITEM-34): metadata for every column, VALUES only for the
+  # columns a criterion actually names — the categorical keep-set + range widgets need the
+  # distinct values / extent of only the columns in play, never all 65 obs bodies of a real
+  # CELLxGENE import. (The intent of the plan's `datatype: tabular` narrowing is realized by
+  # the axis relation itself — the cells axis carries the tabular obs columns, and an embedding
+  # / coordinate set is not one of them; the runtime `axis_columns` slice honors only
+  # `{of, axis, values_for}`, so a literal `datatype` arg would be shown-but-ignored. DRIFT-3.)
+  obs:
+    source: axis_columns
+    args: { of: "$state.matrix", axis: cells, values_for: "$state.criteria" }
+  # The SAME axis relation asked for the ARTIFACT ID behind each column (`as: sources` →
+  # `{ column: artifact_id }`). Two uses: it is the taken-set `name.require.not_in` reads
+  # (its KEYS are every column already on this axis), AND it is what the `batch` slot binds
+  # to — a `metadata-column` store cannot carry its own name, so the id has to arrive with
+  # the binding (mirrors `cell-filter`'s `obsSources`).
+  obsSources:
+    source: axis_columns
+    args: { of: "$state.matrix", axis: cells, as: sources }
+
+derived:
+  # The CATEGORICAL cells-axis columns — the batch/covariate picker's options. Batch is a
+  # categorical column, so `only: categorical` narrows the offer; the list is open (any
+  # categorical column present on the axis, INV-20), never a closed literal.
+  catColumns: { columns_of: { obs: "$data.obs", only: categorical } }
+  # The INLINE-FILTER criteria builder's derived option sources — all READ FROM THE DATA
+  # (INV-20), mirroring `cell-filter.yaml`. `columns` = `[{value,label,control}]` (the
+  # criterion column picker's options); `controlByColumn` = a `{column: control}` map (the
+  # per-criterion `when` gate deciding range-vs-keepset); `categoriesByColumn` = the DISTINCT
+  # category values per categorical column (the keep-set multiselect's options).
+  columns: { columns_of: { obs: "$data.obs" } }
+  controlByColumn: { columns_of: { obs: "$data.obs", keyed: true } }
+  categoriesByColumn: { categories_by_column: { obs: "$data.obs" } }
+
+widgets:
+  # ── the INPUT, an ordinary field at the top of the SAME form (INV-17/INV-18) ──────
+  #
+  # Declares its OWN `source`; the manifest's `appliesTo` governs whether the analysis is
+  # OFFERED, not what this control LISTS. `slot` is not a UI concept and is absent here —
+  # it survives only as the wire key on `run_processor.inputs` (`matrices`). RAW counts
+  # only, mirroring the manifest's `excludes` (a normalized / protein / atac matrix is a
+  # subtype of the same parent, so the exclude set is load-bearing).
+  - id: matrixPicker
+    kind: artifact_ref
+    auto_bind_sole_candidate: true
+    label: Count matrix
+    source:
+      subtypes_of: single-cell/expression
+      excludes: [single-cell/normalized, single-cell/protein, single-cell/atac]
+    value: "$state.matrix"
+    onChange: er.setMatrix
+    require:
+      required: true
+      message: Choose the raw-count matrix to reduce to a PCA embedding.
+    empty_text: >-
+      No raw-count expression matrix in this project yet. Import one (embedding.reduce
+      needs raw counts — a normalized matrix is refused).
+
+  # ── the INLINE metadata filter (ITEM-2b/2c/2d) — which cells to embed ─────────────
+  #
+  # A criteria builder over ANY cells-axis obs column, so the embedding is fitted on a chosen
+  # subset (e.g. only the T cells). The table + the criteria vocabulary MIRROR
+  # `cell-filter/ui/cell-filter.yaml` (DEC-11 — one dialect, not a fourth): a categorical
+  # column offers a keep-set, a continuous one offers min/max bounds, chosen per row by the
+  # column's own type (`controlByColumn`). Empty ⇒ no filter (the whole dataset is embedded).
+  # Every criterion is passed EXPLICITLY on Run (`params.criteria` + a `column:<name>` slot),
+  # and the compute subsets at read BEFORE the fit — INV-12/INV-18.
+  - id: criteriaTable
+    kind: table
+    rows: "$state.criteria"
+    empty_text: >-
+      No filter — the whole dataset is embedded. Add a criterion to embed only a subset (a
+      range for a measurement, a set of categories for a label); the embedding is re-derived
+      on the cells that survive.
+    columns:
+      # Column picker — ANY cells-axis obs column, as a per-row closed set drawn from the data.
+      - key: column
+        title: Column
+        cell:
+          select:
+            value: "$row.column"
+            options: "$derived.columns"
+            onChange: er.setCriterionField
+            empty_text: No columns to filter on — they come from the matrix chosen above.
+      # The CONSTRAINT — one column holding the min/max bounds OR the keep-set, whichever the
+      # row's column type calls for (the other is not drawn). Same `parts` idiom as cell-filter.
+      - key: constraint
+        title: Constraint
+        parts:
+          - key: min
+            cell:
+              editable_text:
+                when: "$derived.controlByColumn[$row.column] == range"
+                value: "$row.min"
+                placeholder: "Min"
+                onChange: er.setCriterionField
+                require: { number: {} }
+          - key: max
+            cell:
+              editable_text:
+                when: "$derived.controlByColumn[$row.column] == range"
+                value: "$row.max"
+                placeholder: "Max"
+                onChange: er.setCriterionField
+                require: { number: {} }
+          - key: keep
+            cell:
+              multiselect:
+                when: "$derived.controlByColumn[$row.column] == multiselect"
+                value: "$row.keep"
+                options: "$derived.categoriesByColumn[$row.column]"
+                placeholder: "All categories"
+                onChange: er.setCriterionField
+      - key: remove
+        title: ""
+        cell:
+          button:
+            label: Remove
+            icon: remove
+            variant: destructive
+            onClick: er.removeCriterion
+  - id: addCriterionBtn
+    kind: button
+    label: Add filter criterion
+    variant: default
+    onClick: er.addCriterion
+
+  # ── the BATCH / COVARIATE column ──────────────────────────────────────────────────
+  #
+  # ONE column, TWO roles, stated at the control: it splits the seurat_v3 HVG selection
+  # (`batch_key`) AND is the covariate Harmony corrects on when integration is on
+  # (ITEM-8). It must never be possible to pick a batch, succeed, and get an uncorrected
+  # embedding with nothing saying so — the integration control below is the second half of
+  # that statement. Options DERIVE from the data (INV-20): the categorical columns of the
+  # chosen matrix's cells axis. Empty is a real answer (no batch → whole-dataset HVG).
+  - id: batchColumnPicker
+    kind: select
+    label: Batch / covariate column
+    help: >-
+      Drives BOTH the highly-variable-gene selection (per-batch) and, when integration is
+      Harmony below, the covariate the correction is computed over. Leave empty for a
+      whole-dataset embedding with no batch correction.
+    options: "$derived.catColumns"
+    value: "$state.batchColumn"
+    onChange: er.setBatchColumn
+    empty_text: >-
+      No categorical column to use as a batch — they come from the matrix chosen above.
+
+  # ── INTEGRATION mode ────────────────────────────────────────────────────────────
+  #
+  # A closed two-option choice is a `select` (the core vocabulary ships no radio kind —
+  # the idiom `embedding-integrate.yaml` uses). Default `none` (DEC-7). Harmony needs a
+  # batch column (the `checks:` block refuses `harmony` with none) AND the harmonypy the
+  # rootfs republish delivers (the compute names that refusal); the help says so plainly.
+  - id: integrationPicker
+    kind: select
+    label: Batch integration
+    help: >-
+      Harmony corrects the PCA embedding on the batch column above. It needs a batch
+      column and a harmonypy-carrying environment; without integration the embedding is
+      the uncorrected PCA representation.
+    options: "$const.integrationModes"
+    value: "$state.integration"
+    onChange: er.setIntegration
+
+  # ── PCA / HVG PARAMETERS, exposed (INV-5/INV-14/INV-15) ───────────────────────────
+  - id: nHvgInput
+    kind: text
+    label: Highly-variable genes
+    value: "$state.nHvg"
+    placeholder: "2000"
+    onChange: er.setNHvg
+    require:
+      number: { integer: true, min: 1 }
+      message: The number of highly-variable genes must be a whole number ≥ 1.
+  - id: nPcsInput
+    kind: text
+    label: Principal components
+    value: "$state.nPcs"
+    placeholder: "50"
+    onChange: er.setNPcs
+    require:
+      number: { integer: true, min: 1 }
+      message: The number of principal components must be a whole number ≥ 1.
+  - id: seedInput
+    kind: text
+    label: Random seed
+    value: "$state.seed"
+    placeholder: "0"
+    onChange: er.setSeed
+    require:
+      number: { integer: true, min: 0 }
+      message: The seed must be a whole number ≥ 0.
+
+  # ── the OUTPUT NAME — the cells-axis member the run commits ───────────────────────
+  #
+  # `not_in` the whole cells axis (`obsSources`' KEYS): runs coexist provenance-immutable,
+  # so a second column under an existing name would leave two columns with one name and a
+  # reader keeps whichever came last. Mirrors `cell-filter`'s `labelInput`.
+  - id: nameInput
+    kind: text
+    label: Output embedding name
+    value: "$state.name"
+    placeholder: "e.g. X_pca"
+    onChange: er.setName
+    require:
+      required: true
+      not_in: "$data.obsSources"
+      message:
+        required: >-
+          The embedding needs a name — it is the cells-axis member this run commits, and
+          the run refuses to invent one.
+        not_in: >-
+          "{value}" is already a column on this matrix's cells axis. Committing a second
+          one under that name would leave two columns with one name, so pick another.
+
+  - id: runBtn
+    kind: button
+    label: Reduce dimensions
+    variant: primary
+    # Deliberately NOT `when:` — hiding Run behind the message telling the user to run is
+    # the deadlock `DeclarativeRegion` documents. It DERIVES its disabled state from the
+    # form's own verdicts (the required matrix, the number constraints, the harmony/batch
+    # check below), which the engine lists underneath, so it never sits greyed silently.
+    onClick: er.run
+
+const:
+  # The integration vocabulary as DATA — the `integrationPicker` options. VALUES are the
+  # strings the compute compares (`reduce.py`: `integration in ("none","harmony")`); LABELS
+  # are the question as the user reads it.
+  integrationModes:
+    - { value: "none", label: "None — the uncorrected PCA embedding" }
+    - { value: "harmony", label: "Harmony — batch-correct on the column above" }
+
+# ── cross-field constraints (the relation no single control owns) ────────────────────
+checks:
+  # Harmony with no batch column is a run the compute refuses (`reduce.py`: "integration=
+  # `harmony` needs a batch/covariate column"). It is a relation BETWEEN two controls, so
+  # it cannot be a `require` on either; it lands on the batch picker, where the fix is.
+  # Mirrors `embedding-integrate`'s `authorityUnsetUnderAuthorityMode`.
+  - id: harmonyNeedsBatch
+    fails_when: "$state.integration == harmony && $state.batchColumn == null"
+    at: { widget: batchColumnPicker }
+    message: >-
+      Harmony corrects on a batch column, but none is chosen. Pick the batch / covariate
+      column above, or set integration back to None for the uncorrected PCA embedding.
+
+  # A keep-range whose Min is above its Max keeps NOTHING and says so nowhere (the compute
+  # applies it faithfully, the subset empties). It is a relation BETWEEN the two bounds, so it
+  # lands on the row's own Max. Mirrors `cell-filter`'s `minAboveMax`. The `!= ''` guards are
+  # load-bearing — an empty bound is UNBOUNDED, not 0.
+  - id: filterMinAboveMax
+    for_each: "$state.criteria as $c, $i"
+    fails_when: "$c.min != '' && $c.max != '' && $c.min > $c.max"
+    at: { widget: criteriaTable, part: max, index: "$i" }
+    message: Min is above Max, so this criterion keeps no cells.
+
+  # A criterion built on a column the CHOSEN matrix does not carry (e.g. after switching
+  # matrices, which clears nothing but the batch column). The LAUNCH is already protected —
+  # `inputs_from` treats an unresolvable `column:<name>` as an error — but the FORM in between
+  # would draw the row's name over three empty slots with no reason. Mirrors `cell-filter`'s
+  # `criterionColumnOffAxis`; `$c.column != ''` keeps a freshly-added blank row unaccused.
+  - id: filterColumnOffAxis
+    for_each: "$state.criteria as $c, $i"
+    fails_when: "$c.column != '' && $derived.controlByColumn[$c.column] == absent"
+    at: { widget: criteriaTable, part: column, index: "$i" }
+    message: >-
+      The chosen matrix has no column by this name. Pick a column this matrix carries, or
+      remove the criterion.
+
+  # NOTE — there is deliberately NO view-side over-ceiling refusal here (ITEM-10). The
+  # honest predicate needs the chosen matrix's DECLARED nnz / cell count as a scalar, and
+  # no `data:` source in the shipped vocabulary exposes that — expressing it would require
+  # a NEW `src-app/ui` data source, which breaks ITEM-29/INV-16. The ceiling is enforced
+  # COMPUTE-side before a byte of the matrix is read (`reduce.py` `ceiling_refuse_if_over`,
+  # ITEM-16/INV-8/9), which is reachable by an agent/MCP call that never rendered this
+  # form anyway. See DRIFT-2.
+
+actions:
+  - id: er.setMatrix
+    title: Set the count matrix
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      # Clear the batch column: it is a column of the PREVIOUS matrix's cells axis, and a
+      # kept value would name a column the new matrix may not carry. Re-seeded by the
+      # picker over the new axis. Silently keeping a stale value is how a pairing rots.
+      - set: { matrix: "$params.value", batchColumn: null }
+
+  - id: er.setBatchColumn
+    title: Set the batch / covariate column
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { batchColumn: "$params.value" }
+
+  - id: er.setIntegration
+    title: Set the integration mode
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { integration: "$params.value" }
+
+  # ── inline-filter criteria actions (mirror `cell-filter`'s `cf.*Criterion`) ──────────
+  - id: er.addCriterion
+    title: Add a filter criterion
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: {}
+    body:
+      - listAppend: { path: criteria, value: { column: "", control: "", min: "", max: "", keep: [] } }
+  # ONE generic per-field setter (column / min / max / keep) targeted by the row INDEX + the
+  # column's own key — the same idiom `cell-filter`'s `cf.setCriterionField` uses.
+  - id: er.setCriterionField
+    title: Set a criterion field
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { index: number, key: string, value: string }
+    body:
+      - set: { "criteria.{$params.index}.{$params.key}": "$params.value" }
+  - id: er.removeCriterion
+    title: Remove a filter criterion
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { index: number }
+    body:
+      - listRemove: { path: criteria, index: "$params.index" }
+
+  - id: er.setNHvg
+    title: Set the HVG count
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { nHvg: "$params.value" }
+
+  - id: er.setNPcs
+    title: Set the PC count
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { nPcs: "$params.value" }
+
+  - id: er.setSeed
+    title: Set the random seed
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { seed: "$params.value" }
+
+  - id: er.setName
+    title: Set the output embedding name
+    permission: jobs::use
+    mutating: true
+    stateful: true
+    params: { value: string }
+    body:
+      - set: { name: "$params.value" }
+
+  # Run — a DECLARED run_processor → wait_for → toast (all in `EFFECT_OPS`), mirroring
+  # `qc.yaml`. Every input the run consumes is passed EXPLICITLY from view state (INV-18):
+  #   · `inputs.matrices` — the chosen matrix.
+  #   · `inputs_from` binds the `batch` slot to the chosen column's metadata-column
+  #     artifact (a `metadata-column` store cannot carry its own name, so the id arrives
+  #     with the binding), gated on a column being chosen — no batch, no binding.
+  #   · `params` — the PCA/HVG parameters, the integration mode, and `batch_column` (the
+  #     display name the report records). Nothing is resolved invisibly between click and job.
+  - id: er.run
+    title: Reduce dimensions
+    permission: jobs::use
+    mutating: true
+    params: {}
+    body:
+      - run_processor:
+          id: embedding.reduce
+          inputs:
+            matrices: "$state.matrix"
+          inputs_from:
+            - when: "$state.batchColumn"
+              slot: "batch"
+              artifact: "$data.obsSources[$state.batchColumn]"
+            # ONE `column:<name>` binding per criterion, gated on the criterion having a
+            # column (a freshly-added blank row is not an input) — the SAME `inputs_from`
+            # idiom `cell-filter`'s `cf.run` uses. A `metadata-column` store cannot carry its
+            # own name, so the slot NAMES the column and the id arrives with the binding;
+            # anything past the gate that cannot resolve is an ERROR (a criterion whose column
+            # never reaches the run is exactly the silent keep-everything this prevents).
+            - for_each: "$state.criteria as $c"
+              when: "$c.column"
+              slot: "column:{$c.column}"
+              artifact: "$data.obsSources[$c.column]"
+          params:
+            criteria: "$state.criteria"
+            n_hvg: "$state.nHvg"
+            n_pcs: "$state.nPcs"
+            seed: "$state.seed"
+            name: "$state.name"
+            integration: "$state.integration"
+            batch_column: "$state.batchColumn"
+          into: reduceJob
+      - wait_for: { job: "$reduceJob", until: completed }
+      - toast: { success: "PCA embedding computed" }

@@ -1,0 +1,76 @@
+-- no-transaction
+--
+-- workstore — the GIN index behind INV-2's *"indexed catalog match"* (dimension-membership
+-- ITEM-28).
+--
+-- ## The `-- no-transaction` directive on line 1 is load-bearing, and it is a FIRST here
+--
+-- sqlx wraps every migration in a transaction by default, and `CREATE INDEX CONCURRENTLY`
+-- cannot run inside one. No other migration in this tree carries the directive, so there is
+-- no precedent to copy and no compiler to catch its absence: without it this file fails at
+-- BOOT — the server refuses to start — rather than at build. Keep it on the FIRST line;
+-- sqlx reads it out of the leading comment block.
+--
+-- ## The query this is built for, and nothing else
+--
+-- The pane resolves its anchor to one or more axis identities (a `key_sequence_digest` per
+-- axis) and asks: within this project's scope, which `ready` artifacts declare a membership
+-- on THIS axis? Scope is the existing `list_for_project_scope` union — project-scoped rows
+-- plus the rows of the project's attached datasets — so the new predicate is a containment
+-- test bolted onto an existing scoped list, and the planner combines a btree scope scan with
+-- this containment scan.
+--
+-- ## Three choices, each for a reason
+--
+-- ### An EXPRESSION, not the whole `structure` column
+--
+-- `USING gin (structure)` would index every leaf of every producer declaration — encoding,
+-- column lists, dims, `arrays[]`, dtypes — for a query that reads ONE key. The expression
+-- below projects to the digest list alone, which holds ~one entry per axis an artifact
+-- touches: 1 for an ordinary column, 2 for an integrated coordinate.
+--
+-- `jsonb_path_query_array` (the IMMUTABLE one) — NOT the `_tz` variant, which is STABLE and
+-- therefore not indexable. Postgres rejects a non-immutable function in an index expression,
+-- so the wrong one fails at CREATE time rather than silently; it is named here because the
+-- two spellings are one character apart and the tz-aware one is the more "modern"-looking of
+-- the pair.
+--
+-- ### `jsonb_path_ops`, not the default `jsonb_ops`
+--
+-- It supports `@>` and little else — which is the single operator this query needs — and it
+-- stores one hash per leaf PATH instead of one entry per key AND per value, so it is
+-- materially smaller and faster for containment. The tree has GIN-on-jsonb precedent
+-- (`ziee-file`'s `202607140125_file_schema.sql`, `ziee-auth`'s) but no `jsonb_path_ops`; this
+-- is the first, which is why the reason is written here and not assumed.
+--
+-- ### The expression deliberately EXCLUDES the inline `bitmap`
+--
+-- A membership entry may carry up to 64 KiB of base64 member set (ITEM-5). Indexing the
+-- `memberships` subtree wholesale would hash that blob into the index on every write, for a
+-- key nobody queries. Projecting to the digest list keeps the indexed value tiny and bounded
+-- by construction.
+--
+-- ## What it costs on write, stated rather than assumed
+--
+-- ~1 GIN entry per declared axis per artifact — a handful of bytes per row. GIN `fastupdate`
+-- is ON by default, so an ingest burst appends to a pending list merged by autovacuum or at
+-- `gin_pending_list_limit`; a query arriving before the merge scans that pending list, which
+-- is the one latency wrinkle this introduces and is bounded by that setting. Ingest is an
+-- UPSERT that rewrites `structure` on conflict, so a re-ingest of an UNCHANGED artifact still
+-- re-indexes the row — pre-existing behaviour, made slightly more expensive here.
+--
+-- ## The NAME deliberately says `aligned_to`, not `axis`
+--
+-- `axis_identity_test` (TEST-4, INV-3) censuses the schema for anything KEYED on an axis —
+-- by index DEFINITION, which includes the index's own name. This index is keyed on the axis's
+-- IDENTITY (a `key_sequence_digest`), which is exactly what that invariant says an axis is,
+-- so it is a legitimate index and not a violation. Naming it after the declaration key it
+-- actually indexes keeps the census honest instead of forcing an exception into it — an
+-- allowlist entry there would blunt the guard for every future index too.
+--
+-- `IF NOT EXISTS` because `CONCURRENTLY` cannot be rolled back: a failed build leaves an
+-- INVALID index behind, and a re-run must not then fail on the name.
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS artifacts_membership_aligned_to_idx
+    ON artifacts
+    USING gin ((jsonb_path_query_array(structure, '$.memberships[*].aligned_to')) jsonb_path_ops);

@@ -1,0 +1,277 @@
+{
+  "outputs": [
+    {
+      "id": "dataset-alignment",
+      "datatype": "dataset-alignment",
+      "path": "alignment.zarr",
+      "layout": "chunked-dense",
+      "role": "artifact",
+      "structure": {
+        "encoding": "zarr_v3",
+        "kind": "table",
+        "axis": "unified_entities",
+        "n": 2,
+        "columns": [
+          {
+            "name": "unified_key",
+            "path": "unified_key",
+            "kind": "string",
+            "layout": "split",
+            "axis": "unified_entities",
+            "shape": [
+              2
+            ],
+            "dtype": "utf8",
+            "offsets": "unified_key/offsets",
+            "values": "unified_key/values",
+            "n_bytes": 2,
+            "stored_bytes": 191,
+            "values_digest": "7fdc1c841236e7b1f440e75d7fd476826344f05de7d285aab6ef95e52c9652bf"
+          },
+          {
+            "name": "unified_alias",
+            "path": "unified_alias",
+            "kind": "string",
+            "layout": "split",
+            "axis": "unified_entities",
+            "shape": [
+              2
+            ],
+            "dtype": "utf8",
+            "offsets": "unified_alias/offsets",
+            "values": "unified_alias/values",
+            "n_bytes": 4,
+            "stored_bytes": 196,
+            "values_digest": "4d97b4506510e86bc2efd85f7e92ad86a6fba98128b4c73a265b0312c8775e31",
+            "meta": {
+              "resolved_from": "strict",
+              "authority": null
+            }
+          }
+        ],
+        "arrays": [],
+        "aux": [
+          {
+            "path": "segment_dataset",
+            "kind": "numeric",
+            "dtype": "int32",
+            "shape": [
+              2
+            ],
+            "inner_chunk": 4096,
+            "chunks_per_shard": 1,
+            "shards": 1,
+            "stored_bytes": 71,
+            "name": "segment_dataset",
+            "role": "alignment_segment_dataset",
+            "extent": [
+              "segments"
+            ]
+          },
+          {
+            "path": "segment_start",
+            "kind": "numeric",
+            "dtype": "int64",
+            "shape": [
+              2
+            ],
+            "inner_chunk": 4096,
+            "chunks_per_shard": 1,
+            "shards": 1,
+            "stored_bytes": 87,
+            "name": "segment_start",
+            "role": "alignment_segment_start",
+            "extent": [
+              "segments"
+            ]
+          },
+          {
+            "path": "segment_end",
+            "kind": "numeric",
+            "dtype": "int64",
+            "shape": [
+              2
+            ],
+            "inner_chunk": 4096,
+            "chunks_per_shard": 1,
+            "shards": 1,
+            "stored_bytes": 88,
+            "name": "segment_end",
+            "role": "alignment_segment_end",
+            "extent": [
+              "segments"
+            ]
+          },
+          {
+            "path": "segment_order",
+            "kind": "numeric",
+            "dtype": "int32",
+            "shape": [
+              2
+            ],
+            "inner_chunk": 4096,
+            "chunks_per_shard": 1,
+            "shards": 1,
+            "stored_bytes": 71,
+            "name": "segment_order",
+            "role": "alignment_segment_order",
+            "extent": [
+              "segments"
+            ]
+          },
+          {
+            "path": "entity_index",
+            "kind": "numeric",
+            "dtype": "int64",
+            "shape": [
+              2,
+              2
+            ],
+            "inner_chunk": 4096,
+            "chunks_per_shard": 1,
+            "shards": 1,
+            "stored_bytes": 119,
+            "name": "entity_index",
+            "role": "alignment_entity_index",
+            "extent": [
+              "unified_entities",
+              "sources"
+            ]
+          },
+          {
+            "path": "entity_secondaries_agreed",
+            "kind": "numeric",
+            "dtype": "int8",
+            "shape": [
+              2
+            ],
+            "inner_chunk": 4096,
+            "chunks_per_shard": 1,
+            "shards": 1,
+            "stored_bytes": 59,
+            "name": "entity_secondaries_agreed",
+            "role": "alignment_entity_evidence",
+            "extent": [
+              "unified_entities"
+            ]
+          },
+          {
+            "path": "levels__group__0",
+            "kind": "numeric",
+            "dtype": "int32",
+            "shape": [
+              2
+            ],
+            "inner_chunk": 4096,
+            "chunks_per_shard": 1,
+            "shards": 1,
+            "stored_bytes": 71,
+            "name": "levels__group__0",
+            "role": "alignment_level_lookup",
+            "extent": [
+              "levels_group_0"
+            ]
+          },
+          {
+            "path": "levels__group__1",
+            "kind": "numeric",
+            "dtype": "int32",
+            "shape": [
+              3
+            ],
+            "inner_chunk": 4096,
+            "chunks_per_shard": 1,
+            "shards": 1,
+            "stored_bytes": 73,
+            "name": "levels__group__1",
+            "role": "alignment_level_lookup",
+            "extent": [
+              "levels_group_1"
+            ]
+          }
+        ],
+        "extents": {
+          "segments": 2,
+          "unified_entities": 2,
+          "sources": 2,
+          "levels_group_0": 2,
+          "levels_group_1": 3
+        },
+        "key": "unified_key",
+        "key_sequence_digest": "7fdc1c841236e7b1f440e75d7fd476826344f05de7d285aab6ef95e52c9652bf"
+      },
+      "meta": {
+        "mode": "strict",
+        "authority": null,
+        "join_key": "code",
+        "normalize": [],
+        "join_quality": {
+          "key": "code",
+          "matched": 2,
+          "conflicting": 1,
+          "duplicated": 0,
+          "duplicated_per_source": {},
+          "conflicting_columns": {
+            "alias": 1
+          },
+          "present_per_source": {
+            "ds-a": 3,
+            "ds-b": 3
+          },
+          "missing": 0,
+          "missing_per_source": {},
+          "joinable": true
+        },
+        "sources": [
+          {
+            "dataset_id": "ds-a",
+            "key_sequence_digest": "c57531512e9d0be3af4982da3c36c988b7f59baf1dc90283a300d0edd599d0df",
+            "entity_axis_digest": "4ca893d704e5d29851b10fbb7d805a4ae828e98d6875825f26032c85e090b942",
+            "n_rows": 2
+          },
+          {
+            "dataset_id": "ds-b",
+            "key_sequence_digest": "748e4a93672eaa63e68fe320e566555f61a09da14c023921e937634644aa3b0a",
+            "entity_axis_digest": "4ca893d704e5d29851b10fbb7d805a4ae828e98d6875825f26032c85e090b942",
+            "n_rows": 3
+          }
+        ],
+        "source_declared_orders": {
+          "group": {
+            "ds-a": [
+              "g1",
+              "g2"
+            ],
+            "ds-b": [
+              "g2",
+              "g3",
+              "g4"
+            ]
+          }
+        },
+        "n_entities": 2,
+        "n_rows": 5,
+        "n_entities_dropped": 1,
+        "n_entities_with_disagreeing_secondaries": 0,
+        "entities_with_disagreeing_secondaries": [],
+        "entities_with_disagreeing_secondaries_truncated": false
+      },
+      "label": "Alignment (code, strict)",
+      "axis": "unified_entities",
+      "hidden": true
+    },
+    {
+      "id": "alignment-summary",
+      "datatype": "data/opaque",
+      "path": "alignment_summary.json",
+      "layout": "opaque",
+      "role": "intermediate",
+      "structure": {
+        "encoding": "opaque",
+        "media_type": "application/json"
+      },
+      "meta": null,
+      "hidden": true
+    }
+  ]
+}

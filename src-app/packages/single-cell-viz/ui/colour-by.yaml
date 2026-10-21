@@ -1,0 +1,257 @@
+# § Colour by — the columns declared on the anchored row space (visualize-pane
+# ITEM-44 / ITEM-45 / ITEM-20 / ITEM-37 / ITEM-38 / ITEM-39 / ITEM-41 / ITEM-63).
+#
+# ── CATEGORICAL FIRST, THEN CONTINUOUS — and where that claim lives ───────────────────
+#
+# The `kinds:` array in this file's `data:` block IS the rule — its ORDER is the offer's
+# order, and the heading beside each kind is what the group reads as. It is a DOMAIN claim
+# (true of single-cell work, not of a QC-first imaging workflow), so it lives in this file — a
+# package's declaration — and nowhere else. There is no sort in core beyond walking the
+# declared array, none in a primitive, and none in the renderer: swap the two entries and the
+# section renders continuous first, with no app change. That is the exact mistake
+# `columns_of`'s `as:` remap exists to undo — *"a chart-choice default, for one product's
+# taste, hardcoded inside a core compute primitive"*.
+#
+# ── EVERY ROW IS DESCRIBED FROM `meta` ALONE ──────────────────────────────────────────
+#
+# `row_space_columns` reads catalog rows and NOTHING else — no column body is fetched to
+# describe a column (INV-11). A categorical row states its TRUE level count
+# (`meta.n_categories`, not the length of the size-capped preview) and a continuous row its
+# range; a column whose producer declared neither reads `shape not declared`, which
+# attributes the absence to the producer rather than to the app.
+#
+# There is deliberately NO per-row "read it now" affordance (ITEM-40). It is cheap once and
+# ruinous forty times, and the only thing that would make it safe is a budget — inventing a
+# budget to make an affordance safe is evidence the affordance is wrong.
+#
+# ── IT IS A LIST, NOT TWO TABLES (owner, ledger #31 + #32) ────────────────────────────
+#
+# One `entry_list` — the SAME control § Features renders — with a search box, a scrolling
+# list box, and one heading per declared kind. See the widget for the whole argument.
+#
+# ── EVERY ROW IS A VERB, NOT A CHOICE (ITEM-34) ───────────────────────────────────────
+#
+# There is no radio here and no checkbox, and a row carries no selected state at any point in
+# its life — including after its ▶ has been pressed. § Coordinates IS a radio because it is
+# the FRAME (one at a time); a colouring is an ACT, and pressing it twice is asking for two
+# pictures (DEC-9), which a selected state could not express.
+id: sc.viz.colour-by.section
+title: Color by
+permission: projects::use
+# R6 (ITEM-64) — what this section is HOLDING, so its host frame can mark it when COLLAPSED.
+# Collapse is display, not reset, and the open plots are the state a user would miss. The
+# section says WHAT counts; the host learns a number and never a field name.
+badge: "$state.plots.length"
+state:
+  # THE EMITTED CELLS this section owns (ITEM-31). Its `canvas:` block below is a `for_each`
+  # over this list; the canvas COMPOSES the sections' contributions rather than any of them
+  # appending to a shared one.
+  plots: { type: array, default: [] }
+const:
+  # `count_by`'s hidden mask, which this use has no notion of — every emitted cell counts. It is
+  # a declared empty rather than an omitted argument so the derivation reads as complete.
+  none_hidden: []
+derived:
+  # ITEM-33 — THE COUNT BADGE, derived from the SAME list the canvas renders, so the pane and
+  # the canvas cannot disagree about how many pictures of a column are open. It is a projection,
+  # never a second source of truth, which is why there is no counter in `state` beside `plots`.
+  plot_counts:
+    count_by: { group: "$state.plots[*].artifact", hidden: "$const.none_hidden" }
+data:
+  # WHAT THE FRAME IS CALLED (ITEM-35). An emitted cell's title has to carry its own row space
+  # — that is R10 at the cell level, and it is what makes a canvas holding cells from two row
+  # spaces readable. This section holds the column name and NEITHER of the other two, and it
+  # cannot ask § Coordinates for them (pane state is closed at two values, INV-13, and sections
+  # have isolated stores), so the engine resolves the frame's names and hands them over.
+  # Meta-only: no column body is read to answer it (INV-11).
+  frame:
+    source: pane_frame
+    args: { axis: "$scope.axis", coordinate: "$scope.coordinate" }
+  # THE ONE SLICE IN THIS PANE THAT READS COLUMN BODIES, and it reads exactly the columns the
+  # user asked for pictures of — one frame per emitted cell, never a merged one (two cells may
+  # sit on different row spaces, and a canvas dataset is also an identity space).
+  plotted:
+    source: column_values
+    args: { of: "$state.plots" }
+  # ── ONE SLICE, TWO DECLARED GROUPS (owner, ledger #32) ─────────────────────────────
+  #
+  # This used to be TWO `row_space_columns` slices, one per `kind:`, feeding two `table`
+  # widgets. The owner asked for § Features' shape instead — *"With a search box, no need to
+  # use table, each should have max heights for scrolling"* — and a search box over two
+  # independent grids is two search boxes, so the two slices become one.
+  #
+  # THE DOMAIN CLAIM DID NOT MOVE. *"Categorical first, then continuous"* is true of
+  # single-cell work and not of a QC-first imaging workflow, so it stays a declaration in
+  # this package's own file: it is the ORDER of the `kinds` array below, and the heading each
+  # group reads under is the string beside it. There is still no sort in core, none in the
+  # resolver beyond walking this array, and none in the renderer — swap the two entries and
+  # the section renders continuous first, with no app change.
+  columns:
+    source: row_space_columns
+    args:
+      aligned_to: "$scope.axis"
+      coordinate: "$scope.coordinate"
+      datatype: metadata-column
+      kinds:
+        - { kind: categorical, heading: Groups }
+        - { kind: continuous, heading: Values }
+widgets:
+  # ── A0: no row space anchored. The FIRST emptiness, and the one the other sentences must
+  # not be confused with — nothing here is broken and nothing is missing from the project.
+  - id: noAnchorAlert
+    kind: alert
+    tone: info
+    when: "$data.columns.anchored == false"
+    text: Pick a coordinate set above and this lists the columns declared on those rows.
+
+  # ── THE ALIGNMENT ALERT WAS ALREADY GONE FROM THIS SECTION, AND NOW IT IS GONE FROM THE
+  # WHOLE PANE (owner, ledger #28 + #29). The per-row mark and the per-plot note went with it.
+  # The OFFER is untouched: every column listed before is listed now.
+
+  # ── ITEM-41: the same aggregate rule for the OTHER absence a producer can leave behind.
+  - id: allShapelessAlert
+    kind: alert
+    tone: info
+    when: "$data.columns.all_shape_undeclared"
+    text: >-
+      None of these columns declares a summary, so no row can say how many levels it holds.
+      The producer that wrote them emitted no column summary.
+
+  # ── ONE LIST, SHAPED LIKE § Features (owner, ledger #32) ─────────────────────────────
+  #
+  #   *"why can't we make it look like how features look? With a search box, no need to use
+  #    table, each should have max heights for scrolling"*
+  #
+  # Two `table` widgets stood here — `Groups` and `Values` — each a four-column grid with its
+  # own heading, its own shape column, its own numeral column and its own ▶ column, in a
+  # ~284px content box. They are replaced by ONE `entry_list`: the same control § Features
+  # renders, so the two sections read as one vocabulary and the ▶ cannot differ between them
+  # (ledger #33 — it is now literally the same component).
+  #
+  # What the change buys, in the owner's own three terms:
+  #   · A SEARCH BOX. A row space with forty columns was a scroll; it is now a query.
+  #   · NO TABLE. A row is a line — name, its shape, its numeral, its ▶ — instead of a grid
+  #     that had to negotiate four column widths inside 284px and lost 2px of its ▶ doing it.
+  #   · MAX HEIGHT + SCROLL. `entry_list` scrolls its own list box, so a long column set no
+  #     longer pushes § Features off the bottom of the pane.
+  #
+  # And ledger #31 — *"each row in the group and values are too tall, we do not need row
+  # line"* — falls out of it: an `entry_list` row is one flex line with no separator, where a
+  # table row carried a border-bottom and the cell padding a grid needs.
+  - id: columns
+    kind: entry_list
+    # INV-19 — what happens when an entry resolves to N columns. `one` is this section's
+    # answer, and it is not a hedge: an ENTRY HERE **IS** A COLUMN, so the "several columns per
+    # entry" case § Features has (`each`: a gene lives in N matrices) does not exist. The row
+    # binds no `sources`, so the per-source sub-affordances `each` brings are correctly absent
+    # rather than suppressed — there is nothing to choose between and nothing to name.
+    disposition: one
+    # ── The gate below is a claim ABOUT AN ANCHORED ROW SPACE, so it may only be made once
+    # there is one. Without it the list renders its emptiness beside `noAnchorAlert` on the
+    # FIRST screen of a project that has not been framed yet, and the user reads two prose
+    # blocks, one of them false (ITEM-63).
+    when: "$data.columns.anchored"
+    entries: "$data.columns.rows"
+    groups: "$data.columns.groups"
+    grouped: "$data.columns.grouped"
+    # ITEM-63 — WAS THE LIST ACTUALLY LISTED? `empty_text` is a claim about the ROW SPACE
+    # ("it is anchored and declares no columns"), and an empty `entries` binding does not
+    # establish it on its own.
+    browsable: "$data.columns.browsable"
+    counts: "$derived.plot_counts"
+    search: { placeholder: Find a column… }
+    # INV-5 — the view's own sentence, because a view cannot observe candidate availability.
+    # ONE sentence now, where the two grids had one each: the list is one offer, so "there is
+    # nothing to colour by on these rows" is one fact rather than two independent ones.
+    empty_text: No columns are declared on these rows — an analysis has to compute them.
+    # ITEM-30 — THE ▶. Icon-only; its accessible name NAMES THE ROW, composed by the renderer
+    # from this label plus the row's own name. NO `variant` and no styling: it is the shared
+    # emit control (ledger #33), identical here, in § Features and in § Coordinates.
+    action:
+      label: Plot
+      icon: plot
+      onClick: sc.viz.plotColumn
+      # The row's own fields, read straight off the entry the press came from. `kind` decides
+      # whether the cell is coloured as a category or as a range, and it travels from the
+      # producer's declaration through the row to the plot without the engine interpreting it.
+      args:
+        artifact: "$row.artifact"
+        name: "$row.label"
+        kind: "$row.kind"
+
+actions:
+  # ITEM-36 / DEC-9 — a second click on the SAME row opens a SECOND grid cell. It does not
+  # toggle the first off and it does not replace it. `listAppend` is the whole of that rule, and
+  # it is why a row carries no selected state (ITEM-34): "on" and "off" cannot describe two.
+  - id: sc.viz.plotColumn
+    title: Plot this column
+    permission: projects::use
+    mutating: false
+    stateful: true
+    params: { artifact: string, name: string, kind: string }
+    body:
+      - listAppend:
+          path: plots
+          value:
+            # WHAT to colour by, and WHERE to draw it — both captured AT EMIT TIME, so an open
+            # figure is not silently redrawn or recoloured when the pane's frame moves
+            # afterwards. That is ITEM-57's rule ("an emitted cell keeps the title it was born
+            # with") applied to everything the cell is made of, not only to its words.
+            artifact: "$params.artifact"
+            name: "$params.name"
+            mode: "$params.kind"
+            coordinate: "$data.frame.coordinate"
+            row_space: "$data.frame.row_space"
+            coordinate_name: "$data.frame.coordinate_name"
+            # NO `note:` — the emitted cell carries no alignment mark (owner, ledger #29).
+
+  # ITEM-32 — the close is routed to THIS section's declared action, which removes the entry
+  # from THIS section's list. One owner, one path, and the `for_each` cannot re-create what the
+  # state no longer holds (the reopen-loop guard).
+  - id: sc.viz.unplotColumn
+    title: Close this plot
+    permission: projects::use
+    mutating: false
+    stateful: true
+    params: { index: number }
+    body:
+      - listRemove: { path: plots, index: "$params.index" }
+
+# ── THE PROJECTION ──────────────────────────────────────────────────────────────────────
+#
+# One dataset base and one scatter PER EMITTED CELL, over this section's OWN list. The base id
+# is a path into the `plotted` slice (`plotted.$i`), so each cell resolves its own columns, and
+# two cells on different row spaces (whose columns are different LENGTHS) coexist.
+#
+# The identity-space half of this rationale — the claim that adjacent cells brush independently
+# BECAUSE each holds its own base — is SUPERSEDED and removed rather than left to mislead. (The
+# superseded sentence is deliberately NOT quoted here: TEST-18 asserts its ABSENCE from this file,
+# and a quotation inside a note explaining its removal is indistinguishable from the live claim to
+# any guard that reads text.) It is true of the DECLARATION layer only:
+# `canvasFeed.ts`'s `sharedCoordinateBase` folds the declared bases, so cells drawn in ONE
+# coordinate artifact share one base and DO brush together (`450efed6`, ledger row 34, closed by
+# the owner as the DESIRED behaviour). Independent brushing follows from a different row space,
+# not from the per-cell base id.
+#
+# This section deliberately carries NO canvas-level `controls`/`selection`/`filters`/`mask`:
+# those keys are LAST-WRITER-WINS across contributors (ITEM-31c), so at most one section on the
+# pane may carry them, and none does.
+canvas:
+  grid: []
+  datasets:
+    - id: "plotted.$i"
+      for_each: "$state.plots as $c, $i"
+      # ITEM-29's `coords` — drawn in the coordinates the CELL declared, never in the project's
+      # first plottable-xy artifact.
+      coords: { artifact: "$c.coordinate" }
+  series:
+    - id: "s-colour-$i"
+      for_each: "$state.plots as $c, $i"
+      type: scatter
+      coordId: "colour-$i"
+      datasetId: "plotted.$i"
+      controlled: true
+      # ITEM-35 — the cell says WHOSE row space it is, in the frame it was born in.
+      title: "$c.row_space · $c.coordinate_name · $c.name"
+      encode: { colorBy: { mode: "$c.mode", key: "$c.name" } }
+      close: { action: sc.viz.unplotColumn, args: { index: "$i" } }

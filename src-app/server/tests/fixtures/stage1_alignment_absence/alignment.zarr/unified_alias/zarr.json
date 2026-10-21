@@ -1,0 +1,16 @@
+{
+  "zarr_format": 3,
+  "node_type": "group",
+  "attributes": {
+    "cyto": {
+      "kind": "string",
+      "name": "unified_alias",
+      "meta": {
+        "resolved_from": "authority",
+        "authority": "ds-a"
+      },
+      "layout": "split",
+      "n": 3
+    }
+  }
+}

@@ -1,0 +1,48 @@
+[package]
+name = "cytoanalyst-desktop"
+version = "0.0.0"
+edition.workspace = true
+
+[lib]
+name = "cytoanalyst_desktop_lib"
+path = "src/lib.rs"
+
+[[bin]]
+name = "cytoanalyst-desktop"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.4", features = [] }
+
+[dependencies]
+# The CytoAnalyst server, embedded via its reusable `boot_in_background`.
+cytoanalyst = { path = "../../server" }
+# The reusable SDK desktop shell (window + boot→window + single-user).
+ziee-desktop-harness = { path = "../../../sdk/desktop/harness" }
+ziee-core = { path = "../../../sdk/crates/ziee-core" }
+ziee-auth = { path = "../../../sdk/crates/ziee-auth" }
+
+# Versions match the harness so the single Cargo.lock unifies onto one Tauri.
+tauri = { version = "2.8", features = ["tray-icon"] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+
+anyhow = "1.0"
+async-trait = "0.1"
+serde = { version = "1.0.219", features = ["derive"] }
+sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "postgres", "uuid"] }
+uuid = { version = "1.18", features = ["v4"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+# A5 TEST-6: the desktop `ensure_owner` acceptance test provisions an isolated DB
+# on the shared build cluster and applies the merged migrations at runtime, so it
+# needs sqlx's `migrate` feature (the runtime dep omits it).
+sqlx = { version = "0.8.6", features = [
+    "runtime-tokio-rustls",
+    "postgres",
+    "uuid",
+    "migrate",
+] }

@@ -1,0 +1,27 @@
+# TEST-12 control fixture — a minimal WELL-FORMED processor package. Exercises
+# both halves of the unified lint schema: a backend `datatypes` contribution
+# (extends the `data` root → resolves) AND an FE `analyses` entry. Must lint clean.
+id: goodpkg
+name: Good Package
+publisher: cyto
+version: 0.1.0
+apiVersion: "1.0"
+contributes:
+  analyses:
+    - id: goodpkg.demo
+      category: demo
+      title: Demo analysis
+      appliesTo: []
+      produces: [demo/widget]
+      run: { kind: sandbox, runtime: python, entry: compute/demo.py }
+  datatypes:
+    - id: demo/widget
+      extends: data
+      title: Demo widget
+      schema:
+        type: object
+        properties:
+          n: { type: integer }
+      storage:
+        layout: { kind: opaque_as_is }
+        format: json
