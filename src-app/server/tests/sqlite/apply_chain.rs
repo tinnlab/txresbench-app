@@ -15,14 +15,18 @@
 //! (zero errors), every file has a unique numeric prefix, the group's table
 //! set matches the Postgres chain, and the group-specific row semantics hold
 //! (TEST-15…TEST-18). ITEM-7 owns the SDK group: `ziee-auth` (5 files),
-//! `ziee-file` (1), `ziee-notification` (1).
+//! `ziee-file` (1), `ziee-notification` (1). ITEM-8 owns the app group part 1:
+//! `jobs` (6), `sandbox` (3), `mcp` (2), `features` (1), `file` (1) — the
+//! shared-harness leg pins the whole 20-file chain + the app group's row
+//! semantics; the jobs-specific scheduler invariants live in `chain_jobs.rs`
+//! (TEST-15).
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use sqlx::Row;
 use sqlx::migrate::Migrator;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions};
+use sqlx::Row;
 
 // The app's build-script module that selects the chain by driver. Included
 // verbatim (same pattern as ITEM-6's probe) so this harness drives the REAL
@@ -36,25 +40,48 @@ use migration_chain::MigrationChain;
 const SDK_CHAIN_GROUPS: &[(&str, usize)] =
     &[("ziee-auth", 5), ("ziee-file", 1), ("ziee-notification", 1)];
 
-/// The table set the ported SDK chain creates (auth 9 + file 2 +
-/// notification 1), alphabetically — the Postgres chain's table names verbatim.
-const SDK_TABLE_SET: &[&str] = &[
+/// The app chain module groups ITEM-8 ports (part 1): (staged module dir
+/// name, expected `.sql` count).
+const APP_CHAIN_GROUPS: &[(&str, usize)] = &[
+    ("jobs", 6),
+    ("sandbox", 3),
+    ("mcp", 2),
+    ("features", 1),
+    ("file", 1),
+];
+
+/// The table set the ported chain creates (SDK 12 + jobs 7 + compute_meter +
+/// sandbox 1 + mcp 2 + features 1 = 24), alphabetically — the Postgres
+/// chain's table names verbatim.
+const TABLE_SET: &[&str] = &[
     "auth_providers",
+    "compute_meter",
+    "feature_flags",
     "file_versions",
     "files",
     "groups",
+    "job_dependencies",
+    "job_logs",
+    "job_metrics",
+    "job_milestones",
+    "job_scope",
+    "job_settings",
+    "jobs",
+    "mcp_pairing_codes",
+    "mcp_settings",
     "notifications",
     "oauth_sessions",
     "pending_account_links",
     "refresh_tokens",
+    "sandbox_settings",
     "session_settings",
     "user_auth_links",
     "user_groups",
     "users",
 ];
 
-/// Every file the ported SDK chain ships, in the version-sorted order the
-/// merged chain applies them.
+/// Every file the SDK group ships, in the version-sorted order the merged
+/// chain applies them (the ITEM-7 rows).
 const SDK_CHAIN_FILES: &[&str] = &[
     "202607140050_auth_schema.sql",
     "202607140125_file_schema.sql",
@@ -65,13 +92,38 @@ const SDK_CHAIN_FILES: &[&str] = &[
     "202609090010_users_email_lowercase_invariant.sql",
 ];
 
+/// Every file the ported chain ships (SDK 7 + app ITEM-8 groups 13), in the
+/// version-sorted order the merged chain applies them.
+const CHAIN_FILES: &[&str] = &[
+    "202607140050_auth_schema.sql",
+    "202607140125_file_schema.sql",
+    "202607140190_notification_schema.sql",
+    "202607144000_auth_fkeys.sql",
+    "202607144500_auth_seed.sql",
+    "202607144600_auth_add_users_token_version.sql",
+    "202608030001_jobs_baseline.sql",
+    "202608030006_sandbox_baseline.sql",
+    "202608030007_mcp_baseline.sql",
+    "202608030008_file_baseline.sql",
+    "202608050002_compute_meter.sql",
+    "202608050003_multiworker_claim.sql",
+    "202608260001_compute_meter_account.sql",
+    "202608280002_features_baseline.sql",
+    "202608290010_sandbox_per_class_defaults.sql",
+    "202608290030_jobs_sse_admission_knobs.sql",
+    "202608290040_mcp_settings.sql",
+    "202608290070_jobs_scheduler_reaper_knobs.sql",
+    "202609020020_sandbox_fsize_default.sql",
+    "202609090010_users_email_lowercase_invariant.sql",
+];
+
 static UNIQUE: AtomicU64 = AtomicU64::new(0);
 
 /// A scratch dir under `TMPDIR` (never the repo), removed on drop.
-struct Scratch(PathBuf);
+pub(crate) struct Scratch(PathBuf);
 
 impl Scratch {
-    fn new(tag: &str) -> Self {
+    pub(crate) fn new(tag: &str) -> Self {
         let base = std::env::temp_dir().join("cyto-sqlite-apply-chain");
         std::fs::create_dir_all(&base).expect("scratch base");
         let unique = UNIQUE.fetch_add(1, Ordering::Relaxed);
@@ -81,7 +133,7 @@ impl Scratch {
         Scratch(dir)
     }
 
-    fn path(&self) -> &Path {
+    pub(crate) fn path(&self) -> &Path {
         &self.0
     }
 }
@@ -99,7 +151,7 @@ fn manifest_dir() -> PathBuf {
 /// Compose the ported SQLite chain the way `build.rs` does under a `sqlite://`
 /// `DATABASE_URL`: driver-selected source lists → real SDK composer. Returns
 /// the merged dir.
-fn compose_sqlite_chain(scratch: &Path) -> PathBuf {
+pub(crate) fn compose_sqlite_chain(scratch: &Path) -> PathBuf {
     let chain = migration_chain::for_build_db_url(Some(
         "sqlite://target/sqlx-build/compose_scratch.sqlite",
     ));
@@ -121,7 +173,7 @@ fn compose_sqlite_chain(scratch: &Path) -> PathBuf {
 /// Apply `merged` to a scratch SQLite FILE (create-if-missing, WAL,
 /// foreign_keys ON — the DEC-7 connect profile's correctness properties) and
 /// return the pool + the migrator (for the no-op re-apply assertion).
-async fn apply_chain(merged: &Path, db_path: &Path) -> (SqlitePool, Migrator) {
+pub(crate) async fn apply_chain(merged: &Path, db_path: &Path) -> (SqlitePool, Migrator) {
     let options = SqliteConnectOptions::new()
         .filename(db_path)
         .create_if_missing(true)
@@ -158,7 +210,7 @@ fn version_prefix(name: &str) -> &str {
     &name[..end]
 }
 
-async fn table_set(pool: &SqlitePool) -> Vec<String> {
+pub(crate) async fn table_set(pool: &SqlitePool) -> Vec<String> {
     let rows = sqlx::query(
         "SELECT name FROM sqlite_master \
          WHERE type = 'table' AND name NOT LIKE '_sqlx%' AND name NOT LIKE 'sqlite_%' \
@@ -170,7 +222,7 @@ async fn table_set(pool: &SqlitePool) -> Vec<String> {
     rows.iter().map(|r| r.get::<String, _>("name")).collect()
 }
 
-async fn applied_version_count(pool: &SqlitePool) -> i64 {
+pub(crate) async fn applied_version_count(pool: &SqlitePool) -> i64 {
     sqlx::query("SELECT count(*) FROM _sqlx_migrations")
         .fetch_one(pool)
         .await
@@ -197,17 +249,18 @@ fn driver_dispatch_selects_the_port_for_sqlite_urls() {
     );
 }
 
-/// TEST-14 (ITE-7 group): the ported SDK chain composes to exactly the seven
-/// files, applies to a scratch SQLite 3.46 file with zero errors, yields the
-/// Postgres chain's table set, and re-applies as a no-op.
+/// TEST-14 (ITEM-7 + ITEM-8 groups): the ported chain (SDK 7 + app ITEM-8
+/// groups 13) composes to exactly its twenty files, applies to a scratch
+/// SQLite 3.46 file with zero errors, yields the Postgres chain's table set,
+/// and re-applies as a no-op.
 #[tokio::test]
-async fn sdk_chain_applies_from_scratch_and_reapplies_as_noop() {
-    let scratch = Scratch::new("sdk-chain");
+async fn ported_chain_applies_from_scratch_and_reapplies_as_noop() {
+    let scratch = Scratch::new("full-chain");
     let merged = compose_sqlite_chain(scratch.path());
 
-    // The composed set is exactly the seven ported files (the app-side ported
-    // groups land in ITEM-8…11 — nothing else exists in the chain yet).
-    assert_eq!(merged_sql_files(&merged), SDK_CHAIN_FILES);
+    // The composed set is exactly the twenty ported files (the remaining app
+    // groups land in ITEM-9…11 — nothing else exists in the chain yet).
+    assert_eq!(merged_sql_files(&merged), CHAIN_FILES);
 
     // Every file has a unique numeric prefix (the merge-gate C2 namespace
     // property; the composer's collision guard panics on a true duplicate,
@@ -217,9 +270,13 @@ async fn sdk_chain_applies_from_scratch_and_reapplies_as_noop() {
     prefixes.sort_unstable();
     let before = prefixes.len();
     prefixes.dedup();
-    assert_eq!(before, 7, "version prefixes must be unique: {prefixes:?}");
+    assert_eq!(
+        before,
+        CHAIN_FILES.len(),
+        "version prefixes must be unique: {prefixes:?}"
+    );
 
-    // Each SDK group ships its expected file count in its own staged dir.
+    // Each group ships its expected file count in its own staged dir.
     for (crate_name, count) in SDK_CHAIN_GROUPS {
         let dir = manifest_dir()
             .join("../../sdk/crates")
@@ -232,22 +289,27 @@ async fn sdk_chain_applies_from_scratch_and_reapplies_as_noop() {
             .count();
         assert_eq!(n, *count, "{crate_name} staged file count");
     }
+    for (module, count) in APP_CHAIN_GROUPS {
+        let dir = manifest_dir().join("migrations-sqlite").join(module);
+        let n = std::fs::read_dir(&dir)
+            .unwrap_or_else(|e| panic!("missing staged dir {dir:?}: {e}"))
+            .flatten()
+            .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("sql"))
+            .count();
+        assert_eq!(n, *count, "{module} staged file count");
+    }
 
     // Apply from scratch.
     let db = scratch.path().join("scratch.sqlite");
     let (pool, migrator) = apply_chain(&merged, &db).await;
-    assert_eq!(
-        table_set(&pool).await,
-        SDK_TABLE_SET,
-        "table set per module"
-    );
-    assert_eq!(applied_version_count(&pool).await, 7);
+    assert_eq!(table_set(&pool).await, TABLE_SET, "table set per module");
+    assert_eq!(applied_version_count(&pool).await, CHAIN_FILES.len() as i64);
     assert!(db.exists(), "the DB is a real file at the given path");
 
     // The SAME chain applied twice is a no-op (schema version recorded, no
     // re-run, no checksum drift).
     migrator.run(&pool).await.expect("re-apply must be a no-op");
-    assert_eq!(applied_version_count(&pool).await, 7);
+    assert_eq!(applied_version_count(&pool).await, CHAIN_FILES.len() as i64);
 }
 
 /// The ported chain's row semantics (TEST-14's "row semantics preserved"):
@@ -280,7 +342,14 @@ async fn sdk_chain_type_contract_and_seed_semantics_hold() {
             ("Administrators".to_string(), "[\"*\"]".to_string(), 1),
             (
                 "Users".to_string(),
-                "[\"profile::read\",\"profile::edit\"]".to_string(),
+                // The app-side grants (ITEM-8: jobs::use by 202608030001,
+                // mcp::use by 202608030007, the six files:: perms by
+                // 202608030008) ride ON TOP of the auth seed's two profile
+                // perms — the order is the chain's version order.
+                "[\"profile::read\",\"profile::edit\",\"jobs::use\",\"mcp::use\",\
+                 \"files::read\",\"files::upload\",\"files::download\",\
+                 \"files::delete\",\"files::preview\",\"files::generate_token\"]"
+                    .to_string(),
                 1
             ),
         ]
@@ -437,6 +506,10 @@ async fn email_invariant_refuses_case_collisions_in_legacy_data() {
     // The full chain now REFUSES: the functional unique index cannot be
     // created over the case-twin rows, the transaction rolls back, and the
     // migration is not recorded — the operator decides which account survives.
+    // The refusal lands at the LAST file of the chain (202609090010 sorts
+    // above every app file), so the six pre-applied files plus the thirteen
+    // app-ITEM-8 files are applied and only the invariant file itself is not:
+    // 19 of 20.
     let full_migrator = Migrator::new(merged.as_path())
         .await
         .expect("full migrator");
@@ -450,8 +523,8 @@ async fn email_invariant_refuses_case_collisions_in_legacy_data() {
     );
     assert_eq!(
         applied_version_count(&pool).await,
-        6,
-        "the refused migration must leave the chain at 6 applied files"
+        (CHAIN_FILES.len() - 1) as i64,
+        "the refused migration must be the only file not applied"
     );
     let emails: Vec<String> = sqlx::query_scalar("SELECT email FROM users ORDER BY email")
         .fetch_all(&pool)
@@ -461,5 +534,190 @@ async fn email_invariant_refuses_case_collisions_in_legacy_data() {
         emails,
         vec!["BOB@CORP.COM".to_string(), "Bob@corp.com".to_string()],
         "the ABORT must leave the legacy rows untouched (no winner chosen)"
+    );
+}
+
+/// The ITEM-8 app group's row semantics (the harness's per-item self-check,
+/// TEST-14's "row semantics preserved" for this group): the three settings
+/// singletons are seeded exactly once, the group grants are JSON-appended
+/// idempotently (jobs::use, mcp::use, the six files:: perms — each exactly
+/// once alongside the auth seed's profile perms), the sandbox per-class
+/// defaults + the 64 GiB fsize raise are in place (row AND schema default —
+/// the rebuild), compute_meter stays exactly-once under ON CONFLICT, the
+/// mcp/sandbox bound checks refuse out-of-bounds values, and the
+/// feature_flags global-uniqueness partial index + env-id grammar hold.
+#[tokio::test]
+async fn app_chain_item8_row_semantics_hold() {
+    let scratch = Scratch::new("app-item8-semantics");
+    let merged = compose_sqlite_chain(scratch.path());
+    let (pool, _migrator) = apply_chain(&merged, &scratch.path().join("scratch.sqlite")).await;
+
+    // --- singletons: seeded exactly once -------------------------------
+    let job_rows: i64 = sqlx::query_scalar("SELECT count(*) FROM job_settings")
+        .fetch_one(&pool)
+        .await
+        .expect("job_settings");
+    assert_eq!(job_rows, 1, "job_settings singleton (ON CONFLICT seed)");
+    let sandbox_rows: i64 = sqlx::query_scalar("SELECT count(*) FROM sandbox_settings")
+        .fetch_one(&pool)
+        .await
+        .expect("sandbox_settings");
+    assert_eq!(sandbox_rows, 1, "sandbox_settings singleton");
+    let mcp_rows: i64 = sqlx::query_scalar("SELECT count(*) FROM mcp_settings")
+        .fetch_one(&pool)
+        .await
+        .expect("mcp_settings");
+    assert_eq!(mcp_rows, 1, "mcp_settings singleton");
+
+    // --- grants: JSON1 append, idempotent, each exactly once -----------
+    let permissions: String =
+        sqlx::query_scalar("SELECT permissions FROM groups WHERE name = 'Users'")
+            .fetch_one(&pool)
+            .await
+            .expect("Users group");
+    let granted: Vec<&str> = serde_json::from_str(&permissions).expect("permissions JSON array");
+    for perm in [
+        "jobs::use",
+        "mcp::use",
+        "files::read",
+        "files::upload",
+        "files::download",
+        "files::delete",
+        "files::preview",
+        "files::generate_token",
+        "profile::read",
+        "profile::edit",
+    ] {
+        assert_eq!(
+            granted.iter().filter(|p| **p == perm).count(),
+            1,
+            "{perm} granted exactly once: {permissions}"
+        );
+    }
+
+    // --- sandbox per-class defaults + the 64 GiB fsize raise ------------
+    let (fsize, interactive_mem, default_env): (i64, i64, Option<String>) = sqlx::query_as(
+        "SELECT fsize_bytes, interactive_mem_bytes, default_env_id FROM sandbox_settings",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("sandbox_settings row");
+    assert_eq!(fsize, 68_719_476_736, "fsize raised to 64 GiB");
+    assert_eq!(
+        interactive_mem, 4_294_967_296,
+        "interactive class default 4 GiB"
+    );
+    assert_eq!(default_env, None, "default_env_id NULL = auto-detect seed");
+    let schema_sql: String =
+        sqlx::query_scalar("SELECT sql FROM sqlite_master WHERE name = 'sandbox_settings'")
+            .fetch_one(&pool)
+            .await
+            .expect("sandbox_settings schema");
+    assert!(
+        schema_sql.contains("fsize_bytes INTEGER NOT NULL DEFAULT 68719476736"),
+        "the rebuilt table carries the 64 GiB DEFAULT: {schema_sql}"
+    );
+    assert!(
+        schema_sql.contains("sandbox_settings_batch_mem_bounds"),
+        "the rebuild folds the per-class bounds INLINE with their names: {schema_sql}"
+    );
+
+    // --- bounds checks refuse (named after the 202609020020 rebuild) ----
+    let err = sqlx::query("UPDATE mcp_settings SET max_control_sessions = 99999")
+        .execute(&pool)
+        .await
+        .expect_err("mcp OOM cap must refuse");
+    assert!(
+        err.to_string()
+            .contains("mcp_settings_control_sessions_bounds"),
+        "mcp bound names the constraint: {err}"
+    );
+    let err = sqlx::query("UPDATE sandbox_settings SET normal_cpu_cores = 0")
+        .execute(&pool)
+        .await
+        .expect_err("sandbox cpu floor must refuse");
+    assert!(
+        err.to_string()
+            .contains("sandbox_settings_normal_cpu_bounds"),
+        "sandbox bound: {err}"
+    );
+    // env-id grammar (the GLOB/length port of the PG regexp check)
+    let err = sqlx::query("UPDATE sandbox_settings SET default_env_id = 'Bad ID'")
+        .execute(&pool)
+        .await
+        .expect_err("env-id grammar must refuse");
+    assert!(
+        err.to_string()
+            .contains("sandbox_settings_default_env_id_grammar"),
+        "env-id grammar names the constraint: {err}"
+    );
+
+    // --- compute_meter exactly-once (ON CONFLICT DO NOTHING) ------------
+    let id = uuid::Uuid::new_v4();
+    sqlx::query("INSERT INTO compute_meter (job_id) VALUES (?)")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .expect("meter insert");
+    sqlx::query("INSERT INTO compute_meter (job_id) VALUES (?) ON CONFLICT (job_id) DO NOTHING")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .expect("meter re-insert must be a no-op");
+    let n: i64 = sqlx::query_scalar("SELECT count(*) FROM compute_meter")
+        .fetch_one(&pool)
+        .await
+        .expect("compute_meter");
+    assert_eq!(n, 1, "compute_meter is exactly-once per job");
+
+    // --- feature_flags: one global row per flag_key, per-account allowed --
+    // The feature_flags FK references `accounts` — the account module's
+    // baseline, ported at ITEM-10 — so at THIS item's staged chain a DML on
+    // the table errors with `no such table: main.accounts` (SQLite binds FK
+    // parents lazily: the CREATE succeeds, the constraint is live only once
+    // the parent exists; pinned by the migration file's port note). The stub
+    // below stands in for ITEM-10's `accounts` table so the partial-unique
+    // semantics can be exercised today; it is idempotent, so when the real
+    // table exists at ITEM-10+ the stub is a no-op.
+    sqlx::query("CREATE TABLE IF NOT EXISTS accounts (id BLOB PRIMARY KEY)")
+        .execute(&pool)
+        .await
+        .expect("accounts stub (ITEM-10's table)");
+    let gid = uuid::Uuid::new_v4();
+    sqlx::query("INSERT INTO feature_flags (id, flag_key, enabled) VALUES (?, 'demo.f', 1)")
+        .bind(gid)
+        .execute(&pool)
+        .await
+        .expect("global flag insert");
+    let err =
+        sqlx::query("INSERT INTO feature_flags (id, flag_key, enabled) VALUES (?, 'demo.f', 0)")
+            .bind(uuid::Uuid::new_v4())
+            .execute(&pool)
+            .await
+            .expect_err("a second global row must be refused by the partial unique index");
+    assert!(
+        err.to_string().contains("UNIQUE"),
+        "global-uniqueness must surface as a UNIQUE violation: {err}"
+    );
+    let uid = uuid::Uuid::new_v4();
+    // The FK is real (ON DELETE CASCADE declared): the per-account row's
+    // account must exist in the (stub) parent.
+    sqlx::query("INSERT INTO accounts (id) VALUES (?)")
+        .bind(uid)
+        .execute(&pool)
+        .await
+        .expect("accounts stub row");
+    let n = sqlx::query(
+        "INSERT INTO feature_flags (id, flag_key, account_id, enabled) VALUES (?, 'demo.f', ?, 0)",
+    )
+    .bind(uuid::Uuid::new_v4())
+    .bind(uid)
+    .execute(&pool)
+    .await
+    .expect("per-account override row");
+    assert_eq!(
+        n.rows_affected(),
+        1,
+        "per-account row does not collide with the global row"
     );
 }
