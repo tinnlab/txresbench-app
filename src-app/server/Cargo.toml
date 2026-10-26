@@ -192,6 +192,11 @@ optional = true
 # `HarnessApp` once in `tests/common`. Needs a reachable Postgres (DATABASE_URL
 # or the shared cluster default 127.0.0.1:54321).
 ziee-test-harness = { path = "../../sdk/crates/ziee-test-harness", features = ["sync-probe"] }
+# TEST-14 (the SQLite chain-apply harness): composes the ported chain through
+# the REAL SDK composer `build.rs` uses (via the `#[path]`-included
+# `build_helper::migration_chain` driver lists). The crate already sits in this
+# package's build-dependency graph, so no new package enters `Cargo.lock`.
+ziee-build-support = { path = "../../sdk/crates/ziee-build-support" }
 # `stream` (#182, DEC-16): the measured-RSS upload tests send a 256 MiB body that
 # is GENERATED as it is sent, so the test process never buffers the payload either
 # (this box has ~3 GB of RAM). Dev-dependency only — Cargo unifies features per

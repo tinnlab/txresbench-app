@@ -4,6 +4,11 @@
 //! parallelism safe); needs a reachable Postgres (see `common`).
 
 mod common;
+// The SQLite suites (TESTS.md TEST-1…TEST-35): the chain-apply harness is live
+// from the port item that builds it; the runtime/seam suites arrive with the
+// items they cover. The chain tests need NO Postgres — they apply the ported
+// chain to scratch SQLite files.
+mod sqlite;
 
 mod account;
 mod admin;
