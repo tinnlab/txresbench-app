@@ -78,9 +78,9 @@ tower = { version = "0.5.3", features = ["util"] }
 http-body-util = "0.1.4"
 
 [build-dependencies]
-# Auth-only build DB provisioning (mirrors the app's build.rs): create +
-# migrate `ziee_auth_build_<key>` on the shared :54321 cluster and point sqlx
-# compile-time `query!` verification at it. ziee-auth is the ONE schema-bound
-# SDK crate; framework/core/identity stay build-DB-free.
-tokio = { version = "1.47.1", features = ["macros", "rt-multi-thread"] }
-sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "postgres", "sqlite", "migrate"] }
+# Build-DB provisioning via the SDK's shared build support crate — the SAME
+# driver split the app's build.rs uses (scheme-selected leg: per-worktree
+# postgres cluster DB or per-worktree sqlite build FILE, key derivation +
+# migration apply single-sourced, never inlined here). ziee-auth is a
+# schema-bound SDK crate; framework/core/identity stay build-DB-free.
+ziee-build-support = { path = "../ziee-build-support" }

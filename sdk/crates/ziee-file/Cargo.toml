@@ -76,9 +76,10 @@ tempfile = "3.15"
 tower = { version = "0.5.3", features = ["util"] }
 
 [build-dependencies]
-# File-only build DB provisioning (mirrors ziee-auth): create + migrate
-# `ziee_file_build_<key>` on the shared :54321 cluster and point sqlx
-# compile-time `query!` verification at it. The base `files`/`file_versions`
-# tables carry no cross-module FK, so the file subset provisions standalone.
-tokio = { version = "1.47.1", features = ["macros", "rt-multi-thread"] }
-sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "postgres", "sqlite", "migrate"] }
+# Build-DB provisioning via the SDK's shared build support crate — the SAME
+# driver split the app's build.rs uses (scheme-selected leg: per-worktree
+# postgres cluster DB or per-worktree sqlite build FILE, key derivation +
+# migration apply single-sourced, never inlined here). The base
+# `files`/`file_versions` tables carry no cross-module FK, so the file subset
+# provisions standalone.
+ziee-build-support = { path = "../ziee-build-support" }

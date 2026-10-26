@@ -541,4 +541,99 @@ mod tests {
             "override ensure created the file at its own path"
         );
     }
+
+    // ── SDK build-script shapes (ITEM-4, TEST-12) ───────────────────────────
+
+    /// The (db-name prefix, crate-dir leaf) pairs the schema-bound SDK crate
+    /// build scripts provision — `ziee-auth` and `ziee-file`. The prefixes are
+    /// the plan's names (`ziee_auth_build_` / `ziee_file_build_`); the key is
+    /// appended by the shared `worktree_key` derivation.
+    const SDK_CRATE_SHAPES: &[(&str, &str)] = &[
+        ("ziee_auth_build_", "ziee-auth"),
+        ("ziee_file_build_", "ziee-file"),
+    ];
+
+    /// TEST-12 — the SQLITE leg of the SDK build scripts: with a `sqlite://`
+    /// DATABASE_URL and an SDK-crate-shaped manifest dir (no `/src-app`
+    /// marker → the worktree root IS the crate dir), the build script
+    /// provisions the per-worktree FILE `<crate>/target/sqlx-build/
+    /// <prefix><key>.sqlite`, applies the given chain to it, and returns the
+    /// URL whose path decodes back to that exact file (the URL the sqlx macros
+    /// end up reading). The POSTGRES leg derives the SAME per-crate identity
+    /// (`<prefix><key>` on the shared cluster) — asserted via the shared
+    /// derivation, so the two legs can never disagree on isolation.
+    #[test]
+    fn sdk_build_scripts_provision_their_crate_files() {
+        let _guard = lock_env();
+        let tmp = tempdir().unwrap();
+        let migrations = tmp.path().join("migrations");
+        fs::create_dir_all(&migrations).unwrap();
+        write_migrations(&migrations, false);
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        for (prefix, crate_name) in SDK_CRATE_SHAPES {
+            let manifest = tmp.path().join("sdk").join("crates").join(crate_name);
+            fs::create_dir_all(&manifest).unwrap();
+            assert!(
+                !manifest.to_string_lossy().contains("/src-app"),
+                "SDK crate dirs carry no /src-app marker: {crate_name}"
+            );
+            std::env::set_var("DATABASE_URL", worktree_db::DEFAULT_SQLITE_BUILD_URL);
+            std::env::set_var("CARGO_MANIFEST_DIR", &manifest);
+
+            let returned = provision_build_db_named(prefix, &migrations);
+
+            let key = worktree_db::worktree_key(&manifest.to_string_lossy());
+            let file = worktree_db::sqlite_build_path(
+                &manifest.to_string_lossy(),
+                &format!("{prefix}{key}"),
+            );
+            assert_eq!(
+                worktree_db::sqlite_url_to_path(&returned),
+                file,
+                "the returned URL decodes to the provisioned file ({crate_name})"
+            );
+            assert!(
+                file.display()
+                    .to_string()
+                    .ends_with(&format!("target/sqlx-build/{prefix}{key}.sqlite")),
+                "file stem = <prefix><key>.sqlite ({crate_name}): {}",
+                file.display()
+            );
+            assert!(file.exists(), "provision created the file ({crate_name})");
+
+            // The file is migrated (the applied count proves the leg ran the
+            // chain, not merely touched the file).
+            let url = returned.clone();
+            rt.block_on(async move {
+                let pool = sqlx::sqlite::SqlitePool::connect(&url).await.unwrap();
+                let applied: i64 = sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+                assert_eq!(applied, 1, "the fixture migration applied ({crate_name})");
+                pool.close().await;
+            });
+
+            // The postgres leg derives the SAME per-crate DB name — the shared
+            // suffix is what keeps the two legs' isolation identities aligned.
+            assert_eq!(
+                worktree_db::with_database(
+                    worktree_db::DEFAULT_BUILD_DB_URL,
+                    &format!("{prefix}{key}")
+                ),
+                format!("postgresql://postgres:password@127.0.0.1:54321/{prefix}{key}"),
+                "same <prefix><key> identity on the cluster ({crate_name})"
+            );
+            assert_eq!(
+                build_db_leg(&Some(worktree_db::DEFAULT_BUILD_DB_URL.to_string())),
+                BuildDbLeg::Postgres,
+                "PG sentinel still selects the postgres leg ({crate_name})"
+            );
+        }
+    }
 }
