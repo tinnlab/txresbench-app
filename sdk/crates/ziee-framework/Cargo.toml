@@ -16,7 +16,7 @@ ziee-build-support = { path = "../ziee-build-support" }
 # TYPES + machinery only (module system + app_builder); build-DB-free (plan §7).
 aide = { version = "0.15", features = ["axum", "axum-json", "macros"] }
 axum = { version = "0.8.4", features = ["macros", "multipart"] }
-sqlx = { version = "0.8.6", default-features = false, features = ["postgres", "runtime-tokio-rustls", "migrate"] }
+sqlx = { version = "0.8.6", default-features = false, features = ["postgres", "sqlite", "runtime-tokio-rustls", "migrate"] }
 tower-http = { version = "0.6.2", features = ["cors"] }
 tower_governor = "0.7"
 linkme = "0.3"

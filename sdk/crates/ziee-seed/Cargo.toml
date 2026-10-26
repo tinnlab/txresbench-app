@@ -12,7 +12,7 @@ ziee-framework = { path = "../ziee-framework" }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.141"
 serde_norway = "0.9"
-sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "postgres", "chrono", "uuid", "json", "time", "macros", "migrate"] }
+sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "postgres", "sqlite", "chrono", "uuid", "json", "time", "macros", "migrate"] }
 uuid = { version = "1.18", features = ["serde", "v4", "v5"] }
 chrono = { version = "0.4", features = ["serde"] }
 tokio = { version = "1.47.1", features = ["full"] }
@@ -33,4 +33,4 @@ futures = "0.3"
 # ziee-seed is a schema-bound SDK crate (it owns the seed_ledger table);
 # framework/core stay build-DB-free.
 tokio = { version = "1.47.1", features = ["macros", "rt-multi-thread"] }
-sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "postgres", "migrate"] }
+sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "postgres", "sqlite", "migrate"] }

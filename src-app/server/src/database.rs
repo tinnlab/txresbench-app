@@ -138,3 +138,49 @@ pub async fn initialize_database(
 pub async fn cleanup_database() {
     embedded_pg::cleanup_database().await
 }
+
+#[cfg(test)]
+mod tests {
+    //! TEST-8 (sqlite-store ITEM-1): the server crate's resolved sqlx feature
+    //! set carries BOTH drivers, and the bundled SQLite meets the version floor
+    //! the node's type map and port rules are written against (3.46.0).
+    //!
+    //! The driver assertions are a compile-time probe by construction: the
+    //! `sqlx::sqlite` and `sqlx::postgres` modules (and the pool option types
+    //! below) only exist when the matching feature is enabled on the crate's
+    //! sqlx dependency, so a dropped feature set breaks the build before the
+    //! test can even run. Nothing here touches a database — it asserts the
+    //! compile/link environment, which is exactly the surface ITEM-1 changes.
+
+    use sqlx::PgPool;
+    use sqlx::SqlitePool;
+    use sqlx::postgres::PgPoolOptions;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    #[test]
+    fn both_driver_feature_sets_are_resolved() {
+        // Unused-value expressions would be optimised away even without `let`;
+        // the point is that the NAMES resolve, i.e. the features are on.
+        let _ = std::any::type_name::<SqlitePoolOptions>();
+        let _ = std::any::type_name::<PgPoolOptions>();
+        let _ = std::any::type_name::<SqlitePool>();
+        let _ = std::any::type_name::<PgPool>();
+    }
+
+    #[test]
+    fn bundled_sqlite_meets_the_version_floor() {
+        // SAFETY: both calls go to the SQLite library C API, returning a
+        // static NUL-terminated string / an int; the libsqlite3-sys bindings
+        // mark them `unsafe` per the FFI convention.
+        let version = unsafe {
+            std::ffi::CStr::from_ptr(libsqlite3_sys::sqlite3_libversion())
+        }
+        .to_str()
+        .expect("sqlite3_libversion is not UTF-8");
+        let number = unsafe { libsqlite3_sys::sqlite3_libversion_number() };
+        assert!(
+            number >= 3_046_000,
+            "bundled SQLite is {version} ({number}), expected >= 3.46.0"
+        );
+    }
+}

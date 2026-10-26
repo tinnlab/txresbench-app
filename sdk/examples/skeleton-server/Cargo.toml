@@ -17,5 +17,5 @@ ziee-framework = { path = "../../crates/ziee-framework" }
 aide = { version = "0.15", features = ["axum", "axum-json", "macros"] }
 axum = { version = "0.8.4" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time"] }
-sqlx = { version = "0.8.6", default-features = false, features = ["postgres", "runtime-tokio"] }
+sqlx = { version = "0.8.6", default-features = false, features = ["postgres", "sqlite", "runtime-tokio"] }
 linkme = "0.3"

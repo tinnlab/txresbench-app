@@ -80,7 +80,7 @@ axum = { version = "0.8.4", features = ["macros", "multipart"] }
 # hand-rolled equivalent diverged. See the module doc in `modules/file/upload_guard.rs`.
 multer = "3.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "signal"] }
-sqlx = { version = "0.8.6", features = ["postgres", "runtime-tokio-rustls", "uuid", "chrono", "macros", "migrate", "json"] }
+sqlx = { version = "0.8.6", features = ["postgres", "sqlite", "runtime-tokio-rustls", "uuid", "chrono", "macros", "migrate", "json"] }
 linkme = "0.3"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.141"
@@ -201,7 +201,13 @@ ziee-test-harness = { path = "../../sdk/crates/ziee-test-harness", features = ["
 reqwest = { version = "0.12", features = ["json", "multipart", "stream"] }
 # DB-layer assertions in integration tests (e.g. the boot-crash-safety reset):
 # a test connects its own pool to `TestServer::database_url()`.
-sqlx = { version = "0.8.6", features = ["postgres", "runtime-tokio-rustls", "uuid", "chrono"] }
+sqlx = { version = "0.8.6", features = ["postgres", "sqlite", "runtime-tokio-rustls", "uuid", "chrono"] }
+# TEST-8: the `sqlite3_libversion*` probe that pins the bundled SQLite version
+# floor at test time. The `bundled` feature here is the SAME feature sqlx's
+# `sqlite` feature enables on the shared libsqlite3-sys, so no second build of
+# the amalgamation is introduced; the dev-dep exists only so the test can name
+# the C symbols directly.
+libsqlite3-sys = { version = "0.30.1", features = ["bundled"] }
 uuid = { version = "1.18", features = ["v4"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 # B0 (billing epic) local Stripe sim — the test-only signed-webhook injector
