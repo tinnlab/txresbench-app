@@ -10,6 +10,15 @@
 //! config file, with a `CYTO_SECRET_STORAGE_KEY` env override. It is initialized
 //! once at boot via `ziee_framework::secrets::init_storage_key` (see `lib.rs`).
 //! Unset ⇒ compat mode (no DB secret encryption; env fallback).
+//!
+//! **App-side DB target (sqlite-store ITEM-5).** The SDK `ServerConfig` parses
+//! the `database:` block (URL/path + pool knobs); the resolution CHAIN — env
+//! override > block URL > block path > default app-data-dir file — is the app
+//! bootstrap's concern (DEC-13), and lives here as pure functions so it is
+//! pinned by the item's unit tests and consumed by `database.rs` at the driver
+//! flip (ITEM-12). The transition contract (DEC-17) also lives here: a config
+//! that still selects the legacy embedded-Postgres leg produces the hard boot
+//! refusal message.
 
 use serde::Deserialize;
 use ziee_core::ServerConfig;
@@ -19,6 +28,15 @@ type BoxErr = Box<dyn std::error::Error + Send + Sync>;
 /// Env var overriding `secrets.storage_key` (12-factor). Takes precedence over the
 /// config file when set + non-empty.
 pub const STORAGE_KEY_ENV: &str = "CYTO_SECRET_STORAGE_KEY";
+
+/// Env var overriding the DB target (12-factor). Takes precedence over the
+/// config file's `database:` block when set + non-empty — the same shape as
+/// [`STORAGE_KEY_ENV`] and the SDK's own `CONFIG_FILE` discovery.
+pub const DATABASE_URL_ENV: &str = "CYTO_DATABASE_URL";
+
+/// Default SQLite database file name inside the app-data dir. Kept in sync
+/// with the plan's `<app-data-dir>/txresbench.db` (DEC-13 / PROV-sqlite-store-1).
+pub const DEFAULT_DB_FILE_NAME: &str = "txresbench.db";
 
 /// App-side secrets config: the at-rest encryption key for the pgcrypto secret
 /// columns. A DEPLOYMENT secret (like `jwt.secret`) — fixed via config, NOT
@@ -82,6 +100,63 @@ pub fn resolve_storage_key(explicit: Option<&str>) -> Option<String> {
     }
 }
 
+/// Resolve the SQLite DB target this process must open.
+///
+/// Returns a value the sqlite bootstrap accepts verbatim: a `sqlite://` URL or
+/// a plain filesystem path (the framework's `embedded_db` handles both
+/// spellings). Precedence, highest first:
+///
+/// 1. [`DATABASE_URL_ENV`] — the 12-factor override, when set + non-empty
+///    (mirrors [`STORAGE_KEY_ENV`]);
+/// 2. the `database:` block's `url` — a `sqlite://` URL; the preferred
+///    spelling when it and `path` are both set (they are two forms of one
+///    value);
+/// 3. the `database:` block's `path` — a plain filesystem path;
+/// 4. `<default_db_dir>/txresbench.db` — the app-data-dir location
+///    (`CYTO_APP_DATA_DIR` / `get_app_data_dir()`; `~/.txresbench` for the
+///    desktop once the app name is set).
+///
+/// `default_db_dir` is the caller's already-resolved app data dir (the app
+/// passes `modules::rootfs::data_root()`); this function stays pure so the
+/// chain is unit-testable without the module tree.
+pub fn resolve_database_target(config: &ServerConfig, default_db_dir: &std::path::Path) -> String {
+    if let Ok(v) = std::env::var(DATABASE_URL_ENV) {
+        let v = v.trim().to_string();
+        if !v.is_empty() {
+            return v;
+        }
+    }
+    config.sqlite_database_url().unwrap_or_else(|| {
+        default_db_dir
+            .join(DEFAULT_DB_FILE_NAME)
+            .to_string_lossy()
+            .into_owned()
+    })
+}
+
+/// The hard boot refusal for a config that still selects the legacy
+/// embedded-Postgres leg (`postgresql.use_embedded: true`) after the driver
+/// flip. `None` ⇒ the config's driver selection is legal.
+///
+/// Deliberate (DEC-17 / PROV-sqlite-store-7): the app ships no Postgres engine
+/// anymore, the block is dead configuration, and an operator who set it had a
+/// PG data dir the app cannot migrate (DEC-3) — ignoring the block silently
+/// would boot on a different store than they configured.
+pub fn postgres_transition_refusal(config: &ServerConfig) -> Option<String> {
+    let pg = config.postgresql.as_ref()?;
+    if !pg.use_embedded {
+        return None;
+    }
+    Some(
+        "postgresql.use_embedded is no longer supported: this build runs on the embedded \
+         SQLite store (a single local file, no server process, no network). Remove the \
+         `postgresql:` block from the config; the `database:` block configures the store \
+         and defaults to <app-data-dir>/txresbench.db. Existing Postgres data cannot be \
+         migrated — delete its data directory and let the app boot fresh."
+            .to_string(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -115,5 +190,175 @@ mod tests {
         let got = resolve_storage_key(None);
         std::env::remove_var(STORAGE_KEY_ENV);
         assert_eq!(got.as_deref(), Some("env-provided-storage-key-32-characters!!"));
+    }
+}
+
+/// TEST-13 (sqlite-store ITEM-5): the app-side `database:` config surface —
+/// block parse (url wins over path; defaults for pool), the `CYTO_DATABASE_URL`
+/// override precedence, the default app-data-dir target, and the boot refusal
+/// message for a config that still sets `postgresql.use_embedded: true`.
+#[cfg(test)]
+mod database_target_tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    const STRONG_SECRET: &str = "0123456789abcdef0123456789abcdef-strong";
+
+    /// Serializes tests that mutate `CYTO_DATABASE_URL` (env vars are process-
+    /// global; a second test reading the var mid-mutation would be flaky).
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    /// An app-shaped config (the extra `secrets:`/`memory:` keys the SDK ignores)
+    /// with the runner's `database:` block (empty = no block).
+    fn app_yaml(database_block: &str) -> String {
+        format!(
+            "postgresql:\n  use_embedded: true\n  embedded:\n    version: '18.3.0'\n    port: 54341\n    bind_address: 127.0.0.1\n    username: postgres\n    password: pw\n    database: postgres\n    timezone: UTC\n    log_timezone: UTC\n    logging:\n      collector: false\n      directory: log\n      filename: pg.log\n      statement: none\n{database}\nserver:\n  host: 127.0.0.1\n  port: 3100\n  api_prefix: /api\nlogging:\n  level: info\n  format: pretty\njwt:\n  secret: '{SECRET}'\n  issuer: app\n  audience: app-api\n  access_token_expiry_hours: 24\nsecrets:\n  storage_key: null\n",
+            database = database_block,
+            SECRET = STRONG_SECRET
+        )
+    }
+
+    #[test]
+    fn database_block_url_wins_over_path_and_pool_defaults_to_profile() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let yaml =
+            app_yaml("database:\n  path: /tmp/from-path.db\n  url: sqlite:///tmp/from-url.db\n");
+        let cfg: ServerConfig = serde_norway::from_str(&yaml).expect("app config parses");
+        let db = cfg.database.as_ref().expect("database block present");
+        assert_eq!(db.url.as_deref(), Some("sqlite:///tmp/from-url.db"));
+        assert_eq!(db.path.as_deref(), Some("/tmp/from-path.db"));
+        // url wins over path (both spellings present).
+        assert_eq!(
+            cfg.sqlite_database_url().as_deref(),
+            Some("sqlite:///tmp/from-url.db")
+        );
+        assert_eq!(
+            resolve_database_target(&cfg, std::path::Path::new("/data/app")),
+            "sqlite:///tmp/from-url.db"
+        );
+        // The pool knobs default to the framework profile (10 / 1 / 5 s / 5000 ms).
+        let pool = &db.pool;
+        assert_eq!(pool.max_connections, 10);
+        assert_eq!(pool.min_connections, 1);
+        assert_eq!(pool.acquire_timeout_secs, 5);
+        assert_eq!(pool.busy_timeout_ms, 5000);
+    }
+
+    #[test]
+    fn database_path_is_used_when_url_is_absent() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let yaml = app_yaml(&format!(
+            "database:\n  path: /home/user/txresbench/app.db\n  pool:\n    max_connections: 3\n    busy_timeout_ms: 100\n"
+        ));
+        let cfg: ServerConfig = serde_norway::from_str(&yaml).expect("app config parses");
+        assert_eq!(
+            resolve_database_target(&cfg, std::path::Path::new("/data/app")),
+            "/home/user/txresbench/app.db"
+        );
+        // An explicit pool block overrides the baked-in defaults, field by field.
+        let pool = &cfg.database.as_ref().unwrap().pool;
+        assert_eq!(pool.max_connections, 3);
+        assert_eq!(pool.min_connections, 1); // untouched -> default
+        assert_eq!(pool.busy_timeout_ms, 100);
+    }
+
+    #[test]
+    fn cyto_database_url_env_overrides_the_database_block() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let yaml = app_yaml("database:\n  url: sqlite:///from-config.db\n");
+        let cfg: ServerConfig = serde_norway::from_str(&yaml).expect("app config parses");
+        std::env::set_var(DATABASE_URL_ENV, "sqlite:///from-env.db");
+        let resolved = resolve_database_target(&cfg, std::path::Path::new("/data/app"));
+        std::env::remove_var(DATABASE_URL_ENV);
+        assert_eq!(resolved, "sqlite:///from-env.db");
+    }
+
+    #[test]
+    fn empty_env_value_does_not_override() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let yaml = app_yaml("database:\n  path: /from-config/app.db\n");
+        let cfg: ServerConfig = serde_norway::from_str(&yaml).expect("app config parses");
+        std::env::set_var(DATABASE_URL_ENV, "   ");
+        let resolved = resolve_database_target(&cfg, std::path::Path::new("/data/app"));
+        std::env::remove_var(DATABASE_URL_ENV);
+        assert_eq!(resolved, "/from-config/app.db");
+    }
+
+    #[test]
+    fn default_target_is_the_app_data_dir_file() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let yaml = app_yaml("");
+        let cfg: ServerConfig = serde_norway::from_str(&yaml).expect("app config parses");
+        assert!(cfg.database.is_none(), "no database block -> None");
+        assert_eq!(
+            resolve_database_target(&cfg, std::path::Path::new("/home/user/.txresbench")),
+            "/home/user/.txresbench/txresbench.db"
+        );
+    }
+
+    #[test]
+    fn embedded_postgres_block_is_refused_with_a_migration_message() {
+        let yaml = app_yaml("");
+        let cfg: ServerConfig = serde_norway::from_str(&yaml).expect("app config parses");
+        let msg = postgres_transition_refusal(&cfg).expect("embedded PG is refused");
+        assert!(msg.contains("no longer supported"), "got: {msg}");
+        assert!(
+            msg.contains("SQLite"),
+            "the message names the new engine: {msg}"
+        );
+        assert!(
+            msg.contains("postgresql"),
+            "the message names the offending key: {msg}"
+        );
+    }
+
+    #[test]
+    fn external_or_absent_postgresql_is_not_refused() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        // use_embedded: false (external PG) is the accepted-with-warning leg.
+        let yaml = app_yaml("").replace("use_embedded: true", "use_embedded: false");
+        let cfg: ServerConfig = serde_norway::from_str(&yaml).expect("app config parses");
+        assert!(postgres_transition_refusal(&cfg).is_none());
+
+        // No postgresql block at all (the sqlite-shaped config) is legal.
+        let sqlite_yaml = format!(
+            "database:\n  path: /data/app.db\nserver:\n  host: 127.0.0.1\n  port: 3100\n  api_prefix: /api\njwt:\n  secret: '{STRONG_SECRET}'\n  issuer: app\n  audience: app-api\n  access_token_expiry_hours: 24\n"
+        );
+        let cfg: ServerConfig =
+            serde_norway::from_str(&sqlite_yaml).expect("sqlite app config parses");
+        assert!(cfg.postgresql.is_none());
+        assert!(postgres_transition_refusal(&cfg).is_none());
+    }
+
+    #[test]
+    fn env_override_is_honored_byte_for_byte() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let yaml = app_yaml("");
+        let cfg: ServerConfig = serde_norway::from_str(&yaml).expect("app config parses");
+        // An operator override spelled as a plain path must pass through
+        // unchanged — the bootstrap accepts both spellings.
+        std::env::set_var(DATABASE_URL_ENV, "/var/lib/txr/app.db");
+        let resolved = resolve_database_target(&cfg, std::path::Path::new("/data/app"));
+        std::env::remove_var(DATABASE_URL_ENV);
+        assert_eq!(resolved, "/var/lib/txr/app.db");
+    }
+
+    /// The three actually-shipped configs parse through the app's loader WITH
+    /// their `database:` block, and (pre-flip) still carry the `postgresql:`
+    /// block the running boot needs — the shipped state THIS item leaves the
+    /// tree in: both driver shapes present, runtime still PG.
+    #[test]
+    fn shipped_configs_parse_with_the_database_block() {
+        for rel in ["config/dev.example.yaml", "config/dev-live.yaml", "config/e2e.yaml"] {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(rel);
+            let cfg = ServerConfig::load_from(&path)
+                .unwrap_or_else(|e| panic!("shipped config {rel} fails to parse: {e}"));
+            let db = cfg.database.as_ref().unwrap_or_else(|| {
+                panic!("shipped config {rel} must carry the database: block")
+            });
+            assert!(db.url.is_none() && db.path.is_none(), "{rel}: example values are null");
+            assert_eq!(db.pool.max_connections, 10, "{rel}");
+            assert!(cfg.postgresql.is_some(), "{rel}: the PG block stays until the flip");
+        }
     }
 }

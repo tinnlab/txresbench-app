@@ -260,8 +260,9 @@ pub struct PoolConfig {
 /// the existing `pool.max_connections=10` etc. posture, so behavior is not
 /// tuned while the app is being ported across drivers. `url` and `path` are
 /// two spellings of the same thing (a `sqlite://` URL or a plain filesystem
-/// path); both present, one wins — the resolution chain (path > url > env >
-/// default path) is the app's bootstrap concern, not this struct's.
+/// path); the accessor prefers `url` when both are present, and the FULL
+/// precedence chain (env override > url > path > app-data default) is the
+/// consuming app's bootstrap concern, not this struct's.
 #[derive(Debug, Deserialize, Clone, Default)]
 pub struct DatabaseConfig {
     #[serde(default)]

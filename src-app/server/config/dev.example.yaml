@@ -35,6 +35,23 @@ postgresql:
     idle_timeout_secs: 30
     max_lifetime_secs: 300
 
+# SQLite database — the app's embedded store: one local file, no server process,
+# no network access, no binary download. The default location is
+# <app-data-dir>/txresbench.db (app data dir: CYTO_APP_DATA_DIR when set, else
+# the app data dir — the desktop's ~/.txresbench). To relocate it, set `path`
+# (a plain filesystem path) or `url` (a `sqlite://` URL — wins over `path` when
+# both are set); the CYTO_DATABASE_URL env var wins over both. The pool knobs
+# default to the framework profile (10 connections / 1 minimum / 5 s acquire
+# timeout / 5000 ms busy timeout); WAL, synchronous=NORMAL and foreign_keys=ON
+# are engine correctness properties, not knobs.
+database:
+  path: null   # e.g. "/home/you/TxResBench/txresbench.db"
+  # pool:
+  #   max_connections: 10
+  #   min_connections: 1
+  #   acquire_timeout_secs: 5
+  #   busy_timeout_ms: 5000
+
 server:
   host: "127.0.0.1"
   port: 3100
