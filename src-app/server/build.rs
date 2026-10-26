@@ -1,12 +1,21 @@
 //! CytoAnalyst build script.
 //!
 //! 1. Composes `migrations-merged/` (SDK `compose_merged_migrations_from`) for
-//!    the runtime `sqlx::migrate!`.
-//! 2. Provisions a per-worktree BUILD DATABASE on the shared local build cluster
-//!    (`127.0.0.1:54321`, see `src-app/docker-compose.yaml`), wipes + migrates
-//!    it, and sets `DATABASE_URL` (`cargo:rustc-env`, scoped to THIS crate) so
-//!    sqlx compile-time `query!`/`query_as!` macros verify SQL against the real
-//!    schema at `cargo check` time — SDK gap G4, resolved by `provision_build_db`.
+//!    the runtime `sqlx::migrate!`. The merged set is DRIVER-SELECTED: the
+//!    `DATABASE_URL` scheme picks the chain — the module-owned postgres chains
+//!    (default, today) or the staged SQLite port under `migrations-sqlite/`
+//!    once that chain exists (ITEM-6/ITEM-12, DEC-2/DEC-9). The merged dir
+//!    always holds exactly ONE chain.
+//! 2. Provisions a per-worktree BUILD DATABASE for that same driver (`sqlx::`
+//!    macros verify SQL at compile time): the shared local build cluster
+//!    (`127.0.0.1:54321`, `src-app/docker-compose.yaml`) for postgres, a build
+//!    FILE under `target/sqlx-build/` for sqlite — see
+//!    `ziee_build_support::provision_build_db`, which dispatches on the same
+//!    scheme rule. `cargo:rustc-env=DATABASE_URL` then holds the resolved URL
+//!    (scoped to THIS crate) — SDK gap G4, resolved by `provision_build_db`.
+//!    Beneath it: the build-time processor-manifest / env-pin gates, the
+//!    sandbox-rootfs embed (fail-soft), and the `rootfs_version` freshness
+//!    single-sourcing (lib + build script path-include).
 //!
 //! The build DB lives on the SDK's committed `:54321` sentinel, so the one-call
 //! `provision_build_db` handles per-worktree isolation (`cytoanalyst_build_<key>`)
@@ -32,26 +41,27 @@ fn main() {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let merged = manifest.join("migrations-merged");
 
-    let auth_migrations = manifest.join("../../sdk/crates/ziee-auth/migrations");
-    // The notification crate (linked with `features = ["module"]`) ships the
-    // generic inbox schema; fold its migrations into the merged set.
-    let notification_migrations =
-        manifest.join("../../sdk/crates/ziee-notification/migrations");
-    // The ziee-file crate ships the base `files`/`file_versions` store schema;
-    // fold it in so the dataset upload path (+ the `datasets.file_id` FK) has the
-    // files table at build-DB provision + runtime migrate time.
-    let file_migrations = manifest.join("../../sdk/crates/ziee-file/migrations");
-    // Re-run when any SDK crate's migrations change (the fn emits rerun hints
-    // for the app module roots; make the explicit SDK dirs just as robust).
-    println!("cargo:rerun-if-changed={}", auth_migrations.display());
-    println!("cargo:rerun-if-changed={}", notification_migrations.display());
-    println!("cargo:rerun-if-changed={}", file_migrations.display());
-
-    compose_merged_migrations_from(
-        &merged,
-        &[manifest.join("src/modules")],
-        &[auth_migrations, notification_migrations, file_migrations],
+    // Driver-selected composition (ITEM-6): the `DATABASE_URL` scheme picks
+    // which chain feeds both the build DB and the runtime `sqlx::migrate!` —
+    // the module-owned postgres chains today, the staged `migrations-sqlite/`
+    // chain under a `sqlite:` URL. The SAME scheme rule the SDK's provisioner
+    // dispatches on, so compose and provision can never disagree.
+    let chain = build_helper::migration_chain::MigrationChain::from_env();
+    println!(
+        "build.rs: migration source chain → {} (DATABASE_URL scheme)",
+        chain.label()
     );
+    // The chain selection's own input — a driver switch (ITEM-12's flip or an
+    // operator override) must re-run the compose even if another build.rs
+    // change would happen to re-fire it anyway.
+    println!("cargo:rerun-if-env-changed=DATABASE_URL");
+    // Watch the merge sources the composer cannot see itself (staging root,
+    // not-yet-existing SDK staging dirs); the composer emits the rest.
+    for watch in chain.watch_paths(&manifest) {
+        println!("cargo:rerun-if-changed={}", watch.display());
+    }
+    let (module_roots, explicit_migration_dirs) = chain.compose_args(&manifest);
+    compose_merged_migrations_from(&merged, &module_roots, &explicit_migration_dirs);
 
     // BUILD-TIME processor-manifest syntax gate (ITEM-8/DEC-5, INV-5): parse +
     // `deny_unknown_fields`-lint EVERY `src-app/packages/*/manifest.yaml` against

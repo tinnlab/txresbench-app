@@ -6,6 +6,12 @@ Cargo.lock.bak
 # Generated migration-merge artifact (build.rs composes it fresh each build)
 src-app/server/migrations-merged/
 
+# Build-time sqlx verification DB file (sqlite leg of the build-DB provisioner,
+# DEC-14: <worktree>/target/sqlx-build/<prefix><key>.sqlite). The blanket
+# **/target rule already covers it; the explicit entry names the artifact so
+# the ignore intent survives a narrowing of that rule.
+target/sqlx-build/
+
 # Per-machine config (seeded from dev.example.yaml; carries jwt.secret + db creds)
 config/dev.yaml
 src-app/server/config/dev.yaml
