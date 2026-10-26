@@ -6,3 +6,4 @@
 
 pub mod apply_chain;
 pub mod chain_jobs;
+pub mod chain_workstore;
