@@ -1,0 +1,31 @@
+# Outbound hosts the shipped application may reach.
+#
+# Hosts are matched exactly. Loopback (127.0.0.1, localhost, ::1, 0.0.0.0) and
+# the RFC 2606 example names (*.example, example.com/net/org, *.invalid, *.test)
+# are always allowed by the guard and are not listed here. Anything else found
+# as an http(s):// literal in shipped non-test source fails
+# scripts/check-network-allowlist.sh.
+#
+# ghcr.io is not spelled with a scheme in the source (the registry is a string
+# constant passed to `oras`), so it is listed here as the approved host rather
+# than extracted.
+ghcr.io
+# OIDC issuer asserted during cosign keyless verification of env images.
+token.actions.githubusercontent.com
+# Any https:// github.com literal in the source is the user-opened
+# documentation link (Settings > Help); the app never dials it.
+github.com
+# Apple Sign-In verification (auth module).
+appleid.apple.com
+# Identifiers written into exported metadata / SVG output, never fetched:
+# RO-Crate `conformsTo` (provenance export), the XML namespace declarations of
+# the SVG exporter, and the Tauri config `$schema` document.
+w3id.org
+www.w3.org
+schema.tauri.app
+# Inert base used only to parse relative URLs back into absolute form.
+viz.local
+# JSON-Schema identifiers: the workbench manifest schema's $schema/$id
+# documents (never fetched by the app).
+json-schema.org
+cyto.ai
