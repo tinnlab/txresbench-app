@@ -1,0 +1,52 @@
+{
+  "postgresql": {
+    "use_embedded": true,
+    "embedded": {
+      "version": "18.3.0",
+      "port": 5433,
+      "bind_address": "127.0.0.1",
+      "username": "pguser",
+      "password": "pgpw",
+      "database": "appdb",
+      "installation_dir": "/srv/app/postgres",
+      "data_dir": "/srv/app/postgres-data",
+      "timezone": "UTC",
+      "log_timezone": "UTC",
+      "logging": {
+        "collector": true,
+        "directory": "log",
+        "filename": "postgresql.log",
+        "statement": "none"
+      }
+    },
+    "external": null,
+    "pool": {
+      "max_connections": 10,
+      "min_connections": 1,
+      "acquire_timeout_secs": 5,
+      "idle_timeout_secs": 30,
+      "max_lifetime_secs": 300
+    }
+  },
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8080,
+    "api_prefix": "/api",
+    "cors": null,
+    "rate_limit": null,
+    "trust_forwarded_headers": false,
+    "max_file_upload_mb": 128
+  },
+  "logging": {
+    "level": "info",
+    "format": "pretty"
+  },
+  "jwt": {
+    "secret": "0123456789abcdef0123456789abcdef-strong",
+    "issuer": "app",
+    "audience": "app-api",
+    "access_token_expiry_hours": 24,
+    "refresh_token_expiry_days": 30,
+    "access_token_expiry_seconds": null
+  }
+}

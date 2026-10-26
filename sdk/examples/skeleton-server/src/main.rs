@@ -82,7 +82,7 @@ static SKELETON: ModuleEntry = ModuleEntry {
 
 fn minimal_config(port: u16) -> ServerConfig {
     ServerConfig {
-        postgresql: PostgreSqlConfig {
+        postgresql: Some(PostgreSqlConfig {
             use_embedded: false,
             embedded: None,
             external: Some(ExternalPostgreSqlConfig {
@@ -94,7 +94,8 @@ fn minimal_config(port: u16) -> ServerConfig {
                 database: "skeleton".to_string(),
             }),
             pool: None,
-        },
+        }),
+        database: None,
         server: HttpServerConfig {
             host: "127.0.0.1".to_string(),
             port,

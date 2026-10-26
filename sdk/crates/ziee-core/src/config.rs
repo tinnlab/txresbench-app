@@ -1,12 +1,19 @@
 //! Framework-level server configuration (`ServerConfig`) — the Config split.
 //!
 //! Chunk B2 fleshes out the B1 placeholder. `ServerConfig` groups the
-//! **app-agnostic** server settings — `postgresql` / `server` (host/port/CORS/
-//! rate-limit) / `logging` / `jwt` — that every framework consumer needs
-//! regardless of which domain modules it links. ziee's monolithic `Config`
-//! composes this via `#[serde(flatten)]` + `Deref`, so the serialized (YAML)
-//! shape stays byte-identical and every `config.postgresql` / `config.server` /
-//! `config.jwt` call site keeps working unchanged.
+//! **app-agnostic** server settings — `postgresql` / `database` / `server`
+//! (host/port/CORS/rate-limit) / `logging` / `jwt` — that every framework
+//! consumer needs regardless of which domain modules it links. ziee's
+//! monolithic `Config` composes this via `#[serde(flatten)]` + `Deref`, so the
+//! serialized (YAML) shape stays byte-identical and every `config.postgresql`
+//! / `config.server` / `config.jwt` call site keeps working unchanged.
+//!
+//! The database driver is a COMPILE-TIME selection (the `sqlite-backend`
+//! cargo feature, see `db_pool.rs`), but the CONFIG must express both shapes
+//! at runtime: both blocks are optional (`postgresql` for the PG variants,
+//! `database` for the SQLite variant), so a config parses identically no
+//! matter which driver the crate was built for, and a sqlite-built server can
+//! read a plain postgresql-only config without a parse error.
 //!
 //! `ModuleContext` (in `ziee-framework`) carries `Arc<ServerConfig>`, never the
 //! app's monolithic `Config` — the app injects its full config through the
@@ -46,7 +53,15 @@ const BANNED_JWT_SECRETS: &[&str] = &[
 /// exactly as before the split.
 #[derive(Debug, Deserialize, Clone)]
 pub struct ServerConfig {
-    pub postgresql: PostgreSqlConfig,
+    /// The postgresql block — present on every PG-variant config (ziee, the
+    /// app until it flips drivers). Optional so a sqlite-variant config
+    /// (a `database` block, no `postgresql`) parses through the SAME type;
+    /// `database_url()` requires it and errors clearly when it is absent.
+    #[serde(default)]
+    pub postgresql: Option<PostgreSqlConfig>,
+    /// The SQLite-variant DB block. Optional: ziee-shaped configs carry none.
+    #[serde(default)]
+    pub database: Option<DatabaseConfig>,
     pub server: HttpServerConfig,
     #[serde(default)]
     pub logging: Option<LoggingConfig>,
@@ -54,10 +69,17 @@ pub struct ServerConfig {
 }
 
 impl ServerConfig {
+    /// The PostgreSQL URL for the PG driver. Requires the `postgresql` block —
+    /// a sqlite-variant config (no `postgresql`) must not call this; its URL
+    /// comes from [`Self::database`] resolution. Error text is loud because a
+    /// wrong-leg call means the caller is about to open the wrong engine.
     pub fn database_url(&self) -> String {
-        if self.postgresql.use_embedded {
-            let embedded = self
-                .postgresql
+        let pg = self.postgresql.as_ref().expect(
+            "postgresql config block missing — this ServerConfig was built for \
+             the sqlite driver; resolve the URL from the database block instead",
+        );
+        if pg.use_embedded {
+            let embedded = pg
                 .embedded
                 .as_ref()
                 .expect("embedded config must be present when use_embedded is true");
@@ -70,8 +92,7 @@ impl ServerConfig {
                 embedded.database
             )
         } else {
-            let external = self
-                .postgresql
+            let external = pg
                 .external
                 .as_ref()
                 .expect("external config must be present when use_embedded is false");
@@ -86,15 +107,26 @@ impl ServerConfig {
         }
     }
 
+    /// The configured SQLite DB target: the `database.url` string when set,
+    /// otherwise `database.path`. `None` when no `database` block (or neither
+    /// field) exists — the caller applies its own override chain and default
+    /// path (a sqlite URL is also expressible as a plain filesystem path; the
+    /// bootstrap layer accepts both).
+    pub fn sqlite_database_url(&self) -> Option<String> {
+        let db = self.database.as_ref()?;
+        db.url.clone().or_else(|| db.path.clone())
+    }
+
     pub fn server_address(&self) -> String {
         format!("{}:{}", self.server.host, self.server.port)
     }
 
     /// Load + validate a `ServerConfig` from a YAML file (chunk sdk-batteries /
-    /// G2). Parses the framework keys (`postgresql`/`server`/`logging`/`jwt`);
-    /// any extra app-specific top-level keys are ignored (serde default). Refuses
-    /// a weak/placeholder `jwt.secret` so an app never boots with a known signer
-    /// — the same guard ziee documents in its own `Config::load_from`.
+    /// G2). Parses the framework keys (`postgresql`/`database`/`server`/
+    /// `logging`/`jwt`); any extra app-specific top-level keys are ignored
+    /// (serde default). Refuses a weak/placeholder `jwt.secret` so an app never
+    /// boots with a known signer — the same guard ziee documents in its own
+    /// `Config::load_from`.
     ///
     /// ADDITIVE: ziee keeps its own monolithic `Config` loader; this is the SDK
     /// helper a fresh app calls instead of re-implementing YAML load + validation.
@@ -220,6 +252,73 @@ pub struct PoolConfig {
     pub idle_timeout_secs: Option<u64>,
     #[serde(default)]
     pub max_lifetime_secs: Option<u64>,
+}
+
+/// The SQLite-variant DB block (`database:` in the config file).
+///
+/// All fields optional — the values below are the baked-in defaults, matching
+/// the existing `pool.max_connections=10` etc. posture, so behavior is not
+/// tuned while the app is being ported across drivers. `url` and `path` are
+/// two spellings of the same thing (a `sqlite://` URL or a plain filesystem
+/// path); both present, one wins — the resolution chain (path > url > env >
+/// default path) is the app's bootstrap concern, not this struct's.
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct DatabaseConfig {
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub path: Option<String>,
+    /// Always carries the full pool shape — an omitted `database.pool` block
+    /// deserializes to the baked-in defaults (see [`DatabasePoolConfig`]), so
+    /// consumers never branch on "was the block set".
+    #[serde(default)]
+    pub pool: DatabasePoolConfig,
+}
+
+/// The SQLite pool + pragma knobs (`database.pool`).
+///
+/// The sqlx options layer maps these onto `SqlitePoolOptions` /
+/// `SqliteConnectOptions` (busy_timeout → `busy_timeout`); the WAL /
+/// `synchronous=NORMAL` / `foreign_keys=ON` pragma defaults are set by the
+/// bootstrap, not configurable here — they are correctness properties of the
+/// engine, not tuning knobs.
+#[derive(Debug, Deserialize, Clone)]
+pub struct DatabasePoolConfig {
+    #[serde(default = "default_database_max_connections")]
+    pub max_connections: u32,
+    #[serde(default = "default_database_min_connections")]
+    pub min_connections: u32,
+    #[serde(default = "default_database_acquire_timeout_secs")]
+    pub acquire_timeout_secs: u64,
+    #[serde(default = "default_database_busy_timeout_ms")]
+    pub busy_timeout_ms: u64,
+}
+
+impl Default for DatabasePoolConfig {
+    fn default() -> Self {
+        Self {
+            max_connections: default_database_max_connections(),
+            min_connections: default_database_min_connections(),
+            acquire_timeout_secs: default_database_acquire_timeout_secs(),
+            busy_timeout_ms: default_database_busy_timeout_ms(),
+        }
+    }
+}
+
+fn default_database_max_connections() -> u32 {
+    10
+}
+
+fn default_database_min_connections() -> u32 {
+    1
+}
+
+fn default_database_acquire_timeout_secs() -> u64 {
+    5
+}
+
+fn default_database_busy_timeout_ms() -> u64 {
+    5000
 }
 
 /// HTTP server sub-config (formerly ziee's `ServerConfig`). Renamed so the
@@ -411,7 +510,7 @@ mod load_from_tests {
         let cfg = ServerConfig::load_from(f.path()).expect("valid config loads");
         assert_eq!(cfg.server.port, 3000);
         assert_eq!(cfg.jwt.issuer, "app");
-        assert!(cfg.postgresql.use_embedded);
+        assert!(cfg.postgresql.as_ref().unwrap().use_embedded);
     }
 
     #[test]
@@ -523,5 +622,116 @@ mod max_file_upload_tests {
         let yaml = "host: 127.0.0.1\nport: 3000\napi_prefix: /api\nmax_file_upload_mb: 256\n";
         let cfg: HttpServerConfig = serde_norway::from_str(yaml).expect("parse HttpServerConfig");
         assert_eq!(cfg.max_file_upload_mb, 256);
+    }
+}
+
+#[cfg(test)]
+mod dual_driver_config_tests {
+    use super::{DatabasePoolConfig, ServerConfig};
+
+    const STRONG_SECRET: &str = "0123456789abcdef0123456789abcdef-strong";
+
+    /// The sqlite-variant config shape: NO `postgresql` block, a `database`
+    /// block instead. Must parse through the same `ServerConfig` type.
+    #[test]
+    fn sqlite_block_parses_without_postgresql() {
+        let yaml = format!(
+            "database:\n  url: sqlite:///home/user/.app/app.db\nserver:\n  host: 127.0.0.1\n  port: 3000\n  api_prefix: /api\njwt:\n  secret: '{STRONG_SECRET}'\n  issuer: app\n  audience: app-api\n  access_token_expiry_hours: 24\n"
+        );
+        let cfg: ServerConfig = serde_norway::from_str(&yaml).expect("sqlite-shaped config parses");
+        assert!(cfg.postgresql.is_none(), "no postgresql block -> None");
+        let db = cfg.database.as_ref().expect("database block present");
+        assert_eq!(db.url.as_deref(), Some("sqlite:///home/user/.app/app.db"));
+        assert_eq!(cfg.sqlite_database_url().as_deref(), Some("sqlite:///home/user/.app/app.db"));
+    }
+
+    /// `database.path` is the alternative spelling; `url` wins when both are
+    /// set (the bootstrap layer re-applies the full override chain).
+    #[test]
+    fn sqlite_url_prefers_url_over_path() {
+        let yaml = format!(
+            "database:\n  path: /tmp/from-path.db\n  url: sqlite:///tmp/from-url.db\nserver:\n  host: 127.0.0.1\n  port: 3000\n  api_prefix: /api\njwt:\n  secret: '{STRONG_SECRET}'\n  issuer: app\n  audience: app-api\n  access_token_expiry_hours: 24\n"
+        );
+        let cfg: ServerConfig = serde_norway::from_str(&yaml).unwrap();
+        assert_eq!(
+            cfg.sqlite_database_url().as_deref(),
+            Some("sqlite:///tmp/from-url.db")
+        );
+    }
+
+    /// The sqlite pool knobs default to the framework profile (10 / 1 / 5 s /
+    /// 5000 ms) — the same numbers the PG side already ships, so nothing is
+    /// tuned while the engine is being swapped.
+    #[test]
+    fn database_pool_defaults_match_the_profile() {
+        let yaml = format!(
+            "database:\n  path: /tmp/app.db\nserver:\n  host: 127.0.0.1\n  port: 3000\n  api_prefix: /api\njwt:\n  secret: '{STRONG_SECRET}'\n  issuer: app\n  audience: app-api\n  access_token_expiry_hours: 24\n"
+        );
+        let cfg: ServerConfig = serde_norway::from_str(&yaml).unwrap();
+        let pool = &cfg.database.as_ref().unwrap().pool;
+        assert_eq!(pool.max_connections, 10);
+        assert_eq!(pool.min_connections, 1);
+        assert_eq!(pool.acquire_timeout_secs, 5);
+        assert_eq!(pool.busy_timeout_ms, 5000);
+        // The Default impl must agree with the serde defaults.
+        let d = DatabasePoolConfig::default();
+        assert_eq!(d.max_connections, 10);
+        assert_eq!(d.min_connections, 1);
+        assert_eq!(d.acquire_timeout_secs, 5);
+        assert_eq!(d.busy_timeout_ms, 5000);
+    }
+
+    /// An explicit `database.pool` block overrides the baked-in defaults.
+    #[test]
+    fn database_pool_override_wins() {
+        let yaml = format!(
+            "database:\n  path: /tmp/app.db\n  pool:\n    max_connections: 3\n    busy_timeout_ms: 100\nserver:\n  host: 127.0.0.1\n  port: 3000\n  api_prefix: /api\njwt:\n  secret: '{STRONG_SECRET}'\n  issuer: app\n  audience: app-api\n  access_token_expiry_hours: 24\n"
+        );
+        let cfg: ServerConfig = serde_norway::from_str(&yaml).unwrap();
+        let pool = &cfg.database.as_ref().unwrap().pool;
+        assert_eq!(pool.max_connections, 3);
+        assert_eq!(pool.min_connections, 1); // untouched -> default
+        assert_eq!(pool.busy_timeout_ms, 100);
+    }
+
+    /// THE ziee backcompat fixture: a full ziee-shaped config (postgresql
+    /// block, no database block) must parse identically to the pre-seam
+    /// shape — the same URL, the same fields.
+    #[test]
+    fn ziee_shaped_config_parses_identically() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/ziee-config-backcompat.json"
+        );
+        let raw = std::fs::read_to_string(path).expect("backcompat fixture present");
+        let cfg: ServerConfig = serde_json::from_str(&raw).expect("ziee-shaped config parses");
+        assert_eq!(
+            cfg.database_url(),
+            "postgresql://pguser:pgpw@127.0.0.1:5433/appdb"
+        );
+        assert!(cfg.database.is_none(), "ziee carries no sqlite block");
+        assert_eq!(cfg.postgresql.as_ref().unwrap().embedded.as_ref().unwrap().version, "18.3.0");
+        assert_eq!(cfg.server.port, 8080);
+        assert_eq!(cfg.jwt.issuer, "app");
+    }
+
+    /// The PG-leg accessor must refuse loudly when asked to build a URL for a
+    /// config that has no postgresql block — a wrong-leg caller is a real
+    /// misconfiguration, and a silent default URL would be worse.
+    #[test]
+    fn database_url_refuses_a_sqlite_shaped_config() {
+        let yaml = format!(
+            "database:\n  path: /tmp/app.db\nserver:\n  host: 127.0.0.1\n  port: 3000\n  api_prefix: /api\njwt:\n  secret: '{STRONG_SECRET}'\n  issuer: app\n  audience: app-api\n  access_token_expiry_hours: 24\n"
+        );
+        let cfg: ServerConfig = serde_norway::from_str(&yaml).unwrap();
+        let err = std::panic::catch_unwind(|| cfg.database_url()).unwrap_err();
+        let msg = err
+            .downcast_ref::<String>()
+            .map(|s| s.as_str())
+            .unwrap_or("<non-string panic>");
+        assert!(
+            msg.contains("sqlite driver"),
+            "error must say which leg was expected; got: {msg}"
+        );
     }
 }

@@ -41,7 +41,7 @@ fn jwt_secret() -> String {
 pub fn desktop_config() -> ServerConfig {
     let dir = data_dir();
     ServerConfig {
-        postgresql: PostgreSqlConfig {
+        postgresql: Some(PostgreSqlConfig {
             use_embedded: true,
             embedded: Some(EmbeddedPostgreSqlConfig {
                 version: "18.3.0".to_string(),
@@ -72,7 +72,8 @@ pub fn desktop_config() -> ServerConfig {
                 idle_timeout_secs: Some(30),
                 max_lifetime_secs: Some(300),
             }),
-        },
+        }),
+        database: None,
         server: HttpServerConfig {
             host: "127.0.0.1".to_string(),
             // Ephemeral — the real port is read from local_addr and exposed to

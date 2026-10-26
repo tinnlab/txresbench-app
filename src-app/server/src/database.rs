@@ -124,8 +124,15 @@ fn noop_smoke(_url: String) -> std::pin::Pin<Box<dyn std::future::Future<Output 
 pub async fn initialize_database(
     config: &ServerConfig,
 ) -> Result<Arc<PgPool>, Box<dyn std::error::Error + Send + Sync>> {
+    // The app still boots on the embedded-Postgres driver; the `postgresql`
+    // block is required for that leg (a sqlite-variant config carries a
+    // `database` block instead and is handled by the sqlite bootstrap).
+    let pg = config.postgresql.clone().ok_or_else(|| {
+        "postgresql config block missing: this build still boots on the \
+         embedded-Postgres driver, which requires it"
+    })?;
     embedded_pg::initialize_database(
-        config.postgresql.clone(),
+        pg,
         config.database_url(),
         POSTGRES_VERSION.to_string(),
         std::sync::LazyLock::force(&MERGED_MIGRATOR),

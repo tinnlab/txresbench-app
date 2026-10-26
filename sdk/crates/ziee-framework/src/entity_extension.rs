@@ -40,7 +40,9 @@ use std::sync::Arc;
 
 use aide::axum::ApiRouter;
 use once_cell::sync::OnceCell;
-use sqlx::{PgPool, Postgres, Transaction};
+use sqlx::Transaction;
+
+use ziee_core::{Db, DbPool};
 
 /// A registration entry collected by a `#[distributed_slice]`.
 ///
@@ -58,7 +60,10 @@ use sqlx::{PgPool, Postgres, Transaction};
 pub struct ExtensionEntry<H: ?Sized, C> {
     pub name: &'static str,
     pub order: i32,
-    pub factory: fn(PgPool, C) -> Arc<H>,
+    /// The database pool the factory receives — the dual-driver alias, so an
+    /// app's extension factory signature is written once against `DbPool` and
+    /// resolves to the pool type its driver build selected.
+    pub factory: fn(DbPool, C) -> Arc<H>,
 }
 
 // Manual Clone/Copy: `#[derive]` would spuriously require `H: Copy` / `C: Copy`.
@@ -148,13 +153,13 @@ impl<H: ?Sized> ExtensionRegistry<H> {
     /// ```
     pub async fn fire_in_tx<'t, E, F>(
         &self,
-        tx: &mut Transaction<'t, Postgres>,
+        tx: &mut Transaction<'t, Db>,
         mut hook: F,
     ) -> Result<(), E>
     where
         F: for<'a> FnMut(
             &'a Arc<H>,
-            &'a mut Transaction<'t, Postgres>,
+            &'a mut Transaction<'t, Db>,
         ) -> Pin<Box<dyn Future<Output = Result<(), E>> + Send + 'a>>,
     {
         for ext in &self.extensions {
@@ -193,7 +198,7 @@ where
 /// [`sorted_entries`] + a factory loop themselves; ziee's `chat` + `project` do.
 pub fn auto_register<H, C>(
     entries: &[ExtensionEntry<H, C>],
-    pool: PgPool,
+    pool: DbPool,
     ctx: C,
     log_label: &str,
 ) -> ExtensionRegistry<H>
@@ -449,8 +454,8 @@ mod tests {
                 factory: |_, _| ext("early"),
             },
         ];
-        // `auto_register` needs a real PgPool to call factories; the factories
-        // here ignore it, but we can't fabricate a PgPool in a unit test. So we
+        // `auto_register` needs a real DbPool to call factories; the factories
+        // here ignore it, but we can't fabricate a pool in a unit test. So we
         // assert the sort directly (the factory-dispatch path is covered by the
         // ziee integration suites that boot a real pool).
         let mut sorted: Vec<&E> = entries.iter().collect();

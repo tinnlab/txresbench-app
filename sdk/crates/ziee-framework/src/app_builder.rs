@@ -11,11 +11,10 @@ use aide::axum::ApiRouter;
 use aide::openapi::OpenApi;
 use axum::http::header::HeaderName;
 use axum::http::Method;
-use sqlx::PgPool;
 use std::sync::Arc;
 use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 
-use ziee_core::ServerConfig;
+use ziee_core::{DbPool, ServerConfig};
 
 use crate::module_api::{AppModule, ModuleContext, MODULE_ENTRIES};
 
@@ -81,10 +80,16 @@ pub fn initialize_modules(
 }
 
 /// Build API router with all module routes.
+///
+/// `pool` is the dual-driver alias, so the request extension an app's handlers
+/// extract is `axum::Extension<PgPool>` on the default build and
+/// `axum::Extension<SqlitePool>` under `sqlite-backend` — handlers write
+/// `Extension<DbPool>` (or follow their app's concrete-driver posture) and
+/// never name a driver at the router boundary.
 pub fn build_api_router(
     modules: &[Box<dyn AppModule>],
     api_prefix: &str,
-    pool: PgPool,
+    pool: DbPool,
 ) -> (ApiRouter, OpenApi) {
     // Build combined router from all modules
     // Modules handle their own state requirements internally

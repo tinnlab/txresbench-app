@@ -10,12 +10,14 @@
 
 pub mod app_state;
 pub mod config;
+pub mod db_pool;
 pub mod error;
 pub mod macros;
 
 pub use config::{
-    CorsConfig, EmbeddedPostgreSqlConfig, ExternalPostgreSqlConfig, HttpServerConfig, JwtConfig,
-    LoggingConfig, LoggingConfigPostgres, PoolConfig, PostgreSqlConfig, RateLimitConfig,
-    ServerConfig,
+    CorsConfig, DatabaseConfig, DatabasePoolConfig, EmbeddedPostgreSqlConfig,
+    ExternalPostgreSqlConfig, HttpServerConfig, JwtConfig, LoggingConfig, LoggingConfigPostgres,
+    PoolConfig, PostgreSqlConfig, RateLimitConfig, ServerConfig,
 };
+pub use db_pool::{Db, DbPool};
 pub use error::{ApiError, ApiResult, AppError};

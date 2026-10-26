@@ -76,7 +76,13 @@ pub const DEFAULT_DIR: &str = "workstore";
 ///   share one catalog and SHOULD share one store.
 /// * external Postgres → the connection triple, for the same reason.
 pub fn catalog_identity(config: &ServerConfig) -> String {
-    let pg = &config.postgresql;
+    let pg = match config.postgresql.as_ref() {
+        Some(pg) => pg,
+        // A config that names neither half cannot connect at all, so any
+        // stable value is fine; keep it distinct from every real identity
+        // below (same fallback as the PG-shape arms).
+        None => return "pg:unconfigured".to_string(),
+    };
     if pg.use_embedded {
         if let Some(e) = pg.embedded.as_ref() {
             if let Some(dir) = e.data_dir.as_ref().filter(|d| !d.trim().is_empty()) {

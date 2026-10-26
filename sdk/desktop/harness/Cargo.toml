@@ -45,3 +45,10 @@ tracing = "0.1"
 # Linux/WebKitGTK: enable programmatic window.open for the portal pop-out (with_webview setting).
 [target."cfg(target_os = \"linux\")".dependencies]
 webkit2gtk = { version = "=2.0.2", features = ["v2_38"] }
+
+# Dual-driver selection — `BootHandle.pool` + the single-user strategy hold
+# `ziee_core::DbPool`, so this feature only flips which concrete type that
+# alias names. A sqlite-desktop app enables it (together with the same feature
+# on the schema-bound SDK crates it builds against).
+[features]
+sqlite-backend = ["ziee-core/sqlite-backend"]

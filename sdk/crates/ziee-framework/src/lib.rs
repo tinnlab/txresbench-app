@@ -19,7 +19,19 @@ pub mod app_builder;
 // provision_build_db, worktree_db, ...}`. The lean `ziee-build-support` crate is
 // the single home (build-DB-free, cheap as a `[build-dependencies]` entry).
 pub use ziee_build_support as build_support;
+// The PG driver bootstrap. Compiles only under the default `embedded-pg`
+// feature; a `sqlite-backend` build gets `embedded_db` instead — the driver
+// variant is chosen at compile time by the consumer's feature selection, so
+// an app can never link the Postgres downloader by accident.
+#[cfg(feature = "embedded-pg")]
 pub mod embedded_pg;
+/// The SQLite driver bootstrap — the driver-side counterpart of
+/// `embedded_pg` (see the module docs for the option profile it applies).
+pub mod embedded_db;
+// The dual-driver pool/database aliases (driver chosen by the
+// `sqlite-backend` cargo feature) — the one pool type framework surfaces and
+// every schema-bound SDK crate's repository signatures name.
+pub use ziee_core::{Db, DbPool};
 // Gap G8: the generic entity-extension registry primitive — the domain-agnostic
 // `#[distributed_slice]` of `{name, order, factory}` + `Vec<Arc<dyn Hooks>>`
 // registry (folds routes + fans in-tx hooks over ONE shared `&mut Transaction`)

@@ -18,8 +18,7 @@
 //! (High), and adjacent items.
 
 use serde::{Deserialize, Serialize};
-use ziee_core::AppError;
-use sqlx::PgPool;
+use ziee_core::{AppError, DbPool};
 
 const MIN_STORAGE_KEY_LENGTH: usize = 32;
 
@@ -76,7 +75,7 @@ impl<T> Serialize for SecretView<T> {
 /// the storage key is unset (compat mode for unconfigured deployments).
 /// Errors only on actual DB / encryption failure.
 pub async fn encrypt_secret(
-    pool: &PgPool,
+    pool: &DbPool,
     plaintext: &str,
     storage_key: Option<&str>,
 ) -> Result<Option<Vec<u8>>, AppError> {
@@ -105,7 +104,7 @@ pub async fn encrypt_secret(
 /// (typically a wrong key — fail closed and surface a generic error to
 /// the caller).
 pub async fn decrypt_secret(
-    pool: &PgPool,
+    pool: &DbPool,
     ciphertext: &[u8],
     storage_key: &str,
 ) -> Result<String, AppError> {
@@ -136,7 +135,7 @@ pub async fn decrypt_secret(
 /// plaintext column was cleared on write, so the secret simply
 /// becomes unavailable rather than 500-ing every read).
 pub async fn resolve_optional_secret(
-    pool: &PgPool,
+    pool: &DbPool,
     encrypted: Option<Vec<u8>>,
     plaintext: Option<String>,
 ) -> Option<String> {
@@ -228,12 +227,24 @@ mod tests {
     // encrypt_secret's two pre-DB branches — the encryption-FAILURE path that
     // repository write paths (e.g. llm_repository) propagate as
     // "secret encryption failed", and the encryption-DISABLED (no key) path.
-    // Both return before touching the pool, so a lazy pool suffices.
-    fn lazy_pool() -> PgPool {
-        sqlx::postgres::PgPoolOptions::new()
-            .max_connections(1)
-            .connect_lazy("postgresql://postgres:password@127.0.0.1:54321/unused")
-            .expect("lazy pool")
+    // Both return before touching the pool, so a lazy pool suffices. The pool
+    // is the dual-driver alias, so the lazy construction picks the driver's
+    // own options/URL.
+    fn lazy_pool() -> DbPool {
+        #[cfg(not(feature = "sqlite-backend"))]
+        {
+            sqlx::postgres::PgPoolOptions::new()
+                .max_connections(1)
+                .connect_lazy("postgresql://postgres:password@127.0.0.1:54321/unused")
+                .expect("lazy pool")
+        }
+        #[cfg(feature = "sqlite-backend")]
+        {
+            sqlx::sqlite::SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect_lazy("sqlite::memory:")
+                .expect("lazy pool")
+        }
     }
 
     #[tokio::test]
