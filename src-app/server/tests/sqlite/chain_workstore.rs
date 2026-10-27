@@ -261,19 +261,42 @@ async fn artifact_model_invariants_hold() {
     let merged = compose_sqlite_chain(scratch.path());
     let (pool, _migrator) = apply_chain(&merged, &scratch.path().join("scratch.sqlite")).await;
 
-    // Project + dataset stub parents (from apply_chain) are real FK parents.
+    // Project + dataset parent fixtures. ITEM-10's REAL `projects` table
+    // landed (strict NOT NULLs — id/owner_id/name — and the owner FK to
+    // users), so the project row needs a users row; `datasets` is still
+    // the ITEM-11 stub, but ITEM-10's 202608040013 ADDs `account_id …
+    // CHECK (account_id IS NOT NULL)` + a REFERENCES to the real accounts
+    // table, so the dataset row needs an accounts fixture (an org row —
+    // the personal_has_user CHECK).
+    let owner = uuid::Uuid::new_v4();
+    sqlx::query("INSERT INTO users (id, username, email) VALUES (?, 'fixture', 'fixture@x.io')")
+        .bind(owner)
+        .execute(&pool)
+        .await
+        .expect("users fixture row");
+    let tenant = uuid::Uuid::new_v4();
+    sqlx::query("INSERT INTO accounts (id, kind, name) VALUES (?, 'organization', 'fixture')")
+        .bind(tenant)
+        .execute(&pool)
+        .await
+        .expect("accounts fixture row (the ITEM-10 real table)");
     let proj = uuid::Uuid::new_v4();
     let ds = uuid::Uuid::new_v4();
-    sqlx::query("INSERT INTO projects (id) VALUES (?)")
-        .bind(proj)
-        .execute(&pool)
-        .await
-        .expect("project stub row");
-    sqlx::query("INSERT INTO datasets (id) VALUES (?)")
+    sqlx::query(
+        "INSERT INTO projects (id, owner_id, name, account_id) VALUES (?, ?, 'fixture', ?)",
+    )
+    .bind(proj)
+    .bind(owner)
+    .bind(tenant)
+    .execute(&pool)
+    .await
+    .expect("project fixture row (the ITEM-10 real table — 013's account_id CHECK)");
+    sqlx::query("INSERT INTO datasets (id, account_id) VALUES (?, ?)")
         .bind(ds)
+        .bind(tenant)
         .execute(&pool)
         .await
-        .expect("dataset stub row");
+        .expect("dataset fixture row (stub + the 013 account_id column)");
 
     let insert_artifact = |id: uuid::Uuid,
                            output_id: &str,

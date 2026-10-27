@@ -20,7 +20,10 @@
 //! owns the app group part 2: `workstore` (19) — the shared-harness leg pins
 //! the whole 39-file chain + the app groups' row semantics; the jobs-specific
 //! scheduler invariants live in `chain_jobs.rs` (TEST-15) and the
-//! workstore-specific ones in `chain_workstore.rs` (TEST-16).
+//! workstore-specific ones in `chain_workstore.rs` (TEST-16). ITEM-10 owns
+//! the app group part 3: `account` (8) + `project` (1) — the shared harness
+//! now pins the 48-file chain; the account/project-specific row semantics
+//! live in `chain_account_project.rs` (TEST-17).
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -41,8 +44,8 @@ use migration_chain::MigrationChain;
 const SDK_CHAIN_GROUPS: &[(&str, usize)] =
     &[("ziee-auth", 5), ("ziee-file", 1), ("ziee-notification", 1)];
 
-/// The app chain module groups ITEM-8 + ITEM-9 ports: (staged module dir
-/// name, expected `.sql` count).
+/// The app chain module groups ITEM-8 + ITEM-9 + ITEM-10 ports: (staged
+/// module dir name, expected `.sql` count).
 const APP_CHAIN_GROUPS: &[(&str, usize)] = &[
     ("jobs", 6),
     ("sandbox", 3),
@@ -50,18 +53,26 @@ const APP_CHAIN_GROUPS: &[(&str, usize)] = &[
     ("features", 1),
     ("file", 1),
     ("workstore", 19),
+    ("account", 8),
+    ("project", 1),
 ];
 
-/// The table set the ported chain creates (SDK 12 + jobs 7 + compute_meter +
-/// sandbox 1 + mcp 2 + features 1 + workstore 6 = 30), alphabetically — the
-/// Postgres chain's table names verbatim. `workstore_axis_entry` is NOT in
-/// the set: the baseline creates it and `202608040002` drops it (in the PG
-/// chain too). Three of the names (`accounts`, `datasets`, `projects`) are
-/// the test stubs `ensure_late_parent_stubs` stands in for — ITEM-10
-/// (account + project) and ITEM-11 (dataset) port the REAL tables; the
-/// stubs are `CREATE TABLE IF NOT EXISTS`, so they become no-ops and are
-/// replaced by the real chains without touching this constant.
+/// The table set the ported chain creates (SDK 12 + jobs 8 (incl.
+/// compute_meter) + sandbox 1 + mcp 2 + features 1 + workstore 6 +
+/// account 5 + project 5 = 40, plus the ITEM-11 `datasets` stub = 41),
+/// alphabetically — the Postgres chain's table names verbatim.
+/// `workstore_axis_entry` is NOT in the set: the baseline creates it and
+/// `202608040002` drops it (in the PG chain too). `accounts` and `projects`
+/// are created by the REAL ITEM-10 chains from this item on; `datasets` is
+/// still the ITEM-11 test stub `ensure_late_parent_stubs` stands in for —
+/// ITEM-11 (dataset) ports the REAL table; the stub is `CREATE TABLE IF
+/// NOT EXISTS`, so it becomes a no-op and is replaced by the real chain
+/// without touching this constant.
 const TABLE_SET: &[&str] = &[
+    "account_invitation_mints",
+    "account_invitations",
+    "account_member_events",
+    "account_members",
     "accounts",
     "artifacts",
     "auth_providers",
@@ -86,6 +97,10 @@ const TABLE_SET: &[&str] = &[
     "oauth_sessions",
     "object_store_migration",
     "pending_account_links",
+    "project_datasets",
+    "project_settings",
+    "project_shares",
+    "project_transfers",
     "projects",
     "refresh_tokens",
     "sandbox_settings",
@@ -110,9 +125,9 @@ const SDK_CHAIN_FILES: &[&str] = &[
 ];
 
 /// Every file the ported chain ships (SDK 7 + app ITEM-8 groups 13 +
-/// ITEM-9's workstore 19), in the version-sorted order the merged chain
-/// applies them.
-const CHAIN_FILES: &[&str] = &[
+/// ITEM-9's workstore 19 + ITEM-10's account 8 + project 1), in the
+/// version-sorted order the merged chain applies them.
+pub(crate) const CHAIN_FILES: &[&str] = &[
     "202607140050_auth_schema.sql",
     "202607140125_file_schema.sql",
     "202607140190_notification_schema.sql",
@@ -120,6 +135,7 @@ const CHAIN_FILES: &[&str] = &[
     "202607144500_auth_seed.sql",
     "202607144600_auth_add_users_token_version.sql",
     "202608030001_jobs_baseline.sql",
+    "202608030003_project_baseline.sql",
     "202608030004_workstore_baseline.sql",
     "202608030006_sandbox_baseline.sql",
     "202608030007_mcp_baseline.sql",
@@ -132,6 +148,9 @@ const CHAIN_FILES: &[&str] = &[
     "202608040007_stored_vs_logical_bytes.sql",
     "202608040009_artifact_mask_role.sql",
     "202608040010_recipe_alignment_or_single_source.sql",
+    "202608040012_account_baseline.sql",
+    "202608040013_ownership_account_id.sql",
+    "202608040014_account_id_indexes.sql",
     "202608050001_storage_meter.sql",
     "202608050002_compute_meter.sql",
     "202608050003_multiworker_claim.sql",
@@ -139,6 +158,7 @@ const CHAIN_FILES: &[&str] = &[
     "202608260002_storage_meter_account.sql",
     "202608280001_artifact_membership_index.sql",
     "202608280002_features_baseline.sql",
+    "202608280011_account_admin_suspend.sql",
     "202608290010_sandbox_per_class_defaults.sql",
     "202608290020_workstore_settings.sql",
     "202608290030_jobs_sse_admission_knobs.sql",
@@ -151,6 +171,10 @@ const CHAIN_FILES: &[&str] = &[
     "202608290130_object_store_abandon.sql",
     "202609020010_upload_limits.sql",
     "202609020020_sandbox_fsize_default.sql",
+    "202609040001_account_members_manage.sql",
+    "202609040002_account_invitations.sql",
+    "202609040003_account_invitation_mints.sql",
+    "202609040010_account_member_events.sql",
     "202609090010_users_email_lowercase_invariant.sql",
 ];
 
@@ -208,7 +232,7 @@ pub(crate) fn compose_sqlite_chain(scratch: &Path) -> PathBuf {
 }
 
 /// Test stand-ins for the module tables the ported chain references but
-/// whose OWN ported chains land later: `accounts` (ITEM-10, the
+/// whose OWN ported chains land in later items: `accounts` (ITEM-10, the
 /// feature_flags FK parent), `projects` + `datasets` (ITEM-10/11 — the
 /// workstore baseline's FK parents and `202608040001`'s
 /// `UPDATE datasets SET source_artifact_id = NULL`). The PG chain resolves
@@ -219,21 +243,41 @@ pub(crate) fn compose_sqlite_chain(scratch: &Path) -> PathBuf {
 /// sets are exactly what the migration statements bind (the stub shapes are
 /// a superset-narrowing claim: if a real column is needed they grow, never
 /// silently).
+///
+/// ITEM-10 (account + project): the real chains use STRICT `CREATE TABLE`
+/// (the Postgres contract — a pre-existing stub would make them fail
+/// loudly), so the `accounts`/`projects` stubs are created ONLY while
+/// their staged dirs are absent; the real chains replace them at their own
+/// positions in the composed chain without touching this function's
+/// callers (ITEM-8's feature_flags leg and ITEM-9's artifact legs are the
+/// callers). `datasets` stays stubbed until ITEM-11 and needs the
+/// `owner_id` column ITEM-10's `202608040013` backfill UPDATE binds (013
+/// also ADDs `account_id … CHECK (account_id IS NOT NULL)` + a REFERENCES
+/// to the then-real accounts table — hence the fixture rows the harness
+/// tests insert).
 pub(crate) async fn ensure_late_parent_stubs(pool: &SqlitePool) {
-    sqlx::query("CREATE TABLE IF NOT EXISTS accounts (id BLOB PRIMARY KEY)")
+    let staging = manifest_dir().join("migrations-sqlite");
+    if !staging.join("account").is_dir() {
+        sqlx::query("CREATE TABLE IF NOT EXISTS accounts (id BLOB PRIMARY KEY)")
+            .execute(pool)
+            .await
+            .expect("accounts stub (ITEM-10's table)");
+    }
+    if !staging.join("project").is_dir() {
+        sqlx::query("CREATE TABLE IF NOT EXISTS projects (id BLOB PRIMARY KEY)")
+            .execute(pool)
+            .await
+            .expect("projects stub (ITEM-10's table)");
+    }
+    if !staging.join("dataset").is_dir() {
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS datasets \
+             (id BLOB PRIMARY KEY, owner_id BLOB, source_artifact_id BLOB, created_at TEXT)",
+        )
         .execute(pool)
         .await
-        .expect("accounts stub (ITEM-10's table)");
-    sqlx::query("CREATE TABLE IF NOT EXISTS projects (id BLOB PRIMARY KEY)")
-        .execute(pool)
-        .await
-        .expect("projects stub (ITEM-10's table)");
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS datasets (id BLOB PRIMARY KEY, source_artifact_id BLOB)",
-    )
-    .execute(pool)
-    .await
-    .expect("datasets stub (ITEM-11's table)");
+        .expect("datasets stub (ITEM-11's table)");
+    }
 }
 
 /// Apply `merged` to a scratch SQLite FILE (create-if-missing, WAL,
@@ -319,18 +363,19 @@ fn driver_dispatch_selects_the_port_for_sqlite_urls() {
     );
 }
 
-/// TEST-14 (ITEM-7 + ITEM-8/9 groups): the ported chain (SDK 7 + app ITEM-8
-/// groups 13 + ITEM-9 workstore 19) composes to exactly its thirty-nine
-/// files, applies to a scratch SQLite 3.46 file with zero errors, yields the
-/// Postgres chain's table set, and re-applies as a no-op.
+/// TEST-14 (ITEM-7 + ITEM-8/9/10 groups): the ported chain (SDK 7 + app
+/// ITEM-8 groups 13 + ITEM-9 workstore 19 + ITEM-10 account 8 + project 1)
+/// composes to exactly its forty-eight files, applies to a scratch SQLite
+/// 3.46 file with zero errors, yields the Postgres chain's table set, and
+/// re-applies as a no-op.
 #[tokio::test]
 async fn ported_chain_applies_from_scratch_and_reapplies_as_noop() {
     let scratch = Scratch::new("full-chain");
     let merged = compose_sqlite_chain(scratch.path());
 
-    // The composed set is exactly the thirty-nine ported files (the
-    // remaining app groups land in ITEM-10…11 — nothing else exists in the
-    // chain yet).
+    // The composed set is exactly the forty-eight ported files (the
+    // remaining app group — dataset — lands in ITEM-11; nothing else exists
+    // in the chain yet).
     assert_eq!(merged_sql_files(&merged), CHAIN_FILES);
 
     // Every file has a unique numeric prefix (the merge-gate C2 namespace
@@ -415,11 +460,16 @@ async fn sdk_chain_type_contract_and_seed_semantics_hold() {
                 "Users".to_string(),
                 // The app-side grants (ITEM-8: jobs::use by 202608030001,
                 // mcp::use by 202608030007, the six files:: perms by
-                // 202608030008) ride ON TOP of the auth seed's two profile
-                // perms — the order is the chain's version order.
-                "[\"profile::read\",\"profile::edit\",\"jobs::use\",\"mcp::use\",\
+                // 202608030008; ITEM-10: projects::use + notifications::read
+                // by 202608030003, account::read by 202608040012,
+                // account::members::manage by 202609040001) ride ON TOP of
+                // the auth seed's two profile perms — the order is the
+                // chain's version order.
+                "[\"profile::read\",\"profile::edit\",\"jobs::use\",\
+                 \"projects::use\",\"notifications::read\",\"mcp::use\",\
                  \"files::read\",\"files::upload\",\"files::download\",\
-                 \"files::delete\",\"files::preview\",\"files::generate_token\"]"
+                 \"files::delete\",\"files::preview\",\"files::generate_token\",\
+                 \"account::read\",\"account::members::manage\"]"
                     .to_string(),
                 1
             ),
@@ -579,9 +629,13 @@ async fn email_invariant_refuses_case_collisions_in_legacy_data() {
     // migration is not recorded — the operator decides which account survives.
     // The refusal lands at the LAST file of the chain (202609090010 sorts
     // above every app file), so the six pre-applied files plus the
-    // thirty-two app files (ITEM-8's 13 + ITEM-9's 19) are applied and only
-    // the invariant file itself is not: 38 of 39. The staged-chain stubs
-    // stand in for ITEM-10/11's parents (the 040001 UPDATE walks `datasets`).
+    // forty-one app files (ITEM-8's 13 + ITEM-9's 19 + ITEM-10's 9) are
+    // applied and only the invariant file itself is not: 47 of 48. ITEM-10
+    // replaced the accounts/projects stubs with the REAL chains; the
+    // `datasets` stub stands in for ITEM-11's parent (the 040001 UPDATE
+    // walks `datasets`), and the account backfill runs against the two
+    // legacy users ('Bob'/'BOB' each gain a personal account — pre-existing
+    // users are exactly the backfill's case).
     ensure_late_parent_stubs(&pool).await;
     let full_migrator = Migrator::new(merged.as_path())
         .await
@@ -745,10 +799,10 @@ async fn app_chain_item8_row_semantics_hold() {
 
     // --- feature_flags: one global row per flag_key, per-account allowed --
     // The feature_flags FK references `accounts` — the account module's
-    // baseline, ported at ITEM-10 — so at THIS item's staged chain the
-    // parent is the idempotent stub `ensure_late_parent_stubs` created
-    // before the migrator ran (the ITEM-8 harness precedent; a no-op once
-    // the real table exists at ITEM-10+).
+    // baseline, ported at ITEM-10 (the REAL table sorts at 202608040012,
+    // before this test's inserts on the fully-applied chain; the ITEM-8
+    // staged state used the idempotent stub, which the conditional stub
+    // creator no longer creates once the account dir is staged).
     let gid = uuid::Uuid::new_v4();
     sqlx::query("INSERT INTO feature_flags (id, flag_key, enabled) VALUES (?, 'demo.f', 1)")
         .bind(gid)
@@ -767,12 +821,14 @@ async fn app_chain_item8_row_semantics_hold() {
     );
     let uid = uuid::Uuid::new_v4();
     // The FK is real (ON DELETE CASCADE declared): the per-account row's
-    // account must exist in the (stub) parent.
-    sqlx::query("INSERT INTO accounts (id) VALUES (?)")
+    // account must exist in the parent. ITEM-10's REAL `accounts` table
+    // landed with the strict baseline (kind/name NOT NULL, the
+    // personal_has_user CHECK), so the fixture is a full org row.
+    sqlx::query("INSERT INTO accounts (id, kind, name) VALUES (?, 'organization', 'probe')")
         .bind(uid)
         .execute(&pool)
         .await
-        .expect("accounts stub row");
+        .expect("accounts fixture row (the ITEM-10 real table)");
     let n = sqlx::query(
         "INSERT INTO feature_flags (id, flag_key, account_id, enabled) VALUES (?, 'demo.f', ?, 0)",
     )

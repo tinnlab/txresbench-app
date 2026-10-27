@@ -5,5 +5,6 @@
 //! sqlite bootstrap itself (ITEM-12+).
 
 pub mod apply_chain;
+pub mod chain_account_project;
 pub mod chain_jobs;
 pub mod chain_workstore;
