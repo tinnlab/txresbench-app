@@ -157,6 +157,29 @@ pub fn postgres_transition_refusal(config: &ServerConfig) -> Option<String> {
     )
 }
 
+/// The one-time transition LOG (DEC-17) for a config that still carries a
+/// `postgresql:` block in the accepted-but-loud leg (`use_embedded: false` —
+/// an external PG the app no longer talks to; the `true` leg is the hard
+/// refusal above, which fires first and stops the boot). `None` ⇒ no
+/// `postgresql:` block at all, the shipped post-flip shape.
+///
+/// The block is dead configuration: the store actually in use is the
+/// `database:` one, and the operator hears about the stale block at boot
+/// instead of discovering it later. The message is emitted by
+/// `database::initialize_database` (every entrypoint's single boot
+/// chokepoint), which is what makes it a ONE-TIME message — a boot logs it
+/// once, not per request.
+pub fn postgres_transition_warning(config: &ServerConfig) -> Option<String> {
+    let pg = config.postgresql.as_ref()?;
+    Some(format!(
+        "config still carries a `postgresql:` block (use_embedded: {}): this build runs on the \
+         embedded SQLite store and ignores it — the `database:` block configures the store \
+         (default <app-data-dir>/txresbench.db). Remove the `postgresql:` block to silence \
+         this message",
+        pg.use_embedded
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -343,13 +366,51 @@ mod database_target_tests {
         assert_eq!(resolved, "/var/lib/txr/app.db");
     }
 
-    /// The three actually-shipped configs parse through the app's loader WITH
-    /// their `database:` block, and (pre-flip) still carry the `postgresql:`
-    /// block the running boot needs — the shipped state THIS item leaves the
-    /// tree in: both driver shapes present, runtime still PG.
     #[test]
-    fn shipped_configs_parse_with_the_database_block() {
-        for rel in ["config/dev.example.yaml", "config/dev-live.yaml", "config/e2e.yaml"] {
+    fn external_postgresql_block_yields_the_transition_warning() {
+        let yaml = app_yaml("").replace("use_embedded: true", "use_embedded: false");
+        let cfg: ServerConfig = serde_norway::from_str(&yaml).expect("app config parses");
+        assert!(
+            postgres_transition_refusal(&cfg).is_none(),
+            "external PG is not refused — it is the accepted-with-warning leg"
+        );
+        let msg = postgres_transition_warning(&cfg).expect("the block is loud at boot");
+        assert!(
+            msg.contains("postgresql"),
+            "the message names the stale block: {msg}"
+        );
+        assert!(
+            msg.contains("SQLite"),
+            "the message names the engine in use: {msg}"
+        );
+        assert!(
+            msg.contains("database"),
+            "the message names the replacement block: {msg}"
+        );
+    }
+
+    #[test]
+    fn absent_postgresql_block_has_no_transition_warning() {
+        let sqlite_yaml = format!(
+            "database:\n  path: /data/app.db\nserver:\n  host: 127.0.0.1\n  port: 3100\n  api_prefix: /api\njwt:\n  secret: '{STRONG_SECRET}'\n  issuer: app\n  audience: app-api\n  access_token_expiry_hours: 24\n"
+        );
+        let cfg: ServerConfig =
+            serde_norway::from_str(&sqlite_yaml).expect("sqlite app config parses");
+        assert!(cfg.postgresql.is_none());
+        assert!(postgres_transition_warning(&cfg).is_none());
+    }
+
+    /// The three actually-shipped configs parse through the app's loader in
+    /// their post-flip shape: `database:` present (example values null, pool
+    /// defaults), NO `postgresql:` block — ITEM-12's flip dropped it
+    /// (PROV-sqlite-store-7, DEC-17).
+    #[test]
+    fn shipped_configs_parse_sqlite_shaped_after_the_flip() {
+        for rel in [
+            "config/dev.example.yaml",
+            "config/dev-live.yaml",
+            "config/e2e.yaml",
+        ] {
             let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(rel);
             let cfg = ServerConfig::load_from(&path)
                 .unwrap_or_else(|e| panic!("shipped config {rel} fails to parse: {e}"));
@@ -358,7 +419,10 @@ mod database_target_tests {
             });
             assert!(db.url.is_none() && db.path.is_none(), "{rel}: example values are null");
             assert_eq!(db.pool.max_connections, 10, "{rel}");
-            assert!(cfg.postgresql.is_some(), "{rel}: the PG block stays until the flip");
+            assert!(
+                cfg.postgresql.is_none(),
+                "{rel}: the postgresql block is dropped by the flip"
+            );
         }
     }
 }

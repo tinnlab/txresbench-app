@@ -47,8 +47,20 @@ serde_norway = "0.9"
 
 [dependencies]
 # --- SDK platform crates (path-deps into the pinned submodule) ---------------
-ziee-core = { path = "../../sdk/crates/ziee-core" }
-ziee-framework = { path = "../../sdk/crates/ziee-framework" }
+# Dual-driver SDK selection (sqlite-store DEC-1): the app builds the SDK's
+# SQLite variant — `sqlite-backend` ON makes `DbPool` = `SqlitePool`, so the
+# framework seam this app wires (`ModuleContext.db_pool`,
+# `build_api_router`'s pool extension, `Transaction<'_, Db>`) carries the
+# app's sqlite store, and `embedded_pg` is not this app's driver. The feature
+# is additive and compile-time: ziee (app #1) keeps the default (PG) variant,
+# and this app's own modules are single-driver (SQLite only, no cfg branch).
+# Transition note: the schema-bound SDK crates (ziee-auth / ziee-file /
+# ziee-notification) do not declare `sqlite-backend` yet and their
+# ziee-framework edges keep default features, so feature UNIFICATION keeps
+# `embedded-pg` (and the postgresql_embedded downloader) resolved until the
+# query-port items' manifest work (DRIFT-1 ITEM-12 #3, ITEM-14/15/16).
+ziee-core = { path = "../../sdk/crates/ziee-core", features = ["sqlite-backend"] }
+ziee-framework = { path = "../../sdk/crates/ziee-framework", features = ["sqlite-backend"] }
 # AI-controllable-actions MCP surface: the DB-free OpenAPI→capability catalog +
 # deployment policy + static tool descriptors. `modules/mcp` is the thin
 # app-side glue (JSON-RPC handler, agent channel, pairing) built on top.

@@ -94,9 +94,19 @@ pub async fn initialize_database(
     config: &ServerConfig,
 ) -> Result<Arc<SqlitePool>, Box<dyn std::error::Error + Send + Sync>> {
     // The DEC-17 transition contract, loud at boot: a config that still selects
-    // the legacy embedded-Postgres leg is refused (message pinned by TEST-13).
+    // the legacy embedded-Postgres leg is refused (message pinned by TEST-13)...
     if let Some(msg) = crate::config::postgres_transition_refusal(config) {
         return Err(msg.into());
+    }
+    // ...and a config that merely CARRIES a `postgresql:` block (external PG,
+    // `use_embedded: false` — the accepted-with-warning leg) is logged ONCE at
+    // boot: the block is dead, the `database:` store is the one in use, and the
+    // operator hears about the stale block from the boot log, not from a
+    // surprise when the store differs from what they configured (DEC-17). This
+    // is the only chokepoint every entrypoint funnels through, so the message is
+    // per-boot, never per-request.
+    if let Some(msg) = crate::config::postgres_transition_warning(config) {
+        tracing::warn!(target: "cytoanalyst::database", "{msg}");
     }
     let target =
         crate::config::resolve_database_target(config, &crate::modules::rootfs::data_root());
