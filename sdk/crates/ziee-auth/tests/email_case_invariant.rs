@@ -35,7 +35,8 @@ use axum::Extension;
 use axum::Json;
 use axum::http::{HeaderMap, StatusCode};
 use common::{SEEDED_PROVIDER_ID, drop_db, fresh_db};
-use sqlx::{Executor, PgPool, Row};
+use sqlx::{Executor, Row};
+use ziee_core::DbPool;
 use uuid::Uuid;
 use ziee_auth::auth::http::handlers::register;
 use ziee_auth::auth::jwt::{JwtService, JwtSettings};
@@ -83,7 +84,7 @@ fn jwt() -> Arc<JwtService> {
     )
 }
 
-fn ctx(pool: &PgPool) -> AuthContext {
+fn ctx(pool: &DbPool) -> AuthContext {
     AuthContext::new(
         Arc::new(pool.clone()),
         None,
@@ -97,7 +98,7 @@ const PASSWORD: &str = "S3cret-password!42";
 /// Drive the real `POST /api/auth/register` handler and return the status the
 /// client would see. `ApiResult`'s error arm carries the status the handler
 /// chose, which is what `IntoResponse` turns into the wire status.
-async fn post_register(pool: &PgPool, username: &str, email: &str) -> (StatusCode, Option<String>) {
+async fn post_register(pool: &DbPool, username: &str, email: &str) -> (StatusCode, Option<String>) {
     let req = RegisterRequest {
         username: username.to_string(),
         email: email.to_string(),
@@ -113,7 +114,7 @@ async fn post_register(pool: &PgPool, username: &str, email: &str) -> (StatusCod
 /// Every stored address, sorted in RUST (byte order) — the database's own
 /// `ORDER BY` is collation-dependent, and this file is about case, so the
 /// ordering must not be.
-async fn emails_in(pool: &PgPool) -> Vec<String> {
+async fn emails_in(pool: &DbPool) -> Vec<String> {
     let mut v: Vec<String> = sqlx::query("SELECT email FROM users")
         .fetch_all(pool)
         .await
@@ -201,10 +202,20 @@ async fn a_writer_that_forgets_to_lowercase_is_refused_by_the_database() {
         sqlx::Error::Database(e) => e,
         other => panic!("expected a database error, got {other:?}"),
     };
+    // Postgres reports the CHECK violation code 23514; the SQLite leg refuses
+    // via the invariant's guard triggers (`RAISE(ABORT)` → SQLITE_CONSTRAINT),
+    // whose extended code is 1811. The load-bearing assertion on both is that
+    // the failure names the invariant (never a silent lowercase-first write).
+    #[cfg(not(feature = "sqlite-backend"))]
     assert_eq!(
         db_err.code().as_deref(),
         Some("23514"),
         "must be a CHECK violation (a loud, unmissable failure), got: {db_err}"
+    );
+    #[cfg(feature = "sqlite-backend")]
+    assert!(
+        db_err.to_string().contains("users_email_is_lowercase"),
+        "must be the invariant guard's refusal (a loud, unmissable failure), got: {db_err}"
     );
     assert!(
         emails_in(&pool).await.is_empty(),
@@ -220,15 +231,46 @@ async fn a_writer_that_forgets_to_lowercase_is_refused_by_the_database() {
 async fn the_plain_unique_constraint_still_enforces_uniqueness_on_normalised_data() {
     let (pool, db) = fresh_db().await;
 
+    // The sqlite leg must bind an explicit row id (no SQL-side UUID generator,
+    // DEC-12) — the PG leg's `gen_random_uuid()` default does not exist there.
+    #[cfg(not(feature = "sqlite-backend"))]
     pool.execute("INSERT INTO users (username, email) VALUES ('a', 'bob@corp.com')")
         .await
         .unwrap();
+    #[cfg(feature = "sqlite-backend")]
+    sqlx::query("INSERT INTO users (id, username, email) VALUES ($1, 'a', 'bob@corp.com')")
+        .bind(Uuid::new_v4())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    #[cfg(not(feature = "sqlite-backend"))]
     let err = sqlx::query("INSERT INTO users (username, email) VALUES ('b', 'bob@corp.com')")
         .execute(&pool)
         .await
         .expect_err("duplicate normalised address");
+    #[cfg(feature = "sqlite-backend")]
+    let err = sqlx::query(
+        "INSERT INTO users (id, username, email) VALUES ($1, 'b', 'bob@corp.com')",
+    )
+    .bind(Uuid::new_v4())
+    .execute(&pool)
+    .await
+    .expect_err("duplicate normalised address");
     match &err {
-        sqlx::Error::Database(e) => assert_eq!(e.code().as_deref(), Some("23505")),
+        sqlx::Error::Database(e) => {
+            #[cfg(not(feature = "sqlite-backend"))]
+            assert_eq!(
+                e.code().as_deref(),
+                Some("23505"),
+                "must be the unique violation, got: {e}"
+            );
+            #[cfg(feature = "sqlite-backend")]
+            assert!(
+                e.to_string().to_lowercase().contains("unique constraint failed"),
+                "sqlite reports the UNIQUE (email) violation (users_email_key), got: {e}"
+            );
+        }
         other => panic!("expected a database error, got {other:?}"),
     }
 
@@ -245,6 +287,13 @@ async fn the_plain_unique_constraint_still_enforces_uniqueness_on_normalised_dat
 async fn no_unique_index_on_users_is_a_functional_index_over_a_reserved_name() {
     let (pool, db) = fresh_db().await;
 
+    // The introspection is driver-specific (pg_index vs sqlite_schema); the
+    // ASSERTED PROPERTY is identical on both: the only unique indexes on
+    // `users` are the four base-schema ones, NONE of which is an
+    // expression/functional index, and the case-invariant enforcement is a
+    // CHECK (Postgres) / guard triggers + the `lower(email)` unique index
+    // (SQLite) — never a reserved-name functional UNIQUE index.
+    #[cfg(not(feature = "sqlite-backend"))]
     let rows = sqlx::query(
         r#"
         SELECT i.relname AS name,
@@ -261,7 +310,22 @@ async fn no_unique_index_on_users_is_a_functional_index_over_a_reserved_name() {
     .await
     .unwrap();
 
+    #[cfg(feature = "sqlite-backend")]
+    let rows = sqlx::query(
+        r#"
+        SELECT name,
+               COALESCE(sql, '') AS def
+        FROM sqlite_master
+        WHERE type = 'index' AND tbl_name = 'users'
+        ORDER BY name
+        "#,
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+
     let names: Vec<String> = rows.iter().map(|r| r.get::<String, _>("name")).collect();
+    #[cfg(not(feature = "sqlite-backend"))]
     assert_eq!(
         names,
         vec![
@@ -275,6 +339,35 @@ async fn no_unique_index_on_users_is_a_functional_index_over_a_reserved_name() {
         "the ONLY unique indexes on users are the four the base schema always had; \
          a fifth means a reserved name was reintroduced and #283/#284 with it"
     );
+    #[cfg(feature = "sqlite-backend")]
+    assert_eq!(
+        names,
+        vec![
+            // The sqlite port's complete index set on `users`: the six
+            // base-schema accelerators (including `idx_users_lower_email` —
+            // the PG chain's NON-unique `lower(email)` btree, ported as-is),
+            // the three auto-indexes backing the UNIQUE constraints
+            // (email / PK / username — the ported `users_email_key`,
+            // `users_pkey`, `users_username_key`), the single-root-admin
+            // partial index, and the ONE indexed case-invariant. Anything
+            // else is a reserved name re-introduced and #283/#284 with it.
+            "idx_users_created_at".to_string(),
+            "idx_users_email".to_string(),
+            "idx_users_is_active".to_string(),
+            "idx_users_last_login_at".to_string(),
+            "idx_users_lower_email".to_string(),
+            "idx_users_username".to_string(),
+            "sqlite_autoindex_users_1".to_string(),
+            "sqlite_autoindex_users_2".to_string(),
+            "sqlite_autoindex_users_3".to_string(),
+            "unique_root_admin".to_string(),
+            "users_email_lower_uniq".to_string(),
+        ],
+        "the sqlite chain's unique indexes are the three constraint auto-indexes + \
+         the single-root-admin partial + the ONE recorded functional index; \
+         anything else is a reserved name re-introduced"
+    );
+    #[cfg(not(feature = "sqlite-backend"))]
     for r in &rows {
         assert!(
             !r.get::<bool, _>("is_expression"),
@@ -289,23 +382,70 @@ async fn no_unique_index_on_users_is_a_functional_index_over_a_reserved_name() {
             r.get::<String, _>("def")
         );
     }
+    #[cfg(feature = "sqlite-backend")]
+    for r in &rows {
+        let name = r.get::<String, _>("name");
+        let def = r.get::<String, _>("def");
+        // The sqlite port (migrations-sqlite/202609090010) enforces the
+        // case-invariant with ONE functional unique index — `lower(email)`,
+        // named `users_email_lower_uniq` and DOCUMENTED as the accepted port
+        // difference (SQLite cannot attach a table CHECK). It is the ONLY
+        // such index; anything else is the reserved-name regression.
+        if name == "users_email_lower_uniq" {
+            assert!(
+                def.to_lowercase().contains("lower("),
+                "the single sanctioned functional index must fold case: {def}"
+            );
+        } else if name == "idx_users_lower_email" {
+            // The PG chain's NON-unique `lower(email)` btree, ported as-is:
+            // an accelerator only — it makes nothing unique, so it cannot
+            // re-open #251 (that is the `users_email_lower_uniq` job).
+            assert!(
+                def.to_lowercase().contains("lower("),
+                "the ported accelerator must still fold case: {def}"
+            );
+        } else {
+            assert!(
+                !def.to_lowercase().contains("lower("),
+                "no OTHER index on users may fold case — the invariant lives in the \
+                 recorded `users_email_lower_uniq` + the guard triggers: {def}"
+            );
+        }
+    }
 
     // And the invariant that makes the plain UNIQUE sufficient is present, on
     // the users table, as a CHECK — a name that cannot collide with another
     // table's object the way an index name can.
-    let check: Option<String> = sqlx::query_scalar(
-        "SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c \
-         JOIN pg_class t ON t.oid = c.conrelid \
-         WHERE t.relname = 'users' AND c.conname = 'users_email_is_lowercase'",
-    )
-    .fetch_optional(&pool)
-    .await
-    .unwrap();
-    assert_eq!(
-        check.as_deref(),
-        Some("CHECK (((email)::text = lower((email)::text)))"),
-        "the case-insensitive uniqueness must come from this CHECK, not an index"
-    );
+    #[cfg(not(feature = "sqlite-backend"))]
+    {
+        let check: Option<String> = sqlx::query_scalar(
+            "SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c \
+             JOIN pg_class t ON t.oid = c.conrelid \
+             WHERE t.relname = 'users' AND c.conname = 'users_email_is_lowercase'",
+        )
+        .fetch_optional(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            check.as_deref(),
+            Some("CHECK (((email)::text = lower((email)::text)))"),
+            "the case-insensitive uniqueness must come from this CHECK, not an index"
+        );
+    }
+    #[cfg(feature = "sqlite-backend")]
+    {
+        // The sqlite chain enforces the case-invariant with the guard
+        // triggers + the `lower(email)` unique index (see
+        // migrations-sqlite/202609090010); the property asserted is the same
+        // "comes from the invariant object, not a reserved-name index".
+        let guards: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' \
+                                AND name LIKE 'users_email_is_lowercase%'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(guards, 2, "the two guard triggers must exist");
+    }
 
     drop_db(&db).await;
 }
@@ -489,11 +629,13 @@ async fn every_write_path_refuses_a_non_ascii_address() {
 }
 
 /// The claim the ASCII gate rests on, stated and checked rather than assumed:
-/// over every address the gate admits, the Rust fold and the Postgres fold
-/// produce the same bytes. If this ever goes red, the CHECK starts rejecting
-/// values the writers produce.
+/// over every address the gate admits, the Rust fold and the DATABASE's fold
+/// produce the same bytes (Postgres `lower` / SQLite's ASCII-only `lower` —
+/// the same ASCII limitation, DEC-11). If this ever goes red, the invariant
+/// (CHECK on Postgres, guard triggers on SQLite) starts rejecting values the
+/// writers produce.
 #[tokio::test]
-async fn rust_and_postgres_folds_agree_over_every_admissible_character() {
+async fn rust_and_database_folds_agree_over_every_admissible_character() {
     let (pool, db) = fresh_db().await;
 
     // Every printable-ASCII code point the gate admits, as a one-character
@@ -501,15 +643,15 @@ async fn rust_and_postgres_folds_agree_over_every_admissible_character() {
     let probes: Vec<String> = (0x21u8..=0x7eu8).map(|b| (b as char).to_string()).collect();
     for probe in &probes {
         let rust = probe.to_lowercase();
-        let pg: String = sqlx::query_scalar("SELECT lower($1::text)")
+        let db_fold: String = sqlx::query_scalar("SELECT lower($1)")
             .bind(probe)
             .fetch_one(&pool)
             .await
             .unwrap();
         assert_eq!(
-            rust, pg,
-            "Rust and Postgres must fold {probe:?} identically — the ASCII gate is \
-             what makes `CHECK (email = lower(email))` satisfiable by a Rust-lowered value"
+            rust, db_fold,
+            "Rust and the database must fold {probe:?} identically — the ASCII gate is \
+             what makes the case-invariant satisfiable by a Rust-lowered value"
         );
     }
 
@@ -521,20 +663,46 @@ async fn rust_and_postgres_folds_agree_over_every_admissible_character() {
 // ───────────────────────────────────────────────────────────────────────────
 
 /// The migration's own text, so these tests exercise the shipped SQL rather
-/// than a paraphrase of it.
+/// than a paraphrase of it (each driver's own file — the sqlite chain is the
+/// DEC-8/DEC-9 port of the same version-numbered migration).
+#[cfg(not(feature = "sqlite-backend"))]
 const MIGRATION: &str =
     include_str!("../migrations/202609090010_users_email_lowercase_invariant.sql");
+#[cfg(feature = "sqlite-backend")]
+const MIGRATION: &str =
+    include_str!("../migrations-sqlite/202609090010_users_email_lowercase_invariant.sql");
 
 /// Put the database back into its pre-migration shape so the migration can be
-/// re-run against data planted afterwards. Dropping the CHECK is the whole of
-/// it — the migration creates nothing else.
-async fn undo_the_invariant(pool: &PgPool) {
+/// re-run against data planted afterwards. Postgres: dropping the CHECK is the
+/// whole of it. SQLite: dropping the invariant's unique index + the two guard
+/// triggers (the port's CHECK-equivalents — see migrations-sqlite).
+#[cfg(not(feature = "sqlite-backend"))]
+async fn undo_the_invariant(pool: &DbPool) {
     pool.execute("ALTER TABLE public.users DROP CONSTRAINT users_email_is_lowercase")
         .await
         .expect("the migration under test must have added this constraint");
 }
 
-async fn run_migration(pool: &PgPool) -> Result<(), sqlx::Error> {
+#[cfg(feature = "sqlite-backend")]
+async fn undo_the_invariant(pool: &DbPool) {
+    pool.execute("DROP TRIGGER users_email_is_lowercase_insert_guard")
+        .await
+        .expect("the migration under test must have added this trigger");
+    pool.execute("DROP TRIGGER users_email_is_lowercase_update_guard")
+        .await
+        .expect("the migration under test must have added this trigger");
+    pool.execute("DROP INDEX users_email_lower_uniq")
+        .await
+        .expect("the migration under test must have added this index");
+}
+
+#[cfg(not(feature = "sqlite-backend"))]
+async fn run_migration(pool: &DbPool) -> Result<(), sqlx::Error> {
+    sqlx::raw_sql(MIGRATION).execute(pool).await.map(|_| ())
+}
+
+#[cfg(feature = "sqlite-backend")]
+async fn run_migration(pool: &DbPool) -> Result<(), sqlx::Error> {
     sqlx::raw_sql(MIGRATION).execute(pool).await.map(|_| ())
 }
 
@@ -547,10 +715,22 @@ async fn the_migration_refuses_to_adjudicate_two_rows_that_differ_only_by_case()
     let (pool, db) = fresh_db().await;
     undo_the_invariant(&pool).await;
 
+    #[cfg(not(feature = "sqlite-backend"))]
     pool.execute(
         "INSERT INTO users (username, email) VALUES \
          ('bob', 'bob@corp.com'), ('mallory', 'BOB@CORP.COM'), ('zoe', 'Zoe@Corp.com')",
     )
+    .await
+    .unwrap();
+    #[cfg(feature = "sqlite-backend")]
+    sqlx::query(
+        "INSERT INTO users (id, username, email) VALUES \
+         ($1, 'bob', 'bob@corp.com'), ($2, 'mallory', 'BOB@CORP.COM'), ($3, 'zoe', 'Zoe@Corp.com')",
+    )
+    .bind(Uuid::new_v4())
+    .bind(Uuid::new_v4())
+    .bind(Uuid::new_v4())
+    .execute(&pool)
     .await
     .unwrap();
 
@@ -559,12 +739,23 @@ async fn the_migration_refuses_to_adjudicate_two_rows_that_differ_only_by_case()
         .expect_err("the migration must refuse to lowercase a colliding pair");
     let msg = err.to_string();
 
+    // The postgres leg aborts in a DO block naming the colliding addresses;
+    // the sqlite leg's refuse is the `lower(email)` unique-index creation
+    // failing (a rollback of the whole migration, data untouched) — the
+    // message names the index constraint, not the addresses. Both are a hard
+    // refuse; the DATA assertions below are the load-bearing half on sqlite.
+    #[cfg(not(feature = "sqlite-backend"))]
     for expected in ["bob@corp.com", "BOB@CORP.COM", "#251"] {
         assert!(
             msg.contains(expected),
             "the abort must name {expected:?} so an operator can act on it; got:\n{msg}"
         );
     }
+    #[cfg(feature = "sqlite-backend")]
+    assert!(
+        msg.to_lowercase().contains("unique") || msg.to_lowercase().contains("constraint"),
+        "the sqlite migration must fail loudly on the case-collision; got:\n{msg}"
+    );
 
     // Nothing was merged, deleted, or half-lowercased: all three rows are
     // exactly as they were, and the invariant was NOT installed.
@@ -578,13 +769,26 @@ async fn the_migration_refuses_to_adjudicate_two_rows_that_differ_only_by_case()
         "a refused migration must leave every row untouched — including the \
          non-colliding one it would otherwise have rewritten"
     );
-    let constrained: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_email_is_lowercase')",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert!(!constrained, "a refused migration must not install the invariant");
+    #[cfg(not(feature = "sqlite-backend"))]
+    {
+        let constrained: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_email_is_lowercase')",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(!constrained, "a refused migration must not install the invariant");
+    }
+    #[cfg(feature = "sqlite-backend")]
+    {
+        let guards: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' \
+                                AND name LIKE 'users_email_is_lowercase%'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(guards, 0, "a refused migration must not install the invariant");
+    }
 
     drop_db(&db).await;
 }
@@ -596,10 +800,22 @@ async fn the_migration_lowercases_existing_rows_when_there_is_no_collision() {
     let (pool, db) = fresh_db().await;
     undo_the_invariant(&pool).await;
 
+    #[cfg(not(feature = "sqlite-backend"))]
     pool.execute(
         "INSERT INTO users (username, email) VALUES \
          ('erin', 'Erin@Corp.com'), ('frank', 'FRANK@CORP.COM'), ('gina', 'gina@corp.com')",
     )
+    .await
+    .unwrap();
+    #[cfg(feature = "sqlite-backend")]
+    sqlx::query(
+        "INSERT INTO users (id, username, email) VALUES \
+         ($1, 'erin', 'Erin@Corp.com'), ($2, 'frank', 'FRANK@CORP.COM'), ($3, 'gina', 'gina@corp.com')",
+    )
+    .bind(Uuid::new_v4())
+    .bind(Uuid::new_v4())
+    .bind(Uuid::new_v4())
+    .execute(&pool)
     .await
     .unwrap();
 
@@ -632,38 +848,77 @@ async fn the_migration_touches_nothing_outside_the_users_table() {
     let (pool, db) = fresh_db().await;
     undo_the_invariant(&pool).await;
 
-    pool.execute(
-        "CREATE TABLE public.mailboxes (addr text); \
-         CREATE UNIQUE INDEX users_email_is_lowercase ON public.mailboxes (lower(addr)); \
-         CREATE UNIQUE INDEX users_email_lower_unique_idx ON public.mailboxes (lower(addr))",
-    )
-    .await
-    .unwrap();
-
-    run_migration(&pool).await.expect("the migration applies");
-
-    let survivors: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM pg_indexes WHERE tablename = 'mailboxes' \
-         AND indexname IN ('users_email_is_lowercase', 'users_email_lower_unique_idx')",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-    assert_eq!(
-        survivors, 2,
-        "an unrelated table's indexes must survive; the earlier shape's \
-         schema-qualified-but-not-table-qualified DROP INDEX destroyed them (#284)"
-    );
-
-    // The foreign table still refuses a case-variant duplicate, i.e. it still
-    // has the uniqueness it had before.
-    pool.execute("INSERT INTO public.mailboxes VALUES ('bob@corp.com')")
+    // The shape assertion is the same on both engines: an unrelated table
+    // carrying indexes named after ours survives untouched.
+    #[cfg(not(feature = "sqlite-backend"))]
+    {
+        pool.execute(
+            "CREATE TABLE public.mailboxes (addr text); \
+             CREATE UNIQUE INDEX users_email_is_lowercase ON public.mailboxes (lower(addr)); \
+             CREATE UNIQUE INDEX users_email_lower_unique_idx ON public.mailboxes (lower(addr))",
+        )
         .await
         .unwrap();
-    sqlx::query("INSERT INTO public.mailboxes VALUES ('BOB@CORP.COM')")
-        .execute(&pool)
+
+        run_migration(&pool).await.expect("the migration applies");
+
+        let survivors: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_indexes WHERE tablename = 'mailboxes' \
+             AND indexname IN ('users_email_is_lowercase', 'users_email_lower_unique_idx')",
+        )
+        .fetch_one(&pool)
         .await
-        .expect_err("mailboxes must still be unique on lower(addr)");
+        .unwrap();
+        assert_eq!(
+            survivors, 2,
+            "an unrelated table's indexes must survive; the earlier shape's \
+             schema-qualified-but-not-table-qualified DROP INDEX destroyed them (#284)"
+        );
+
+        // The foreign table still refuses a case-variant duplicate, i.e. it still
+        // has the uniqueness it had before.
+        pool.execute("INSERT INTO public.mailboxes VALUES ('bob@corp.com')")
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO public.mailboxes VALUES ('BOB@CORP.COM')")
+            .execute(&pool)
+            .await
+            .expect_err("mailboxes must still be unique on lower(addr)");
+    }
+    #[cfg(feature = "sqlite-backend")]
+    {
+        pool.execute(
+            "CREATE TABLE mailboxes (addr TEXT); \
+             CREATE UNIQUE INDEX users_email_is_lowercase ON mailboxes (lower(addr)); \
+             CREATE UNIQUE INDEX users_email_lower_unique_idx ON mailboxes (lower(addr))",
+        )
+        .await
+        .unwrap();
+
+        run_migration(&pool).await.expect("the migration applies");
+
+        let survivors: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM sqlite_master WHERE type = 'index' \
+             AND tbl_name = 'mailboxes' \
+             AND name IN ('users_email_is_lowercase', 'users_email_lower_unique_idx')",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            survivors, 2,
+            "an unrelated table's indexes must survive (the sqlite chain drops \
+             nothing by index name either)"
+        );
+
+        pool.execute("INSERT INTO mailboxes VALUES ('bob@corp.com')")
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO mailboxes VALUES ('BOB@CORP.COM')")
+            .execute(&pool)
+            .await
+            .expect_err("mailboxes must still be unique on lower(addr)");
+    }
 
     drop_db(&db).await;
 }

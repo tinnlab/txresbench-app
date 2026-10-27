@@ -131,7 +131,7 @@ impl std::error::Error for AuthError {}
 /// Provider factory - creates provider instances from database configuration
 pub fn create_provider(
     config: &AuthProvider,
-    pool: sqlx::PgPool,
+    pool: ziee_core::DbPool,
 ) -> Result<Box<dyn AuthProviderTrait>, AuthError> {
     if !config.enabled {
         return Err(AuthError::ProviderDisabled(format!(

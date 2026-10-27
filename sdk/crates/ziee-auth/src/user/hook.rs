@@ -22,7 +22,7 @@
 //!
 //! ── the contract ────────────────────────────────────────────────────────────
 //!
-//! The hook receives `&User` + the live `&mut PgConnection` of the creation
+//! The hook receives `&User` + the live `&mut DbConnection` of the creation
 //! transaction, so its own writes are atomic with the user row. Returning `Err`
 //! **rolls the whole creation back** — the user is NOT created. A user whose
 //! co-transaction invariant (e.g. "has a personal account") cannot be satisfied
@@ -39,7 +39,7 @@
 
 use std::sync::{Arc, OnceLock};
 
-use sqlx::PgConnection;
+use ziee_core::DbConnection;
 
 use ziee_core::AppError;
 
@@ -59,7 +59,7 @@ pub trait UserCreatedHook: Send + Sync {
     /// Returning `Err` aborts the creation: the caller rolls the transaction
     /// back and the user is NOT created. Return `Ok(())` to let the creation
     /// commit.
-    async fn on_user_created(&self, user: &User, tx: &mut PgConnection) -> Result<(), AppError>;
+    async fn on_user_created(&self, user: &User, tx: &mut DbConnection) -> Result<(), AppError>;
 }
 
 /// The default [`UserCreatedHook`] — does nothing, so a process that installs no
@@ -71,7 +71,7 @@ pub struct NoopUserCreatedHook;
 
 #[async_trait::async_trait]
 impl UserCreatedHook for NoopUserCreatedHook {
-    async fn on_user_created(&self, _user: &User, _tx: &mut PgConnection) -> Result<(), AppError> {
+    async fn on_user_created(&self, _user: &User, _tx: &mut DbConnection) -> Result<(), AppError> {
         Ok(())
     }
 }
@@ -108,7 +108,7 @@ pub fn user_created_hook() -> Option<Arc<dyn UserCreatedHook>> {
 /// row is inserted and before commit. No hook installed → does nothing (the
 /// backward-compatible default). An `Err` propagates so the caller's `?` rolls
 /// the transaction back and the user is not created.
-pub(crate) async fn fire_user_created(user: &User, tx: &mut PgConnection) -> Result<(), AppError> {
+pub(crate) async fn fire_user_created(user: &User, tx: &mut DbConnection) -> Result<(), AppError> {
     if let Some(hook) = HOOK.get() {
         hook.on_user_created(user, tx).await?;
     }
@@ -156,12 +156,12 @@ mod tests {
     /// `OnceLock`.)
     #[tokio::test]
     async fn noop_hook_is_ok_and_inert() {
-        // A lazy pool never dials; we only need a `PgConnection` type to satisfy
+        // A lazy pool never dials; we only need a connection type to satisfy
         // the signature, and Noop never touches it.
         let noop = NoopUserCreatedHook;
         // Prove it via the trait object exactly as the firing path holds it.
         let hook: Arc<dyn UserCreatedHook> = Arc::new(noop);
-        // We cannot cheaply materialise a live `PgConnection` here, so assert the
+        // We cannot cheaply materialise a live connection here, so assert the
         // shape compiles + the default is the trivial Ok by calling through a
         // conn only in the integration test. Here we just prove the value is
         // constructible + object-safe.

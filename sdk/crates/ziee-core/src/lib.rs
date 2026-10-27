@@ -19,5 +19,5 @@ pub use config::{
     ExternalPostgreSqlConfig, HttpServerConfig, JwtConfig, LoggingConfig, LoggingConfigPostgres,
     PoolConfig, PostgreSqlConfig, RateLimitConfig, ServerConfig,
 };
-pub use db_pool::{Db, DbPool};
+pub use db_pool::{Db, DbConnection, DbPool};
 pub use error::{ApiError, ApiResult, AppError};

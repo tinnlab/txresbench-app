@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 use ldap3::{Ldap, LdapConnAsync, Scope, SearchEntry};
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use ziee_core::DbPool;
 
 use super::{AuthError, AuthProvider, AuthProviderTrait, AuthResult, UserAttributes};
 
@@ -172,7 +172,7 @@ pub struct LdapAuthProvider {
 }
 
 impl LdapAuthProvider {
-    pub fn new(provider: &AuthProvider, _pool: PgPool) -> Result<Self, AuthError> {
+    pub fn new(provider: &AuthProvider, _pool: DbPool) -> Result<Self, AuthError> {
         let config: LdapConfig = serde_json::from_value(provider.config.clone()).map_err(|e| {
             AuthError::ConfigurationError(format!("Invalid LDAP configuration: {}", e))
         })?;

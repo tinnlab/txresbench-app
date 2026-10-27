@@ -23,17 +23,28 @@
 //!     byte-for-byte.
 //!
 //! The migrations applied here are EXACTLY the migrations this crate ships (the
-//! structural auth-table chain). The app composes those ∪ its remaining
-//! migrations into a merged set for its own (full-schema) build DB; here we
-//! verify against the auth subset alone. The migration DIRECTORY is the
-//! caller's property: the sqlite leg applies what it is given — it is a scheme
-//! dispatch, not a PG→SQLite dialect translator.
+//! structural auth-table chain) — but which of the two chains is the driver's
+//! property: the `DATABASE_URL` SCHEME selects both the provisioner leg AND
+//! this directory (`migrations` for postgres, `migrations-sqlite` for sqlite),
+//! through the same `is_sqlite_url` rule `BuildDbLeg` uses, so the migration
+//! directory can never disagree with the dialect the leg applies. The library
+//! side (`AUTH_MIGRATOR` in `lib.rs`) selects the same pair via the
+//! `sqlite-backend` cargo feature; a build where the two disagree (a
+//! `sqlite:` build URL with the PG query set, or vice versa) fails LOUDLY at
+//! macro verification — never silently verifies the wrong dialect.
 
 use std::path::PathBuf;
 
 fn main() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default();
-    let migrations = PathBuf::from(&manifest_dir).join("migrations");
+    let sqlite_leg = std::env::var("DATABASE_URL")
+        .map(|u| ziee_build_support::worktree_db::is_sqlite_url(&u))
+        .unwrap_or(false);
+    let migrations = if sqlite_leg {
+        PathBuf::from(&manifest_dir).join("migrations-sqlite")
+    } else {
+        PathBuf::from(&manifest_dir).join("migrations")
+    };
 
     // One-call provision: pick the leg from the DATABASE_URL scheme, derive the
     // per-worktree build DB / file when the sentinel says "safe", wipe + apply

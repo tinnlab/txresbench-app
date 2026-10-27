@@ -1,10 +1,12 @@
 // User repository infrastructure
 
-use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::{Group, User};
-use ziee_core::AppError;
+use ziee_core::{AppError, DbPool};
+
+#[cfg(feature = "sqlite-backend")]
+use crate::sqlite_types::JsonValue;
 
 // =====================================================
 // User Repository
@@ -38,11 +40,11 @@ struct UserWithTokenVersion {
 
 #[derive(Clone, Debug)]
 pub struct UserRepository {
-    pool: PgPool,
+    pool: DbPool,
 }
 
 impl UserRepository {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: DbPool) -> Self {
         Self { pool }
     }
 
@@ -58,6 +60,7 @@ impl UserRepository {
     /// `AutoLoginResponse`, so a session-revocation value living there would be
     /// one missing `#[serde(skip_serializing)]` away from a public response.
     /// Returning it alongside keeps it off every serialized surface.
+    #[cfg(not(feature = "sqlite-backend"))]
     pub async fn get_by_id_with_token_version(
         &self,
         id: Uuid,
@@ -101,9 +104,59 @@ impl UserRepository {
         }))
     }
 
+    #[cfg(feature = "sqlite-backend")]
+    pub async fn get_by_id_with_token_version(
+        &self,
+        id: Uuid,
+    ) -> Result<Option<(User, i32)>, AppError> {
+        use crate::sqlite_types::JsonValue;
+
+        let row = sqlx::query_as!(
+            UserWithTokenVersion,
+            r#"
+            SELECT id as "id: _", username, email, email_verified as "email_verified: _",
+                   password_hash, display_name, avatar_url,
+                   is_active as "is_active: _", is_admin as "is_admin: _",
+                   permissions as "permissions!: JsonValue<Vec<String>>",
+                   created_at as "created_at: _", updated_at as "updated_at: _",
+                   last_login_at as "last_login_at: _", password_changed_at as "password_changed_at: _",
+                   token_version as "token_version: _"
+            FROM users
+            WHERE id = $1
+            "#,
+            id
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(AppError::database_error)?;
+
+        Ok(row.map(|r| {
+            (
+                User {
+                    id: r.id,
+                    username: r.username,
+                    email: r.email,
+                    email_verified: r.email_verified,
+                    password_hash: r.password_hash,
+                    display_name: r.display_name,
+                    avatar_url: r.avatar_url,
+                    is_active: r.is_active,
+                    is_admin: r.is_admin,
+                    permissions: r.permissions,
+                    created_at: r.created_at,
+                    updated_at: r.updated_at,
+                    last_login_at: r.last_login_at,
+                    password_changed_at: r.password_changed_at,
+                },
+                r.token_version,
+            )
+        }))
+    }
+
     /// Read just the access-token revocation epoch. Used by the bare `JwtAuth`
     /// extractor, which (unlike the permission extractor) never loads the
     /// user, so there is nothing to fold the read into.
+    #[cfg(not(feature = "sqlite-backend"))]
     pub async fn get_token_version(&self, id: Uuid) -> Result<Option<i32>, AppError> {
         sqlx::query_scalar!(r#"SELECT token_version FROM users WHERE id = $1"#, id)
             .fetch_optional(&self.pool)
@@ -111,7 +164,19 @@ impl UserRepository {
             .map_err(AppError::database_error)
     }
 
+    #[cfg(feature = "sqlite-backend")]
+    pub async fn get_token_version(&self, id: Uuid) -> Result<Option<i32>, AppError> {
+        sqlx::query_scalar!(
+            r#"SELECT token_version as "token_version: i32" FROM users WHERE id = $1"#,
+            id
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(AppError::database_error)
+    }
+
     /// Get user by ID
+    #[cfg(not(feature = "sqlite-backend"))]
     pub async fn get_by_id(&self, id: Uuid) -> Result<Option<User>, AppError> {
         sqlx::query_as!(
             User,
@@ -129,7 +194,31 @@ impl UserRepository {
         .map_err(AppError::database_error)
     }
 
+    #[cfg(feature = "sqlite-backend")]
+    pub async fn get_by_id(&self, id: Uuid) -> Result<Option<User>, AppError> {
+        use crate::sqlite_types::JsonValue;
+
+        sqlx::query_as!(
+            User,
+            r#"
+            SELECT id as "id: _", username, email, email_verified as "email_verified: _",
+                   password_hash, display_name, avatar_url,
+                   is_active as "is_active: _", is_admin as "is_admin: _",
+                   permissions as "permissions!: JsonValue<Vec<String>>",
+                   created_at as "created_at: _", updated_at as "updated_at: _",
+                   last_login_at as "last_login_at: _", password_changed_at as "password_changed_at: _"
+            FROM users
+            WHERE id = $1
+            "#,
+            id
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(AppError::database_error)
+    }
+
     /// Get user by username
+    #[cfg(not(feature = "sqlite-backend"))]
     pub async fn get_by_username(&self, username: &str) -> Result<Option<User>, AppError> {
         sqlx::query_as!(
             User,
@@ -147,7 +236,31 @@ impl UserRepository {
         .map_err(AppError::database_error)
     }
 
+    #[cfg(feature = "sqlite-backend")]
+    pub async fn get_by_username(&self, username: &str) -> Result<Option<User>, AppError> {
+        use crate::sqlite_types::JsonValue;
+
+        sqlx::query_as!(
+            User,
+            r#"
+            SELECT id as "id: _", username, email, email_verified as "email_verified: _",
+                   password_hash, display_name, avatar_url,
+                   is_active as "is_active: _", is_admin as "is_admin: _",
+                   permissions as "permissions!: JsonValue<Vec<String>>",
+                   created_at as "created_at: _", updated_at as "updated_at: _",
+                   last_login_at as "last_login_at: _", password_changed_at as "password_changed_at: _"
+            FROM users
+            WHERE username = $1
+            "#,
+            username
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(AppError::database_error)
+    }
+
     /// Get user by email
+    #[cfg(not(feature = "sqlite-backend"))]
     pub async fn get_by_email(&self, email: &str) -> Result<Option<User>, AppError> {
         // #251: stored addresses are normalised (202609090010's
         // `users_email_is_lowercase` CHECK guarantees it), so the lookup folds
@@ -167,6 +280,34 @@ impl UserRepository {
             SELECT id, username, email, email_verified, password_hash, display_name,
                    avatar_url, is_active, is_admin, permissions,
                    created_at as "created_at: _", updated_at as "updated_at: _", last_login_at as "last_login_at: _", password_changed_at as "password_changed_at: _"
+            FROM users
+            WHERE email = $1
+            "#,
+            email
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(AppError::database_error)
+    }
+
+    #[cfg(feature = "sqlite-backend")]
+    pub async fn get_by_email(&self, email: &str) -> Result<Option<User>, AppError> {
+        use crate::sqlite_types::JsonValue;
+
+        // #251: stored addresses are normalised, so the lookup folds the
+        // CALLER's value with the same rule and compares exactly (the same
+        // comment applies as in the postgres leg — see above).
+        let email = &crate::auth::email::fold_email(email);
+
+        sqlx::query_as!(
+            User,
+            r#"
+            SELECT id as "id: _", username, email, email_verified as "email_verified: _",
+                   password_hash, display_name, avatar_url,
+                   is_active as "is_active: _", is_admin as "is_admin: _",
+                   permissions as "permissions!: JsonValue<Vec<String>>",
+                   created_at as "created_at: _", updated_at as "updated_at: _",
+                   last_login_at as "last_login_at: _", password_changed_at as "password_changed_at: _"
             FROM users
             WHERE email = $1
             "#,
@@ -202,6 +343,7 @@ impl UserRepository {
     ///
     /// Resolving a row is not authorising it — the caller still verifies the
     /// password against whichever principal comes back.
+    #[cfg(not(feature = "sqlite-backend"))]
     pub async fn get_by_username_or_email(
         &self,
         identifier: &str,
@@ -227,7 +369,39 @@ impl UserRepository {
         .map_err(AppError::database_error)
     }
 
+    #[cfg(feature = "sqlite-backend")]
+    pub async fn get_by_username_or_email(
+        &self,
+        identifier: &str,
+    ) -> Result<Option<User>, AppError> {
+        use crate::sqlite_types::JsonValue;
+
+        let folded = &crate::auth::email::fold_email(identifier);
+
+        sqlx::query_as!(
+            User,
+            r#"
+            SELECT id as "id: _", username, email, email_verified as "email_verified: _",
+                   password_hash, display_name, avatar_url,
+                   is_active as "is_active: _", is_admin as "is_admin: _",
+                   permissions as "permissions!: JsonValue<Vec<String>>",
+                   created_at as "created_at: _", updated_at as "updated_at: _",
+                   last_login_at as "last_login_at: _", password_changed_at as "password_changed_at: _"
+            FROM users
+            WHERE username = $1 OR email = $2
+            ORDER BY (username = $1) DESC
+            LIMIT 1
+            "#,
+            identifier,
+            folded
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(AppError::database_error)
+    }
+
     /// List users with pagination
+    #[cfg(not(feature = "sqlite-backend"))]
     pub async fn list(&self, page: i32, per_page: i32) -> Result<(Vec<User>, i64), AppError> {
         let offset = ((page - 1) * per_page) as i64;
 
@@ -258,7 +432,45 @@ impl UserRepository {
         Ok((users, total))
     }
 
+    #[cfg(feature = "sqlite-backend")]
+    pub async fn list(&self, page: i32, per_page: i32) -> Result<(Vec<User>, i64), AppError> {
+        use crate::sqlite_types::JsonValue;
+
+        let offset = ((page - 1) * per_page) as i64;
+
+        // Get total count
+        let total: i64 = sqlx::query_scalar!(r#"SELECT COUNT(*) as "count!" FROM users"#)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(AppError::database_error)?;
+
+        // Get paginated users
+        let per_page_i64 = per_page as i64;
+        let users = sqlx::query_as!(
+            User,
+            r#"
+            SELECT id as "id: _", username, email, email_verified as "email_verified: _",
+                   password_hash, display_name, avatar_url,
+                   is_active as "is_active: _", is_admin as "is_admin: _",
+                   permissions as "permissions!: JsonValue<Vec<String>>",
+                   created_at as "created_at: _", updated_at as "updated_at: _",
+                   last_login_at as "last_login_at: _", password_changed_at as "password_changed_at: _"
+            FROM users
+            ORDER BY created_at DESC
+            LIMIT $1 OFFSET $2
+            "#,
+            per_page_i64,
+            offset
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(AppError::database_error)?;
+
+        Ok((users, total))
+    }
+
     /// Create a new user
+    #[cfg(not(feature = "sqlite-backend"))]
     pub async fn create(
         &self,
         username: &str,
@@ -312,6 +524,67 @@ impl UserRepository {
         Ok(user)
     }
 
+    #[cfg(feature = "sqlite-backend")]
+    pub async fn create(
+        &self,
+        username: &str,
+        email: &str,
+        password_hash: Option<String>,
+        display_name: Option<String>,
+        permissions: Option<Vec<String>>,
+    ) -> Result<User, AppError> {
+        // #251 normalisation — see the postgres leg.
+        let email = &crate::auth::email::normalize_email(email)?;
+
+        // The transaction wrapper + hook semantics are identical to the
+        // postgres leg (see above). The SQLite leg additionally binds the
+        // row id: the ported schema has no `gen_random_uuid()` default
+        // (DEC-12 — the app binds `Uuid::new_v4()`), and `created_at` /
+        // `updated_at` are omitted here because the sqlite schema carries the
+        // same RFC3339 `strftime` DEFAULT the PG leg's `NOW()` produces.
+        let mut tx = self.pool.begin().await.map_err(AppError::database_error)?;
+        let user_id = Uuid::new_v4();
+        let permissions_bind = ::sqlx::types::Json(permissions.clone().unwrap_or_default());
+
+        let user = sqlx::query_as!(
+            User,
+            r#"
+            INSERT INTO users (id, username, email, password_hash, display_name, permissions)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING id as "id: _", username, email, email_verified as "email_verified: _",
+                      password_hash, display_name, avatar_url,
+                      is_active as "is_active: _", is_admin as "is_admin: _",
+                      permissions as "permissions!: JsonValue<Vec<String>>",
+                      created_at as "created_at: _", updated_at as "updated_at: _",
+                      last_login_at as "last_login_at: _", password_changed_at as "password_changed_at: _"
+            "#,
+            user_id,
+            username,
+            email,
+            password_hash,
+            display_name,
+            permissions_bind
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| {
+            // A duplicate username/email racing past the handler's pre-check
+            // must surface as 409 Conflict, not a generic 500.
+            if let sqlx::Error::Database(db_err) = &e
+                && db_err.is_unique_violation()
+            {
+                return AppError::conflict("Username or email");
+            }
+            AppError::database_error(e)
+        })?;
+
+        crate::user::hook::fire_user_created(&user, &mut tx).await?;
+
+        tx.commit().await.map_err(AppError::database_error)?;
+        Ok(user)
+    }
+
+    #[cfg(not(feature = "sqlite-backend"))]
     pub async fn has_admin(&self) -> Result<bool, AppError> {
         let result = sqlx::query_scalar!(
             r#"SELECT EXISTS(SELECT 1 FROM users WHERE is_admin = true) as "exists!""#
@@ -323,7 +596,20 @@ impl UserRepository {
         Ok(result)
     }
 
+    #[cfg(feature = "sqlite-backend")]
+    pub async fn has_admin(&self) -> Result<bool, AppError> {
+        let result = sqlx::query_scalar!(
+            r#"SELECT EXISTS(SELECT 1 FROM users WHERE is_admin = true) as "exists!: bool""#
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(AppError::database_error)?;
+
+        Ok(result)
+    }
+
     /// Update user
+    #[cfg(not(feature = "sqlite-backend"))]
     pub async fn update(
         &self,
         id: Uuid,
@@ -383,6 +669,61 @@ impl UserRepository {
         })
     }
 
+    #[cfg(feature = "sqlite-backend")]
+    pub async fn update(
+        &self,
+        id: Uuid,
+        username: Option<String>,
+        email: Option<String>,
+        display_name: Option<String>,
+        permissions: Option<Vec<String>>,
+    ) -> Result<User, AppError> {
+        // #251 normalisation — see the postgres leg.
+        let email = match email {
+            None => None,
+            Some(e) => Some(crate::auth::email::normalize_email(&e)?),
+        };
+        // A bound `Json(None)` would store the JSON text `null`, not SQL NULL
+        // — so the optional array is pre-serialized and bound as
+        // `Option<&str>` (COALESCE's "absent field" leg needs a real NULL).
+        let permissions_bind: Option<String> =
+            permissions.as_ref().map(|p| serde_json::to_string(p).unwrap());
+        let permissions_bind: Option<&str> = permissions_bind.as_deref();
+
+        sqlx::query_as!(
+            User,
+            r#"
+            UPDATE users
+            SET username = COALESCE($2, username),
+                email = COALESCE($3, email),
+                display_name = COALESCE($4, display_name),
+                permissions = COALESCE($5, permissions),
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+            WHERE id = $1
+            RETURNING id as "id: _", username, email, email_verified as "email_verified: _",
+                      password_hash, display_name, avatar_url,
+                      is_active as "is_active: _", is_admin as "is_admin: _",
+                      permissions as "permissions!: JsonValue<Vec<String>>",
+                      created_at as "created_at: _", updated_at as "updated_at: _",
+                      last_login_at as "last_login_at: _", password_changed_at as "password_changed_at: _"
+            "#,
+            id,
+            username,
+            email,
+            display_name,
+            permissions_bind,
+        )
+        .fetch_one(&self.pool)
+        .await
+        // Same unique-violation mapping as the postgres leg (see above).
+        .map_err(|e| match e {
+            sqlx::Error::Database(db) if db.is_unique_violation() => {
+                AppError::conflict("Username or email")
+            }
+            other => AppError::database_error(other),
+        })
+    }
+
     /// Self-service profile update (username + display_name only).
     ///
     /// Unlike [`update`], `display_name` is a true tri-state so a user can
@@ -391,6 +732,7 @@ impl UserRepository {
     /// (including `None`, which clears it). A concurrent username collision
     /// that slips past the caller's pre-check is caught by the DB UNIQUE
     /// constraint here and surfaced as a 409 conflict (not a raw 500).
+    #[cfg(not(feature = "sqlite-backend"))]
     pub async fn update_profile(
         &self,
         id: Uuid,
@@ -423,9 +765,46 @@ impl UserRepository {
         })
     }
 
+    #[cfg(feature = "sqlite-backend")]
+    pub async fn update_profile(
+        &self,
+        id: Uuid,
+        username: Option<String>,
+        set_display_name: bool,
+        display_name: Option<String>,
+    ) -> Result<User, AppError> {
+        sqlx::query_as!(
+            User,
+            r#"
+            UPDATE users
+            SET username = COALESCE($2, username),
+                display_name = CASE WHEN $3 THEN $4 ELSE display_name END,
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+            WHERE id = $1
+            RETURNING id as "id: _", username, email, email_verified as "email_verified: _",
+                      password_hash, display_name, avatar_url,
+                      is_active as "is_active: _", is_admin as "is_admin: _",
+                      permissions as "permissions!: JsonValue<Vec<String>>",
+                      created_at as "created_at: _", updated_at as "updated_at: _",
+                      last_login_at as "last_login_at: _", password_changed_at as "password_changed_at: _"
+            "#,
+            id,
+            username,
+            set_display_name,
+            display_name,
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| match e {
+            sqlx::Error::Database(db) if db.is_unique_violation() => AppError::conflict("Username"),
+            other => AppError::database_error(other),
+        })
+    }
+
     /// Update password hash. Also bumps `password_changed_at` so the
     /// Remote Access module can tell whether the admin has rotated
     /// the bootstrap default password.
+    #[cfg(not(feature = "sqlite-backend"))]
     pub async fn update_password(&self, id: Uuid, password_hash: &str) -> Result<(), AppError> {
         sqlx::query!(
             r#"
@@ -444,7 +823,27 @@ impl UserRepository {
         Ok(())
     }
 
+    #[cfg(feature = "sqlite-backend")]
+    pub async fn update_password(&self, id: Uuid, password_hash: &str) -> Result<(), AppError> {
+        sqlx::query!(
+            r#"
+            UPDATE users
+            SET password_hash = $2,
+                password_changed_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+            WHERE id = $1
+            "#,
+            id,
+            password_hash
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(AppError::database_error)?;
+        Ok(())
+    }
+
     /// Update last login timestamp
+    #[cfg(not(feature = "sqlite-backend"))]
     pub async fn update_last_login(&self, id: Uuid) -> Result<(), AppError> {
         sqlx::query!(
             r#"
@@ -460,7 +859,24 @@ impl UserRepository {
         Ok(())
     }
 
+    #[cfg(feature = "sqlite-backend")]
+    pub async fn update_last_login(&self, id: Uuid) -> Result<(), AppError> {
+        sqlx::query!(
+            r#"
+            UPDATE users
+            SET last_login_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+            WHERE id = $1
+            "#,
+            id
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(AppError::database_error)?;
+        Ok(())
+    }
+
     /// Set user active status
+    #[cfg(not(feature = "sqlite-backend"))]
     pub async fn set_active(&self, id: Uuid, is_active: bool) -> Result<(), AppError> {
         sqlx::query!(
             r#"
@@ -477,11 +893,43 @@ impl UserRepository {
         Ok(())
     }
 
+    #[cfg(feature = "sqlite-backend")]
+    pub async fn set_active(&self, id: Uuid, is_active: bool) -> Result<(), AppError> {
+        sqlx::query!(
+            r#"
+            UPDATE users
+            SET is_active = $2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+            WHERE id = $1
+            "#,
+            id,
+            is_active
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(AppError::database_error)?;
+        Ok(())
+    }
+
     /// Atomically delete a user only if they are NOT an admin. Returns `true`
     /// if a row was deleted, `false` if no matching non-admin row existed
     /// (either the user is gone, or it became admin since the caller's check).
     /// Re-checking `is_admin` inside the DELETE closes the read-then-write
     /// TOCTOU where a concurrent promotion could let an admin be deleted.
+    #[cfg(not(feature = "sqlite-backend"))]
+    pub async fn delete_if_not_admin(&self, id: Uuid) -> Result<bool, AppError> {
+        let res = sqlx::query!(
+            r#"
+            DELETE FROM users WHERE id = $1 AND is_admin = FALSE
+            "#,
+            id
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(AppError::database_error)?;
+        Ok(res.rows_affected() > 0)
+    }
+
+    #[cfg(feature = "sqlite-backend")]
     pub async fn delete_if_not_admin(&self, id: Uuid) -> Result<bool, AppError> {
         let res = sqlx::query!(
             r#"
@@ -496,6 +944,7 @@ impl UserRepository {
     }
 
     /// Get user's groups
+    #[cfg(not(feature = "sqlite-backend"))]
     pub async fn get_user_groups(&self, user_id: Uuid) -> Result<Vec<Group>, AppError> {
         sqlx::query_as!(
             Group,
@@ -513,7 +962,31 @@ impl UserRepository {
         .map_err(AppError::database_error)
     }
 
+    #[cfg(feature = "sqlite-backend")]
+    pub async fn get_user_groups(&self, user_id: Uuid) -> Result<Vec<Group>, AppError> {
+        use crate::sqlite_types::JsonValue;
+
+        sqlx::query_as!(
+            Group,
+            r#"
+            SELECT g.id as "id: _", g.name, g.description,
+                   g.permissions as "permissions!: JsonValue<Vec<String>>",
+                   g.is_system as "is_system: _", g.is_active as "is_active: _",
+                   g.is_default as "is_default: _",
+                   g.created_at as "created_at: _", g.updated_at as "updated_at: _"
+            FROM groups g
+            INNER JOIN user_groups ug ON ug.group_id = g.id
+            WHERE ug.user_id = $1
+            "#,
+            user_id
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(AppError::database_error)
+    }
+
     /// Assign user to group
+    #[cfg(not(feature = "sqlite-backend"))]
     pub async fn assign_to_group(
         &self,
         user_id: Uuid,
@@ -536,7 +1009,50 @@ impl UserRepository {
         Ok(())
     }
 
+    #[cfg(feature = "sqlite-backend")]
+    pub async fn assign_to_group(
+        &self,
+        user_id: Uuid,
+        group_id: Uuid,
+        assigned_by: Option<Uuid>,
+    ) -> Result<(), AppError> {
+        // Same shape as the postgres leg; `assigned_at` is omitted because the
+        // sqlite schema's DEFAULT is the same RFC3339 `strftime` the PG leg's
+        // `NOW()` supplies.
+        sqlx::query!(
+            r#"
+            INSERT INTO user_groups (user_id, group_id, assigned_by)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (user_id, group_id) DO NOTHING
+            "#,
+            user_id,
+            group_id,
+            assigned_by
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(AppError::database_error)?;
+        Ok(())
+    }
+
     /// Remove user from group
+    #[cfg(not(feature = "sqlite-backend"))]
+    pub async fn remove_from_group(&self, user_id: Uuid, group_id: Uuid) -> Result<(), AppError> {
+        sqlx::query!(
+            r#"
+            DELETE FROM user_groups
+            WHERE user_id = $1 AND group_id = $2
+            "#,
+            user_id,
+            group_id
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(AppError::database_error)?;
+        Ok(())
+    }
+
+    #[cfg(feature = "sqlite-backend")]
     pub async fn remove_from_group(&self, user_id: Uuid, group_id: Uuid) -> Result<(), AppError> {
         sqlx::query!(
             r#"
@@ -559,15 +1075,16 @@ impl UserRepository {
 
 #[derive(Clone, Debug)]
 pub struct GroupRepository {
-    pool: PgPool,
+    pool: DbPool,
 }
 
 impl GroupRepository {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: DbPool) -> Self {
         Self { pool }
     }
 
     /// Get group by ID
+    #[cfg(not(feature = "sqlite-backend"))]
     pub async fn get_by_id(&self, id: Uuid) -> Result<Option<Group>, AppError> {
         sqlx::query_as!(
             Group,
@@ -584,7 +1101,30 @@ impl GroupRepository {
         .map_err(AppError::database_error)
     }
 
+    #[cfg(feature = "sqlite-backend")]
+    pub async fn get_by_id(&self, id: Uuid) -> Result<Option<Group>, AppError> {
+        use crate::sqlite_types::JsonValue;
+
+        sqlx::query_as!(
+            Group,
+            r#"
+            SELECT id as "id: _", name, description,
+                   permissions as "permissions!: JsonValue<Vec<String>>",
+                   is_system as "is_system: _", is_active as "is_active: _",
+                   is_default as "is_default: _",
+                   created_at as "created_at: _", updated_at as "updated_at: _"
+            FROM groups
+            WHERE id = $1
+            "#,
+            id
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(AppError::database_error)
+    }
+
     /// Get group by name
+    #[cfg(not(feature = "sqlite-backend"))]
     pub async fn get_by_name(&self, name: &str) -> Result<Option<Group>, AppError> {
         sqlx::query_as!(
             Group,
@@ -601,7 +1141,30 @@ impl GroupRepository {
         .map_err(AppError::database_error)
     }
 
+    #[cfg(feature = "sqlite-backend")]
+    pub async fn get_by_name(&self, name: &str) -> Result<Option<Group>, AppError> {
+        use crate::sqlite_types::JsonValue;
+
+        sqlx::query_as!(
+            Group,
+            r#"
+            SELECT id as "id: _", name, description,
+                   permissions as "permissions!: JsonValue<Vec<String>>",
+                   is_system as "is_system: _", is_active as "is_active: _",
+                   is_default as "is_default: _",
+                   created_at as "created_at: _", updated_at as "updated_at: _"
+            FROM groups
+            WHERE name = $1
+            "#,
+            name
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(AppError::database_error)
+    }
+
     /// Get default group (where is_default = true)
+    #[cfg(not(feature = "sqlite-backend"))]
     pub async fn get_default(&self) -> Result<Option<Group>, AppError> {
         sqlx::query_as!(
             Group,
@@ -618,10 +1181,33 @@ impl GroupRepository {
         .map_err(AppError::database_error)
     }
 
+    #[cfg(feature = "sqlite-backend")]
+    pub async fn get_default(&self) -> Result<Option<Group>, AppError> {
+        use crate::sqlite_types::JsonValue;
+
+        sqlx::query_as!(
+            Group,
+            r#"
+            SELECT id as "id: _", name, description,
+                   permissions as "permissions!: JsonValue<Vec<String>>",
+                   is_system as "is_system: _", is_active as "is_active: _",
+                   is_default as "is_default: _",
+                   created_at as "created_at: _", updated_at as "updated_at: _"
+            FROM groups
+            WHERE is_default = true AND is_active = true
+            LIMIT 1
+            "#
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(AppError::database_error)
+    }
+
     /// All groups, unpaginated. Used cross-crate by the desktop's
     /// single-admin event handlers (assign new providers/MCP servers to
     /// every group), so it reads as dead from the server bin — keep it
     /// (same pattern as `JwtService::new`).
+    #[cfg(not(feature = "sqlite-backend"))]
     #[allow(dead_code)]
     pub async fn get_all(&self) -> Result<Vec<Group>, AppError> {
         sqlx::query_as!(
@@ -638,7 +1224,30 @@ impl GroupRepository {
         .map_err(AppError::database_error)
     }
 
+    #[cfg(feature = "sqlite-backend")]
+    #[allow(dead_code)]
+    pub async fn get_all(&self) -> Result<Vec<Group>, AppError> {
+        use crate::sqlite_types::JsonValue;
+
+        sqlx::query_as!(
+            Group,
+            r#"
+            SELECT id as "id: _", name, description,
+                   permissions as "permissions!: JsonValue<Vec<String>>",
+                   is_system as "is_system: _", is_active as "is_active: _",
+                   is_default as "is_default: _",
+                   created_at as "created_at: _", updated_at as "updated_at: _"
+            FROM groups
+            ORDER BY name
+            "#
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(AppError::database_error)
+    }
+
     /// List groups with pagination
+    #[cfg(not(feature = "sqlite-backend"))]
     pub async fn list(&self, page: i32, per_page: i32) -> Result<(Vec<Group>, i64), AppError> {
         let offset = (page - 1) * per_page;
 
@@ -669,7 +1278,47 @@ impl GroupRepository {
         Ok((groups, total))
     }
 
+    #[cfg(feature = "sqlite-backend")]
+    pub async fn list(&self, page: i32, per_page: i32) -> Result<(Vec<Group>, i64), AppError> {
+        use crate::sqlite_types::JsonValue;
+
+        let offset = (page - 1) * per_page;
+        // The query macro takes `&(expr)` of each bind, so casts in-place
+        // would borrow temporaries (E0716) — pre-bind to locals.
+        let per_page_i64 = per_page as i64;
+        let offset_i64 = offset as i64;
+
+        // Get total count
+        let total: i64 = sqlx::query_scalar!("SELECT COUNT(*) FROM groups")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(AppError::database_error)?;
+
+        // Get paginated results
+        let groups = sqlx::query_as!(
+            Group,
+            r#"
+            SELECT id as "id: _", name, description,
+                   permissions as "permissions!: JsonValue<Vec<String>>",
+                   is_system as "is_system: _", is_active as "is_active: _",
+                   is_default as "is_default: _",
+                   created_at as "created_at: _", updated_at as "updated_at: _"
+            FROM groups
+            ORDER BY name
+            LIMIT $1 OFFSET $2
+            "#,
+            per_page_i64,
+            offset_i64
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(AppError::database_error)?;
+
+        Ok((groups, total))
+    }
+
     /// Create a new group
+    #[cfg(not(feature = "sqlite-backend"))]
     pub async fn create(
         &self,
         name: &str,
@@ -693,7 +1342,43 @@ impl GroupRepository {
         .map_err(AppError::database_error)
     }
 
+    #[cfg(feature = "sqlite-backend")]
+    pub async fn create(
+        &self,
+        name: &str,
+        description: Option<String>,
+        permissions: Vec<String>,
+    ) -> Result<Group, AppError> {
+        use crate::sqlite_types::JsonValue;
+
+        // `id` is the same foreign shape as the user insert above (no
+        // SQL-side UUID generator); `created_at`/`updated_at` come from the
+        // schema DEFAULTs.
+        let group_id = Uuid::new_v4();
+        let permissions_bind = ::sqlx::types::Json(permissions);
+        sqlx::query_as!(
+            Group,
+            r#"
+            INSERT INTO groups (id, name, description, permissions)
+            VALUES ($1, $2, $3, $4)
+            RETURNING id as "id: _", name, description,
+                      permissions as "permissions!: JsonValue<Vec<String>>",
+                      is_system as "is_system: _", is_active as "is_active: _",
+                      is_default as "is_default: _",
+                      created_at as "created_at: _", updated_at as "updated_at: _"
+            "#,
+            group_id,
+            name,
+            description,
+            permissions_bind
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(AppError::database_error)
+    }
+
     /// Update group
+    #[cfg(not(feature = "sqlite-backend"))]
     pub async fn update(
         &self,
         id: Uuid,
@@ -726,7 +1411,63 @@ impl GroupRepository {
         .map_err(AppError::database_error)
     }
 
+    #[cfg(feature = "sqlite-backend")]
+    pub async fn update(
+        &self,
+        id: Uuid,
+        name: Option<String>,
+        description: Option<String>,
+        permissions: Option<Vec<String>>,
+        is_active: Option<bool>,
+    ) -> Result<Group, AppError> {
+        use crate::sqlite_types::JsonValue;
+
+        let permissions_bind: Option<String> =
+            permissions.as_ref().map(|p| serde_json::to_string(p).unwrap());
+        let permissions_bind: Option<&str> = permissions_bind.as_deref();
+        sqlx::query_as!(
+            Group,
+            r#"
+            UPDATE groups
+            SET name = COALESCE($2, name),
+                description = COALESCE($3, description),
+                permissions = COALESCE($4, permissions),
+                is_active = COALESCE($5, is_active),
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+            WHERE id = $1
+            RETURNING id as "id: _", name, description,
+                      permissions as "permissions!: JsonValue<Vec<String>>",
+                      is_system as "is_system: _", is_active as "is_active: _",
+                      is_default as "is_default: _",
+                      created_at as "created_at: _", updated_at as "updated_at: _"
+            "#,
+            id,
+            name,
+            description,
+            permissions_bind,
+            is_active
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(AppError::database_error)
+    }
+
     /// Delete group (only non-system groups)
+    #[cfg(not(feature = "sqlite-backend"))]
+    pub async fn delete(&self, id: Uuid) -> Result<(), AppError> {
+        sqlx::query!(
+            r#"
+            DELETE FROM groups WHERE id = $1 AND is_system = FALSE
+            "#,
+            id
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(AppError::database_error)?;
+        Ok(())
+    }
+
+    #[cfg(feature = "sqlite-backend")]
     pub async fn delete(&self, id: Uuid) -> Result<(), AppError> {
         sqlx::query!(
             r#"
@@ -743,6 +1484,7 @@ impl GroupRepository {
     /// Get just the user ids of a group's members (unpaginated). Used by
     /// realtime sync to fan a `session/permissions_changed` signal out to
     /// every member when the group's permissions are edited.
+    #[cfg(not(feature = "sqlite-backend"))]
     pub async fn get_member_ids(&self, group_id: Uuid) -> Result<Vec<Uuid>, AppError> {
         sqlx::query_scalar!(
             "SELECT user_id FROM user_groups WHERE group_id = $1",
@@ -753,7 +1495,19 @@ impl GroupRepository {
         .map_err(AppError::database_error)
     }
 
+    #[cfg(feature = "sqlite-backend")]
+    pub async fn get_member_ids(&self, group_id: Uuid) -> Result<Vec<Uuid>, AppError> {
+        sqlx::query_scalar!(
+            r#"SELECT user_id as "user_id: Uuid" FROM user_groups WHERE group_id = $1"#,
+            group_id
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(AppError::database_error)
+    }
+
     /// Get members of a group with pagination
+    #[cfg(not(feature = "sqlite-backend"))]
     pub async fn get_members(
         &self,
         group_id: Uuid,
@@ -793,6 +1547,59 @@ impl GroupRepository {
             group_id,
             per_page as i64,
             offset as i64
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(AppError::database_error)?;
+
+        Ok((users, total))
+    }
+
+    #[cfg(feature = "sqlite-backend")]
+    pub async fn get_members(
+        &self,
+        group_id: Uuid,
+        page: i32,
+        per_page: i32,
+    ) -> Result<(Vec<User>, i64), AppError> {
+        use crate::sqlite_types::JsonValue;
+
+        let offset = (page - 1) * per_page;
+        // Casts in bind position must be pre-bound (see groups `list`).
+        let per_page_i64 = per_page as i64;
+        let offset_i64 = offset as i64;
+
+        // Get total count
+        let total: i64 = sqlx::query_scalar!(
+            r#"
+            SELECT COUNT(*) FROM user_groups WHERE group_id = $1
+            "#,
+            group_id
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(AppError::database_error)?;
+
+        // Get paginated members
+        let users = sqlx::query_as!(
+            User,
+            r#"
+            SELECT u.id as "id: _", u.username, u.email, u.email_verified as "email_verified: _",
+                   u.password_hash, u.display_name, u.avatar_url,
+                   u.is_active as "is_active: _", u.is_admin as "is_admin: _",
+                   '[]' as "permissions!: JsonValue<Vec<String>>",
+                   u.created_at as "created_at: _", u.updated_at as "updated_at: _",
+                   u.last_login_at as "last_login_at: _",
+                   u.password_changed_at as "password_changed_at: _"
+            FROM users u
+            INNER JOIN user_groups ug ON u.id = ug.user_id
+            WHERE ug.group_id = $1
+            ORDER BY u.username
+            LIMIT $2 OFFSET $3
+            "#,
+            group_id,
+            per_page_i64,
+            offset_i64
         )
         .fetch_all(&self.pool)
         .await

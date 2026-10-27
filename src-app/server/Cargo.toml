@@ -51,23 +51,22 @@ serde_norway = "0.9"
 # SQLite variant — `sqlite-backend` ON makes `DbPool` = `SqlitePool`, so the
 # framework seam this app wires (`ModuleContext.db_pool`,
 # `build_api_router`'s pool extension, `Transaction<'_, Db>`) carries the
-# app's sqlite store, and `embedded_pg` is not this app's driver. The feature
-# is additive and compile-time: ziee (app #1) keeps the default (PG) variant,
-# and this app's own modules are single-driver (SQLite only, no cfg branch).
-# Transition note: the schema-bound SDK crates (ziee-auth / ziee-file /
-# ziee-notification) do not declare `sqlite-backend` yet and their
-# ziee-framework edges keep default features, so feature UNIFICATION keeps
-# `embedded-pg` (and the postgresql_embedded downloader) resolved until the
-# query-port items' manifest work (DRIFT-1 ITEM-12 #3, ITEM-14/15/16).
-ziee-core = { path = "../../sdk/crates/ziee-core", features = ["sqlite-backend"] }
-ziee-framework = { path = "../../sdk/crates/ziee-framework", features = ["sqlite-backend"] }
+# app's sqlite store, and `embedded_pg` is not this app's driver. Every edge
+# below is `default-features = false` + the driver feature: the framework's
+# `embedded-pg` (the postgresql_embedded downloader) enters the resolved
+# graph only through a crate that still default-features it — the remaining
+# schema-bound crates (ziee-file / ziee-notification) flip at ITEM-15/16,
+# completing TEST-1(a)'s lock prune (DRIFT-1 ITEM-12 #3).
+ziee-core = { path = "../../sdk/crates/ziee-core", default-features = false, features = ["sqlite-backend"] }
+ziee-framework = { path = "../../sdk/crates/ziee-framework", default-features = false, features = ["sqlite-backend"] }
 # AI-controllable-actions MCP surface: the DB-free OpenAPI→capability catalog +
 # deployment policy + static tool descriptors. `modules/mcp` is the thin
 # app-side glue (JSON-RPC handler, agent channel, pairing) built on top.
 ziee-control-mcp = { path = "../../sdk/crates/ziee-control-mcp" }
 # Auth: the default schema-bound auth module + its mountable routes bundle
-# (`routes` feature is default-on) + the identity abstractions.
-ziee-auth = { path = "../../sdk/crates/ziee-auth", features = ["module"] }
+# (`module` implies `routes`) + the identity abstractions. `sqlite-backend`
+# selects the cfg-gated sqlite query sets + migrations-sqlite chain (ITEM-14).
+ziee-auth = { path = "../../sdk/crates/ziee-auth", default-features = false, features = ["module", "sqlite-backend"] }
 ziee-identity = { path = "../../sdk/crates/ziee-identity" }
 # Notification inbox: the SDK notification feature promoted to a self-registering
 # module (generic `payload` schema + per-module kind registry + pluggable sync

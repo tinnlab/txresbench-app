@@ -1,7 +1,7 @@
 // Auth provider infrastructure - part of future auth system
 
 use async_trait::async_trait;
-use sqlx::PgPool;
+use ziee_core::DbPool;
 
 use super::{AuthError, AuthProvider, AuthProviderTrait, AuthResult, UserAttributes};
 use crate::auth::password;
@@ -13,11 +13,11 @@ pub struct LocalAuthProvider {
     config: serde_json::Value,
     // Chunk BG: queries now build a `UserRepository` from this pool instead of
     // reaching the global `Repos` aggregator.
-    pool: PgPool,
+    pool: DbPool,
 }
 
 impl LocalAuthProvider {
-    pub fn new(provider: &AuthProvider, pool: PgPool) -> Result<Self, AuthError> {
+    pub fn new(provider: &AuthProvider, pool: DbPool) -> Result<Self, AuthError> {
         Ok(Self {
             name: provider.name.clone(),
             config: provider.config.clone(),

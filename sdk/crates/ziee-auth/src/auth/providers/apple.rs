@@ -22,7 +22,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, encode};
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use ziee_core::DbPool;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -157,7 +157,7 @@ pub struct AppleProvider {
     #[allow(dead_code)]
     raw_config: serde_json::Value,
     #[allow(dead_code)]
-    pool: PgPool,
+    pool: DbPool,
     jwks_cache: Arc<RwLock<JwksCache>>,
     /// Single-flight gate for JWKS refresh. Held across the network
     /// fetch so concurrent kid-misses coalesce into one upstream
@@ -192,7 +192,7 @@ impl AppleProvider {
         self.base_url().to_string()
     }
 
-    pub fn new(provider: &AuthProvider, pool: PgPool) -> Result<Self, AuthError> {
+    pub fn new(provider: &AuthProvider, pool: DbPool) -> Result<Self, AuthError> {
         let config: AppleConfig = serde_json::from_value(provider.config.clone()).map_err(|e| {
             AuthError::ConfigurationError(format!("Invalid Apple configuration: {}", e))
         })?;

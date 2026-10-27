@@ -43,6 +43,18 @@ pub type Db = sqlx::Sqlite;
 #[cfg(not(feature = "sqlite-backend"))]
 pub type Db = sqlx::Postgres;
 
+/// The driver-selected raw connection type of [`Db`] — the type a
+/// `Transaction<'t, Db>` derefs to (`&mut <Db as Database>::Connection`).
+/// Named here because schema-bound crates expose connection-taking seams
+/// (e.g. the user-created hook, gap G-AUTHEVT) where `DbPool` alone cannot
+/// express "the creation transaction's own connection".
+#[cfg(feature = "sqlite-backend")]
+pub type DbConnection = <sqlx::Sqlite as sqlx::Database>::Connection;
+
+/// See [`DbConnection`] — the postgres half of the pair.
+#[cfg(not(feature = "sqlite-backend"))]
+pub type DbConnection = <sqlx::Postgres as sqlx::Database>::Connection;
+
 #[cfg(test)]
 mod tests {
     use super::*;

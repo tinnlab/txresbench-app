@@ -7,7 +7,7 @@ use axum::{
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Redirect, Response},
 };
-use sqlx::PgPool;
+use ziee_core::DbPool;
 use std::sync::Arc;
 
 use ziee_core::{ApiResult, AppError};
@@ -1657,7 +1657,7 @@ fn email_verified_from_auth_result(r: &AuthResult) -> bool {
 /// than an infinite loop to avoid pathological cases.
 #[doc(hidden)] // pub for integration tests (auto-provision username collision)
 pub async fn ensure_unique_username(
-    pool: &PgPool,
+    pool: &DbPool,
     base: &str,
 ) -> Result<String, (StatusCode, AppError)> {
     let users = UserRepository::new(pool.clone());

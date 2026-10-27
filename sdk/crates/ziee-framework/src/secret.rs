@@ -74,6 +74,7 @@ impl<T> Serialize for SecretView<T> {
 /// pgp_sym_encrypt. Returns Ok(Some(bytes)) on success, Ok(None) when
 /// the storage key is unset (compat mode for unconfigured deployments).
 /// Errors only on actual DB / encryption failure.
+#[cfg_attr(feature = "sqlite-backend", allow(unused_variables))]
 pub async fn encrypt_secret(
     pool: &DbPool,
     plaintext: &str,
@@ -89,20 +90,37 @@ pub async fn encrypt_secret(
         None => return Ok(None),
     };
 
-    let row: (Vec<u8>,) = sqlx::query_as("SELECT pgp_sym_encrypt($1, $2)")
-        .bind(plaintext)
-        .bind(key)
-        .fetch_one(pool)
-        .await
-        .map_err(AppError::database_error)?;
+    // D02 (owner decision): the secret-encryption feature stays DORMANT on the
+    // sqlite store — the desktop build has no billing/cloud-store/login path
+    // that uses it and no key is configured by default. The PG machinery
+    // (pgcrypto) does not exist on SQLite; no replacement cipher is built.
+    // A configured storage key therefore fails EXPLICITLY (never silently
+    // stores the plaintext as if it had been encrypted).
+    #[cfg(not(feature = "sqlite-backend"))]
+    {
+        let row: (Vec<u8>,) = sqlx::query_as("SELECT pgp_sym_encrypt($1, $2)")
+            .bind(plaintext)
+            .bind(key)
+            .fetch_one(pool)
+            .await
+            .map_err(AppError::database_error)?;
 
-    Ok(Some(row.0))
+        Ok(Some(row.0))
+    }
+    #[cfg(feature = "sqlite-backend")]
+    {
+        Err(AppError::internal_error(
+            "Secret encryption is unavailable on the SQLite store (feature dormant, D02): \
+             no storage key may be used at rest",
+        ))
+    }
 }
 
 /// Decrypt a bytea blob to plaintext using pgcrypto's pgp_sym_decrypt.
 /// Returns Ok(plaintext) on success. Errors on DB / decryption failure
 /// (typically a wrong key — fail closed and surface a generic error to
 /// the caller).
+#[cfg_attr(feature = "sqlite-backend", allow(unused_variables))]
 pub async fn decrypt_secret(
     pool: &DbPool,
     ciphertext: &[u8],
@@ -114,14 +132,27 @@ pub async fn decrypt_secret(
         ));
     }
 
-    let row: (String,) = sqlx::query_as("SELECT pgp_sym_decrypt($1, $2)")
-        .bind(ciphertext)
-        .bind(storage_key)
-        .fetch_one(pool)
-        .await
-        .map_err(AppError::database_error)?;
+    // D02 — see `encrypt_secret`: the decrypt path is unavailable on the
+    // sqlite store, with the same explicit error (a caller's
+    // `resolve_optional_secret` falls back to the plaintext column, exactly
+    // as it does on a decryption failure).
+    #[cfg(not(feature = "sqlite-backend"))]
+    {
+        let row: (String,) = sqlx::query_as("SELECT pgp_sym_decrypt($1, $2)")
+            .bind(ciphertext)
+            .bind(storage_key)
+            .fetch_one(pool)
+            .await
+            .map_err(AppError::database_error)?;
 
-    Ok(row.0)
+        Ok(row.0)
+    }
+    #[cfg(feature = "sqlite-backend")]
+    {
+        Err(AppError::internal_error(
+            "Secret decryption is unavailable on the SQLite store (feature dormant, D02)",
+        ))
+    }
 }
 
 /// Repository-side resolver for the encrypted/plaintext dual-column
