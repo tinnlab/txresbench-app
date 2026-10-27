@@ -18,11 +18,10 @@ use axum::http::StatusCode;
 use axum::{Extension, Json};
 use schemars::JsonSchema;
 use serde::Deserialize;
-use sqlx::PgPool;
 use uuid::Uuid;
 
 use ziee_auth::{Group, User};
-use ziee_core::{ApiResult, AppError};
+use ziee_core::{ApiResult, AppError, DbPool};
 use ziee_framework::permissions::{with_permission, IdentityResolver, RequirePermissions};
 use ziee_framework::sync::SyncOrigin;
 
@@ -99,7 +98,7 @@ pub fn notification_router<R: IdentityResolver<User = User, Group = Group>>() ->
 
 async fn list_notifications<R: IdentityResolver<User = User, Group = Group>>(
     auth: RequirePermissions<R, (NotificationsRead,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<DbPool>,
     Query(q): Query<NotificationListQuery>,
 ) -> ApiResult<Json<NotificationPage>> {
     let (page, per_page, unread_only) = q.normalized();
@@ -128,7 +127,7 @@ fn list_docs(op: TransformOperation) -> TransformOperation {
 
 async fn get_notification<R: IdentityResolver<User = User, Group = Group>>(
     auth: RequirePermissions<R, (NotificationsRead,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<DbPool>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<Notification>> {
     let row = repository::get_for_user(&pool, auth.user.id, id)
@@ -147,7 +146,7 @@ fn get_notification_docs(op: TransformOperation) -> TransformOperation {
 
 async fn unread_count<R: IdentityResolver<User = User, Group = Group>>(
     auth: RequirePermissions<R, (NotificationsRead,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<DbPool>,
 ) -> ApiResult<Json<UnreadCount>> {
     let unread = repository::unread_count(&pool, auth.user.id)
         .await
@@ -177,7 +176,7 @@ fn kinds_docs(op: TransformOperation) -> TransformOperation {
 
 async fn mark_read<R: IdentityResolver<User = User, Group = Group>>(
     auth: RequirePermissions<R, (NotificationsRead,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<DbPool>,
     origin: SyncOrigin,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<UnreadCount>> {
@@ -204,7 +203,7 @@ fn mark_read_docs(op: TransformOperation) -> TransformOperation {
 
 async fn read_all<R: IdentityResolver<User = User, Group = Group>>(
     auth: RequirePermissions<R, (NotificationsRead,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<DbPool>,
     origin: SyncOrigin,
 ) -> ApiResult<Json<UnreadCount>> {
     let user_id = auth.user.id;
@@ -224,7 +223,7 @@ fn read_all_docs(op: TransformOperation) -> TransformOperation {
 
 async fn delete_notification<R: IdentityResolver<User = User, Group = Group>>(
     auth: RequirePermissions<R, (NotificationsRead,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<DbPool>,
     origin: SyncOrigin,
     Path(id): Path<Uuid>,
 ) -> ApiResult<()> {

@@ -9,9 +9,8 @@
 
 use std::sync::{Arc, OnceLock};
 
-use sqlx::PgPool;
 use uuid::Uuid;
-use ziee_core::AppError;
+use ziee_core::{AppError, DbPool};
 
 use crate::models::{NewNotification, Notification};
 
@@ -50,7 +49,7 @@ fn emit(user_id: Uuid, action: NotifSyncAction, id: Uuid, origin: Option<Uuid>) 
 /// always written; the `interrupt` flag is what the client consults to decide
 /// whether to raise a live toast — the sync frame itself is payload-free.
 pub async fn create_and_emit(
-    pool: &PgPool,
+    pool: &DbPool,
     new: NewNotification,
 ) -> Result<Notification, AppError> {
     let user_id = new.user_id;

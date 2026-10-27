@@ -6,9 +6,8 @@ use std::time::Duration;
 
 use aide::axum::ApiRouter;
 use linkme::distributed_slice;
-use sqlx::PgPool;
-
 use ziee_auth::auth::DefaultIdentityResolver;
+use ziee_core::DbPool;
 use ziee_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
 
 /// Fixed retention (0 = keep forever). A promotable const, not a bare magic
@@ -52,7 +51,7 @@ impl AppModule for NotificationModule {
     }
 }
 
-async fn run_prune_loop(pool: PgPool) {
+async fn run_prune_loop(pool: DbPool) {
     let mut tick = tokio::time::interval(PRUNE_INTERVAL);
     loop {
         tick.tick().await;

@@ -28,12 +28,15 @@ ziee-identity = { path = "../ziee-identity" }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.141"
 schemars = { version = "0.9.0", features = ["chrono04", "uuid1"] }
-sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "postgres", "sqlite", "chrono", "uuid", "json", "time", "macros"] }
+sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "postgres", "sqlite", "chrono", "uuid", "json", "time", "macros", "migrate"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.18", features = ["serde", "v4", "v5"] }
 
 # HTTP/engine surface (the `routes` feature). Optional so a types-only consumer
-# never pulls axum/aide/tokio. `ziee-auth` supplies the concrete `{User, Group}`
+# never pulls axum/aide/tokio. `default-features = false` on the framework +
+# auth edges — see the feature block above: their driver variants are selected
+# by THIS crate's embedded-pg / sqlite-backend passthrough features, never by
+# their own defaults. `ziee-auth` supplies the concrete `{User, Group}`
 # wire types the generic router is bound over (mirrors `ziee-file`'s
 # `file_routes<R: IdentityResolver<User=User, Group=Group>>`), and — for the
 # `module` self-registration only — its `DefaultIdentityResolver`.
@@ -43,8 +46,8 @@ axum = { version = "0.8.4", features = ["macros"], optional = true }
 tokio = { version = "1", features = ["rt", "time", "macros"], optional = true }
 async-trait = { version = "0.1", optional = true }
 ziee-core = { path = "../ziee-core", optional = true }
-ziee-framework = { path = "../ziee-framework", optional = true }
-ziee-auth = { path = "../ziee-auth", optional = true }
+ziee-framework = { path = "../ziee-framework", optional = true, default-features = false }
+ziee-auth = { path = "../ziee-auth", optional = true, default-features = false }
 
 [features]
 default = []
@@ -74,7 +77,27 @@ routes = [
 # (e.g. CytoAnalyst). OFF by default so ziee — which keeps its
 # `ZieeIdentityResolver`-backed thin module — never links a second, conflicting
 # notification module (keeps ziee's route/OpenAPI surface single-sourced).
-module = ["routes"]
+# `DefaultIdentityResolver` lives behind `ziee-auth`'s own `routes` feature
+# (`auth::turnkey`), so `module` carries it explicitly — the auth EDGE below is
+# declared without default features, so nothing is implied by it anymore.
+module = ["routes", "ziee-auth/routes"]
+# Dual-driver selection (sqlite-store DEC-1 / DEC-21). OFF (default) = the PG
+# variant: `DbPool` is `PgPool`, the query sets + `NOTIFICATION_MIGRATOR` are
+# the Postgres chain, and ziee's behavior is byte-identical to the pre-seam
+# build. ON = the SQLite variant (`DbPool` = `SqlitePool`, cfg-gated sqlite
+# query sets + `migrations-sqlite`). The switch is a COMPILE-TIME feature,
+# never a runtime config toggle; the app builds the SDK with it on.
+#
+# The `ziee-framework` + `ziee-auth` edges below are declared WITHOUT default
+# features: their driver variants are selected by THESE passthrough features
+# instead of their own defaults, so a `sqlite-backend` build links no
+# `postgresql_embedded` downloader at all — with the `ziee-control-mcp` edge
+# flip (DRIFT-1 ITEM-16 #3) no edge in the server graph carries a driver
+# default anymore, completing TEST-1(a)'s build-graph prune. The crate's OWN
+# `default = []` (the types-only lane) is deliberately UNCHANGED — the base
+# shipped it, and a types-only consumer must stay types-only.
+embedded-pg = ["ziee-framework/embedded-pg", "ziee-auth/embedded-pg"]
+sqlite-backend = ["ziee-framework/sqlite-backend", "ziee-auth/sqlite-backend"]
 
 # build.rs provisions a per-worktree build DB (this crate's own migration) + sets
 # DATABASE_URL so the `routes`-feature `query!`/`query_as!` macros verify at
