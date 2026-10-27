@@ -12,8 +12,22 @@ edition = "2024"
 # consumer stays lean. The routes surface has NO `query!` macros beyond those the
 # engine already carries, so this feature does not change the file-only build-DB
 # story.
-default = ["routes"]
+default = ["routes", "embedded-pg"]
 routes = ["dep:aide", "dep:axum", "dep:ziee-framework", "dep:ziee-auth", "dep:jsonwebtoken"]
+# Dual-driver selection (sqlite-store DEC-1 / DEC-21). OFF (default) = the PG
+# variant: `DbPool` is `PgPool`, the query sets + `FILE_MIGRATOR` are the
+# Postgres chain, and ziee's behavior is byte-identical to the pre-seam
+# build. ON = the SQLite variant (`DbPool` = `SqlitePool`, cfg-gated sqlite
+# query sets + `migrations-sqlite`). The switch is a COMPILE-TIME feature,
+# never a runtime config toggle; the app builds the SDK with it on.
+#
+# The `ziee-framework` + `ziee-auth` edges below are declared WITHOUT default
+# features: their driver variants are selected by THESE passthrough features
+# instead of their own defaults, so a `sqlite-backend` build links no
+# `postgresql_embedded` downloader at all (DRIFT-1 ITEM-12 #3: TEST-1(a)'s lock
+# prune is the query-port items' manifest work — ITEM-15 takes the file half).
+embedded-pg = ["ziee-framework/embedded-pg", "ziee-auth/embedded-pg"]
+sqlite-backend = ["ziee-framework/sqlite-backend", "ziee-auth/sqlite-backend"]
 
 [dependencies]
 # `ziee-file` is the generic, domain-agnostic multi-derivative blob STORE:
@@ -46,14 +60,17 @@ hex = "0.4"
 mime_guess = "2.0"
 zip = "6.0.0"
 
-# HTTP/aide surface (routes feature only). `ziee-framework` provides the
-# resolver-generic permission extractors (`RequirePermissions<R,_>` +
+# HTTP/aide surface (routes feature only). `default-features = false` on the
+# framework + auth edges — see the feature block above: the driver variants are
+# selected by THIS crate's embedded-pg / sqlite-backend passthrough features,
+# never by their own defaults. `ziee-framework` provides the resolver-generic
+# permission extractors (`RequirePermissions<R,_>` +
 # `with_permission`) + the `SyncOrigin` header extractor; `ziee-auth` provides
 # the concrete `User`/`Group` wire types the routes fix their resolver to (every
 # file response is owner-scoped by `user.id`). Versions match ziee-framework so
 # the single aide/axum version unifies. `jsonwebtoken` signs download tokens.
-ziee-framework = { path = "../ziee-framework", optional = true }
-ziee-auth = { path = "../ziee-auth", optional = true }
+ziee-framework = { path = "../ziee-framework", optional = true, default-features = false }
+ziee-auth = { path = "../ziee-auth", optional = true, default-features = false }
 # `axum-query` supplies `OperationInput` for `axum::extract::Query` (the file
 # handlers' pagination/preview/page query params). The workspace-level aide the
 # server links already enables it, so the full-build feature union is unchanged;

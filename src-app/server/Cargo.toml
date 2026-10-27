@@ -55,8 +55,8 @@ serde_norway = "0.9"
 # below is `default-features = false` + the driver feature: the framework's
 # `embedded-pg` (the postgresql_embedded downloader) enters the resolved
 # graph only through a crate that still default-features it — the remaining
-# schema-bound crates (ziee-file / ziee-notification) flip at ITEM-15/16,
-# completing TEST-1(a)'s lock prune (DRIFT-1 ITEM-12 #3).
+# schema-bound crate (ziee-notification) flips at ITEM-16, completing
+# TEST-1(a)'s lock prune (DRIFT-1 ITEM-12 #3).
 ziee-core = { path = "../../sdk/crates/ziee-core", default-features = false, features = ["sqlite-backend"] }
 ziee-framework = { path = "../../sdk/crates/ziee-framework", default-features = false, features = ["sqlite-backend"] }
 # AI-controllable-actions MCP surface: the DB-free OpenAPI→capability catalog +
@@ -77,7 +77,9 @@ ziee-health = { path = "../../sdk/crates/ziee-health" }
 # File STORE: the generic, domain-agnostic multi-derivative blob store + its
 # mountable `file_routes` HTTP surface (`routes` feature default-on). Backs the
 # dataset upload path (INPUT uploads only — see docs/DATA_STORAGE_REDESIGN.md).
-ziee-file = { path = "../../sdk/crates/ziee-file" }
+# `sqlite-backend` selects the cfg-gated sqlite query sets + the
+# migrations-sqlite chain (ITEM-15).
+ziee-file = { path = "../../sdk/crates/ziee-file", default-features = false, features = ["routes", "sqlite-backend"] }
 
 # --- Third-party (versions matched to the SDK crates so the single Cargo.lock
 #     unifies them without a duplicate build) -------------------------------

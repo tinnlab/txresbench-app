@@ -468,8 +468,7 @@ impl AuthRepository {
         .await
         .map_err(AppError::database_error)?;
         if linked.is_none() {
-            return Err(AppError::new(
-                axum::http::StatusCode::CONFLICT,
+            return Err(AppError::conflict_code(
                 "RESOURCE_CONFLICT",
                 "This external account is already linked to a different user",
             ));
@@ -540,8 +539,7 @@ impl AuthRepository {
         .await
         .map_err(AppError::database_error)?;
         if linked.is_none() {
-            return Err(AppError::new(
-                axum::http::StatusCode::CONFLICT,
+            return Err(AppError::conflict_code(
                 "RESOURCE_CONFLICT",
                 "This external account is already linked to a different user",
             ));

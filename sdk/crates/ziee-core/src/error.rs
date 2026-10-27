@@ -100,6 +100,14 @@ impl AppError {
         )
     }
 
+    /// 409 with an explicit machine-readable code + message (the
+    /// `conflict(resource)` spelling formats its own message; driver/features-
+    /// neutral — usable from SDK engine surfaces that do not link the axum
+    /// HTTP crate directly, e.g. a `sqlite-backend` repository leg).
+    pub fn conflict_code(error_code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::new(StatusCode::CONFLICT, error_code, message)
+    }
+
     pub fn bad_request(error_code: impl Into<String>, message: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, error_code, message)
     }

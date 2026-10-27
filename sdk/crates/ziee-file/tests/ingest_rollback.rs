@@ -7,8 +7,15 @@
 //! reference it. This drives that path on a fresh throwaway DB: we drop the
 //! table the second INSERT targets so `repo.create()` fails deterministically
 //! after the blobs are on disk, then assert the store was cleaned.
+//!
+//! Dual-driver: the harness in `common` provisions the driver of the build;
+//! only the table-drop leg differs (the postgres `CASCADE` keyword vs the plain
+//! sqlite drop — the ported schema has no FK targeting `file_versions`, so no
+//! cascade is needed there).
 
-use sqlx::{postgres::PgPoolOptions, Connection, Executor, PgConnection, PgPool};
+mod common;
+use common::{drop_db, fresh_db};
+
 use uuid::Uuid;
 
 use ziee_file::init_file_storage;
@@ -17,43 +24,27 @@ use ziee_file::models::ProcessingResult;
 use ziee_file::repository::FileRepository;
 use ziee_file::seams::FileEvents;
 
-fn admin_url() -> String {
-    std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql://postgres:password@127.0.0.1:54321/postgres".to_string())
-}
-
-/// Provision a fresh throwaway DB and apply the crate's migration.
-async fn fresh_db() -> (PgPool, String) {
-    let admin = admin_url();
-    let base_full = admin.split('?').next().unwrap();
-    let (base, _) = base_full.rsplit_once('/').expect("admin url has a /db suffix");
-    let dbname = format!("ziee_file_ingest_test_{}", Uuid::new_v4().simple());
-
-    let mut conn = PgConnection::connect(&admin).await.expect("connect admin db");
-    conn.execute(format!("CREATE DATABASE \"{dbname}\"").as_str())
-        .await
-        .expect("create test db");
-    conn.close().await.ok();
-
-    let pool = PgPoolOptions::new()
-        .max_connections(4)
-        .connect(&format!("{base}/{dbname}"))
-        .await
-        .expect("connect test db");
-
-    pool.execute(include_str!("../migrations/202607140125_file_schema.sql"))
-        .await
-        .expect("crate migration applies standalone on a bare DB");
-
-    (pool, dbname)
-}
-
-async fn drop_db(dbname: &str) {
-    if let Ok(mut conn) = PgConnection::connect(&admin_url()).await {
-        let _ = conn
-            .execute(format!("DROP DATABASE IF EXISTS \"{dbname}\" WITH (FORCE)").as_str())
-            .await;
-        conn.close().await.ok();
+/// Force `repo.create()` to fail AFTER the blobs are written: drop the table
+/// its SECOND INSERT targets. The `CASCADE` keyword additionally drops the
+/// deferred `files.current_version_id` FK on postgres, so the parent INSERT
+/// succeeds and the `file_versions` INSERT is what errors — exercising the
+/// rollback branch, not a pre-write failure. On sqlite the ported chain has no
+/// FK to cascade (the baseline's FK claim is stale on BOTH engines), so the
+/// plain drop gives the identical failure point.
+async fn drop_version_table(pool: &ziee_core::DbPool) {
+    #[cfg(not(feature = "sqlite-backend"))]
+    {
+        use sqlx::Executor;
+        pool.execute("DROP TABLE file_versions CASCADE")
+            .await
+            .expect("drop file_versions to force a create() failure");
+    }
+    #[cfg(feature = "sqlite-backend")]
+    {
+        use sqlx::Executor;
+        pool.execute("DROP TABLE file_versions")
+            .await
+            .expect("drop file_versions to force a create() failure");
     }
 }
 
@@ -84,13 +75,9 @@ async fn store_processed_rolls_back_blobs_when_the_db_create_fails() {
     let user = Uuid::new_v4();
 
     // Force `repo.create()` to fail AFTER `store_processed` has already written
-    // the blobs: drop the table its SECOND INSERT targets. `CASCADE` also drops
-    // the deferred `files.current_version_id` FK, so the parent INSERT succeeds
-    // and the `file_versions` INSERT is what errors — exercising the rollback
-    // branch, not a pre-write failure.
-    pool.execute("DROP TABLE file_versions CASCADE")
-        .await
-        .expect("drop file_versions to force a create() failure");
+    // the blobs: drop the table its SECOND INSERT targets (see
+    // `drop_version_table`).
+    drop_version_table(&pool).await;
 
     // Include a derivative (a text page) so the rollback must clean more than
     // just the original.
