@@ -8,12 +8,13 @@
 //! provisioner uses (`ziee_build_support::build_db`'s `BuildDbLeg` table), so
 //! compose and provision can never select different drivers.
 //!
-//! * **postgres** (the default leg, today) — the module-owned chains:
-//!   `src/modules/<m>/migrations/` (globbed by the composer) plus the three
-//!   schema-bound SDK crates' `migrations/` dirs, passed explicitly.
-//! * **sqlite** — the ported chain, staged OUTSIDE the module dirs while the
-//!   two chains coexist (DEC-9): `src-app/server/migrations-sqlite/<module>/`
-//!   plus `sdk/crates/<c>/migrations-sqlite/`. The staging dirs are passed
+//! * **postgres** (the operator-override / unset leg) — the module-owned
+//!   chains: `src/modules/<m>/migrations/` (globbed by the composer) plus the
+//!   three schema-bound SDK crates' `migrations/` dirs, passed explicitly.
+//! * **sqlite** (the committed-sentinel leg since the ITEM-12 flip) — the
+//!   ported chain, staged OUTSIDE the module dirs while the two chains coexist
+//!   (DEC-9): `src-app/server/migrations-sqlite/<module>/` plus
+//!   `sdk/crates/<c>/migrations-sqlite/`. The staging dirs are passed
 //!   EXPLICITLY (enumerated — a port item adds its module dir with no
 //!   `build.rs` edit; the composer silently skips a dir that does not exist).
 //!
@@ -38,11 +39,11 @@ pub enum MigrationChain {
     Sqlite,
 }
 
-/// The dispatch rule — the app-side twin of the SDK's `BuildDbLeg` table: a
-/// `sqlite:` `DATABASE_URL` (committed sentinel OR operator override) selects
-/// the ported chain; unset or postgres selects the module-owned chains, which
-/// is the pre-flip behavior. Anything else falls to Postgres, mirroring the
-/// SDK leg's `_ => Postgres` arm.
+/// The dispatch rule — the app-side twin of the SDK's `BuildDbLeg` table: the
+/// committed `sqlite:` `DATABASE_URL` sentinel (or an operator `sqlite:`
+/// override) selects the ported chain; unset or postgres selects the
+/// module-owned chains (the legacy/operator-override state). Anything else
+/// falls to Postgres, mirroring the SDK leg's `_ => Postgres` arm.
 pub fn for_build_db_url(database_url: Option<&str>) -> MigrationChain {
     match database_url {
         Some(url) if ziee_build_support::worktree_db::is_sqlite_url(url) => MigrationChain::Sqlite,

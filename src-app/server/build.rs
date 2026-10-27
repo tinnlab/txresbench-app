@@ -2,27 +2,27 @@
 //!
 //! 1. Composes `migrations-merged/` (SDK `compose_merged_migrations_from`) for
 //!    the runtime `sqlx::migrate!`. The merged set is DRIVER-SELECTED: the
-//!    `DATABASE_URL` scheme picks the chain — the module-owned postgres chains
-//!    (default, today) or the staged SQLite port under `migrations-sqlite/`
-//!    once that chain exists (ITEM-6/ITEM-12, DEC-2/DEC-9). The merged dir
+//!    `DATABASE_URL` scheme picks the chain — the staged SQLite port under
+//!    `migrations-sqlite/` under the committed `sqlite:` sentinel (the flipped
+//!    state since ITEM-12) or the module-owned postgres chains under a
+//!    `postgres:` operator override (ITEM-6, DEC-2/DEC-9). The merged dir
 //!    always holds exactly ONE chain.
 //! 2. Provisions a per-worktree BUILD DATABASE for that same driver (`sqlx::`
-//!    macros verify SQL at compile time): the shared local build cluster
-//!    (`127.0.0.1:54321`, `src-app/docker-compose.yaml`) for postgres, a build
-//!    FILE under `target/sqlx-build/` for sqlite — see
-//!    `ziee_build_support::provision_build_db`, which dispatches on the same
-//!    scheme rule. `cargo:rustc-env=DATABASE_URL` then holds the resolved URL
-//!    (scoped to THIS crate) — SDK gap G4, resolved by `provision_build_db`.
-//!    Beneath it: the build-time processor-manifest / env-pin gates, the
-//!    sandbox-rootfs embed (fail-soft), and the `rootfs_version` freshness
-//!    single-sourcing (lib + build script path-include).
+//!    macros verify SQL at compile time): a build FILE under
+//!    `target/sqlx-build/` for sqlite (the flipped default), the shared local
+//!    build cluster (`127.0.0.1:54321`, `src-app/docker-compose.yaml`) for a
+//!    postgres override — see `ziee_build_support::provision_build_db`, which
+//!    dispatches on the same scheme rule. `cargo:rustc-env=DATABASE_URL` then
+//!    holds the resolved URL (scoped to THIS crate) — SDK gap G4, resolved by
+//!    `provision_build_db`. Beneath it: the build-time processor-manifest /
+//!    env-pin gates, the sandbox-rootfs embed (fail-soft), and the
+//!    `rootfs_version` freshness single-sourcing (lib + build script
+//!    path-include).
 //!
-//! The build DB lives on the SDK's committed `:54321` sentinel, so the one-call
-//! `provision_build_db` handles per-worktree isolation (`cytoanalyst_build_<key>`)
-//! automatically — same cluster ziee-auth uses, so a single running Postgres
-//! serves everything. If a cluster is already up on `:54321` (e.g. ziee's
-//! pgvector container), we reuse it; pgvector is a superset of plain Postgres, so
-//! CytoAnalyst's (vector-free) schema is happy either way.
+//! The build DB is the per-worktree file `cytoanalyst_build_<key>.sqlite` the
+//! one-call `provision_build_db` derives from the committed sqlite sentinel
+//! (wiped + re-migrated on every build; the postgres leg does the equivalent
+//! on `:54321` for an operator override, reusing the cluster when it is up).
 
 use std::path::PathBuf;
 
@@ -120,8 +120,10 @@ fn main() {
     }
 
     // Provision + migrate the per-worktree build DB and set DATABASE_URL so the
-    // sqlx query macros verify at compile time. Requires the `:54321` build
-    // cluster up: `cd src-app && docker compose up -d` (or reuse an existing one).
+    // sqlx query macros verify at compile time. Driver selected by the scheme
+    // (committed sqlite sentinel → the per-worktree file under
+    // `target/sqlx-build/`; a postgres override → the `:54321` build cluster,
+    // which must then be up: `cd src-app && docker compose up -d`).
     provision_build_db(&merged);
 
     // Docker-build + embed the analysis rootfs (fail-soft: stub on any failure,
