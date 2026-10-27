@@ -8,7 +8,7 @@
 //! `jobs::use`), and the project-name case-insensitive search returns the
 //! same rows as the PG `ILIKE` on ASCII names (fixture list)."
 //!
-//! What THIS item pins beyond the shared harness's 48-file leg:
+//! What THIS item pins beyond the shared harness's 57-file leg (the full chain):
 //!
 //!   * the account baseline's BACKFILL over pre-existing users (the
 //!     migration's whole point — a fresh-file first boot has no users, so
@@ -16,7 +16,7 @@
 //!     created BEFORE the account chain applies, exactly the state the
 //!     Postgres file's INSERT…SELECT was written for);
 //!   * the `groups.permissions` JSON-array grant semantics (append exactly
-//!     once, the final 14-item array in version order; `json_each`
+//!     once, the final 17-item array in version order (ITEM-11's provenance + drafts grants at their version positions); `json_each`
 //!     membership + `json_insert` tail-append round-trip);
 //!   * the project-name `instr(lower(name), lower(?)) > 0` rewrite (the
 //!     DEC-11 ASCII-folded port of `ILIKE`) returns the same rows the
@@ -37,9 +37,11 @@
 use super::apply_chain::{apply_chain, compose_sqlite_chain, Scratch, CHAIN_FILES};
 
 /// The chain state at the end of ITEM-9 (SDK 7 + app ITEM-8 groups 13 +
-/// workstore 19 = 39 files) — the split point for the backfill test, which
-/// pre-creates a user before the ITEM-10 files apply.
-const PRE_ITEM10_FILE_COUNT: usize = 39;
+/// workstore 19 = 39 files) was the ITEM-10-era split point; at ITEM-11 the
+/// pre-ITEM-10 set additionally contains ITEM-11's dataset/drafts/
+/// provenance files (9, interleaved by version), so the pre set is now
+/// `CHAIN_FILES.len() - 9` = 48 files.
+const PRE_ITEM10_FILE_COUNT: usize = 48;
 
 /// The nine ITEM-10 files, in the order the merged chain applies them (they
 /// INTERLEAVE with the rest of the chain by version — 202608030003 sorts
@@ -74,7 +76,7 @@ async fn insert_org_account(pool: &sqlx::SqlitePool, id: uuid::Uuid, name: &str)
 /// then apply the nine ITEM-10 files as a second migrator — the account
 /// baseline's backfill runs against a populated `users` table and yields
 /// exactly one personal account + one owner membership with 16-byte BLOB
-/// ids; the grants are the final 14-item JSON array; the re-apply of the
+/// ids; the grants are the final 17-item JSON array; the re-apply of the
 /// full chain is a no-op.
 #[tokio::test]
 async fn account_backfill_over_preexisting_users_and_idempotence_hold() {
@@ -97,7 +99,7 @@ async fn account_backfill_over_preexisting_users_and_idempotence_hold() {
     assert_eq!(
         pre_names.len(),
         PRE_ITEM10_FILE_COUNT,
-        "pre set is 39 files"
+        "pre set is 48 files"
     );
     for name in &pre_names {
         std::fs::copy(merged.join(name), pre.join(name)).expect("copy pre-file");
@@ -106,13 +108,15 @@ async fn account_backfill_over_preexisting_users_and_idempotence_hold() {
         std::fs::copy(merged.join(name), post.join(name)).expect("copy item10 file");
     }
 
-    // The pre-ITEM-10 chain applies WITH the ITEM-9-state stub parents,
+    // The pre-ITEM-10 chain applies WITH the ITEM-9/11-state stub parents,
     // explicitly (the shared `ensure_late_parent_stubs` is conditional on
-    // the staged dirs — at ITEM-10 it creates only the datasets stub; the
-    // REAL account/project tables must NOT exist in this pre-state, while
-    // the workstore DML (the 040001 DELETE FROM artifacts) needs the
-    // project/dataset/accounts parent tables to exist at all — FK DML
-    // resolves the whole parent set). The pre state is exactly the ITEM-9
+    // the staged dirs and creates nothing at ITEM-11 — the REAL
+    // account/project tables must NOT exist in this pre-state, while the
+    // workstore DML (the 040001 DELETE FROM artifacts) needs the
+    // project/accounts parent tables to exist at all — FK DML resolves the
+    // whole parent set). `datasets` needs NO stub at ITEM-11: it sorts in
+    // the pre set (202608030002, the real ITEM-11 chain) and is real by
+    // the time any DML runs. The pre state is exactly the ITEM-9/11
     // harness state.
     let db = scratch.path().join("scratch.sqlite");
     let pool = sqlx::sqlite::SqlitePoolOptions::new()
@@ -134,13 +138,6 @@ async fn account_backfill_over_preexisting_users_and_idempotence_hold() {
         .execute(&pool)
         .await
         .expect("projects stub");
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS datasets \
-         (id BLOB PRIMARY KEY, owner_id BLOB, source_artifact_id BLOB, created_at TEXT)",
-    )
-    .execute(&pool)
-    .await
-    .expect("datasets stub");
     sqlx::migrate::Migrator::new(pre.as_path())
         .await
         .expect("pre migrator")
@@ -226,14 +223,17 @@ async fn account_backfill_over_preexisting_users_and_idempotence_hold() {
     // --- the grants: every perm present exactly once (order is not
     // pin-able here — the two-phase apply appends the ITEM-10 grants after
     // the pre-applied ones; the exact VERSION ORDER of the final array is
-    // pinned by the shared harness's one-shot full-chain leg).
+    // pinned by the shared harness's one-shot full-chain leg). At ITEM-11
+    // the pre-applied set additionally carries the ITEM-11 grants
+    // (provenance::read/export by 202608030005, drafts::use by
+    // 202608240001), so the final array is 17 items.
     let permissions_json: String =
         sqlx::query_scalar("SELECT permissions FROM groups WHERE name = 'Users'")
             .fetch_one(&pool)
             .await
             .expect("Users group");
     let granted: Vec<&str> = serde_json::from_str(&permissions_json).expect("permissions JSON");
-    assert_eq!(granted.len(), 14, "final 14-item array: {permissions_json}");
+    assert_eq!(granted.len(), 17, "final 17-item array: {permissions_json}");
     for perm in [
         "jobs::use",
         "mcp::use",
@@ -241,6 +241,9 @@ async fn account_backfill_over_preexisting_users_and_idempotence_hold() {
         "account::members::manage",
         "projects::use",
         "notifications::read",
+        "provenance::read",
+        "provenance::export",
+        "drafts::use",
         "files::read",
         "files::upload",
         "files::download",
@@ -275,7 +278,7 @@ async fn account_backfill_over_preexisting_users_and_idempotence_hold() {
     assert_eq!(extended.len(), granted.len() + 1, "tail-extend only");
     assert_eq!(extended[granted.len()], "probe::x");
 
-    // --- the full 48-file chain re-applies as a no-op (shared harness leg;
+    // --- the full 57-file chain re-applies as a no-op (shared harness leg;
     // the raw-applied files above are not in `_sqlx_migrations`, so this
     // test's own no-op proof is the shared `ported_chain…` test instead).
 }

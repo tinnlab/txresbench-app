@@ -263,8 +263,9 @@ async fn artifact_model_invariants_hold() {
 
     // Project + dataset parent fixtures. ITEM-10's REAL `projects` table
     // landed (strict NOT NULLs — id/owner_id/name — and the owner FK to
-    // users), so the project row needs a users row; `datasets` is still
-    // the ITEM-11 stub, but ITEM-10's 202608040013 ADDs `account_id …
+    // users), so the project row needs a users row; ITEM-11's REAL
+    // `datasets` chain also landed (id/name/owner_id NOT NULL — see the
+    // insert below), and ITEM-10's 202608040013 ADDs `account_id …
     // CHECK (account_id IS NOT NULL)` + a REFERENCES to the real accounts
     // table, so the dataset row needs an accounts fixture (an org row —
     // the personal_has_user CHECK).
@@ -291,12 +292,20 @@ async fn artifact_model_invariants_hold() {
     .execute(&pool)
     .await
     .expect("project fixture row (the ITEM-10 real table — 013's account_id CHECK)");
-    sqlx::query("INSERT INTO datasets (id, account_id) VALUES (?, ?)")
-        .bind(ds)
-        .bind(tenant)
-        .execute(&pool)
-        .await
-        .expect("dataset fixture row (stub + the 013 account_id column)");
+    // ITEM-11's REAL `datasets` chain landed (id/name/owner_id NOT NULL,
+    // metadata DEFAULT '{}', source DEFAULT 'upload') and ITEM-10's
+    // 202608040013 ADDs `account_id … CHECK (account_id IS NOT NULL)` + a
+    // REFERENCES to the real accounts table — so the row binds owner_id
+    // (the users fixture) and account_id (the org fixture).
+    sqlx::query(
+        "INSERT INTO datasets (id, name, owner_id, account_id) VALUES (?, 'fixture', ?, ?)",
+    )
+    .bind(ds)
+    .bind(owner)
+    .bind(tenant)
+    .execute(&pool)
+    .await
+    .expect("dataset fixture row (the ITEM-11 real table + 013's account_id CHECK)");
 
     let insert_artifact = |id: uuid::Uuid,
                            output_id: &str,
@@ -457,7 +466,7 @@ async fn artifact_model_invariants_hold() {
         .expect("set logical bytes");
 }
 
-/// A `role='artifact'` row belonging to the given (stub) dataset — the
+/// A `role='artifact'` row belonging to the given (fixture) dataset — the
 /// many-rows side of the one-mask index: the partial guard must not
 /// constrain it.
 async fn insert_artifact_with_dataset(pool: &sqlx::SqlitePool, output_id: &str, ds: uuid::Uuid) {

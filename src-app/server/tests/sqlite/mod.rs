@@ -6,5 +6,6 @@
 
 pub mod apply_chain;
 pub mod chain_account_project;
+pub mod chain_dataset_drafts_prov;
 pub mod chain_jobs;
 pub mod chain_workstore;
