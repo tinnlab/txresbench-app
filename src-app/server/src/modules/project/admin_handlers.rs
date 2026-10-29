@@ -7,7 +7,7 @@
 use axum::extract::{Path, Query};
 use axum::http::StatusCode;
 use axum::{Extension, Json};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use ziee_core::{ApiResult, AppError};
@@ -47,7 +47,7 @@ async fn require_active_user(
 /// only when `notify` (batch callers suppress the per-project storm + send ONE
 /// summary). Returns `AppError` so batch ops can collect per-item failures.
 async fn perform_change_owner(
-    pool: &PgPool,
+    pool: &SqlitePool,
     id: Uuid,
     new_owner: Uuid,
     keep_old_as_editor: bool,
@@ -109,7 +109,7 @@ async fn perform_change_owner(
 /// and the account's remaining members — who could open the project right up until this
 /// call — were told nothing. It resolves through `project_audience` like every other
 /// site now.
-async fn perform_delete(pool: &PgPool, id: Uuid) -> Result<(), AppError> {
+async fn perform_delete(pool: &SqlitePool, id: Uuid) -> Result<(), AppError> {
     let repo = ProjectRepository::new(pool.clone());
     // Resolve BEFORE the delete: the membership rows survive it, but the shares cascade
     // away with the project.
@@ -129,7 +129,7 @@ async fn perform_delete(pool: &PgPool, id: Uuid) -> Result<(), AppError> {
     Ok(())
 }
 
-async fn run_batch_reassign(pool: &PgPool, ids: &[Uuid], to: Uuid) -> BatchResult {
+async fn run_batch_reassign(pool: &SqlitePool, ids: &[Uuid], to: Uuid) -> BatchResult {
     let mut succeeded = Vec::new();
     let mut failed = Vec::new();
     let mut moved = 0usize; // projects that ACTUALLY changed owner (not no-ops)
@@ -172,7 +172,7 @@ async fn run_batch_reassign(pool: &PgPool, ids: &[Uuid], to: Uuid) -> BatchResul
 
 pub async fn admin_list(
     _auth: RequirePermissions<(ProjectAdminRead,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Query(q): Query<AdminProjectListQuery>,
 ) -> ApiResult<Json<AdminProjectListResponse>> {
     let repo = ProjectRepository::new(pool);
@@ -190,7 +190,7 @@ pub async fn admin_list(
 
 pub async fn admin_user_search(
     _auth: RequirePermissions<(ProjectAdminRead,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Query(q): Query<AdminUserSearchQuery>,
 ) -> ApiResult<Json<AdminUserSearchResponse>> {
     let repo = ProjectRepository::new(pool);
@@ -201,7 +201,7 @@ pub async fn admin_user_search(
 
 pub async fn admin_detail(
     _auth: RequirePermissions<(ProjectAdminRead,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<AdminProjectDetail>> {
     let repo = ProjectRepository::new(pool);
@@ -215,7 +215,7 @@ pub async fn admin_detail(
 
 pub async fn admin_change_owner(
     _auth: RequirePermissions<(ProjectAdminManage,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path(id): Path<Uuid>,
     Json(req): Json<AdminChangeOwnerRequest>,
 ) -> ApiResult<Json<AdminProjectDetail>> {
@@ -234,7 +234,7 @@ pub async fn admin_change_owner(
 
 pub async fn admin_share(
     _auth: RequirePermissions<(ProjectAdminManage,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path(id): Path<Uuid>,
     Json(req): Json<AdminShareRequest>,
 ) -> ApiResult<Json<AdminProjectDetail>> {
@@ -294,7 +294,7 @@ pub async fn admin_share(
 
 pub async fn admin_revoke_share(
     _auth: RequirePermissions<(ProjectAdminManage,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path((project_id, share_id)): Path<(Uuid, Uuid)>,
 ) -> ApiResult<()> {
     let repo = ProjectRepository::new(pool);
@@ -320,7 +320,7 @@ pub async fn admin_revoke_share(
 
 pub async fn admin_delete(
     _auth: RequirePermissions<(ProjectAdminManage,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<()> {
     perform_delete(&pool, id).await.map_err(e)?;
@@ -329,7 +329,7 @@ pub async fn admin_delete(
 
 pub async fn admin_reassign_owner(
     _auth: RequirePermissions<(ProjectAdminManage,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Json(req): Json<AdminReassignRequest>,
 ) -> ApiResult<Json<BatchResult>> {
     let repo = ProjectRepository::new(pool.clone());
@@ -347,7 +347,7 @@ pub async fn admin_reassign_owner(
 
 pub async fn admin_batch_reassign(
     _auth: RequirePermissions<(ProjectAdminManage,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Json(req): Json<BatchReassignRequest>,
 ) -> ApiResult<Json<BatchResult>> {
     if req.project_ids.len() > ADMIN_BATCH_MAX {
@@ -361,7 +361,7 @@ pub async fn admin_batch_reassign(
 
 pub async fn admin_batch_delete(
     _auth: RequirePermissions<(ProjectAdminManage,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Json(req): Json<BatchDeleteRequest>,
 ) -> ApiResult<Json<BatchResult>> {
     if req.project_ids.len() > ADMIN_BATCH_MAX {

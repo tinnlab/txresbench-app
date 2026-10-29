@@ -18,7 +18,7 @@
 //!
 //! P10 decides WHAT to GC (collect); P1 decides HOW/WHEN to free (refcounted).
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 use ziee_core::AppError;
 
@@ -70,7 +70,7 @@ impl GcManifest {
 /// logs the marked count. P1 replaces the body with a refcount-gated free (free a
 /// blob only when its hash has no surviving storage-ref) + a background
 /// orphan-reaper as the crash backstop.
-pub async fn sweep_gc_manifest(pool: &PgPool, manifest: &GcManifest) -> Result<(), AppError> {
+pub async fn sweep_gc_manifest(pool: &SqlitePool, manifest: &GcManifest) -> Result<(), AppError> {
     // P1 (workstore) OWNS the post-commit refcount free: a marked blob is freed
     // only when its content hash has no surviving storage-ref (shared blobs
     // survive — the dedup guard). Delegated so the project module stays free of
@@ -104,7 +104,7 @@ mod tests {
     fn default_manifest_has_no_project_and_no_refs() {
         // A bare manifest (used by the registry mock-thread test) starts empty and
         // project-less. The `sweep_gc_manifest` no-op contract (always Ok) needs a
-        // PgPool, so it is exercised on the real delete path at the integration
+        // SqlitePool, so it is exercised on the real delete path at the integration
         // tier (TEST-12), not here.
         let mut m = GcManifest::default();
         assert!(m.is_empty());
