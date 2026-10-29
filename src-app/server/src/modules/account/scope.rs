@@ -18,27 +18,33 @@
 pub use super::models::{AccountKind, AccountRole};
 pub use super::repository::AccountRepository;
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 use ziee_core::AppError;
 
 // ---------------------------------------------------------------------------
 // A2 — the project/dataset → account BRIDGE (DEC-3: A1 owns the account graph;
 // A2 owns `account_of(project|dataset|artifact)`, which read the `account_id`
-// column A2 ADDS). All three are plain `&PgPool` one-row PK lookups returning
+// column A2 ADDS). All three are plain `&SqlitePool` one-row PK lookups returning
 // `Option<Uuid>` — mirroring A1's `personal_account_of` shape — so the `account`
 // module stays free of a `project`/`dataset`/`workstore` import (no module cycle;
 // they read the tables by raw SQL, not by importing those modules' types).
-// DEC-8: deliberately `&PgPool`, NOT design §6's `&ProjectRepository`.
+// DEC-8: deliberately `&SqlitePool`, NOT design §6's `&ProjectRepository`.
+// (sqlite-store: the pool retype follows the module's single-driver port; the
+// `account_id`/`project_id`/`dataset_id` columns are 16-byte BLOBs, so the
+// select overrides are written out explicitly.)
 //
 // `None` = the resource is absent/foreign — the 404 signal A3's membership-authz
 // layer maps (the analog of `ProjectScope::resolve → None`).
 // ---------------------------------------------------------------------------
 
 /// The account a project belongs to (PROV-A2-1). `None` = no such project.
-pub async fn account_of_project(pool: &PgPool, project_id: Uuid) -> Result<Option<Uuid>, AppError> {
+pub async fn account_of_project(
+    pool: &SqlitePool,
+    project_id: Uuid,
+) -> Result<Option<Uuid>, AppError> {
     let row = sqlx::query!(
-        r#"SELECT account_id FROM projects WHERE id = $1"#,
+        r#"SELECT account_id as "account_id: Uuid" FROM projects WHERE id = $1"#,
         project_id,
     )
     .fetch_optional(pool)
@@ -48,9 +54,12 @@ pub async fn account_of_project(pool: &PgPool, project_id: Uuid) -> Result<Optio
 }
 
 /// The account a dataset belongs to (PROV-A2-2). `None` = no such dataset.
-pub async fn account_of_dataset(pool: &PgPool, dataset_id: Uuid) -> Result<Option<Uuid>, AppError> {
+pub async fn account_of_dataset(
+    pool: &SqlitePool,
+    dataset_id: Uuid,
+) -> Result<Option<Uuid>, AppError> {
     let row = sqlx::query!(
-        r#"SELECT account_id FROM datasets WHERE id = $1"#,
+        r#"SELECT account_id as "account_id: Uuid" FROM datasets WHERE id = $1"#,
         dataset_id,
     )
     .fetch_optional(pool)
@@ -67,11 +76,11 @@ pub async fn account_of_dataset(pool: &PgPool, dataset_id: Uuid) -> Result<Optio
 /// need not import `workstore` — same result, no cycle. `None` = the artifact is
 /// absent, or hangs off neither a project nor a dataset.
 pub async fn account_of_artifact(
-    pool: &PgPool,
+    pool: &SqlitePool,
     artifact_id: Uuid,
 ) -> Result<Option<Uuid>, AppError> {
     let row = sqlx::query!(
-        r#"SELECT project_id, dataset_id FROM artifacts WHERE id = $1"#,
+        r#"SELECT project_id as "project_id?: Uuid", dataset_id as "dataset_id?: Uuid" FROM artifacts WHERE id = $1"#,
         artifact_id,
     )
     .fetch_optional(pool)
@@ -97,7 +106,10 @@ pub async fn account_of_artifact(
 /// migration but BEFORE A5's signup hook lands. Builds ON A1's frozen PROV-A1-4
 /// (`personal_account_of` fast path + idempotent `ensure_personal_account`),
 /// deriving the account name from the user's username.
-pub async fn ensure_personal_account_for(pool: &PgPool, user_id: Uuid) -> Result<Uuid, AppError> {
+pub async fn ensure_personal_account_for(
+    pool: &SqlitePool,
+    user_id: Uuid,
+) -> Result<Uuid, AppError> {
     let repo = AccountRepository::new(pool.clone());
     if let Some(id) = repo.personal_account_of(user_id).await? {
         return Ok(id);

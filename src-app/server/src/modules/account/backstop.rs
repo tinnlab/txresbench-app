@@ -77,7 +77,7 @@ pub struct BackstopState {
 impl BackstopState {
     /// Build from the app pool + the app's JWT service (the same one `AuthModule`
     /// mints with — same secret ⇒ the access tokens validate here).
-    pub fn new(pool: sqlx::PgPool, jwt: Arc<JwtService>) -> Self {
+    pub fn new(pool: sqlx::SqlitePool, jwt: Arc<JwtService>) -> Self {
         Self {
             jwt,
             repo: Arc::new(AccountRepository::new(pool)),
