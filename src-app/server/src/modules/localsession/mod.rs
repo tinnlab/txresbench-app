@@ -22,7 +22,7 @@ use axum::Json;
 use axum::http::StatusCode;
 use linkme::distributed_slice;
 use serde::Serialize;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use std::sync::Arc;
 use ziee_auth::auth::password::hash_password;
 use ziee_auth::auth::refresh_tokens::mint_session_tokens;
@@ -50,7 +50,7 @@ pub struct LocalSession {
 
 /// Create the single local owner (admin) on first run. Idempotent — no-ops once
 /// an admin exists. Mirrors the desktop crate's `ensure_owner`.
-pub async fn ensure_owner(pool: &PgPool) -> Result<(), AppError> {
+pub async fn ensure_owner(pool: &SqlitePool) -> Result<(), AppError> {
     let user_repo = UserRepository::new(pool.clone());
     let has_admin = user_repo.has_admin().await?;
     if has_admin {
@@ -95,7 +95,7 @@ pub async fn ensure_owner(pool: &PgPool) -> Result<(), AppError> {
 
 /// Mint a permanent session for the single local owner (mirrors the desktop
 /// harness's `SingleUserStrategy::mint_owner_login`).
-pub async fn mint_owner_session(pool: &PgPool, jwt: &JwtService) -> Result<LocalSession, AppError> {
+pub async fn mint_owner_session(pool: &SqlitePool, jwt: &JwtService) -> Result<LocalSession, AppError> {
     let owner = UserRepository::new(pool.clone())
         .get_by_username(OWNER_USERNAME)
         .await?
@@ -123,7 +123,7 @@ pub async fn mint_owner_session(pool: &PgPool, jwt: &JwtService) -> Result<Local
 }
 
 async fn create_local_session(
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Extension(jwt): Extension<Arc<JwtService>>,
 ) -> ApiResult<Json<LocalSession>> {
     ensure_owner(&pool).await?;

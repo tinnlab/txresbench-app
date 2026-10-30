@@ -12,7 +12,7 @@ use std::sync::Arc;
 use axum::http::StatusCode;
 use axum::{Extension, Json};
 use chrono::{DateTime, Utc};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use ziee_auth::auth::JwtService;
@@ -34,8 +34,9 @@ use super::permissions::McpUse;
 /// Pure single-use + TTL predicate, extracted so it's unit-testable without a
 /// DB. The real claim path (`PairingRepository::claim`) encodes the EXACT
 /// same predicate atomically inside one `UPDATE ... WHERE used_at IS NULL AND
-/// expires_at > NOW() RETURNING ...` (race-safe against a concurrent double
-/// exchange) — this function documents + tests that predicate.
+/// expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now') RETURNING ...` (race-safe
+/// against a concurrent double exchange) — this function documents + tests that
+/// predicate.
 ///
 /// Not called from non-test code (the real path is the atomic SQL above, not
 /// this function) — exercised only by the `#[cfg(test)]` module below.
@@ -49,11 +50,11 @@ pub fn code_is_claimable(
 }
 
 pub struct PairingRepository {
-    pool: PgPool,
+    pool: SqlitePool,
 }
 
 impl PairingRepository {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
 
@@ -67,9 +68,11 @@ impl PairingRepository {
     /// rows across a long-lived deployment. Cheap: at most a handful of
     /// short-lived rows exist system-wide at any moment.
     pub async fn create(&self, user_id: Uuid, ttl: chrono::Duration) -> Result<String, AppError> {
-        if let Err(e) = sqlx::query!("DELETE FROM mcp_pairing_codes WHERE expires_at <= NOW()")
-            .execute(&self.pool)
-            .await
+        if let Err(e) = sqlx::query!(
+            "DELETE FROM mcp_pairing_codes WHERE expires_at <= strftime('%Y-%m-%dT%H:%M:%fZ','now')"
+        )
+        .execute(&self.pool)
+        .await
         {
             tracing::warn!(error = %e, "mcp: failed to prune expired pairing codes (non-fatal)");
         }
@@ -77,19 +80,19 @@ impl PairingRepository {
         let code = Uuid::new_v4().to_string();
         let id = Uuid::new_v4();
         let expires_at = Utc::now() + ttl;
-        // sqlx uses `time::OffsetDateTime` for TIMESTAMPTZ bind parameters in
-        // this workspace (the `time` feature wins over `chrono` under feature
-        // unification — see `ziee-auth`'s `refresh_tokens.rs`); convert via
-        // Unix seconds (chrono and time share the same instant model).
-        let expires_at_ts =
-            sqlx::types::time::OffsetDateTime::from_unix_timestamp(expires_at.timestamp())
-                .map_err(|e| AppError::internal_error(format!("invalid expires_at: {e}")))?;
+        // DEC-8: the `expires_at` column is the RFC3339-UTC TEXT form and the
+        // canonical clock writes millisecond precision, so the BOUND value is
+        // formatted to the SAME canonical 3-digit form (`%Y-%m-%dT%H:%M:%S%.3fZ`)
+        // — a lexicographic comparison between a stored and a generated instant is
+        // then chronological, exactly the ziee-auth sqlite convention
+        // (`refresh_tokens::register`'s ExpiryTz bind).
+        let expires_at_str = expires_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
         sqlx::query!(
             r#"INSERT INTO mcp_pairing_codes (id, code, user_id, expires_at) VALUES ($1, $2, $3, $4)"#,
             id,
             code,
             user_id,
-            expires_at_ts,
+            expires_at_str,
         )
         .execute(&self.pool)
         .await
@@ -100,8 +103,10 @@ impl PairingRepository {
     /// Atomically claim `code`: single-use + TTL enforced by the WHERE
     /// clause (mirrors `refresh_tokens::claim_rotation_and_register`'s
     /// atomic-claim pattern) — two concurrent exchanges of the same code can
-    /// both run this UPDATE, but Postgres row-locks the row, so only one
-    /// observes `used_at IS NULL` and wins. Returns the code's owning
+    /// both run this UPDATE, but the single-writer transaction serializes
+    /// them, so only one observes `used_at IS NULL` and wins (Postgres' row
+    /// lock; on SQLite the write lock is the statement's own mutation, the
+    /// ITEM-18/19 single-writer doctrine). Returns the code's owning
     /// `user_id` on success, `None` if the code is unknown, already used, or
     /// expired.
     ///
@@ -111,15 +116,15 @@ impl PairingRepository {
     /// accumulate spent rows. The delete happens AFTER the atomic claim
     /// (best-effort — a failure there is non-fatal), so it can never weaken
     /// the single-use guarantee: two concurrent exchanges still race on the
-    /// UPDATE's row lock exactly as before, and only the winner ever reaches
+    /// row's write lock exactly as before, and only the winner ever reaches
     /// the delete.
     pub async fn claim(&self, code: &str) -> Result<Option<Uuid>, AppError> {
         let row = sqlx::query!(
             r#"
             UPDATE mcp_pairing_codes
-            SET used_at = NOW()
-            WHERE code = $1 AND used_at IS NULL AND expires_at > NOW()
-            RETURNING id, user_id
+            SET used_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+            WHERE code = $1 AND used_at IS NULL AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')
+            RETURNING id as "id: Uuid", user_id as "user_id: Uuid"
             "#,
             code,
         )
@@ -148,7 +153,7 @@ impl PairingRepository {
 /// descoped).
 pub async fn pair_start(
     auth: RequirePermissions<(McpUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
 ) -> ApiResult<Json<PairStartResponse>> {
     // Read-at-use (issue #54): the pairing-code TTL is admin-tunable via the
     // `mcp_settings` row; a never-PUT deployment reads the compiled default
@@ -182,7 +187,7 @@ pub async fn pair_start(
 /// in addition to the account-wide claims) are a documented follow-up
 /// hardening slice, not implemented here.
 pub async fn pair_exchange(
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Extension(jwt): Extension<Arc<JwtService>>,
     Json(body): Json<PairExchangeRequest>,
 ) -> ApiResult<Json<PairExchangeResponse>> {

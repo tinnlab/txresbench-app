@@ -13,7 +13,7 @@ use axum::http::StatusCode;
 use axum::{Extension, Json};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use ziee_core::{ApiResult, AppError};
@@ -66,7 +66,7 @@ fn list_datatypes_docs(op: TransformOperation) -> TransformOperation {
 /// One artifact's registry-enriched catalog view (row ⊗ datatype descriptor).
 async fn get_artifact_catalog(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<ArtifactCatalog>> {
     let repo = CatalogRepository::new(pool.clone());

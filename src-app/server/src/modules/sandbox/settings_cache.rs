@@ -8,7 +8,7 @@
 use std::sync::{Arc, OnceLock, RwLock};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 
 use super::settings::{SandboxResourceLimits, SandboxSettingsRepository};
 
@@ -27,7 +27,7 @@ pub fn snapshot() -> Arc<SandboxResourceLimits> {
 /// Read the limits, loading from the DB once (subsequent calls hit the cache).
 /// A DB error falls back to the current cached value (defaults on first call),
 /// so a sandbox run is never blocked by a settings read.
-pub async fn get(pool: &PgPool) -> Arc<SandboxResourceLimits> {
+pub async fn get(pool: &SqlitePool) -> Arc<SandboxResourceLimits> {
     if !LOADED.load(Ordering::Acquire) {
         match SandboxSettingsRepository::new(pool.clone()).get().await {
             Ok(row) => {

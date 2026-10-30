@@ -19,7 +19,7 @@ use axum::http::StatusCode;
 use axum::{Extension, Json};
 use schemars::JsonSchema;
 use serde::Deserialize;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 use ziee_core::{ApiResult, AppError};
 
@@ -80,7 +80,7 @@ fn audit_flag_mutation(actor: Uuid, action: &str, flag_key: &str, account_id: Op
 /// never re-derives per-account → global → default itself). This is the production
 /// call site of the runtime seam.
 async fn build_view(
-    pool: &PgPool,
+    pool: &SqlitePool,
     repo: &FeatureFlagRepository,
     spec: &FlagSpec,
     account_id: Option<Uuid>,
@@ -105,7 +105,7 @@ async fn build_view(
 
 async fn list_features(
     _auth: RequirePermissions<(FeaturesManage,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Query(q): Query<FeaturesListQuery>,
 ) -> ApiResult<Json<FeaturesListResponse>> {
     let repo = FeatureFlagRepository::new(pool.clone());
@@ -143,7 +143,7 @@ fn list_features_docs(op: TransformOperation) -> TransformOperation {
 
 async fn set_feature(
     auth: RequirePermissions<(FeaturesManage,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path(flag_key): Path<String>,
     Json(req): Json<SetFeatureFlagRequest>,
 ) -> ApiResult<Json<FeatureFlagView>> {
@@ -222,7 +222,7 @@ fn set_feature_docs(op: TransformOperation) -> TransformOperation {
 /// fabricates no row (DEC-5 / INV-2).
 async fn clear_feature(
     auth: RequirePermissions<(FeaturesManage,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path((flag_key, account_id)): Path<(String, Uuid)>,
 ) -> ApiResult<Json<FeatureFlagView>> {
     // Only a known (registry) flag is clearable — the table is not a free-form KV store.

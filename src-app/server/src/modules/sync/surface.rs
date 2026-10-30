@@ -8,7 +8,7 @@
 use std::sync::OnceLock;
 
 use axum::response::sse::Event;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use ziee_auth::auth::http::jwt_extractor::verify_token_version;
@@ -59,9 +59,9 @@ pub fn registry() -> &'static SyncRegistry<SyncConnPrincipal> {
 
 /// The DB pool, captured at module init so the static `recheck` can re-resolve
 /// a connection's identity without a per-request `Extension`.
-static POOL: OnceLock<PgPool> = OnceLock::new();
+static POOL: OnceLock<SqlitePool> = OnceLock::new();
 
-pub fn set_pool(pool: PgPool) {
+pub fn set_pool(pool: SqlitePool) {
     let _ = POOL.set(pool);
 }
 

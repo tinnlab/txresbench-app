@@ -6,7 +6,7 @@
 //! Notify-and-refetch only — the client refetches via the `drafts::use`-gated
 //! `GET /api/drafts`.
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::modules::project::scope::project_audience;
@@ -19,7 +19,7 @@ use crate::modules::sync::{fan_out_owner_scoped, Actor, SyncAction, SyncEntity};
 /// background emit such as an auto-freeze completion — origin None). A resolution
 /// error simply skips the emit (the 60s sync re-check is the backstop).
 pub async fn publish_draft(
-    pool: &PgPool,
+    pool: &SqlitePool,
     project_id: Uuid,
     action: SyncAction,
     draft_id: Uuid,

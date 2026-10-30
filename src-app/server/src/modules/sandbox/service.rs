@@ -8,7 +8,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 use ziee_core::AppError;
 
@@ -83,7 +83,7 @@ fn unavailable(detail: impl Into<String>) -> AppError {
 /// `jobs::admission::admit`); this function spawns a bwrap child unconditionally.
 #[cfg(target_os = "linux")]
 pub async fn run_analysis(
-    pool: &PgPool,
+    pool: &SqlitePool,
     req: &AnalysisRequest,
     extra_mounts: &[ExtraMount],
     job_id: Uuid,
@@ -169,7 +169,7 @@ pub async fn run_analysis(
 
 #[cfg(not(target_os = "linux"))]
 pub async fn run_analysis(
-    _pool: &PgPool,
+    _pool: &SqlitePool,
     _req: &AnalysisRequest,
     _extra_mounts: &[ExtraMount],
     _job_id: Uuid,

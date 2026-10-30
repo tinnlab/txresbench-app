@@ -19,7 +19,7 @@
 //! Other modules call THIS, never the table/repository directly, so the precedence
 //! lives in exactly one place.
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use super::registry;
@@ -30,7 +30,7 @@ use super::repository::FeatureFlagRepository;
 /// Precedence: per-account override → global default → compiled default (INV-1). A
 /// flag with no persisted row returns the compiled default (INV-2); an unknown flag
 /// fails closed (`false`).
-pub async fn is_feature_enabled(pool: &PgPool, flag_key: &str, account_id: Option<Uuid>) -> bool {
+pub async fn is_feature_enabled(pool: &SqlitePool, flag_key: &str, account_id: Option<Uuid>) -> bool {
     let repo = FeatureFlagRepository::new(pool.clone());
 
     // 1. per-account override (only when an account is in scope).

@@ -12,7 +12,7 @@ use axum::http::StatusCode;
 use axum::{Extension, Json};
 use schemars::JsonSchema;
 use serde::Serialize;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use ziee_core::ApiResult;
@@ -79,7 +79,7 @@ fn get_status_docs(op: TransformOperation) -> TransformOperation {
 
 async fn get_settings(
     _auth: RequirePermissions<(SandboxSettingsRead,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
 ) -> ApiResult<Json<SandboxResourceLimits>> {
     let row = SandboxSettingsRepository::new(pool)
         .get()
@@ -98,7 +98,7 @@ fn get_settings_docs(op: TransformOperation) -> TransformOperation {
 
 async fn update_settings(
     auth: RequirePermissions<(SandboxSettingsManage,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Json(body): Json<UpdateSandboxResourceLimits>,
 ) -> ApiResult<Json<SandboxResourceLimits>> {
     let repo = SandboxSettingsRepository::new(pool);
@@ -157,7 +157,7 @@ fn update_settings_docs(op: TransformOperation) -> TransformOperation {
 /// one.
 async fn execute(
     auth: RequirePermissions<(SandboxExecute,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Json(req): Json<AnalysisRequest>,
 ) -> ApiResult<Json<AnalysisResult>> {
     let job_id = Uuid::new_v4();

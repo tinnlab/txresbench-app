@@ -7,7 +7,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use ziee_core::AppError;
 
 /// The singleton resource-limits row. `cpu_max` is bwrap/cgroup's
@@ -382,11 +382,11 @@ pub struct UpdateSandboxResourceLimits {
 }
 
 pub struct SandboxSettingsRepository {
-    pool: PgPool,
+    pool: SqlitePool,
 }
 
 impl SandboxSettingsRepository {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
 
@@ -422,6 +422,9 @@ impl SandboxSettingsRepository {
         // default_env_id is three-state: absent = unchanged; empty = clear to NULL
         // (auto-detect); non-empty = set. COALESCE can't express "clear", so it is
         // driven by an explicit touch flag + a normalized value (empty → NULL).
+        // log the owned bind (the sqlite macro borrows arg values across the
+        // statement — a temporary would be dropped while borrowed).
+        let cpu_max_bound = req.cpu_max.clone();
         let env_touch = req.default_env_id.is_some();
         let env_val = req
             .default_env_id
@@ -450,7 +453,7 @@ impl SandboxSettingsRepository {
                     batch_mem_bytes = COALESCE($17, batch_mem_bytes),
                     default_env_id = CASE WHEN $18 THEN $19 ELSE default_env_id END,
                     updated_by = $20,
-                    updated_at = NOW()
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
                WHERE id = TRUE
                RETURNING memory_max_bytes, memory_swap_max_bytes, pids_max, cpu_max,
                          address_space_bytes, fsize_bytes, nproc_max, nofile_max,
@@ -463,7 +466,7 @@ impl SandboxSettingsRepository {
             req.memory_max_bytes,
             req.memory_swap_max_bytes,
             req.pids_max,
-            req.cpu_max.as_deref(),
+            cpu_max_bound,
             req.address_space_bytes,
             req.fsize_bytes,
             req.nproc_max,

@@ -10,7 +10,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 
 use super::settings::{McpSettings, McpSettingsRepository};
 
@@ -29,7 +29,7 @@ pub fn snapshot() -> Arc<McpSettings> {
 /// Read the settings, loading from the DB once (subsequent calls hit the cache).
 /// A DB error falls back to the current cached value (defaults on first call), so
 /// a hot-path read is never blocked by a settings read.
-pub async fn get(pool: &PgPool) -> Arc<McpSettings> {
+pub async fn get(pool: &SqlitePool) -> Arc<McpSettings> {
     if !LOADED.load(Ordering::Acquire) {
         match McpSettingsRepository::new(pool.clone()).get().await {
             Ok(row) => {

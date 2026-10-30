@@ -14,7 +14,7 @@ use aide::transform::TransformOperation;
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Extension, Json};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 
 use ziee_core::ApiResult;
 
@@ -70,7 +70,7 @@ pub fn mcp_routes() -> ApiRouter {
 
 async fn get_settings(
     _auth: RequirePermissions<(McpSettingsRead,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
 ) -> ApiResult<Json<McpSettings>> {
     let row = McpSettingsRepository::new(pool)
         .get()
@@ -89,7 +89,7 @@ fn get_settings_docs(op: TransformOperation) -> TransformOperation {
 
 async fn update_settings(
     auth: RequirePermissions<(McpSettingsManage,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Json(body): Json<UpdateMcpSettings>,
 ) -> ApiResult<Json<McpSettings>> {
     let repo = McpSettingsRepository::new(pool);

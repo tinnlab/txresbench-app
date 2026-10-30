@@ -56,7 +56,7 @@
 use std::collections::HashSet;
 
 use async_trait::async_trait;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use ziee_core::AppError;
@@ -74,7 +74,7 @@ use ziee_file::seams::{FileAccess, FileAccessPolicy};
 /// candidate order survives (the store hands over ids already sorted
 /// `created_at DESC` and pages the result).
 pub async fn readable_file_ids(
-    pool: &PgPool,
+    pool: &SqlitePool,
     user_id: Uuid,
     candidates: &[Uuid],
 ) -> Result<Vec<Uuid>, AppError> {
@@ -82,6 +82,7 @@ pub async fn readable_file_ids(
         return Ok(Vec::new());
     }
 
+    let candidates_json = uuid_list_json(candidates);
     let rows: Vec<Uuid> = sqlx::query_scalar!(
         // A3 (ITEM-6/DEC-15): the dataset branch inlines dataset-visibility (a
         // hand-copy of `require_dataset_read`), so it gains the SAME account-membership
@@ -198,12 +199,16 @@ pub async fn readable_file_ids(
         // `require_dataset_read` all already refuse a disabled group's member.
         //
         // BATCH FORM. The literal below is the #170 predicate unchanged except that
-        // it selects the MATCHING IDS over a candidate set (`f.id = ANY($1)`) instead
-        // of `EXISTS` over one id. The disjunction — the loose-file branch and the
-        // dataset branch — is byte-for-byte the decision #170 settled on. It is a set
-        // operation because the file LIST route has to filter before it pages and
-        // counts, and doing that one `EXISTS` at a time would be a query per row.
-        r#"SELECT f.id as "id!" FROM files f WHERE f.id = ANY($1) AND (
+        // it selects the MATCHING IDS over a candidate set (`f.id IN (SELECT unhex(j.value)
+        // FROM json_each($1) AS j)` — the ITEM-23 JSON1 membership port of PG's
+        // `f.id = ANY($1)`, the DEC-8 `uuid[]` → JSON-array-text rule bound in the
+        // 32-hex `Uuid::simple()` form; a hyphenated list never matches, the
+        // ITEM-15/21 convention) instead of `EXISTS` over one id. The disjunction —
+        // the loose-file branch and the dataset branch — is byte-for-byte the decision
+        // #170 settled on. It is a set operation because the file LIST route has to
+        // filter before it pages and counts, and doing that one `EXISTS` at a time
+        // would be a query per row.
+        r#"SELECT f.id as "id: Uuid" FROM files f WHERE f.id IN (SELECT unhex(j.value) FROM json_each($1) AS j) AND (
                (f.user_id = $2
                 AND NOT EXISTS (SELECT 1 FROM dataset_files dfx WHERE dfx.file_id = f.id))
                OR EXISTS (
@@ -221,7 +226,7 @@ pub async fn readable_file_ids(
                               WHERE ug.user_id = $2)) ) ) )
                )
              )"#,
-        candidates,
+        candidates_json,
         user_id,
     )
     .fetch_all(pool)
@@ -278,7 +283,7 @@ pub async fn readable_file_ids(
 /// refuse someone `readable_file_ids` would have admitted, never admit someone it
 /// would have refused. Asserted by `write_standing_is_a_subset_of_read_standing`.
 pub async fn writable_file_ids(
-    pool: &PgPool,
+    pool: &SqlitePool,
     user_id: Uuid,
     candidates: &[Uuid],
 ) -> Result<Vec<Uuid>, AppError> {
@@ -286,13 +291,16 @@ pub async fn writable_file_ids(
         return Ok(Vec::new());
     }
 
+    let candidates_json = uuid_list_json(candidates);
     let rows: Vec<Uuid> = sqlx::query_scalar!(
         // Group membership is resolved INLINE with `groups.is_active`, exactly as in
         // `readable_file_ids`. `DatasetRepository::access` takes pre-resolved
         // `group_ids` instead and relies on its callers to have filtered inactive
         // groups; resolving here keeps this predicate self-contained and closes that
         // dependency, which is the same defect `841e6111` fixed as a sixth hand-copy.
-        r#"SELECT f.id as "id!" FROM files f WHERE f.id = ANY($1) AND (
+        // The `f.id` candidate set is the same JSON1 membership form as
+        // `readable_file_ids` above (ITEM-23).
+        r#"SELECT f.id as "id: Uuid" FROM files f WHERE f.id IN (SELECT unhex(j.value) FROM json_each($1) AS j) AND (
                (f.user_id = $2
                 AND NOT EXISTS (SELECT 1 FROM dataset_files dfx WHERE dfx.file_id = f.id))
                OR EXISTS (
@@ -314,7 +322,7 @@ pub async fn writable_file_ids(
                                  WHERE ug.user_id = $2)) ) ) )
                )
              )"#,
-        candidates,
+        candidates_json,
         user_id,
     )
     .fetch_all(pool)
@@ -372,11 +380,11 @@ pub async fn writable_file_ids(
 /// metadata: the surviving-share path is the remaining way a removed member reaches
 /// content through these routes.
 pub struct DatasetFileAccessPolicy {
-    pool: PgPool,
+    pool: SqlitePool,
 }
 
 impl DatasetFileAccessPolicy {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
 
@@ -426,4 +434,22 @@ impl FileAccessPolicy for DatasetFileAccessPolicy {
     ) -> Result<Vec<Uuid>, AppError> {
         self.resolve(principal, candidates, access).await
     }
+}
+
+/// Serialize a `uuid[]` batch into the JSON-hex form the SQLite membership
+/// predicate consumes: a JSON array of 32-char lowercase hex strings (the
+/// `uuid::Uuid::simple()` form), compared against a 16-byte BLOB column
+/// through `unhex()` — `f.id IN (SELECT unhex(j.value) FROM json_each($1) AS j)`.
+/// This is the ITEM-15 `ziee-file` convention (its `uuid_list_json`), kept
+/// local here because the app's modules are single-driver (DEC-1) and beside
+/// the `= ANY($1)` predicate this module serves no other surface. The caller's
+/// order is restored in Rust (the `IN` returns rows in whatever order the
+/// planner likes), so only the SET membership matters.
+fn uuid_list_json(ids: &[Uuid]) -> String {
+    serde_json::to_string(
+        &ids.iter()
+            .map(|id| id.simple().to_string())
+            .collect::<Vec<String>>(),
+    )
+    .expect("a Vec<String> is always JSON-serializable")
 }

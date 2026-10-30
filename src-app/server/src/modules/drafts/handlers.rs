@@ -6,7 +6,7 @@
 use axum::extract::{Path, Query};
 use axum::http::StatusCode;
 use axum::{Extension, Json};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use ziee_core::{ApiResult, AppError};
@@ -29,7 +29,7 @@ fn e(err: AppError) -> (StatusCode, AppError) {
 /// owner-scoped-invisible idiom). The OUTER `drafts::use` capability is enforced by
 /// the extractor; this is the INNER project role.
 async fn resolve_project_scope(
-    pool: &PgPool,
+    pool: &SqlitePool,
     project_id: Uuid,
     user_id: Uuid,
 ) -> Result<ProjectScope, (StatusCode, AppError)> {
@@ -44,7 +44,7 @@ async fn resolve_project_scope(
 /// nonexistent draft, or one whose project is invisible to the user, both yield 404
 /// (no existence oracle — INV-3).
 async fn resolve_draft(
-    pool: &PgPool,
+    pool: &SqlitePool,
     draft_id: Uuid,
     user_id: Uuid,
 ) -> Result<(super::models::Draft, ProjectScope), (StatusCode, AppError)> {
@@ -60,7 +60,7 @@ async fn resolve_draft(
 
 pub async fn list_drafts(
     auth: RequirePermissions<(DraftsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Query(q): Query<DraftListQuery>,
 ) -> ApiResult<Json<DraftListResponse>> {
     // Any project role (Viewer+) may LIST drafts; 404 if the project is invisible.
@@ -75,7 +75,7 @@ pub async fn list_drafts(
 
 pub async fn create_draft(
     auth: RequirePermissions<(DraftsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Json(req): Json<CreateDraftRequest>,
 ) -> ApiResult<Json<super::models::Draft>> {
@@ -144,7 +144,7 @@ pub async fn create_draft(
 
 pub async fn get_draft(
     auth: RequirePermissions<(DraftsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<super::models::Draft>> {
     let (draft, _scope) = resolve_draft(&pool, id, auth.user.id).await?;
@@ -153,7 +153,7 @@ pub async fn get_draft(
 
 pub async fn update_draft(
     auth: RequirePermissions<(DraftsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateDraftRequest>,
@@ -178,7 +178,7 @@ pub async fn update_draft(
 
 pub async fn delete_draft(
     auth: RequirePermissions<(DraftsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Path(id): Path<Uuid>,
 ) -> ApiResult<()> {
@@ -206,7 +206,7 @@ pub async fn delete_draft(
 /// FE renders no lineage readout for it, and nothing about another user's data is disclosed.
 pub async fn get_artifact_lineage(
     auth: RequirePermissions<(DraftsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path(artifact_id): Path<Uuid>,
 ) -> ApiResult<Json<DraftLineageResponse>> {
     let repo = DraftRepository::new(pool.clone());
@@ -231,7 +231,7 @@ pub async fn get_artifact_lineage(
 
 pub async fn freeze_draft(
     auth: RequirePermissions<(DraftsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     _origin: SyncOrigin,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<FreezeResponse>> {
