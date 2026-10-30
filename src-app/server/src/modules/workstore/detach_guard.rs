@@ -110,7 +110,7 @@
 use crate::modules::workstore::alignment::AlignmentPlan;
 use crate::modules::workstore::mask;
 use serde_json::Value;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 use ziee_core::AppError;
 
@@ -129,7 +129,7 @@ use ziee_core::AppError;
 /// missed dependency, which is why the predicate is anchored on both halves rather than on
 /// `meta.sources` alone.
 const ALIGNMENT_SIGNATURE: &str =
-    "jsonb_typeof(meta -> 'sources') = 'array' AND structure -> 'extents' ? 'segments'";
+    "json_type(meta, '$.sources') = 'array' AND json_type(structure, '$.extents.segments') IS NOT NULL";
 
 /// Why one alignment blocks the detach. Two reasons, never merged: they have different remedies
 /// and a surface that renders them identically sends the user to fix the wrong thing.
@@ -225,13 +225,18 @@ impl Identity {
 /// `(project_id, datatype)` predicate rather than by scanning the catalog: a check whose cost
 /// grew with the project's whole artifact count is one somebody would later optimise away.
 pub async fn detach_verdict(
-    pool: &PgPool,
+    pool: &SqlitePool,
     project_id: Uuid,
     dataset_id: Uuid,
 ) -> Result<DetachVerdict, AppError> {
     // Not `query!`: the signature is a constant predicate spliced into the WHERE clause, and the
     // compile-time macro takes a literal. It carries no caller input — `project_id` is still
     // bound — so there is no injection surface.
+    //
+    // SQLite port (record; PROV-sqlite-store-4 / DEC-12): `jsonb_typeof(x -> 'k')` is
+    // `json_type(x, '$.k')`, and the `?` key-existence operator is the chain's
+    // `json_type(x, '$.k') IS NOT NULL` convention (the `jsonb_exists` →
+    // `json_type(..., path) IS NOT NULL` rule, migration 202608040010's port note).
     let sql = format!(
         "SELECT id, output_id, structure, meta FROM artifacts \
          WHERE project_id = $1 AND {ALIGNMENT_SIGNATURE}"
@@ -260,16 +265,26 @@ pub async fn detach_verdict(
     // produced a virtual dataset is guaranteed reachable from here — that guarantee is what
     // replaces the prose premise this walk was once deferred on.
     let alignment_ids: Vec<Uuid> = rows.iter().map(|(id, ..)| *id).collect();
+    // SQLite port (record): the `-> 'alignment' ->> 'artifact_id'` path is
+    // `json_extract(metadata, '$.alignment.artifact_id')` (the chain's JSON1
+    // convention), and the `= ANY($1)` TEXT-array membership is `IN (SELECT
+    // value FROM json_each($1))` — the values are the producers' HYPHENATED
+    // uuid strings (both sides written by `Uuid::to_string`), so the JSON text
+    // list carries them verbatim (never the 32-hex `uuid_list_json` form).
     let produced: Vec<(Uuid, String, String)> = sqlx::query_as(
-        "SELECT id, name, metadata -> 'alignment' ->> 'artifact_id' \
+        "SELECT id, name, json_extract(metadata, '$.alignment.artifact_id') \
          FROM datasets \
-         WHERE source = 'integrate' AND metadata -> 'alignment' ->> 'artifact_id' = ANY($1)",
+         WHERE source = 'integrate' AND json_extract(metadata, '$.alignment.artifact_id') \
+               IN (SELECT j.value FROM json_each($1) AS j)",
     )
     .bind(
-        alignment_ids
-            .iter()
-            .map(Uuid::to_string)
-            .collect::<Vec<_>>(),
+        serde_json::to_string(
+            &alignment_ids
+                .iter()
+                .map(Uuid::to_string)
+                .collect::<Vec<_>>(),
+        )
+        .expect("Vec<String> is JSON-serializable"),
     )
     .fetch_all(pool)
     .await

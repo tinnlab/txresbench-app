@@ -5,9 +5,19 @@
 //! This layer only records STATE; it never moves or deletes a blob (that is
 //! `migration_engine.rs`). Profile-agnostic (plain sqlx) so a local→local migration is
 //! exercisable in both builds; the cloud ends live behind the saas orchestrator/endpoints.
+//!
+//! SQLite port (record; sqlite-store): the 13 dynamic `sqlx::query` sites become
+//! single-driver — `map_row` reads `SqliteRow` (the DEC-8 map: Uuid←BLOB, bool←
+//! INTEGER, i64←INTEGER, JSON/BLOB TEXT), `now()` is the canonical RFC3339
+//! `strftime` clock, `GREATEST` is `MAX`, and the PG `is_unique_violation()`
+//! (23505) re-keys to the sqlite extended codes 2067/1555 (ITEM-18's map). The
+//! `encrypt_secret`/`decrypt_secret` calls keep their shape: the SDK
+//! `ziee_framework::secret` sqlite branch (owner decision D02 — the secret
+//! feature stays dormant and returns the explicit "secrets unavailable" error)
+//! takes the app's `&SqlitePool` through the `DbPool` alias.
 
 use serde::Serialize;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 use ziee_core::AppError;
 
@@ -79,7 +89,7 @@ pub mod phase {
     pub const ACTIVE: [&str; 3] = [PENDING, COPYING, VERIFYING];
 }
 
-fn map_row(r: sqlx::postgres::PgRow) -> MigrationRow {
+fn map_row(r: sqlx::sqlite::SqliteRow) -> MigrationRow {
     use sqlx::Row;
     MigrationRow {
         id: r.get("id"),
@@ -108,7 +118,7 @@ const SELECT_COLS: &str = "id, src_backend, src_provider, src_bucket, dst_backen
      cost_ack, verify_error, auto_started, cutover, src_config_ciphertext";
 
 /// The newest migration row (the one the status endpoint shows), or `None` if never started.
-pub async fn latest(pool: &PgPool) -> Result<Option<MigrationRow>, AppError> {
+pub async fn latest(pool: &SqlitePool) -> Result<Option<MigrationRow>, AppError> {
     let q = format!("SELECT {SELECT_COLS} FROM object_store_migration ORDER BY created_at DESC LIMIT 1");
     let row = sqlx::query(&q)
         .fetch_optional(pool)
@@ -119,7 +129,7 @@ pub async fn latest(pool: &PgPool) -> Result<Option<MigrationRow>, AppError> {
 
 /// The single ACTIVE (non-terminal) migration, if any (there is at most one, enforced by the
 /// partial unique index).
-pub async fn active(pool: &PgPool) -> Result<Option<MigrationRow>, AppError> {
+pub async fn active(pool: &SqlitePool) -> Result<Option<MigrationRow>, AppError> {
     let q = format!(
         "SELECT {SELECT_COLS} FROM object_store_migration \
          WHERE phase IN ('pending','copying','verifying') ORDER BY created_at DESC LIMIT 1"
@@ -133,15 +143,21 @@ pub async fn active(pool: &PgPool) -> Result<Option<MigrationRow>, AppError> {
 
 /// Create a new migration row. Fails (unique-violation → a clean 409) if an active migration
 /// already exists — a second switch cannot race a running move.
-pub async fn create(pool: &PgPool, n: &NewMigration, created_by: Uuid) -> Result<MigrationRow, AppError> {
+///
+/// **The id is bound app-side** (the first column, `$1`): the SQLite chain has
+/// no SQL uuid generator (the PG baseline's `DEFAULT gen_random_uuid()` is
+/// gone — the ITEM-17-recorded default gap, this module's instance of DEC-12's
+/// "gen_random_uuid() → Rust `Uuid::new_v4()` bind" rule).
+pub async fn create(pool: &SqlitePool, n: &NewMigration, created_by: Uuid) -> Result<MigrationRow, AppError> {
     let q = format!(
         "INSERT INTO object_store_migration \
-          (src_backend, src_provider, src_bucket, dst_backend, dst_provider, dst_bucket, \
+          (id, src_backend, src_provider, src_bucket, dst_backend, dst_provider, dst_bucket, \
            cross_cloud, cost_ack, auto_started, blobs_total, bytes_total, created_by, \
            src_config_ciphertext) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING {SELECT_COLS}"
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING {SELECT_COLS}"
     );
     let row = sqlx::query(&q)
+        .bind(Uuid::new_v4())
         .bind(&n.src_backend)
         .bind(&n.src_provider)
         .bind(&n.src_bucket)
@@ -158,7 +174,13 @@ pub async fn create(pool: &PgPool, n: &NewMigration, created_by: Uuid) -> Result
         .fetch_one(pool)
         .await
         .map_err(|e| match e {
-            sqlx::Error::Database(db) if db.is_unique_violation() => {
+            // SQLite port (record; the ITEM-18 error-key re-map): the PG `23505`
+            // unique violation surfaces as the sqlx-sqlite extended codes
+            // `2067` (SQLITE_CONSTRAINT_UNIQUE) / `1555` (PRIMARYKEY — the same
+            // race in the other order); `is_unique_violation()` is PG-only.
+            sqlx::Error::Database(db)
+                if matches!(db.code().as_deref(), Some("2067") | Some("1555")) =>
+            {
                 AppError::conflict("an object-store migration is already in progress")
             }
             other => AppError::database_error(other),
@@ -173,7 +195,7 @@ pub async fn create(pool: &PgPool, n: &NewMigration, created_by: Uuid) -> Result
 /// cloud source with no ciphertext as a FAIL-CLOSED refusal to cut over (a restart could not
 /// rebuild the cloud fallback), never a silent unsafe proceed.
 pub async fn encrypt_preserved_old_config(
-    pool: &PgPool,
+    pool: &SqlitePool,
     cfg: &super::cutover::PreservedStoreConfig,
 ) -> Result<Option<Vec<u8>>, AppError> {
     if cfg.backend == "local" {
@@ -190,7 +212,7 @@ pub async fn encrypt_preserved_old_config(
 /// source's ciphertext is missing/undecryptable (missing or wrong `storage_key`) — the caller then
 /// stays on the NEW store only and logs loudly (fail-closed, never a silent wrong-store read).
 pub async fn decrypt_preserved_old_config(
-    pool: &PgPool,
+    pool: &SqlitePool,
     row: &MigrationRow,
 ) -> Option<super::cutover::PreservedStoreConfig> {
     match &row.src_config_ciphertext {
@@ -216,8 +238,8 @@ pub async fn decrypt_preserved_old_config(
 
 /// Set the phase (and clear/keep the error). A terminal phase is final except that `retired`
 /// may only follow `verified` (enforced by the caller/endpoint, not here).
-pub async fn set_phase(pool: &PgPool, id: Uuid, phase: &str) -> Result<(), AppError> {
-    sqlx::query("UPDATE object_store_migration SET phase = $2, updated_at = now() WHERE id = $1")
+pub async fn set_phase(pool: &SqlitePool, id: Uuid, phase: &str) -> Result<(), AppError> {
+    sqlx::query("UPDATE object_store_migration SET phase = $2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = $1")
         .bind(id)
         .bind(phase)
         .execute(pool)
@@ -229,9 +251,9 @@ pub async fn set_phase(pool: &PgPool, id: Uuid, phase: &str) -> Result<(), AppEr
 /// Record that the LIVE cutover was applied (#64): the process-global handle was swapped to
 /// `DualRead(new, old)` with no restart. Guarded to a `verified` row (the activation guard,
 /// INV-3) — a cutover can never be recorded against a non-verified migration. Idempotent.
-pub async fn mark_cutover(pool: &PgPool, id: Uuid) -> Result<(), AppError> {
+pub async fn mark_cutover(pool: &SqlitePool, id: Uuid) -> Result<(), AppError> {
     sqlx::query(
-        "UPDATE object_store_migration SET cutover = true, updated_at = now() \
+        "UPDATE object_store_migration SET cutover = true, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') \
          WHERE id = $1 AND phase = 'verified'",
     )
     .bind(id)
@@ -250,7 +272,7 @@ pub async fn mark_cutover(pool: &PgPool, id: Uuid) -> Result<(), AppError> {
 /// `failed` (all need the OLD fallback); EXCLUDES `retired` (the operator proved every blob is in
 /// NEW and released OLD) AND `abandoned` (#65 — the operator reverted the primary to the OLD store,
 /// so keeping it here would re-fire the config-change 409 and re-establish a pointless dual-read).
-pub async fn latest_unretired(pool: &PgPool) -> Result<Option<MigrationRow>, AppError> {
+pub async fn latest_unretired(pool: &SqlitePool) -> Result<Option<MigrationRow>, AppError> {
     // AUTO migrations only: an auto (config-switch) migration ADVANCED the effective config to its
     // dst, so at boot the config store IS this migration's NEW and DualRead(new, old) is correct. A
     // MANUAL migration (#61) does not advance the config, so its dst is NOT the boot store and it
@@ -268,7 +290,7 @@ pub async fn latest_unretired(pool: &PgPool) -> Result<Option<MigrationRow>, App
 
 /// Fetch a single migration by id (used by the cost-ack resume path, #64) — includes the
 /// (skipped-from-serialization) `src_config_ciphertext`.
-pub async fn by_id(pool: &PgPool, id: Uuid) -> Result<Option<MigrationRow>, AppError> {
+pub async fn by_id(pool: &SqlitePool, id: Uuid) -> Result<Option<MigrationRow>, AppError> {
     let q = format!("SELECT {SELECT_COLS} FROM object_store_migration WHERE id = $1");
     let row = sqlx::query(&q)
         .bind(id)
@@ -279,9 +301,9 @@ pub async fn by_id(pool: &PgPool, id: Uuid) -> Result<Option<MigrationRow>, AppE
 }
 
 /// Mark a migration failed with a FIXED-VOCABULARY category (never a raw error / credential).
-pub async fn set_failed(pool: &PgPool, id: Uuid, category: &str) -> Result<(), AppError> {
+pub async fn set_failed(pool: &SqlitePool, id: Uuid, category: &str) -> Result<(), AppError> {
     sqlx::query(
-        "UPDATE object_store_migration SET phase = 'failed', verify_error = $2, updated_at = now() WHERE id = $1",
+        "UPDATE object_store_migration SET phase = 'failed', verify_error = $2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = $1",
     )
     .bind(id)
     .bind(category)
@@ -298,9 +320,9 @@ pub async fn set_failed(pool: &PgPool, id: Uuid, category: &str) -> Result<(), A
 /// config-change 409 and stops boot-resume. NEVER a raw error / credential in the reason. Returns
 /// the number of rows updated (0 ⇒ the row was not `verified`, so the caller must not treat the
 /// abandon as complete).
-pub async fn set_abandoned(pool: &PgPool, id: Uuid, reason: &str) -> Result<u64, AppError> {
+pub async fn set_abandoned(pool: &SqlitePool, id: Uuid, reason: &str) -> Result<u64, AppError> {
     let res = sqlx::query(
-        "UPDATE object_store_migration SET phase = 'abandoned', verify_error = $2, updated_at = now() \
+        "UPDATE object_store_migration SET phase = 'abandoned', verify_error = $2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') \
          WHERE id = $1 AND phase = 'verified'",
     )
     .bind(id)
@@ -315,7 +337,7 @@ pub async fn set_abandoned(pool: &PgPool, id: Uuid, reason: &str) -> Result<u64,
 /// that was supposed to advance the config FAILED after the anchor was created — so a transient
 /// upsert error can never strand a `pending` orphan that wedges every future store change.
 /// Guarded to a `pending` row (an anchor that never started); a running/verified row is untouched.
-pub async fn delete_pending_anchor(pool: &PgPool, id: Uuid) -> Result<(), AppError> {
+pub async fn delete_pending_anchor(pool: &SqlitePool, id: Uuid) -> Result<(), AppError> {
     sqlx::query("DELETE FROM object_store_migration WHERE id = $1 AND phase = 'pending'")
         .bind(id)
         .execute(pool)
@@ -325,8 +347,8 @@ pub async fn delete_pending_anchor(pool: &PgPool, id: Uuid) -> Result<(), AppErr
 }
 
 /// Flip `cost_ack` true (the operator acknowledged a large cross-cloud egress, #64). Idempotent.
-pub async fn set_cost_ack(pool: &PgPool, id: Uuid) -> Result<(), AppError> {
-    sqlx::query("UPDATE object_store_migration SET cost_ack = true, updated_at = now() WHERE id = $1")
+pub async fn set_cost_ack(pool: &SqlitePool, id: Uuid) -> Result<(), AppError> {
+    sqlx::query("UPDATE object_store_migration SET cost_ack = true, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = $1")
         .bind(id)
         .execute(pool)
         .await
@@ -336,17 +358,18 @@ pub async fn set_cost_ack(pool: &PgPool, id: Uuid) -> Result<(), AppError> {
 
 /// Update the live progress counters (called from the copy loop). MONOTONIC: the progress
 /// updater fires throttled, unordered detached tasks, so a late one carrying an older (smaller)
-/// count could otherwise overwrite the true final count on a `verified` row. `GREATEST` makes
+/// count could otherwise overwrite the true final count on a `verified` row. `MAX` (the
+/// SQLite-spelled `GREATEST`, per the DEC-12 non-literal list — the ITEM-18 record) makes
 /// the counters non-decreasing, so a stale write can never regress the displayed progress.
 pub async fn update_progress(
-    pool: &PgPool,
+    pool: &SqlitePool,
     id: Uuid,
     blobs_done: i64,
     bytes_done: i64,
 ) -> Result<(), AppError> {
     sqlx::query(
         "UPDATE object_store_migration \
-         SET blobs_done = GREATEST(blobs_done, $2), bytes_done = GREATEST(bytes_done, $3), updated_at = now() \
+         SET blobs_done = MAX(blobs_done, $2), bytes_done = MAX(bytes_done, $3), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') \
          WHERE id = $1",
     )
     .bind(id)
@@ -363,10 +386,10 @@ pub async fn update_progress(
 /// never turns an incomplete migration into `verified` (the safe direction) and clears the
 /// single-active-migration index so a new migration can be started after a restart. Returns the
 /// number of rows reaped. Idempotent.
-pub async fn reap_interrupted(pool: &PgPool) -> Result<u64, AppError> {
+pub async fn reap_interrupted(pool: &SqlitePool) -> Result<u64, AppError> {
     let res = sqlx::query(
         "UPDATE object_store_migration \
-         SET phase = 'failed', verify_error = 'interrupted by a restart (start the migration again)', updated_at = now() \
+         SET phase = 'failed', verify_error = 'interrupted by a restart (start the migration again)', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') \
          WHERE phase IN ('copying','verifying')",
     )
     .execute(pool)

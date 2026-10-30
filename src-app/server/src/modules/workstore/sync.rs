@@ -3,7 +3,7 @@
 //! constructor (DEC-15), so we fan per-recipient via `Audience::owner`, exactly
 //! like `project/handlers.rs::publish_project_to_all`. Notify-and-refetch only.
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::modules::dataset::sync::dataset_audience;
@@ -18,7 +18,7 @@ use crate::modules::sync::{fan_out_owner_scoped, Actor, SyncAction, SyncEntity};
 /// — `delete_artifact` is gated on project EDIT, so an editor recipient reaches it.
 /// An empty recipient list (desktop single-user) is a valid fan-to-self.
 pub async fn publish_artifact(
-    pool: &PgPool,
+    pool: &SqlitePool,
     project_id: Uuid,
     action: SyncAction,
     artifact_id: Uuid,
@@ -73,7 +73,7 @@ pub async fn publish_artifact(
 /// — the sandbox-rootfs tier — with a SHAREE's `SyncProbe` asserting `artifact/create`.
 /// Until then this hand-off is held by review, not by a test.
 pub async fn publish_artifact_for_dataset(
-    pool: &PgPool,
+    pool: &SqlitePool,
     dataset_id: Uuid,
     action: SyncAction,
     artifact_id: Uuid,

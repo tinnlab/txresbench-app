@@ -23,7 +23,7 @@
 use std::path::Path;
 
 use serde_json::Value;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use ziee_core::AppError;
@@ -571,7 +571,7 @@ const MAX_CHAIN_NODES: usize = 64;
 /// digests pin. The intermediate's SHAPE is cross-checked separately, against the outer
 /// alignment's own declared `n_rows` for that source ([`resolve_node`]).
 async fn plan_chain(
-    pool: &PgPool,
+    pool: &SqlitePool,
     self_artifact_id: Uuid,
     structure: &serde_json::Value,
 ) -> Result<Vec<ChainNode>, AppError> {
@@ -595,7 +595,7 @@ async fn plan_chain(
     // Expand ONE gathered node: parse its recipe, load its alignment (if any), and split its
     // sources into leaves (digest-verified here and now) and gathered children (walked next).
     async fn expand(
-        pool: &PgPool,
+        pool: &SqlitePool,
         id: Uuid,
         structure: serde_json::Value,
     ) -> Result<Frame, AppError> {
@@ -819,7 +819,7 @@ async fn plan_chain(
 /// path, so a chain and a direct read cannot disagree about what a column's bytes are — which
 /// is the property `materialize` and the byte route already share for the single-level case.
 pub async fn resolve(
-    pool: &PgPool,
+    pool: &SqlitePool,
     store: &dyn ObjectStore,
     // The GATHERED artifact being read. Needed so the two discovery points can RECORD the
     // condition they already refuse by name (ITEM-30's detector), rather than leaving a
@@ -838,7 +838,7 @@ pub async fn resolve(
 /// correctness boundary: the walk is what discovers a deleted or re-declared source, and a
 /// cache that skipped it would serve a column whose sources no longer support it.
 async fn resolve_from_order(
-    pool: &PgPool,
+    pool: &SqlitePool,
     store: &dyn ObjectStore,
     self_artifact_id: Uuid,
     structure: &serde_json::Value,
@@ -919,7 +919,7 @@ fn resolution_key(
 /// memory under concurrency rather than adding to it; what it adds is bounded by the budget
 /// and paid only across DISTINCT columns.
 pub async fn resolve_shared(
-    pool: &PgPool,
+    pool: &SqlitePool,
     store: &dyn ObjectStore,
     self_artifact_id: Uuid,
     structure: &serde_json::Value,
@@ -990,7 +990,7 @@ fn resolved_structure_with_n(structure: &serde_json::Value, n_kept: usize) -> se
 /// mask's existence was already checked in `plan_chain::expand` (it fed the resolution key), so
 /// a `None` here is a race, not the deleted-mask discovery point.
 async fn mask_plan(
-    pool: &PgPool,
+    pool: &SqlitePool,
     store: &dyn ObjectStore,
     mask_id: Uuid,
 ) -> Result<std::sync::Arc<MaskPlan>, AppError> {
@@ -1032,7 +1032,7 @@ async fn mask_plan(
 /// for a fixed-width column, `gather_split_strings` for a `utf8` one — so a masked read is
 /// shape-invariant with an unmasked one (INV-25): only the plan's length and contents differ.
 async fn resolve_single_source_node(
-    pool: &PgPool,
+    pool: &SqlitePool,
     store: &dyn ObjectStore,
     self_artifact_id: Uuid,
     structure: &serde_json::Value,
@@ -1219,7 +1219,7 @@ async fn resolve_single_source_node(
 
 /// Resolve ONE gathered artifact, with any chained sources already materialised in `chain`.
 async fn resolve_node(
-    pool: &PgPool,
+    pool: &SqlitePool,
     store: &dyn ObjectStore,
     self_artifact_id: Uuid,
     structure: &serde_json::Value,
@@ -1748,7 +1748,7 @@ async fn resolve_node(
 /// 500 — the split-the-bucket rule this stage has already paid for four times. So the write's
 /// error is logged and dropped, and the refusal the caller passed in is what is returned.
 async fn mark_unresolvable_then_refuse(
-    pool: &PgPool,
+    pool: &SqlitePool,
     artifact_id: Uuid,
     unresolved_source: &str,
     refusal: AppError,
@@ -1793,7 +1793,7 @@ fn write_le(b: &mut [u8], v: u64) {
 /// One numeric member decoded to SIGNED values — for the level lookups, where `-1` means
 /// absence and must survive as `-1` rather than wrapping.
 async fn read_numeric_member_i64(
-    pool: &PgPool,
+    pool: &SqlitePool,
     store: &dyn ObjectStore,
     artifact_id: Uuid,
     member: &str,
@@ -1822,7 +1822,7 @@ async fn read_numeric_member_i64(
 /// (`int64` for rows, `int32` for segments) — so the caller narrows, and this reads whatever
 /// width was declared rather than assuming one.
 async fn read_numeric_member(
-    pool: &PgPool,
+    pool: &SqlitePool,
     store: &dyn ObjectStore,
     artifact_id: Uuid,
     member: &str,
@@ -1847,7 +1847,7 @@ async fn read_numeric_member(
 
 /// One member's plaintext ELEMENT bytes — what the gather indexes by row.
 async fn read_member_element_bytes(
-    pool: &PgPool,
+    pool: &SqlitePool,
     store: &dyn ObjectStore,
     artifact_id: Uuid,
     member: &str,
@@ -1863,7 +1863,7 @@ async fn read_member_element_bytes(
 /// through `gather_decode`, whose codec allowance is three names wide and refuses anything
 /// else by name (DEC-23).
 async fn read_member_decoded(
-    pool: &PgPool,
+    pool: &SqlitePool,
     store: &dyn ObjectStore,
     artifact_id: Uuid,
     member: &str,
@@ -1922,7 +1922,7 @@ async fn read_member_decoded(
 /// This fetches ONLY the covering shards (`[lo/shard ..= (hi-1)/shard]`) and decodes just the
 /// window through the same `gather_decode` seam (DEC-23) every other member read uses.
 async fn read_member_element_window(
-    pool: &PgPool,
+    pool: &SqlitePool,
     store: &dyn ObjectStore,
     artifact_id: Uuid,
     member: &str,
@@ -1982,7 +1982,7 @@ async fn read_member_element_window(
 /// segment offsets. The `indptr` is read whole (it is `n_cols + 1`, tiny); only the ONE column's
 /// value slice is fetched, so the serve is `O(nnz in the column)`, never the whole matrix (INV-22).
 pub async fn resolve_masked_sparse_column(
-    pool: &PgPool,
+    pool: &SqlitePool,
     store: &dyn ObjectStore,
     artifact_id: Uuid,
     structure: &serde_json::Value,
@@ -2114,7 +2114,7 @@ pub async fn resolve_masked_sparse_column(
 /// what makes the alignment's contribution to [`resolution_key`] a CONTENT address rather than
 /// an id, so a cached resolution can only be reused for byte-identical vectors.
 async fn load_alignment_plan(
-    pool: &PgPool,
+    pool: &SqlitePool,
     self_artifact_id: Uuid,
     recipe: &super::gathered::GatheredFrom,
 ) -> Result<(super::alignment::AlignmentPlan, String), AppError> {

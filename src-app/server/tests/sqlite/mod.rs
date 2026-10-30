@@ -12,3 +12,4 @@ pub mod chain_workstore;
 pub mod module_account;
 pub mod module_jobs;
 pub mod module_project;
+pub mod module_workstore;

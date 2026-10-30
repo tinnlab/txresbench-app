@@ -24,7 +24,7 @@ use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::{Extension, Json};
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use ziee_core::{ApiResult, AppError};
@@ -45,7 +45,7 @@ use crate::modules::sync::{SyncAction, SyncOrigin};
 /// List a project's catalog (filterable), without opening a blob.
 pub async fn list_artifacts(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path(project_id): Path<Uuid>,
     Query(filter): Query<ArtifactFilter>,
 ) -> ApiResult<Json<Vec<ListedArtifact>>> {
@@ -132,7 +132,7 @@ pub struct ListedArtifact {
 /// ids in ONE query each (no N+1 lookup on either). A per-artifact provenance-walk error
 /// propagates (a real DB failure must surface, not silently become "no source dataset").
 async fn derive_listing_provenance(
-    pool: &PgPool,
+    pool: &SqlitePool,
     items: Vec<Artifact>,
 ) -> Result<Vec<ListedArtifact>, AppError> {
     let prov = crate::modules::provenance::repository::ProvenanceRepository::new(pool.clone());
@@ -153,8 +153,9 @@ async fn derive_listing_provenance(
     let mut names: std::collections::HashMap<Uuid, String> = std::collections::HashMap::new();
     if !distinct.is_empty() {
         let rows = sqlx::query!(
-            r#"SELECT id, name FROM datasets WHERE id = ANY($1)"#,
-            &distinct,
+            r#"SELECT id, name FROM datasets WHERE id IN
+               (SELECT unhex(j.value) FROM json_each($1) AS j)"#,
+            super::catalog::repository::uuid_list_json(&distinct),
         )
         .fetch_all(pool)
         .await
@@ -181,8 +182,9 @@ async fn derive_listing_provenance(
     let mut generators: std::collections::HashMap<Uuid, String> = std::collections::HashMap::new();
     if !distinct_runs.is_empty() {
         let rows = sqlx::query!(
-            r#"SELECT run_id, generator_id FROM provenance_run_repro WHERE run_id = ANY($1)"#,
-            &distinct_runs,
+            r#"SELECT run_id, generator_id FROM provenance_run_repro WHERE run_id IN
+               (SELECT unhex(j.value) FROM json_each($1) AS j)"#,
+            super::catalog::repository::uuid_list_json(&distinct_runs),
         )
         .fetch_all(pool)
         .await
@@ -342,7 +344,7 @@ pub struct DependentAnalyses {
 /// `GET /projects/{project_id}/datasets/{dataset_id}/dependent-analyses`
 pub async fn get_dependent_analyses(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path((project_id, dataset_id)): Path<(Uuid, Uuid)>,
 ) -> ApiResult<Json<DependentAnalyses>> {
     require_project_read(&pool, project_id, auth.user.id).await?;
@@ -369,7 +371,7 @@ pub async fn get_dependent_analyses(
 /// One artifact's typed metadata.
 pub async fn get_artifact(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<Artifact>> {
     let repo = CatalogRepository::new(pool.clone());
@@ -389,7 +391,7 @@ pub async fn get_artifact(
 /// → 404 (no oracle).
 pub async fn delete_artifact(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Path((project_id, id)): Path<(Uuid, Uuid)>,
 ) -> ApiResult<()> {
@@ -897,7 +899,7 @@ mod derive_axes_tests {
 
 pub async fn get_catalog(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path(project_id): Path<Uuid>,
 ) -> ApiResult<Json<ProjectCatalog>> {
     require_project_read(&pool, project_id, auth.user.id).await?;
@@ -946,7 +948,7 @@ pub async fn get_catalog(
 /// the rows are still `ready` and the blobs that were present are still present.
 pub async fn get_artifact_bytes_presence(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path(project_id): Path<Uuid>,
 ) -> ApiResult<Json<BytesPresenceReport>> {
     require_project_read(&pool, project_id, auth.user.id).await?;
@@ -1135,7 +1137,7 @@ async fn serve_bytes(
 /// The return type is what makes the gate un-forgettable: both byte routes go through this
 /// one function, and it hands back a type a non-`ready` row cannot be turned into.
 pub(crate) async fn load_readable_artifact(
-    pool: &PgPool,
+    pool: &SqlitePool,
     id: Uuid,
     user_id: Uuid,
 ) -> Result<ConsumableArtifact, (StatusCode, AppError)> {
@@ -1168,7 +1170,7 @@ const IMMUTABLE_CACHE: &str = "private, max-age=31536000, immutable";
 #[axum::debug_handler]
 pub async fn serve_artifact_data(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path(id): Path<Uuid>,
     Query(range): Query<DataRangeQuery>,
     headers: HeaderMap,
@@ -1184,7 +1186,7 @@ pub async fn serve_artifact_data(
 #[axum::debug_handler]
 pub async fn serve_artifact_member(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path((id, member)): Path<(Uuid, String)>,
     Query(range): Query<DataRangeQuery>,
     headers: HeaderMap,
@@ -1227,7 +1229,7 @@ fn parse_sparse_member(path: &str) -> Option<usize> {
 /// re-decodes every source's whole column; the previous shape called it twice for every flat
 /// chunk request, on a path with no cache.
 async fn serve_gathered_member(
-    pool: &PgPool,
+    pool: &SqlitePool,
     artifact: &ConsumableArtifact,
     path: &str,
 ) -> Result<Vec<u8>, (StatusCode, AppError)> {
@@ -1314,7 +1316,7 @@ async fn serve_gathered_member(
 /// part of its definition rather than separately-addressable user input. (When the alignment
 /// producer lands, the sources are named by an alignment the same user's analysis created.)
 pub(crate) async fn read_member_bytes(
-    pool: &PgPool,
+    pool: &SqlitePool,
     store: &dyn ObjectStore,
     artifact_id: Uuid,
     member: &str,
@@ -1426,7 +1428,7 @@ fn serve_inline_bytes(
 }
 
 async fn serve_data_inner(
-    pool: &PgPool,
+    pool: &SqlitePool,
     id: Uuid,
     user_id: Uuid,
     headers: &HeaderMap,
@@ -2154,7 +2156,7 @@ async fn store_seed_blob(
 /// reclaims, and must not mask the seed's own error.
 #[cfg(debug_assertions)]
 async fn rollback_seed_blobs(
-    pool: &PgPool,
+    pool: &SqlitePool,
     store: std::sync::Arc<dyn ObjectStore>,
     wrote: &[String],
 ) {
@@ -2196,7 +2198,7 @@ async fn rollback_seed_blobs(
 /// (rolled back) and the caller compensate-frees `wrote`.
 #[cfg(debug_assertions)]
 async fn apply_seed(
-    pool: &PgPool,
+    pool: &SqlitePool,
     store: &dyn ObjectStore,
     project_id: Uuid,
     user_id: Uuid,
@@ -2229,8 +2231,13 @@ async fn apply_seed(
     };
 
     // ── phase 3: ONE transaction for every row.
+    // SQLite port (record): `BEGIN IMMEDIATE` — the write-lock doctrine of the
+    // ITEM-17/18/19 mutations; a deferred `BEGIN` would upgrade to the write
+    // lock lazily at the first write, which is exactly the upgrade that can
+    // deadlock two writers (the DEC-25 ABBA analysis). The seed writes begin
+    // here, so the lock is taken up front.
     let mut tx = pool
-        .begin()
+        .begin_with("BEGIN IMMEDIATE")
         .await
         .map_err(|e| AppError::database_error(e).to_api_error())?;
 
@@ -2389,7 +2396,7 @@ async fn apply_seed(
 #[cfg(debug_assertions)]
 pub async fn seed_debug(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path(project_id): Path<Uuid>,
     multipart: axum::extract::Multipart,
 ) -> Response {
@@ -2401,7 +2408,7 @@ pub async fn seed_debug(
 
 #[cfg(debug_assertions)]
 async fn seed_inner(
-    pool: &PgPool,
+    pool: &SqlitePool,
     project_id: Uuid,
     user_id: Uuid,
     mut multipart: axum::extract::Multipart,
