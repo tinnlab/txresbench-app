@@ -12,7 +12,7 @@ use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
-use sqlx::PgPool;
+use sqlx::{SqliteConnection, SqlitePool};
 use uuid::Uuid;
 
 use super::models::Job;
@@ -60,11 +60,11 @@ pub trait JobSyncSink: Send + Sync {
 /// `None` means every device — including the actor's — gets the frame, so `Jobs.store`
 /// needs no local echo and cannot drift out of step with the server.
 pub struct RealJobSyncSink {
-    pool: PgPool,
+    pool: SqlitePool,
 }
 
 impl RealJobSyncSink {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
 }
@@ -230,11 +230,11 @@ impl ArtifactIngestSink for NoopArtifactIngestSink {
 /// neither (nowhere to land the artifacts). The pool is baked in at construction
 /// (installed once from `JobsModule::init`).
 pub struct WorkstoreIngestSink {
-    pool: PgPool,
+    pool: SqlitePool,
 }
 
 impl WorkstoreIngestSink {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
 }
@@ -656,7 +656,7 @@ pub trait FreezeCompletionSink: Send + Sync {
     /// than the freeze job being stranded).
     async fn on_freeze_completed_in_tx(
         &self,
-        conn: &mut sqlx::PgConnection,
+        conn: &mut SqliteConnection,
         completed_job_id: Uuid,
     ) -> Result<Vec<Uuid>, String>;
 
@@ -671,7 +671,7 @@ pub trait FreezeCompletionSink: Send + Sync {
     /// propagates a genuine DB failure (aborting the create transaction).
     async fn substitute_completed_freeze_deps_in_tx(
         &self,
-        conn: &mut sqlx::PgConnection,
+        conn: &mut SqliteConnection,
         params: &serde_json::Value,
         completed_dep_ids: &[Uuid],
     ) -> Result<serde_json::Value, String>;
@@ -690,7 +690,7 @@ pub struct NoopFreezeCompletionSink;
 impl FreezeCompletionSink for NoopFreezeCompletionSink {
     async fn on_freeze_completed_in_tx(
         &self,
-        _conn: &mut sqlx::PgConnection,
+        _conn: &mut SqliteConnection,
         completed_job_id: Uuid,
     ) -> Result<Vec<Uuid>, String> {
         tracing::trace!(%completed_job_id, "freeze completion (noop seam)");
@@ -699,7 +699,7 @@ impl FreezeCompletionSink for NoopFreezeCompletionSink {
 
     async fn substitute_completed_freeze_deps_in_tx(
         &self,
-        _conn: &mut sqlx::PgConnection,
+        _conn: &mut SqliteConnection,
         params: &serde_json::Value,
         _completed_dep_ids: &[Uuid],
     ) -> Result<serde_json::Value, String> {

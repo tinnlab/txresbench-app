@@ -14,7 +14,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use tokio::io::{AsyncReadExt, BufReader};
 use tokio::sync::watch;
 use uuid::Uuid;
@@ -156,7 +156,7 @@ fn verify_job(params: serde_json::Value, verify_id: Uuid, owner_id: Uuid) -> Job
 /// selects for `job_type == "analysis"`) — routing through the stub-vs-analysis
 /// dispatcher would be meaningless for a known-analysis re-run.
 pub async fn run_analysis_for_verification(
-    pool: &PgPool,
+    pool: &SqlitePool,
     params: serde_json::Value,
     verify_id: Uuid,
     owner_id: Uuid,

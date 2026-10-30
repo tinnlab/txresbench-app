@@ -10,4 +10,5 @@ pub mod chain_dataset_drafts_prov;
 pub mod chain_jobs;
 pub mod chain_workstore;
 pub mod module_account;
+pub mod module_jobs;
 pub mod module_project;

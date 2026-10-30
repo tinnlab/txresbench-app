@@ -50,7 +50,7 @@
 //! The single 403 in the surface is `See`-but-not-`Control` on `stop` — that caller
 //! can already see the job, so there is no existence left to protect.
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 use ziee_core::AppError;
 
@@ -108,7 +108,7 @@ impl JobReach {
 /// rather than the scope's graded reach: gating the arm is the fix, downgrading it
 /// would strand the edit-sharee who legitimately started the run (DEC-2).
 pub async fn resolve_job_reach(
-    pool: &PgPool,
+    pool: &SqlitePool,
     job: &Job,
     user_id: Uuid,
     is_admin: bool,
@@ -253,7 +253,7 @@ pub async fn resolve_job_reach(
 /// creator-and-admin-only. That is #167 option (a) as filed, and the residue it
 /// leaves is recorded (DEC-3) and asserted rather than left silent.
 async fn creator_retains_standing(
-    pool: &PgPool,
+    pool: &SqlitePool,
     scope: &Option<JobScope>,
     user_id: Uuid,
     group_ids: &[Uuid],

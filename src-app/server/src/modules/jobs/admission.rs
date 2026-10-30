@@ -52,7 +52,7 @@
 use std::time::Duration;
 
 use axum::http::StatusCode;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use ziee_core::AppError;
@@ -108,7 +108,7 @@ pub fn pool_full(error_code: &'static str) -> AppError {
 /// not cosmetic: it permanently consumes a slot, and leaking enough of them wedges the
 /// scheduler for the life of the process.
 pub async fn admit(
-    pool: &PgPool,
+    pool: &SqlitePool,
     id: Uuid,
     owner_id: Uuid,
     job_type: &str,
@@ -141,7 +141,7 @@ pub async fn admit(
 // these into a struct here would only move the same fields one indirection away.
 #[allow(clippy::too_many_arguments)]
 pub async fn admit_within(
-    pool: &PgPool,
+    pool: &SqlitePool,
     id: Uuid,
     owner_id: Uuid,
     job_type: &str,
@@ -189,7 +189,7 @@ pub async fn admit_within(
 /// `failure` is `Some` only when the run itself broke. A run that completed and
 /// reported a bad VERDICT (a conformance violation, a provenance mismatch) is a job
 /// that COMPLETED: it did exactly what it was asked to.
-pub async fn close_slot(pool: &PgPool, job_id: Uuid, failure: Option<&str>) {
+pub async fn close_slot(pool: &SqlitePool, job_id: Uuid, failure: Option<&str>) {
     let repo = JobRepository::new(pool.clone());
     let owner = match repo.get_any(job_id).await {
         Ok(Some(job)) => {

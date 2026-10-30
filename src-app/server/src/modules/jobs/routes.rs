@@ -28,7 +28,7 @@ use axum::{Extension, Json};
 use futures_util::stream::Stream;
 use schemars::JsonSchema;
 use serde::Deserialize;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 use ziee_core::{ApiResult, AppError};
 
@@ -106,7 +106,7 @@ pub fn jobs_routes() -> ApiRouter {
 
 async fn list_jobs(
     auth: RequirePermissions<(JobsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Query(q): Query<JobsListQuery>,
 ) -> ApiResult<Json<JobListResponse>> {
     let (page, per_page) = q.clamped();
@@ -209,7 +209,7 @@ pub fn infer_priority(
 
 async fn create_job(
     auth: RequirePermissions<(JobsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Json(mut req): Json<CreateJobRequest>,
 ) -> ApiResult<Json<Job>> {
     if req.job_type.trim().is_empty() {
@@ -425,7 +425,7 @@ fn create_job_docs(op: TransformOperation) -> TransformOperation {
 /// oracle. Callers that MUTATE (only `stop_job`) must additionally check
 /// [`JobReach::can_control`]; the split is derived in `authz.rs`.
 async fn authorize_job(
-    pool: &PgPool,
+    pool: &SqlitePool,
     repo: &JobRepository,
     id: Uuid,
     auth: &RequirePermissions<(JobsUse,)>,
@@ -452,7 +452,7 @@ async fn authorize_job(
 
 async fn get_job(
     auth: RequirePermissions<(JobsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<JobDetail>> {
     let repo = JobRepository::new(pool.clone());
@@ -522,7 +522,7 @@ impl JobLogsQuery {
 /// Owner-or-admin scoped like the other jobs routes (foreign job → 404).
 async fn list_job_logs(
     auth: RequirePermissions<(JobsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path(id): Path<Uuid>,
     Query(q): Query<JobLogsQuery>,
 ) -> ApiResult<Json<JobLogPage>> {
@@ -565,7 +565,7 @@ fn list_job_logs_docs(op: TransformOperation) -> TransformOperation {
 
 async fn stop_job(
     auth: RequirePermissions<(JobsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<Job>> {
     let repo = JobRepository::new(pool.clone());
@@ -640,7 +640,7 @@ fn stop_job_docs(op: TransformOperation) -> TransformOperation {
 
 async fn stream_job(
     auth: RequirePermissions<(JobsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Sse<impl Stream<Item = Result<Event, axum::Error>>>> {
     let repo = JobRepository::new(pool.clone());
@@ -729,7 +729,7 @@ fn stream_job_docs(op: TransformOperation) -> TransformOperation {
 
 async fn get_job_settings(
     _auth: RequirePermissions<(JobsSettingsRead,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
 ) -> ApiResult<Json<JobSettings>> {
     let settings = JobSettingsRepository::new(pool)
         .get()
@@ -748,7 +748,7 @@ fn get_settings_docs(op: TransformOperation) -> TransformOperation {
 
 async fn update_job_settings(
     auth: RequirePermissions<(JobsSettingsManage,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: crate::modules::sync::SyncOrigin,
     Json(mut req): Json<UpdateJobSettingsRequest>,
 ) -> ApiResult<Json<JobSettings>> {
