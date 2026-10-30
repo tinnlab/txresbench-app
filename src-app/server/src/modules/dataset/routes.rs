@@ -14,7 +14,7 @@ use axum::http::StatusCode;
 use axum::{Extension, Json};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use ziee_core::{ApiResult, AppError};
@@ -78,7 +78,7 @@ pub fn upload_body_ceiling(_settings: &WorkstoreSettings) -> Option<u64> {
 /// Called once per upload request by the guard layer. The part-header bound is
 /// mode-independent (it is not a file-size limit — see
 /// `modules::file::upload_guard`); only the body ceiling varies by mode.
-async fn upload_limits(pool: &sqlx::PgPool) -> UploadLimits {
+async fn upload_limits(pool: &sqlx::SqlitePool) -> UploadLimits {
     let settings = crate::modules::workstore::settings_cache::get(pool).await;
     UploadLimits {
         max_body_bytes: upload_body_ceiling(&settings),
@@ -154,7 +154,10 @@ fn publish_to_all(
 /// the log instead of vanishing: a `.ok().flatten()` here drops an entire fan-out on a
 /// transient DB error with no trace, and this is the only shape in the family that
 /// would have been silent about it.
-async fn resolve_dataset_audience_or_warn(pool: &PgPool, id: Uuid) -> Option<(Uuid, Vec<Uuid>)> {
+async fn resolve_dataset_audience_or_warn(
+    pool: &SqlitePool,
+    id: Uuid,
+) -> Option<(Uuid, Vec<Uuid>)> {
     match crate::modules::dataset::sync::dataset_audience(pool, id).await {
         Ok(Some(pair)) => Some(pair),
         Ok(None) => {
@@ -168,7 +171,7 @@ async fn resolve_dataset_audience_or_warn(pool: &PgPool, id: Uuid) -> Option<(Uu
     }
 }
 
-async fn publish_dataset_audience(pool: &PgPool, action: SyncAction, id: Uuid, actor: Actor) {
+async fn publish_dataset_audience(pool: &SqlitePool, action: SyncAction, id: Uuid, actor: Actor) {
     match crate::modules::dataset::sync::dataset_audience(pool, id).await {
         Ok(Some((owner_id, sharees))) => {
             publish_to_all(SyncEntity::Dataset, action, id, owner_id, &sharees, actor);
@@ -376,7 +379,7 @@ pub fn dataset_routes() -> ApiRouter {
         // layer is applied OUTSIDE this sub-router.
         .layer(axum::middleware::from_fn(
             |req: axum::extract::Request, next: axum::middleware::Next| async move {
-                let limits = match req.extensions().get::<sqlx::PgPool>() {
+                let limits = match req.extensions().get::<sqlx::SqlitePool>() {
                     Some(pool) => upload_limits(pool).await,
                     // No pool in extensions is a boot-wiring bug, not a request the
                     // guard should let through unbounded: fall back to the compiled
@@ -463,7 +466,7 @@ pub fn dataset_routes() -> ApiRouter {
 
 async fn list_mine(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Query(q): Query<DatasetListQuery>,
 ) -> ApiResult<Json<DatasetPage>> {
     let (page, per_page) = q.clamped();
@@ -496,7 +499,7 @@ fn list_mine_docs(op: TransformOperation) -> TransformOperation {
 
 async fn list_shared(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Query(q): Query<DatasetListQuery>,
 ) -> ApiResult<Json<DatasetPage>> {
     let (page, per_page) = q.clamped();
@@ -537,7 +540,7 @@ fn list_shared_docs(op: TransformOperation) -> TransformOperation {
 /// constants, not client input.
 async fn artifact_summaries(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
 ) -> ApiResult<Json<DatasetArtifactSummaryList>> {
     let repo = DatasetRepository::new(pool);
     let rows = repo
@@ -596,7 +599,7 @@ fn artifact_summaries_docs(op: TransformOperation) -> TransformOperation {
 async fn create_dataset(
     auth: RequirePermissions<(ProjectsUse,)>,
     active: crate::modules::account::ActiveAccount,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Json(req): Json<CreateDatasetRequest>,
 ) -> ApiResult<Json<Dataset>> {
@@ -640,7 +643,7 @@ fn create_dataset_docs(op: TransformOperation) -> TransformOperation {
 
 async fn get_dataset(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<DatasetWithFiles>> {
     let repo = DatasetRepository::new(pool);
@@ -700,7 +703,7 @@ fn get_dataset_docs(op: TransformOperation) -> TransformOperation {
 
 async fn rename_dataset(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Path(id): Path<Uuid>,
     Json(req): Json<RenameDatasetRequest>,
@@ -747,7 +750,7 @@ fn rename_dataset_docs(op: TransformOperation) -> TransformOperation {
 
 async fn delete_dataset(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Path(id): Path<Uuid>,
 ) -> ApiResult<()> {
@@ -789,7 +792,7 @@ fn delete_dataset_docs(op: TransformOperation) -> TransformOperation {
 
 async fn list_shares(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path(id): Path<Uuid>,
     Query(q): Query<DatasetListQuery>,
 ) -> ApiResult<Json<Vec<DatasetShare>>> {
@@ -819,7 +822,7 @@ fn list_shares_docs(op: TransformOperation) -> TransformOperation {
 
 async fn share_dataset(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Path(id): Path<Uuid>,
     Json(req): Json<ShareDatasetRequest>,
@@ -913,7 +916,7 @@ fn share_dataset_docs(op: TransformOperation) -> TransformOperation {
 
 async fn unshare_dataset(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Path((id, share_id)): Path<(Uuid, Uuid)>,
 ) -> ApiResult<()> {
@@ -983,7 +986,7 @@ fn is_archive_name(filename: &str) -> bool {
 async fn upload_datasets(
     auth: RequirePermissions<(ProjectsUse,)>,
     active: crate::modules::account::ActiveAccount,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     mut multipart: Multipart,
 ) -> ApiResult<Json<UploadResponse>> {
@@ -1684,7 +1687,7 @@ async fn upload_datasets(
 /// scheduler picks it up on its next tick). No matching converter → NO job (the
 /// existing create/upload "no job" behavior is preserved).
 async fn maybe_autoconvert_on_ingest(
-    pool: &PgPool,
+    pool: &SqlitePool,
     owner_id: Uuid,
     dataset: &Dataset,
     files: &[DatasetFile],
@@ -1786,7 +1789,7 @@ fn upload_datasets_docs(op: TransformOperation) -> TransformOperation {
 /// dataset reads as 404). `Multipart` is the request BODY → the last extractor.
 async fn upload_dataset(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Path(id): Path<Uuid>,
     mut multipart: Multipart,
@@ -2119,7 +2122,7 @@ async fn validate_supporting_file(
 /// carries the documented `upload` kind (a hashed user-uploaded file), and the dataset
 /// edge uses [`recorder::dataset_edge`] — replacing the ad-hoc `kind="supporting"`.
 async fn record_integrate_run(
-    pool: &PgPool,
+    pool: &SqlitePool,
     dataset: &Dataset,
     file_id: Uuid,
     // #182: the annotation's `sha256:<hex>`, computed while the part was streamed to
@@ -2187,7 +2190,7 @@ async fn record_integrate_run(
 /// job has no unmet dep and runs). `Multipart` is the request BODY → the last extractor.
 async fn add_supporting_file(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Path(id): Path<Uuid>,
     mut multipart: Multipart,
@@ -2434,7 +2437,7 @@ fn add_supporting_file_docs(op: TransformOperation) -> TransformOperation {
 /// `role='artifact'` outputs are promotable — a `role='intermediate'` output → 422.
 async fn promote_artifact(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Json(req): Json<PromoteRequest>,
 ) -> ApiResult<Json<DatasetWithFiles>> {
@@ -2690,7 +2693,7 @@ fn promote_artifact_docs(op: TransformOperation) -> TransformOperation {
 /// re-hashed (single-file identity). Owner only.
 async fn split_dataset(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<UploadResponse>> {
@@ -2812,7 +2815,7 @@ fn split_dataset_docs(op: TransformOperation) -> TransformOperation {
 
 async fn list_folders(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Query(q): Query<DatasetListQuery>,
 ) -> ApiResult<Json<Vec<DatasetFolder>>> {
     let (page, per_page) = q.clamped();
@@ -2834,7 +2837,7 @@ fn list_folders_docs(op: TransformOperation) -> TransformOperation {
 
 async fn create_folder(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Json(req): Json<FolderNameRequest>,
 ) -> ApiResult<Json<DatasetFolder>> {
@@ -2869,7 +2872,7 @@ fn create_folder_docs(op: TransformOperation) -> TransformOperation {
 
 async fn rename_folder(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Path(id): Path<Uuid>,
     Json(req): Json<FolderNameRequest>,
@@ -2907,7 +2910,7 @@ fn rename_folder_docs(op: TransformOperation) -> TransformOperation {
 
 async fn delete_folder(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Path(id): Path<Uuid>,
 ) -> ApiResult<()> {
@@ -2936,7 +2939,7 @@ fn delete_folder_docs(op: TransformOperation) -> TransformOperation {
 
 async fn list_folder_datasets(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path(id): Path<Uuid>,
     Query(q): Query<DatasetListQuery>,
 ) -> ApiResult<Json<Vec<Dataset>>> {
@@ -2963,7 +2966,7 @@ fn list_folder_datasets_docs(op: TransformOperation) -> TransformOperation {
 
 async fn add_to_folder(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Path((id, dataset_id)): Path<(Uuid, Uuid)>,
 ) -> ApiResult<Json<serde_json::Value>> {
@@ -2996,7 +2999,7 @@ fn add_to_folder_docs(op: TransformOperation) -> TransformOperation {
 
 async fn remove_from_folder(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Path((id, dataset_id)): Path<(Uuid, Uuid)>,
 ) -> ApiResult<()> {

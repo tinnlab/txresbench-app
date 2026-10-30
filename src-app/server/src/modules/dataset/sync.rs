@@ -40,7 +40,7 @@
 //! loop — so two sibling paths in one job's finalize disagreed about who to tell.
 //! All three now share this one.
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 use ziee_core::AppError;
 
@@ -90,7 +90,7 @@ use crate::modules::sync::{fan_out_owner_scoped, Actor, SyncAction, SyncEntity};
 /// non-authorization purposes, and hiding a membership rule inside it would be the
 /// same mistake one layer down. The rule lives here, at the audience.
 pub async fn dataset_audience(
-    pool: &PgPool,
+    pool: &SqlitePool,
     dataset_id: Uuid,
 ) -> Result<Option<(Uuid, Vec<Uuid>)>, AppError> {
     let repo = DatasetRepository::new(pool.clone());
@@ -114,7 +114,7 @@ pub async fn dataset_audience(
 /// post-commit announcements of work that already happened, and the client's 60s sync
 /// re-check / next reconnect is the backstop.
 pub async fn publish_dataset_change(
-    pool: &PgPool,
+    pool: &SqlitePool,
     dataset_id: Uuid,
     action: SyncAction,
     actor: Actor,

@@ -3,7 +3,7 @@
 //! in the project-owned `project_datasets` junction — now a composite-PK M:N join
 //! (a dataset belongs to many projects; both FKs `ON DELETE CASCADE`).
 
-use sqlx::{Postgres, Transaction};
+use sqlx::{Sqlite, Transaction};
 use uuid::Uuid;
 use ziee_core::AppError;
 
@@ -15,7 +15,7 @@ use super::models::ProjectDatasetSummary;
 /// SHARES the same dataset rows rather than deep-copying them. Returns the number
 /// of links added.
 pub async fn relink_datasets_to_project(
-    tx: &mut Transaction<'_, Postgres>,
+    tx: &mut Transaction<'_, Sqlite>,
     src_project_id: Uuid,
     dst_project_id: Uuid,
 ) -> Result<u64, AppError> {
@@ -34,7 +34,7 @@ pub async fn relink_datasets_to_project(
 
 /// Number of datasets attached to a project (for the summary tag).
 pub async fn summary_for_project(
-    pool: &sqlx::PgPool,
+    pool: &sqlx::SqlitePool,
     project_id: Uuid,
 ) -> Result<ProjectDatasetSummary, AppError> {
     let row = sqlx::query!(

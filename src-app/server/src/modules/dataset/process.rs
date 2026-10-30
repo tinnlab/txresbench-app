@@ -18,7 +18,7 @@ use axum::http::StatusCode;
 use axum::{Extension, Json};
 use schemars::JsonSchema;
 use serde::Deserialize;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use ziee_core::{ApiResult, AppError};
@@ -123,7 +123,7 @@ pub fn build_dataset_inputs(files: &[DatasetFile], slot: &str) -> Vec<InputDecl>
 /// into the processor's spec, and enqueue a dataset-scoped `analysis` job.
 pub async fn process_dataset(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path(id): Path<Uuid>,
     Json(req): Json<ProcessDatasetRequest>,
 ) -> ApiResult<Json<Job>> {
@@ -292,7 +292,7 @@ pub fn build_integrate_inputs(dataset_id: Uuid, file: &DatasetFile, axis: &str) 
 /// `integration_status` DERIVES from the job's live status.
 /// Returns the integrate job id, or `None` when no `on-integrate` converter matches.
 pub async fn maybe_integrate_on_add(
-    pool: &PgPool,
+    pool: &SqlitePool,
     owner_id: Uuid,
     dataset: &Dataset,
     supporting_datatype: &str,
