@@ -1,26 +1,39 @@
 //! The desktop's embedded-server config, built in code.
 //!
-//! Single-user desktop: embedded Postgres under the OS home dir, an ephemeral
-//! HTTP port (bound with `:0`, the real port read back from `local_addr`), and a
-//! per-install JWT secret persisted next to the data dir.
+//! Single-user desktop: the SQLite store under the OS home dir (`~/.txresbench`
+//! — the SDK derives the default app-data dir from the app name set here; the
+//! stale `~/.cytoanalyst` branding is gone), an ephemeral HTTP port (bound with
+//! `:0`, the real port read back from `local_addr`), and a per-install JWT
+//! secret persisted next to the data dir.
+//!
+//! No Postgres fields are built at all (sqlite-store PROV-sqlite-store-8): the
+//! `postgresql` block is `None`, the `database` block names the store file, and
+//! the server boots through the SQLite seam — no version, no port, no
+//! `installation_dir`, no pg logging.
 
-use ziee_core::config::{
-    EmbeddedPostgreSqlConfig, HttpServerConfig, JwtConfig, LoggingConfigPostgres, PoolConfig,
-    PostgreSqlConfig, ServerConfig,
-};
+use ziee_core::app_state::{get_app_data_dir, set_app_name};
+use ziee_core::config::{DatabaseConfig, HttpServerConfig, JwtConfig, ServerConfig};
 
-/// Per-install data directory (`~/.cytoanalyst`).
-fn data_dir() -> String {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    format!("{home}/.cytoanalyst")
+/// The app name the SDK derives the default app-data dir from (DEC-13 —
+/// `~/.txresbench`, the user-visible location the node's consumers bind).
+/// `set_app_name` is set-once (first caller wins), so this must run before any
+/// other `get_app_data_dir()` call in the process.
+pub const APP_NAME: &str = "txresbench";
+
+/// Point the SDK's app-data default at TxResBench — the DB target, the JWT
+/// secret and the workstore/files roots all derive from the data dir, so this
+/// is the first call of the desktop boot (mirrors ziee's `"ziee"` precedent).
+pub fn init_app_name() {
+    set_app_name(APP_NAME);
 }
 
 /// Read (or generate + persist) a strong per-install JWT secret. `JwtService`
 /// refuses secrets < 32 chars or matching a shipped placeholder, so a
-/// UUID-derived 64-hex-char string is used.
+/// UUID-derived 64-hex-char string is used. Stored next to the DB file, under
+/// the app-data dir.
 fn jwt_secret() -> String {
-    let dir = data_dir();
-    let path = format!("{dir}/jwt.secret");
+    let dir = get_app_data_dir();
+    let path = dir.join("jwt.secret");
     if let Ok(s) = std::fs::read_to_string(&path) {
         let s = s.trim().to_string();
         if s.len() >= 32 {
@@ -37,43 +50,19 @@ fn jwt_secret() -> String {
     secret
 }
 
-/// Build the desktop `ServerConfig` (embedded PG, ephemeral HTTP port).
+/// Build the desktop `ServerConfig` (SQLite store, ephemeral HTTP port).
 pub fn desktop_config() -> ServerConfig {
-    let dir = data_dir();
+    init_app_name();
+    let dir = get_app_data_dir();
     ServerConfig {
-        postgresql: Some(PostgreSqlConfig {
-            use_embedded: true,
-            embedded: Some(EmbeddedPostgreSqlConfig {
-                version: "18.3.0".to_string(),
-                // Fixed loopback port for the single desktop instance (a real
-                // port is needed because database_url() is built from it — port
-                // 0 auto-select would leave the pool URL pointing at :0).
-                port: 54355,
-                bind_address: "127.0.0.1".to_string(),
-                username: "postgres".to_string(),
-                password: "postgres".to_string(),
-                database: "postgres".to_string(),
-                installation_dir: Some(format!("{dir}/postgres")),
-                data_dir: Some(format!("{dir}/postgres-data")),
-                timezone: "UTC".to_string(),
-                log_timezone: "UTC".to_string(),
-                logging: LoggingConfigPostgres {
-                    collector: true,
-                    directory: "log".to_string(),
-                    filename: "postgresql-%Y-%m-%d_%H%M%S.log".to_string(),
-                    statement: "all".to_string(),
-                },
-            }),
-            external: None,
-            pool: Some(PoolConfig {
-                max_connections: 10,
-                min_connections: 1,
-                acquire_timeout_secs: 5,
-                idle_timeout_secs: Some(30),
-                max_lifetime_secs: Some(300),
-            }),
+        postgresql: None,
+        database: Some(DatabaseConfig {
+            // DEC-13's default location made explicit: the single DB file next
+            // to the JWT secret; `CYTO_DATABASE_URL` still overrides it
+            // (env > url > path > default, src/config.rs).
+            path: Some(dir.join("txresbench.db").to_string_lossy().into_owned()),
+            ..DatabaseConfig::default()
         }),
-        database: None,
         server: HttpServerConfig {
             host: "127.0.0.1".to_string(),
             // Ephemeral — the real port is read from local_addr and exposed to
@@ -90,6 +79,10 @@ pub fn desktop_config() -> ServerConfig {
         logging: None,
         jwt: JwtConfig {
             secret: jwt_secret(),
+            // The app-wide token identity (same as the shipped configs /
+            // workstore defaults) — the desktop mints + verifies its own
+            // tokens, so keeping the identity consistent across modes is what
+            // matters, not the branding.
             issuer: "cytoanalyst".to_string(),
             audience: "cytoanalyst-api".to_string(),
             access_token_expiry_hours: 24,

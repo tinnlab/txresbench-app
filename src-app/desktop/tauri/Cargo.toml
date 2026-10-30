@@ -18,9 +18,14 @@ tauri-build = { version = "2.4", features = [] }
 # The CytoAnalyst server, embedded via its reusable `boot_in_background`.
 cytoanalyst = { path = "../../server" }
 # The reusable SDK desktop shell (window + boot→window + single-user).
-ziee-desktop-harness = { path = "../../../sdk/desktop/harness" }
-ziee-core = { path = "../../../sdk/crates/ziee-core" }
-ziee-auth = { path = "../../../sdk/crates/ziee-auth" }
+# `default-features = false` + `sqlite-backend`: the harness's driver variant is
+# selected by THIS edge (DEC-1) — the downloader (`embedded-pg`) is not linked
+# by the desktop build (TEST-1(a), DRIFT-1 ITEM-24).
+ziee-desktop-harness = { path = "../../../sdk/desktop/harness", default-features = false, features = ["sqlite-backend"] }
+ziee-core = { path = "../../../sdk/crates/ziee-core", default-features = false, features = ["sqlite-backend"] }
+# `module` implies `routes`; `sqlite-backend` selects the cfg-gated sqlite
+# query sets + the migrations-sqlite chain (ITEM-14).
+ziee-auth = { path = "../../../sdk/crates/ziee-auth", default-features = false, features = ["module", "sqlite-backend"] }
 
 # Versions match the harness so the single Cargo.lock unifies onto one Tauri.
 tauri = { version = "2.8", features = ["tray-icon"] }
@@ -30,19 +35,21 @@ tauri-plugin-dialog = "2"
 anyhow = "1.0"
 async-trait = "0.1"
 serde = { version = "1.0.219", features = ["derive"] }
-sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "postgres", "uuid"] }
+sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "postgres", "sqlite", "uuid"] }
 uuid = { version = "1.18", features = ["v4"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
-# A5 TEST-6: the desktop `ensure_owner` acceptance test provisions an isolated DB
-# on the shared build cluster and applies the merged migrations at runtime, so it
-# needs sqlx's `migrate` feature (the runtime dep omits it).
+# TEST-31 (sqlite-store ITEM-24): the desktop `ensure_owner` test provisions
+# an ISOLATED SQLITE FILE (the node's store — the baseline test's cluster DB is
+# gone) and applies the merged migrations at runtime, so it needs sqlx's
+# `sqlite` + `migrate` features (the runtime dep omits `migrate`).
 sqlx = { version = "0.8.6", features = [
     "runtime-tokio-rustls",
     "postgres",
+    "sqlite",
     "uuid",
     "migrate",
 ] }

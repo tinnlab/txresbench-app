@@ -20,9 +20,16 @@ edition.workspace = true
 
 [dependencies]
 # SDK crates only — NEVER the `ziee` app crate (reusability contract).
-ziee-core = { path = "../../crates/ziee-core" }
+# The crate edges are `default-features = false` for the SAME reason as
+# ziee-auth's framework edge (sqlite-store DEC-1): the driver selection must be
+# THIS manifest's passthrough features, never a dependency default, so a
+# `sqlite-backend` build does not link the `postgresql_embedded` downloader at
+# all (TEST-1(a), DRIFT-1 ITEM-24). The `default` feature set below reproduces
+# the driver+routes set the default features of the underlying crates implied
+# before this split, so ziee's (app #1) build stays byte-identical.
+ziee-core = { path = "../../crates/ziee-core", default-features = false }
 ziee-identity = { path = "../../crates/ziee-identity" }
-ziee-auth = { path = "../../crates/ziee-auth" }
+ziee-auth = { path = "../../crates/ziee-auth", default-features = false }
 
 # Tauri — for the window shell (`window::create_main_window` +
 # `spawn_boot_then_window`). Version matches `ziee-desktop` so the single
@@ -47,8 +54,14 @@ tracing = "0.1"
 webkit2gtk = { version = "=2.0.2", features = ["v2_38"] }
 
 # Dual-driver selection — `BootHandle.pool` + the single-user strategy hold
-# `ziee_core::DbPool`, so this feature only flips which concrete type that
-# alias names. A sqlite-desktop app enables it (together with the same feature
-# on the schema-bound SDK crates it builds against).
+# `ziee_core::DbPool`, so these features only flip which concrete type that
+# alias names (and which query set ziee-auth compiles). A sqlite-desktop app
+# enables `sqlite-backend` (together with the same feature on the
+# schema-bound SDK crates it builds against); the DEFAULT set keeps the
+# pre-split implied features (auth `routes` + `embedded-pg`) so ziee's build
+# is byte-identical to before the passthrough split (sqlite-store ITEM-24).
 [features]
-sqlite-backend = ["ziee-core/sqlite-backend"]
+default = ["routes", "embedded-pg"]
+routes = ["ziee-auth/routes"]
+embedded-pg = ["ziee-auth/embedded-pg"]
+sqlite-backend = ["ziee-core/sqlite-backend", "ziee-auth/sqlite-backend"]
