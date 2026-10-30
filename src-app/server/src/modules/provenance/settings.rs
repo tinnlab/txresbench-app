@@ -1,10 +1,15 @@
 //! Provenance settings singleton (ITEM-25 / DEC-5). Mirrors
 //! `sandbox/settings.rs` verbatim: a `query_as!` singleton repo + `validate()`
 //! (422 `PROVENANCE_SETTING_OUT_OF_RANGE`) + `merge()` + `settings_cache.rs`.
+//! SQLite driver (sqlite-store DEC-1): the PG `NOW()` write clock is the
+//! canonical `strftime('%Y-%m-%dT%H:%M:%fZ','now')` RFC3339-UTC form (DEC-8's
+//! map — lexicographic == chronological) and `id = TRUE` stays verbatim
+//! (the ITEM-19/20 precedent: recognized by the sqlite macro, checked at
+//! runtime).
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use ziee_core::AppError;
 
 /// The singleton provenance settings row (matches migration
@@ -168,11 +173,11 @@ pub(crate) fn rootfs_cache_max_digests_env_seed_from(raw: Option<&str>) -> Optio
 }
 
 pub struct ProvenanceSettingsRepository {
-    pool: PgPool,
+    pool: SqlitePool,
 }
 
 impl ProvenanceSettingsRepository {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
 
@@ -212,7 +217,7 @@ impl ProvenanceSettingsRepository {
                     rootfs_gc_interval_secs = COALESCE($8, rootfs_gc_interval_secs),
                     rootfs_cache_max_digests = COALESCE($9, rootfs_cache_max_digests),
                     updated_by = $10,
-                    updated_at = NOW()
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
                WHERE id = TRUE
                RETURNING export_bundle_max_bytes, capture_code_max_bytes,
                          export_retention_days,

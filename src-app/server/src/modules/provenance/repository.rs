@@ -2,11 +2,23 @@
 //! macros (canonical pattern — `dataset/repository.rs`): `timestamptz` needs the
 //! `col as "col: DateTime<Utc>"` override (nullable → `col as "col?: T"`), `jsonb`
 //! needs `col as "col: serde_json::Value"`.
+//!
+//! SQLite driver (sqlite-store DEC-1: the app's modules are single-driver):
+//! `uuid` columns are 16-byte BLOBs read through sqlx's sqlite `Uuid` mapping,
+//! `jsonb` columns are JSON TEXT and `timestamptz` columns are canonical
+//! RFC3339-UTC TEXT (DEC-8's map), so the `<ident: Type>` overrides the PG
+//! macro inference cannot produce are written out explicitly wherever the DB
+//! type differs from the Rust type. The `now()` →
+//! `strftime('%Y-%m-%dT%H:%M:%fZ','now')` clock (lexicographic ==
+//! chronological on the canonical form), the `= ANY(uuid[])` → JSON1
+//! membership rewrite (see [`uuid_list_json`]) and the
+//! `DISTINCT ON` → window-function rewrite (DEC-12) are documented at their
+//! sites.
 
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
-use sqlx::{PgPool, Postgres, Transaction};
+use sqlx::{Sqlite, SqlitePool, Transaction};
 use uuid::Uuid;
 use ziee_core::AppError;
 
@@ -128,7 +140,25 @@ pub struct VerificationResult {
 }
 
 pub struct ProvenanceRepository {
-    pool: PgPool,
+    pool: SqlitePool,
+}
+
+/// Serialize a `uuid[]` batch into the JSON-hex form the SQLite membership
+/// predicates consume (the `= ANY(uuid[])` port — DEC-12/PROV-sqlite-store-4):
+/// a JSON array of 32-char lowercase hex strings, compared against a 16-byte
+/// BLOB column through `unhex()` —
+/// `col IN (SELECT unhex(j.value) FROM json_each($1) AS j)`. This is the
+/// ITEM-15 `ziee-file` / ITEM-21 `dataset` convention (their
+/// `uuid_list_json`), kept local because the app's modules are single-driver
+/// (DEC-1) and beside the ONE `= ANY` site in this module it serves no other
+/// surface.
+fn uuid_list_json(ids: &[Uuid]) -> String {
+    serde_json::to_string(
+        &ids.iter()
+            .map(|id| id.simple().to_string())
+            .collect::<Vec<String>>(),
+    )
+    .expect("a Vec<String> is always JSON-serializable")
 }
 
 /// Append `id` unless already present. The lineage walk yields datasets in DECLARED edge
@@ -142,7 +172,7 @@ fn push_unique(out: &mut Vec<Uuid>, id: Uuid) {
 }
 
 impl ProvenanceRepository {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
 
@@ -198,7 +228,7 @@ impl ProvenanceRepository {
     /// statement below and both entry points share it: a second copy of that column list is
     /// how a fixture comes to write a row shape no real run writes.
     pub async fn insert_run_in_tx(
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut Transaction<'_, Sqlite>,
         r: &NewRun,
     ) -> Result<RunReproRow, AppError> {
         Self::insert_run_with(&mut **tx, r).await
@@ -206,7 +236,7 @@ impl ProvenanceRepository {
 
     async fn insert_run_with<'e, E>(ex: E, r: &NewRun) -> Result<RunReproRow, AppError>
     where
-        E: sqlx::Executor<'e, Database = Postgres>,
+        E: sqlx::Executor<'e, Database = Sqlite>,
     {
         sqlx::query_as!(
             RunReproRow,
@@ -643,11 +673,15 @@ impl ProvenanceRepository {
         let inserted = sqlx::query_as!(
             ReferenceRow,
             r#"INSERT INTO provenance_reference_resources
-                 (project_id, kind, name, version, accession, doi, content_hash)
-               VALUES ($1,$2,$3,$4,$5,$6,$7)
+                 (id, project_id, kind, name, version, accession, doi, content_hash)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
                ON CONFLICT DO NOTHING
                RETURNING id, project_id, kind, name, version, accession, doi, content_hash,
                          created_at as "created_at: DateTime<Utc>""#,
+            // (DEC-12: the PG chain's `DEFAULT gen_random_uuid()` has no SQLite
+            // form — the ITEM-11 sqlite chain port records NO id default, so the
+            // id is an app-side bind; RETURNING it is the same value.)
+            Uuid::new_v4(),
             r.project_id,
             r.kind,
             r.name,
@@ -759,7 +793,9 @@ impl ProvenanceRepository {
                     diff_report = $3,
                     rootfs_digest = $4,
                     cert_json = $5,
-                    verified_at = now()
+                    -- (DEC-8: the canonical RFC3339-UTC clock; lexicographic ==
+                    -- chronological on both sides — the ITEM-19/20/21 form.)
+                    verified_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
                WHERE id = $1
                RETURNING id, target_run_id, project_id, status, tolerance_mode,
                          diff_report as "diff_report: serde_json::Value",
@@ -818,7 +854,10 @@ impl ProvenanceRepository {
                       verified_at as "verified_at?: DateTime<Utc>",
                       created_at as "created_at: DateTime<Utc>"
                FROM provenance_verifications
-               WHERE project_id = $1 AND ($2::uuid IS NULL OR target_run_id = $2)
+               -- (DEC-12: the `$2::uuid` cast has no SQLite form — the
+               -- Option<Uuid> bind is typed; `$2 IS NULL` keeps the caller's
+               -- "filter off" arm, NULL-affinity is not an issue for uuid binds.)
+               WHERE project_id = $1 AND ($2 IS NULL OR target_run_id = $2)
                ORDER BY created_at DESC
                LIMIT $3 OFFSET $4"#,
             project_id,
@@ -842,17 +881,30 @@ impl ProvenanceRepository {
         }
         let rows = sqlx::query_as!(
             VerificationRow,
-            r#"SELECT DISTINCT ON (target_run_id)
-                      id, target_run_id, project_id, status, tolerance_mode,
+            r#"SELECT id, target_run_id, project_id, status, tolerance_mode,
                       diff_report as "diff_report: serde_json::Value",
                       rootfs_digest,
                       cert_json as "cert_json?: serde_json::Value",
                       verified_at as "verified_at?: DateTime<Utc>",
                       created_at as "created_at: DateTime<Utc>"
-               FROM provenance_verifications
-               WHERE target_run_id = ANY($1) AND status <> 'pending'
-               ORDER BY target_run_id, created_at DESC"#,
-            run_ids,
+               FROM (
+                   -- (DEC-12: `DISTINCT ON (target_run_id)` has no SQLite form; the
+                   -- window `ROW_NUMBER()` + `rn = 1` is its equivalent — same
+                   -- one-row-per-run choice (newest `created_at`), same
+                   -- exclusion of `pending`, and the caller consumes the rows as a
+                   -- HashMap keyed by `target_run_id`, so the outer ordering is
+                   -- irrelevant. The `= ANY(uuid[])` batch became JSON1
+                   -- membership over [`uuid_list_json`] — the ITEM-15/21 form.)
+                   SELECT id, target_run_id, project_id, status, tolerance_mode,
+                          diff_report, rootfs_digest, cert_json, verified_at, created_at,
+                          ROW_NUMBER() OVER (PARTITION BY target_run_id
+                                             ORDER BY created_at DESC) AS rn
+                     FROM provenance_verifications
+                    WHERE target_run_id IN (SELECT unhex(j.value) FROM json_each($1) AS j)
+                      AND status <> 'pending'
+               )
+               WHERE rn = 1"#,
+            uuid_list_json(run_ids),
         )
         .fetch_all(&self.pool)
         .await
@@ -868,8 +920,10 @@ impl ProvenanceRepository {
         let res = sqlx::query!(
             r#"UPDATE provenance_verifications
                SET status = 'error',
-                   diff_report = '{"error":"interrupted by a server restart"}'::jsonb,
-                   verified_at = now()
+                   -- (DEC-8: the `::jsonb` cast has no SQLite form — the column
+                   -- holds JSON TEXT, so the literal is written directly.)
+                   diff_report = '{"error":"interrupted by a server restart"}',
+                   verified_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
                WHERE status = 'pending'"#,
         )
         .execute(&self.pool)
@@ -927,7 +981,7 @@ impl ProvenanceRepository {
     /// BEFORE the run rows are deleted so the delete-time `GcManifest` can mark
     /// them for post-commit refcount GC.
     pub async fn code_sha_refs_for_project_in_tx(
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut Transaction<'_, Sqlite>,
         project_id: Uuid,
     ) -> Result<Vec<String>, AppError> {
         let rows = sqlx::query!(
@@ -944,7 +998,7 @@ impl ProvenanceRepository {
 
     /// Delete every run node for a project, inside the caller's tx. Returns the count.
     pub async fn delete_runs_for_project_in_tx(
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut Transaction<'_, Sqlite>,
         project_id: Uuid,
     ) -> Result<u64, AppError> {
         let res = sqlx::query!(
@@ -962,7 +1016,7 @@ impl ProvenanceRepository {
     /// explicit path runs in the project-extension cascade (before the project row is
     /// removed) and returns the count.
     pub async fn delete_verifications_for_project_in_tx(
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut Transaction<'_, Sqlite>,
         project_id: Uuid,
     ) -> Result<u64, AppError> {
         let res = sqlx::query!(
@@ -978,7 +1032,7 @@ impl ProvenanceRepository {
     /// Delete every reference resource for a project, inside the caller's tx. Only
     /// project-scoped rows (never the global `project_id IS NULL` refs).
     pub async fn delete_references_for_project_in_tx(
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut Transaction<'_, Sqlite>,
         project_id: Uuid,
     ) -> Result<u64, AppError> {
         let res = sqlx::query!(

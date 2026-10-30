@@ -5,7 +5,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 
 use super::settings::{ProvenanceSettings, ProvenanceSettingsRepository};
 
@@ -24,14 +24,14 @@ pub fn snapshot() -> Arc<ProvenanceSettings> {
 /// Read the settings, loading from the DB once (subsequent calls hit the cache).
 /// A DB error falls back to the current cached value FOR THAT CALL ONLY — the
 /// next call retries (see [`load_once`]).
-pub async fn get(pool: &PgPool) -> Arc<ProvenanceSettings> {
+pub async fn get(pool: &SqlitePool) -> Arc<ProvenanceSettings> {
     load_once(pool, &LOADED).await
 }
 
 /// The load-once body with the latch flag INJECTED, so the failure path is
 /// unit-testable against a caller-owned flag (the production `LOADED` is a
 /// process-wide static shared by every test in the binary).
-async fn load_once(pool: &PgPool, loaded: &AtomicBool) -> Arc<ProvenanceSettings> {
+async fn load_once(pool: &SqlitePool, loaded: &AtomicBool) -> Arc<ProvenanceSettings> {
     if !loaded.load(Ordering::Acquire) {
         match ProvenanceSettingsRepository::new(pool.clone()).get().await {
             Ok(row) => {
@@ -92,13 +92,15 @@ mod tests {
     // this assertion fails (the flag latches on the failed read).
     #[tokio::test]
     async fn a_failed_db_read_does_not_latch_defaults() {
-        use sqlx::postgres::PgPoolOptions;
+        use sqlx::sqlite::SqlitePoolOptions;
 
-        // A lazily-connected pool at a closed port: every query errors.
-        let unreachable = PgPoolOptions::new()
+        // A lazily-connected pool at a nonexistent path: every query errors
+        // (the ITEM-19/20 convention — the sqlite driver has no "closed port"
+        // equivalent, so the unreachable supplier is a bad path instead).
+        let unreachable = SqlitePoolOptions::new()
             .max_connections(1)
             .acquire_timeout(std::time::Duration::from_secs(2))
-            .connect_lazy("postgres://nobody:nobody@127.0.0.1:1/nowhere")
+            .connect_lazy("sqlite:///data/pbya/txresbench-app-work/__no_such_dir__/offline.sqlite")
             .expect("build a lazy pool");
 
         let loaded = AtomicBool::new(false);

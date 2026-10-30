@@ -16,7 +16,7 @@
 //!
 //! The cache grows at exactly one moment — when `OciEnvImageProvider::provide`
 //! stages a newly-resolved digest — which argues for evicting right there. But
-//! `provide` is synchronous, holds no `PgPool`, and runs on the critical path of a
+//! `provide` is synchronous, holds no DB pool, and runs on the critical path of a
 //! job that is about to execute; making it reach the database for the referenced
 //! set would put a query (and a 300 MB delete) in front of every run. Growth is
 //! one digest per REPUBLISH of the env image, not per run, so a periodic sweep
@@ -25,7 +25,7 @@
 use std::collections::HashSet;
 use std::time::Duration;
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use ziee_core::AppError;
 
 use super::env_obtain::normalize_digest;
@@ -74,7 +74,7 @@ pub fn sweep_now_with_cap(referenced: &HashSet<String>, max: usize) -> Vec<Strin
 /// to bare lowercase hex (a stored value may legitimately carry a `sha256:`
 /// scheme prefix, and a cache key never does — an un-normalized entry would fail
 /// to protect the digest it names).
-pub async fn referenced_digests(pool: &PgPool) -> Result<HashSet<String>, AppError> {
+pub async fn referenced_digests(pool: &SqlitePool) -> Result<HashSet<String>, AppError> {
     let repo = ProvenanceRepository::new(pool.clone());
     Ok(repo
         .distinct_env_rootfs_digests()
@@ -91,7 +91,7 @@ pub async fn referenced_digests(pool: &PgPool) -> Result<HashSet<String>, AppErr
 /// The FIRST pass is what reclaims the backlog a deployment has already
 /// accumulated (this box measured 2.3 GB across six digest dirs before any of
 /// this existed).
-pub fn spawn_loop(pool: PgPool) {
+pub fn spawn_loop(pool: SqlitePool) {
     tokio::spawn(async move {
         loop {
             // Read the live settings each cycle (read-at-use, #54): the interval AND the cap

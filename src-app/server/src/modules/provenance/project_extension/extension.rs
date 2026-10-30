@@ -5,7 +5,7 @@
 
 use async_trait::async_trait;
 use linkme::distributed_slice;
-use sqlx::{PgPool, Postgres, Transaction};
+use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -33,7 +33,7 @@ impl ProjectExtension for ProvenanceProjectExtension {
     async fn on_project_deleted(
         &self,
         project_id: Uuid,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut Transaction<'_, Sqlite>,
         gc: &mut crate::modules::project::GcManifest,
     ) -> Result<(), AppError> {
         // Mark the project's code-blob refs for the post-commit refcount sweep
@@ -58,7 +58,7 @@ impl ProjectExtension for ProvenanceProjectExtension {
         &self,
         src_project_id: Uuid,
         dst_project_id: Uuid,
-        _tx: &mut Transaction<'_, Postgres>,
+        _tx: &mut Transaction<'_, Sqlite>,
     ) -> Result<(), AppError> {
         // MVP no-op behind a flag (DEC-6): deep-copying content-addressed graph
         // storage refs across projects is nontrivial — noted as an SDK gap.
@@ -71,7 +71,7 @@ impl ProjectExtension for ProvenanceProjectExtension {
     }
 }
 
-fn create(_pool: PgPool) -> Arc<dyn ProjectExtension> {
+fn create(_pool: SqlitePool) -> Arc<dyn ProjectExtension> {
     Arc::new(ProvenanceProjectExtension::new())
 }
 

@@ -10,7 +10,7 @@
 //! reclamation (`ProvenanceModule::init`) resolves any pending row orphaned by a
 //! restart, so a crash/restart never leaves a verification hung forever.
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use tokio::sync::watch;
 use uuid::Uuid;
 
@@ -55,7 +55,7 @@ use diff::ToleranceMode;
 /// of them wedges the scheduler for the life of the process. (Boot reconcile clears
 /// them, which is a restart, not a fix.)
 pub fn spawn_verification(
-    pool: PgPool,
+    pool: SqlitePool,
     verification_id: Uuid,
     target_run_id: Uuid,
     acting_user: Uuid,
@@ -86,7 +86,7 @@ pub fn spawn_verification(
 /// Both writers are guarded UPDATEs that match only a non-terminal row, so a run a user
 /// already `stopped` through `POST /jobs/{id}/stop` is left exactly as they expect to
 /// find it, and a double close is a no-op rather than a rewrite.
-async fn close_job_row(pool: &PgPool, job_id: Uuid, failure: Option<&str>) {
+async fn close_job_row(pool: &SqlitePool, job_id: Uuid, failure: Option<&str>) {
     let repo = crate::modules::jobs::repository::JobRepository::new(pool.clone());
     let owner = match repo.get_any(job_id).await {
         Ok(Some(job)) => {
@@ -124,7 +124,7 @@ async fn close_job_row(pool: &PgPool, job_id: Uuid, failure: Option<&str>) {
 
 /// Stamp a verification `error` (the last-resort resolver so a row never hangs
 /// pending). Logs — does NOT swallow — a failing terminal UPDATE.
-async fn stamp_error(pool: &PgPool, verification_id: Uuid, acting_user: Uuid, reason: &str) {
+async fn stamp_error(pool: &SqlitePool, verification_id: Uuid, acting_user: Uuid, reason: &str) {
     let repo = ProvenanceRepository::new(pool.clone());
     match repo
         .update_verification_result(
@@ -148,7 +148,7 @@ async fn stamp_error(pool: &PgPool, verification_id: Uuid, acting_user: Uuid, re
 
 /// The fallible task body.
 pub async fn verify_run(
-    pool: &PgPool,
+    pool: &SqlitePool,
     verification_id: Uuid,
     target_run_id: Uuid,
     acting_user: Uuid,
@@ -318,7 +318,7 @@ fn env_differs(recorded: &Option<String>, rerun: &Option<String>) -> bool {
 /// the sandbox (the external-boundary mock the always-run integration test uses;
 /// physically compiled out of release — DEC-10).
 async fn rerun_signature(
-    pool: &PgPool,
+    pool: &SqlitePool,
     spec: &serde_json::Value,
     verification_id: Uuid,
     acting_user: Uuid,

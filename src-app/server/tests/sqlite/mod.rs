@@ -13,4 +13,5 @@ pub mod module_account;
 pub mod module_dataset;
 pub mod module_jobs;
 pub mod module_project;
+pub mod module_provenance;
 pub mod module_workstore;
