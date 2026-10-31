@@ -567,15 +567,23 @@ async fn test20_the_guard_refuses_an_unserializable_transaction_context() {
     // `SQLITE_BUSY_SNAPSHOT`) instead of passing. Pin that: the call under a stale
     // snapshot FAILS and admits nobody.
     let mut tx = pool.begin().await.expect("begin");
-    // Take the snapshot: a read pins the deferred transaction's file view.
-    let _ = sqlx::query_scalar::<_, i64>("SELECT 1")
+    // Take the snapshot: a read pins the deferred transaction's file view. `SELECT 1` does
+    // NOT do this in WAL mode — it never touches the database file, so no snapshot is
+    // taken and the later write would simply see the current file (the first version of
+    // this arm was green for exactly that reason and proved nothing). A real table read is
+    // what pins the view.
+    let _ = sqlx::query_scalar::<_, uuid::Uuid>("SELECT id FROM accounts WHERE id = $1")
+        .bind(org)
         .fetch_one(&mut *tx)
         .await
         .expect("snapshot read");
     // Advance the file from a SECOND connection so the snapshot is stale by the
-    // time the mutation's write runs.
+    // time the mutation's write runs. The write must actually CHANGE a value:
+    // SQLite (3.46) treats `SET name = name` as a no-op and writes NO WAL frame,
+    // so the snapshot stays valid and the arm would pass for the wrong reason
+    // (verified — the first version of this arm was green exactly that way).
     let mut other = pool.acquire().await.expect("other connection");
-    sqlx::query("UPDATE accounts SET name = name WHERE id = $1")
+    sqlx::query("UPDATE accounts SET name = name || '-advanced' WHERE id = $1")
         .bind(org)
         .execute(&mut *other)
         .await
@@ -1516,11 +1524,18 @@ fn test16_the_saas_gate_is_confined_to_account_seat_rs() {
     }
     gated.sort();
     mentions_in_prose.sort();
+    // SQLite port: the `saas` feature itself is STRIPPED on this node (the billing module is
+    // gone — see DRIFT-1.25), so the gate attribute was removed from `seat.rs` along with the
+    // policy it gated (the port kept only the transaction-context guard, which is not a
+    // billing property). The invariant "nothing but seat.rs may carry a saas gate"
+    // degenerates to its other half, and that is what is pinned: NO file in the module
+    // carries one, so nothing is gated out of a build that has no second build.
     assert_eq!(
         gated,
-        vec!["seat.rs".to_string()],
-        "exactly one file in modules/account may carry a saas gate, and it is seat.rs — \
-         everything else must work in BOTH builds (A1 INV-3 / AC-INV-6)"
+        Vec::<String>::new(),
+        "no file in modules/account may carry a saas gate on this node — the `saas` feature \
+         and its billing module are stripped, so a gate would gate a path out of the ONLY \
+         build there is. (On the upstream build the pinned set is exactly [seat.rs].)"
     );
 
     // AND the shipped guard's own, prose-INCLUSIVE constraint still holds on the five files
@@ -1590,180 +1605,31 @@ fn test16_the_saas_gate_is_confined_to_account_seat_rs() {
 /// Read from the SAAS spec, since `/api/billing/*` mounts only in that build.
 #[test]
 fn test9_no_route_mutates_member_allowance() {
-    let doc: Value = serde_json::from_str(&repo_file("../ui/openapi-saas/openapi.json"))
-        .expect("parse the saas openapi.json");
+    // SQLite port: the SAAS spec and the billing module it documents are STRIPPED on this
+    // node (DRIFT-1.25) — `/api/billing/*` mounts in no build that exists here, so the
+    // claim "no route mutates `member_allowance`" has no subject to be false against in the
+    // saas document the upstream test read. The same claim is re-pointed at the ONE
+    // document there is, asserted at full strength on what it can see: the billing catalog
+    // route is absent (the item's subject is gone with the stripped module), and the field
+    // appears NOWHERE in the shipped document — which subsumes the upstream request-body
+    // scan, because here there is no `$ref`-hidden billing schema to resolve: the field
+    // does not exist at all outside test fixtures.
+    let doc: Value = serde_json::from_str(&repo_file("../ui/openapi/openapi.json"))
+        .expect("parse the shipped openapi.json");
 
-    // The catalog path exposes GET only — it is a VIEW, there is no PUT (INV-1/INV-10b).
     let paths = doc["paths"].as_object().expect("paths object");
-    let catalog = paths
-        .get("/api/billing/catalog")
-        .expect("the catalog route is in the saas document");
-    let methods: Vec<&str> = catalog
-        .as_object()
-        .expect("catalog path item")
-        .keys()
-        .map(|k| k.as_str())
-        .filter(|k| {
-            matches!(
-                *k,
-                "get" | "put" | "post" | "patch" | "delete" | "head" | "options" | "trace"
-            )
-        })
-        .collect();
-    assert_eq!(
-        methods,
-        vec!["get"],
-        "the catalog is READ-ONLY — a put/post/patch here would make the plan set \
-         operator-editable, which INV-1 forbids"
-    );
-
-    // And `member_allowance` appears in no request body anywhere in the document — the
-    // assertion a source-grep cannot make, because it covers EVERY module's routes at once.
-    //
-    // FIX_ROUND-1 F5: the first version serialized the `requestBody` node and searched the
-    // text. That could not fail: every one of the spec's request bodies is
-    // `{"content":{"application/json":{"schema":{"$ref":"#/components/schemas/X"}}}}` with
-    // ZERO inline properties, so the field name is never in that subtree no matter what the
-    // route accepts. A test that cannot fail reads as coverage and is worse than none. The
-    // $refs are now RESOLVED before searching, and the resolver is itself controlled below.
-    let schemas = doc["components"]["schemas"]
-        .as_object()
-        .expect("components.schemas");
-
-    fn schema_mentions(
-        node: &Value,
-        schemas: &serde_json::Map<String, Value>,
-        field: &str,
-        depth: usize,
-        seen: &mut Vec<String>,
-    ) -> bool {
-        if depth > 12 {
-            return false;
-        }
-        if let Some(r) = node.get("$ref").and_then(|v| v.as_str()) {
-            let name = r.rsplit('/').next().unwrap_or_default().to_string();
-            if seen.contains(&name) {
-                return false; // already on THIS path — a cycle, not a missed branch
-            }
-            // FIX_ROUND-2 R2-7: `seen` is a PATH stack, popped on the way out. The first
-            // version never popped, making it a global visited-set: a schema first reached
-            // at the depth cut-off under one branch stayed marked and was then skipped
-            // outright on a later, shallower path — a false NEGATIVE, which is the direction
-            // that makes the assertion vacuous rather than noisy.
-            seen.push(name.clone());
-            let found = schemas
-                .get(&name)
-                .map(|target| schema_mentions(target, schemas, field, depth + 1, seen))
-                .unwrap_or(false);
-            seen.pop();
-            return found;
-        }
-        if let Some(props) = node.get("properties").and_then(|v| v.as_object()) {
-            if props.contains_key(field) {
-                return true;
-            }
-            for v in props.values() {
-                if schema_mentions(v, schemas, field, depth + 1, seen) {
-                    return true;
-                }
-            }
-        }
-        for key in ["items", "additionalProperties"] {
-            if let Some(v) = node.get(key) {
-                if schema_mentions(v, schemas, field, depth + 1, seen) {
-                    return true;
-                }
-            }
-        }
-        for key in ["allOf", "anyOf", "oneOf"] {
-            if let Some(arr) = node.get(key).and_then(|v| v.as_array()) {
-                for v in arr {
-                    if schema_mentions(v, schemas, field, depth + 1, seen) {
-                        return true;
-                    }
-                }
-            }
-        }
-        false
-    }
-
-    // CONTROLS for the resolver itself. Without these, a resolver that silently returned
-    // `false` for everything would make the assertion below vacuous again — the exact
-    // failure being repaired. FIX_ROUND-2 R2-7 widened them: the originals followed a single
-    // `$ref` to a top-level property and exercised none of the recursion they underwrite.
-
-    // (1) found THROUGH a $ref at all.
-    let probe = serde_json::json!({ "$ref": "#/components/schemas/QuotaStateResponse" });
     assert!(
-        schema_mentions(&probe, schemas, "member_allowance", 0, &mut Vec::new()),
-        "resolver control: member_allowance must be found through a $ref"
+        !paths.contains_key("/api/billing/catalog"),
+        "the billing catalog route must not exist in the shipped default document on this \
+         node — the billing module that serves it is stripped. If it reappears, the saas \
+         spec and the upstream test9 arms must be restored with it."
     );
-    // (2) an absent field is not reported present.
+    let raw = serde_json::to_string(&doc).expect("serialize");
     assert!(
-        !schema_mentions(&probe, schemas, "no_such_field_anywhere", 0, &mut Vec::new()),
-        "resolver control: an absent field must not be reported present"
-    );
-    // (3) NESTED — through an array's `items`, through a composed `allOf`, and one property
-    // level down. These are the paths the real scan takes and the originals never touched.
-    let nested = serde_json::json!({
-        "type": "object",
-        "properties": {
-            "wrapper": {
-                "type": "array",
-                "items": { "allOf": [{ "$ref": "#/components/schemas/QuotaStateResponse" }] }
-            }
-        }
-    });
-    assert!(
-        schema_mentions(&nested, schemas, "member_allowance", 0, &mut Vec::new()),
-        "resolver control: the field must be found through properties → items → allOf → $ref"
-    );
-    // (4) a CYCLE must terminate and must not poison a sibling branch — the false-negative
-    // the path-stack fix exists to prevent. `self` cycles; `also` reaches the field.
-    let mut cyclic = serde_json::Map::new();
-    cyclic.insert(
-        "Loop".into(),
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "self": { "$ref": "#/components/schemas/Loop" },
-                "also": { "$ref": "#/components/schemas/QuotaStateResponse" }
-            }
-        }),
-    );
-    for (k, v) in schemas.iter() {
-        cyclic.insert(k.clone(), v.clone());
-    }
-    let loop_probe = serde_json::json!({ "$ref": "#/components/schemas/Loop" });
-    assert!(
-        schema_mentions(&loop_probe, &cyclic, "member_allowance", 0, &mut Vec::new()),
-        "resolver control: a self-referential schema must terminate AND still find the field \
-         down its other branch"
-    );
-
-    let mut checked = 0usize;
-    for (path, item) in paths {
-        for (method, op) in item.as_object().expect("path item").iter() {
-            let Some(schema) = op
-                .get("requestBody")
-                .and_then(|b| b.get("content"))
-                .and_then(|c| c.as_object())
-                .and_then(|c| c.values().next())
-                .and_then(|m| m.get("schema"))
-            else {
-                continue;
-            };
-            checked += 1;
-            assert!(
-                !schema_mentions(schema, schemas, "member_allowance", 0, &mut Vec::new()),
-                "{method} {path} accepts `member_allowance` in its request body — the \
-                 seat allowance is code-defined and must not be settable over the API"
-            );
-        }
-    }
-    assert!(
-        checked > 20,
-        "the scan must actually reach the document's request bodies; only {checked} found"
+        !raw.contains("member_allowance"),
+        "`member_allowance` must appear nowhere in the shipped document — neither in a \
+         request body (the upstream assertion) nor anywhere else, since the seat-allowance \
+         surface is stripped with the billing module it belonged to"
     );
 }
 

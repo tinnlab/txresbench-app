@@ -92,7 +92,13 @@ WHERE a.kind = 'personal'
 -- account_id is absent. (See the header note — the CHECK-trap-table port of
 -- the Postgres `DO … RAISE EXCEPTION` block.)
 
-CREATE TABLE account_backfill_zero_orphan_gate (probe INTEGER CHECK (probe = -1));
+-- The CHECK is NAMED after the gate table so a violation reports
+-- `CHECK constraint failed: account_backfill_zero_orphan_gate` — the
+-- by-name assertion the acceptance test makes, and the same "say WHICH
+-- problem it is" discipline the Postgres `RAISE EXCEPTION` message had.
+CREATE TABLE account_backfill_zero_orphan_gate (
+    probe INTEGER CONSTRAINT account_backfill_zero_orphan_gate CHECK (probe = -1)
+);
 
 INSERT INTO account_backfill_zero_orphan_gate (probe)
 SELECT 1 FROM projects WHERE account_id IS NULL

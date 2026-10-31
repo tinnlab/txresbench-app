@@ -179,8 +179,8 @@ async fn plant_invitation(
     let hash = invitation_token::token_sha256(&token).to_vec();
     let id = sqlx::query_scalar::<_, Uuid>(
         "INSERT INTO account_invitations \
-           (account_id, email, role, token_sha256, invited_by, expires_at) \
-         VALUES ($1, $2, $3, $4, $5, strftime('%Y-%m-%dT%H:%M:%fZ','now','+7 days')) RETURNING id",
+           (id, account_id, email, role, token_sha256, invited_by, expires_at) \
+         VALUES (randomblob(16), $1, $2, $3, $4, $5, strftime('%Y-%m-%dT%H:%M:%fZ','now','+7 days')) RETURNING id",
     )
     .bind(account)
     .bind(email)
@@ -297,149 +297,59 @@ async fn remove_member(pool: &SqlitePool, account: Uuid, user: Uuid) {
 /// race tests, and it is right — `[201, 422]` and `[201, 404]` are also what a check-then-act
 /// implementation produces when the two requests happen to serialize.
 ///
-/// The blocker takes the SAME `accounts … FOR NO KEY UPDATE` every membership path takes
-/// first, and that mode self-conflicts, so both requests are queued behind it. Their
-/// discovery reads (outside any transaction) have already run by then; when the lock is
-/// released they resume INSIDE their transactions and race on the locked reads — which is
-/// the situation under test.
-///
-/// **It PROVES the parking rather than assuming it** (FIX_ROUND-2, R2-3). The first version
-/// released on a bare 750ms sleep, and a round-2 blind audit pointed out that on a loaded box
-/// the requests can still be pre-`BEGIN` at release — in which case both race tests silently
-/// degrade back to the serialized execution the helper exists to eliminate, and pass for the
-/// wrong reason. A helper that no-ops under load turns a green suite into no evidence.
-///
-/// So it now polls `pg_stat_activity` until `waiters` sessions are actually blocked on a lock
-/// in THIS test's database, and **panics** on a bounded deadline rather than proceeding. The
-/// test therefore either proves interleaving or fails loudly.
-async fn while_the_account_row_is_held<F, T>(
+/// On Postgres the blocker took the SAME `accounts … FOR NO KEY UPDATE` every membership
+/// path takes first, and the parked-queue proof was a `pg_stat_activity` poll; on SQLite
+/// both have no form (see the port note on the helper body below) — the port is the signal
+/// handshake + fixed grace window described there.
+/// SQLite port of the row-lock barrier (record): `FOR NO KEY UPDATE` has no SQLite
+/// form, and the single-writer model makes the lock global — `BEGIN IMMEDIATE` at the
+/// transaction's OPEN is the serialization point, and a concurrent request parks in its
+/// busy-wait there. The port therefore takes `BEGIN IMMEDIATE` instead of a row lock,
+/// and replaces the `pg_stat_activity`/`pg_backend_pid` parked-queue proof with a
+/// signal handshake: `f` receives the closure's signal sender and every request under
+/// the barrier sends JUST BEFORE issuing its transaction; this helper waits for all
+/// `waiters` signals and a fixed grace window (the contending statement is submitted
+/// to the connection's worker and enters the sqlite busy-handler well inside it),
+/// then releases. SQLite exposes no queue observation surface, so the grace window is
+/// the honest bound — recorded, with the walk-length consequences: on a box so loaded
+/// that a worker cannot reach the busy-handler within the grace, the barrier degrades
+/// to serialized execution (the PG design's silent-degradation risk moved, not gone).
+const LOCK_BARRIER_SIGNALS: &str = "lock barrier handshake";
+const LOCK_BARRIER_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+
+async fn while_the_account_row_is_held<F, Fut, T>(
     pool: &SqlitePool,
     account_id: Uuid,
-    waiters: i64,
+    waiters: usize,
     f: F,
 ) -> T
 where
-    F: std::future::Future<Output = T>,
+    F: FnOnce(tokio::sync::mpsc::Sender<()>) -> Fut,
+    Fut: std::future::Future<Output = T>,
 {
-    let mut blocker = pool.begin().await.expect("begin the blocking transaction");
-    sqlx::query("SELECT id FROM accounts WHERE id = $1 FOR NO KEY UPDATE")
+    let (sig_tx, mut sig_rx) = tokio::sync::mpsc::channel(waiters.max(1));
+    let mut blocker = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .expect("begin the blocking transaction");
+    // No FOR NO KEY UPDATE — the write lock is taken at the OPEN; this read pins the
+    // fixture's control ("the account really is reachable inside the blocker") and is
+    // what the PG version's lock SELECT observed.
+    sqlx::query("SELECT id FROM accounts WHERE id = $1")
         .bind(account_id)
         .execute(&mut *blocker)
         .await
-        .expect("hold the account row");
-    let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(&mut *blocker)
-        .await
-        .expect("the blocker's backend pid");
-    // The hold is PROVEN before anything waits on it (FIX_ROUND-3, C3-1): if it were
-    // ineffective, "both requests parked" could never become true and the poll below would
-    // time out with a misleading message.
-    assert_account_row_is_held(pool, account_id).await;
+        .expect("read the account row");
 
-    let observer = pool.clone();
     let release = async move {
-        await_lock_waiters(&observer, waiters, blocker_pid).await;
+        for _ in 0..waiters {
+            sig_rx.recv().await.expect(LOCK_BARRIER_SIGNALS);
+        }
+        tokio::time::sleep(LOCK_BARRIER_GRACE).await;
         blocker.commit().await.expect("release the account row");
     };
-    let (out, ()) = tokio::join!(f, release);
+    let (out, ()) = tokio::join!(f(sig_tx), release);
     out
-}
-
-/// Assert that SOMETHING already holds `account_id`'s row lock — the control a test asserting
-/// a NEGATIVE ("nothing parked") needs (FIX_ROUND-3, C3-1).
-///
-/// A test whose whole claim is "no request blocked" passes vacuously if its own blocker was
-/// never holding anything. `FOR NO KEY UPDATE NOWAIT` from a second connection either takes
-/// the lock (⇒ the hold was ineffective, and the test is not testing what it says) or fails
-/// immediately with SQLSTATE **55P03** `lock_not_available`, which is the proof.
-async fn assert_account_row_is_held(pool: &SqlitePool, account_id: Uuid) {
-    let probe = sqlx::query("SELECT id FROM accounts WHERE id = $1 FOR NO KEY UPDATE NOWAIT")
-        .bind(account_id)
-        .fetch_optional(pool)
-        .await;
-    match probe {
-        Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("55P03") => {}
-        other => panic!(
-            "the account row is NOT held, so a test asserting that nothing blocks on it \
-             proves nothing: {}",
-            match other {
-                Err(e) => format!("ERROR {e:?}"),
-                Ok(r) => format!("ROW returned: {}", r.is_some()),
-            }
-        ),
-    }
-}
-
-/// Block until `waiters` sessions in THIS test's database are blocked by `blocker_pid`, or
-/// PANIC.
-///
-/// The synchronization primitive every race helper here rests on. It panics rather than
-/// returning a failure, deliberately: a caller that proceeded on "probably parked" is the
-/// silent degradation FIX_ROUND-2 (R2-3) removed.
-///
-/// It is neutral about WHAT `blocker_pid` holds — callers pass a session holding the accounts
-/// row or one holding the owner rows — so neither this doc nor its panic names a resource
-/// (FIX_ROUND-5, C5-2).
-async fn await_lock_waiters(pool: &SqlitePool, waiters: i64, blocker_pid: i32) {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
-    loop {
-        // Sessions blocked BY THE BLOCKER, named by its backend pid — not merely "some
-        // session in this database is in a lock wait" (FIX_ROUND-4, TQ4-1/TQ4-2).
-        //
-        // The counting versions before this were both wrong, in opposite directions, and both
-        // corrections are recorded rather than quietly dropped:
-        //
-        //   * `pg_locks WHERE relname='accounts' AND NOT granted` (suggested at round 3)
-        //     UNDERCOUNTS: a Postgres row lock lives in the tuple header, so a waiter holds no
-        //     ungranted RELATION lock on `accounts` — it waits on the holder's `transactionid`
-        //     (and, for the first waiter, a `tuple` lock). It made all three race tests fail
-        //     their own parking assertion when run.
-        //   * `pg_stat_activity WHERE wait_event_type='Lock'` OVERCOUNTS: it also counts a
-        //     session waiting for something else entirely (a `CREATE TRIGGER` taking a table
-        //     lock, autovacuum), so it could release the blocker with the request under test
-        //     not yet parked — and a test whose premise is "the request is parked" then passes
-        //     for the wrong reason.
-        //
-        // `pg_blocking_pids` answers the actual question. A session it reports as blocked by
-        // this pid can only be waiting on something that transaction holds, and every caller's
-        // blocker holds exactly ONE thing — the `accounts` row, or the account's owner rows —
-        // which is what makes "blocked by this pid" identify the resource. (FIX_ROUND-5's
-        // neutralization reached the doc and the panic message and missed this paragraph,
-        // which still named the account row; FIX_ROUND-6, R6-1.)
-        // …INCLUDING one level of indirection, which is not a nicety (FIX_ROUND-4, TQ4-1b).
-        //
-        // When two sessions queue for the SAME row, Postgres does not report both as blocked
-        // by the row's holder: the first waiter waits on the holder's `transactionid`, and the
-        // second waits on the FIRST waiter's `tuple` lock. So `$1 = ANY(pg_blocking_pids(pid))`
-        // alone reports 1 of 2 — which is what running it did, and what the earlier
-        // over-counting version was accidentally papering over. One hop covers the queue shape
-        // for the two waiters these tests create; a deeper queue would need a recursive CTE and
-        // none is constructed here.
-        let blocked: i64 = sqlx::query_scalar(
-            "WITH b AS ( \
-                 SELECT pid, pg_blocking_pids(pid) AS bp \
-                   FROM pg_stat_activity \
-                  WHERE datname = current_database() \
-             ) \
-             SELECT count(*) FROM b \
-              WHERE $1 = ANY(b.bp) \
-                 OR EXISTS (SELECT 1 FROM b p WHERE p.pid = ANY(b.bp) AND $1 = ANY(p.bp))",
-        )
-        .bind(blocker_pid)
-        .fetch_one(pool)
-        .await
-        .expect("read pg_stat_activity");
-        if blocked >= waiters {
-            return;
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "only {blocked} of {waiters} request(s) are blocked by backend {blocker_pid} — \
-             the race would run SERIALIZED and pass for the wrong reason. Failing loudly \
-             rather than degrading silently."
-        );
-        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-    }
 }
 
 /// A populated org: `owner` is its Owner and holds a live bearer token; a second member
@@ -771,16 +681,21 @@ async fn inv9_no_miss_opens_a_transaction_so_the_404_is_indistinguishable_in_tim
     assert!(accepted_state(&f.pool, used_inv).await.0);
     assert_eq!(role_of(&f.pool, f.org, used_id).await.as_deref(), Some("member"));
 
-    // Hold the account row for the whole measurement. Anything that opens the accept
-    // transaction now blocks on `lock_account_row` until this commits.
-    let mut blocker = f.pool.begin().await.expect("begin the blocking transaction");
-    sqlx::query("SELECT id FROM accounts WHERE id = $1 FOR NO KEY UPDATE")
+    // Hold the single write lock for the whole measurement (SQLite port: the port of
+    // `FOR NO KEY UPDATE` is `BEGIN IMMEDIATE` — the accept transaction parks at its
+    // own open, so a request that must answer BEFORE taking the lock is observable as
+    // a timely response). Anything that opens the accept transaction now blocks until
+    // this commits.
+    let mut blocker = f
+        .pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .expect("begin the blocking transaction");
+    sqlx::query("SELECT id FROM accounts WHERE id = $1")
         .bind(f.org)
         .execute(&mut *blocker)
         .await
-        .expect("hold the account row");
-    // The hold is PROVEN, not assumed — this test asserts a negative.
-    assert_account_row_is_held(&f.pool, f.org).await;
+        .expect("read the account row");
 
     // The arms are awaited SEQUENTIALLY, so at most one request is ever in flight and the
     // server pool can never be exhausted — a genuine block shows up as this timeout, with its
@@ -871,30 +786,33 @@ async fn the_email_binding_is_re_evaluated_inside_the_transaction() {
     )
     .await;
 
-    let mut blocker = f.pool.begin().await.expect("begin the blocking transaction");
-    sqlx::query("SELECT id FROM accounts WHERE id = $1 FOR NO KEY UPDATE")
+    let mut blocker = f
+        .pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .expect("begin the blocking transaction");
+    sqlx::query("SELECT id FROM accounts WHERE id = $1")
         .bind(f.org)
         .execute(&mut *blocker)
         .await
-        .expect("hold the account row");
-    let blocker_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(&mut *blocker)
-        .await
-        .expect("the blocker's backend pid");
-    assert_account_row_is_held(&f.pool, f.org).await;
+        .expect("read the account row");
 
     let pool = f.pool.clone();
+    let mut blocker = blocker;
     let meddle = async move {
-        // Wait until the accept is parked ON THIS BLOCKER — which is what makes the premise
-        // ("it has already passed step 1a with the address the invitation names") a FACT
-        // rather than a hope. A round-4 audit found the earlier "some session is waiting"
-        // count could release early, land the UPDATE first, and let this test pass for the
-        // wrong reason.
-        await_lock_waiters(&pool, 1, blocker_pid).await;
+        // SQLite port (record): a CONCURRENT `users.email` UPDATE while the accept is
+        // parked is impossible on the single-writer model (the write lock is held by
+        // this blocker), so the address change is folded INTO the blocker transaction —
+        // it commits while the parked accept waits, which is exactly the staging the
+        // PG version produced with its separate connection. The fixed grace window is
+        // the port of `await_lock_waiters` (no queue-observation surface on SQLite;
+        // the accept's 201/404 outcome below is deterministic either way, but the
+        // grace keeps the "step 1a passed with the OLD address" premise honest).
+        tokio::time::sleep(LOCK_BARRIER_GRACE).await;
         sqlx::query("UPDATE users SET email = $2 WHERE id = $1")
             .bind(rec_id)
             .bind("ieb2_moved@cyto.test")
-            .execute(&pool)
+            .execute(&mut *blocker)
             .await
             .expect("change the redeemer's address while the accept waits");
         blocker.commit().await.expect("release the account row");
@@ -1261,10 +1179,17 @@ async fn inv10_two_concurrent_accepts_cannot_both_take_the_last_seat() {
     )
     .await;
 
-    let (ra, rb) = while_the_account_row_is_held(&f.pool, f.org, 2, async {
+    let (ra, rb) = while_the_account_row_is_held(&f.pool, f.org, 2, |sig| async move {
+        let sig2 = sig.clone();
         tokio::join!(
-            post_accept(&f.server, Some(&a_token), &ta),
-            post_accept(&f.server, Some(&b_token), &tb),
+            async move {
+                sig.send(()).await.expect("signal accept a");
+                post_accept(&f.server, Some(&a_token), &ta).await
+            },
+            async move {
+                sig2.send(()).await.expect("signal accept b");
+                post_accept(&f.server, Some(&b_token), &tb).await
+            },
         )
     })
     .await;
@@ -1351,13 +1276,27 @@ async fn inv17_two_concurrent_accepts_of_one_token_yield_one_201_and_one_404() {
     .await;
     let before = member_count(&f.pool, f.org).await;
 
-    let (r1, r2) = while_the_account_row_is_held(&f.pool, f.org, 2, async {
-        tokio::join!(
-            post_accept(&f.server, Some(&token), &t),
-            post_accept(&f.server, Some(&token), &t),
-        )
-    })
-    .await;
+    let (r1, r2) = {
+        // Borrow once so both concurrent closures can share the server and the token
+        // (both are `Copy` references; the Fixture fields and the Strings are not).
+        let server = &f.server;
+        let token = &token;
+        let t = &t;
+        while_the_account_row_is_held(&f.pool, f.org, 2, |sig| async move {
+            let sig2 = sig.clone();
+            tokio::join!(
+                async move {
+                    sig.send(()).await.expect("signal accept 1");
+                    post_accept(server, Some(token.as_str()), t).await
+                },
+                async move {
+                    sig2.send(()).await.expect("signal accept 2");
+                    post_accept(server, Some(token.as_str()), t).await
+                },
+            )
+        })
+        .await
+    };
 
     let mut statuses = [r1.status, r2.status];
     statuses.sort_unstable();
@@ -1424,16 +1363,16 @@ async fn inv17_a_failure_after_the_insert_rolls_the_stamp_and_the_membership_bac
 
     // Arm the fault on THIS row only: the membership INSERT and the ledger write both
     // succeed, and then the stamp — step 5b, the last write in the transaction — raises.
-    sqlx::query(
-        "CREATE OR REPLACE FUNCTION cyto_test_accept_fault() RETURNS trigger AS $$ \
-         BEGIN RAISE EXCEPTION 'injected fault at the accept stamp'; END; $$ LANGUAGE plpgsql",
-    )
-    .execute(&f.pool)
-    .await
-    .expect("create fault function");
+    // SQLite port: the plpgsql fault FUNCTION has no SQLite form; the trigger body is
+    // `SELECT RAISE(ABORT, …)` directly (the SQLite-native way to abort a statement).
+    // `LowerHex` for Uuid renders the HYPHENATED form; `hex()` renders none — the
+    // hyphens must be stripped or the WHEN clause never matches (the ITEM-25 record;
+    // see `workstore/axis_identity_test` for the same idiom).
+    let inv_hex = format!("{:x}", inv).replace('-', "");
     sqlx::query(&format!(
         "CREATE TRIGGER cyto_test_accept_fault BEFORE UPDATE ON account_invitations \
-         FOR EACH ROW WHEN (OLD.id = '{inv}') EXECUTE FUNCTION cyto_test_accept_fault()"
+         FOR EACH ROW WHEN (lower(hex(OLD.id)) = '{inv_hex}') \
+         BEGIN SELECT RAISE(ABORT, 'injected fault at the accept stamp'); END"
     ))
     .execute(&f.pool)
     .await
@@ -1464,7 +1403,7 @@ async fn inv17_a_failure_after_the_insert_rolls_the_stamp_and_the_membership_bac
         "nor may the audit ledger record a join that was rolled back"
     );
 
-    sqlx::query("DROP TRIGGER cyto_test_accept_fault ON account_invitations")
+    sqlx::query("DROP TRIGGER cyto_test_accept_fault")
         .execute(&f.pool)
         .await
         .expect("disarm the fault trigger");
@@ -1478,12 +1417,12 @@ async fn inv17_a_failure_after_the_insert_rolls_the_stamp_and_the_membership_bac
     // `INSERT INTO account_members … RETURNING` produced a row. Reaching the fault is
     // therefore PROOF the membership was inserted, and the assertions below prove it did not
     // survive.
-    sqlx::query(
+    let org_hex = format!("{:x}", f.org).replace('-', "");
+    sqlx::query(&format!(
         "CREATE TRIGGER cyto_test_ledger_fault BEFORE INSERT ON account_member_events \
-         FOR EACH ROW WHEN (NEW.account_id = $1) EXECUTE FUNCTION cyto_test_accept_fault()"
-            .replace("$1", &format!("'{}'", f.org))
-            .as_str(),
-    )
+         FOR EACH ROW WHEN (lower(hex(NEW.account_id)) = '{org_hex}') \
+         BEGIN SELECT RAISE(ABORT, 'injected fault at the ledger write'); END"
+    ))
     .execute(&f.pool)
     .await
     .expect("arm the ledger fault trigger");
@@ -1495,19 +1434,24 @@ async fn inv17_a_failure_after_the_insert_rolls_the_stamp_and_the_membership_bac
     // a path only reachable once a membership INSERT has succeeded, which is exactly what
     // ARM 2 needs and what distinguishes it from ARM 1 (whose fault is on the stamp).
     let probe = create_user(&f.server, &f.admin, "i17b_probe", "i17b_probe@cyto.test").await;
-    let probe_resp = f
-        .server
-        .client
-        .post(f.server.api_url(&format!("/admin/accounts/{}/members", f.org)))
-        .bearer_auth(&f.admin)
-        .json(&json!({ "user_id": probe, "role": "member" }))
-        .send()
+    // SQLite port: the admin add ROUTE has no object on this node (stripped — DRIFT-1.25);
+    // the repository call IS the surface (see `tests/admin/mod.rs`), and it reaches the
+    // same `add_member_in_tx` + ledger-write path the removed route drove.
+    let probe_err = cytoanalyst::modules::account::AccountRepository::new(f.pool.clone())
+        .add_member(
+            f.org,
+            probe,
+            cytoanalyst::modules::account::AccountRole::Member,
+            cytoanalyst::modules::account::ActorCeiling::PlatformStaff {
+                staff_user_id: uuid::Uuid::nil(),
+            },
+        )
         .await
-        .expect("admin add (trigger probe)");
-    assert!(
-        probe_resp.status().as_u16() == 500,
-        "the ledger fault must block a plain membership add too — that is what proves it \
-         fires only AFTER an `account_members` INSERT has succeeded"
+        .expect_err("the ledger fault must block a plain membership add too");
+    assert_eq!(
+        probe_err.status_code(),
+        500,
+        "that is what proves it fires only AFTER an `account_members` INSERT has succeeded"
     );
     assert_eq!(
         role_of(&f.pool, f.org, probe).await,
@@ -1531,7 +1475,7 @@ async fn inv17_a_failure_after_the_insert_rolls_the_stamp_and_the_membership_bac
     assert_eq!(member_count(&f.pool, f.org).await, before);
     assert!(!accepted_state(&f.pool, inv).await.0);
 
-    sqlx::query("DROP TRIGGER cyto_test_ledger_fault ON account_member_events")
+    sqlx::query("DROP TRIGGER cyto_test_ledger_fault")
         .execute(&f.pool)
         .await
         .expect("disarm the ledger fault trigger");
@@ -1599,23 +1543,27 @@ async fn accept_never_holds_the_invitation_row_while_waiting_for_the_owner_rows(
     )
     .await;
 
-    // A competitor in the state create/resend occupy between their 2nd and 3rd locks: it holds
-    // the OWNER rows and has not yet taken the invitation row. (It deliberately does NOT take
-    // the accounts row, so the accept can get that far and the test observes the ordering of
-    // the two locks that actually differ.)
-    let mut competitor = f.pool.begin().await.expect("begin the competing transaction");
+    // SQLite port (record): the ordering discriminator below has no SQLite form — the
+    // single write lock is taken at `BEGIN IMMEDIATE` and covers EVERY row the
+    // transaction touches, so "which row lock is held while waiting for another" is
+    // unobservable, and the ABBA inversion class is structurally gone (an accept
+    // never holds one row while waiting for another; it holds the one write lock or
+    // waits for it). The port keeps the behavioral half that remains checkable: the
+    // competitor (the write-lock stand-in for the owner-row lock) parks the accept,
+    // the accept completes with a 201 only after the competitor commits, and the
+    // single-use outcome is unaffected by the order the two transactions ran in.
+    let mut competitor = f
+        .pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .expect("begin the competing transaction");
     let held: Vec<Uuid> = sqlx::query_scalar(
-        "SELECT user_id FROM account_members WHERE account_id = $1 AND role = 'owner' \
-         FOR UPDATE",
+        "SELECT user_id FROM account_members WHERE account_id = $1 AND role = 'owner'",
     )
     .bind(f.org)
     .fetch_all(&mut *competitor)
     .await
-    .expect("hold the owner rows");
-    let competitor_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(&mut *competitor)
-        .await
-        .expect("the competitor's backend pid");
+    .expect("read the owner rows");
     assert!(
         !held.is_empty(),
         "the competitor must actually hold something — an account with no owner rows would \
@@ -1624,31 +1572,9 @@ async fn accept_never_holds_the_invitation_row_while_waiting_for_the_owner_rows(
 
     let pool = f.pool.clone();
     let probe = async move {
-        // Wait until the accept is genuinely parked ON THE COMPETITOR — i.e. on the owner
-        // rows it holds, which is the only thing it holds.
-        await_lock_waiters(&pool, 1, competitor_pid).await;
-
-        // THE ASSERTION. Under the correct order the accept has not reached the invitation
-        // row, so this takes it immediately (and releases it at statement end, since this is
-        // an autocommit query).
-        let got = sqlx::query_scalar::<_, Uuid>(
-            "SELECT id FROM account_invitations WHERE id = $1 FOR UPDATE NOWAIT",
-        )
-        .bind(inv)
-        .fetch_optional(&pool)
-        .await;
-        match got {
-            Ok(Some(_)) => {}
-            Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("55P03") => panic!(
-                "the accept is holding the INVITATION row while it waits for the OWNER rows. \
-                 That is the ABBA inversion against `create_invitation` / `resend_invitation`, \
-                 which take those two locks in the opposite order: this competitor holds the \
-                 owner rows and cannot reach the invitation, the accept holds the invitation \
-                 and cannot reach the owner rows. Take the owner-row `FOR UPDATE` BEFORE the \
-                 invitation `FOR UPDATE` in `accept_invitation`."
-            ),
-            other => panic!("unexpected probe result: {other:?}"),
-        }
+        // Fixed grace: the port of `await_lock_waiters` (record; no queue-observation
+        // surface on SQLite — see `LOCK_BARRIER_GRACE`).
+        tokio::time::sleep(LOCK_BARRIER_GRACE).await;
 
         competitor
             .commit()
@@ -1697,17 +1623,20 @@ async fn accept_never_holds_the_owner_rows_while_waiting_for_the_account_row() {
     )
     .await;
 
-    let mut competitor = f.pool.begin().await.expect("begin the competing transaction");
-    sqlx::query("SELECT id FROM accounts WHERE id = $1 FOR NO KEY UPDATE")
+    // SQLite port (record): same as the sibling — the ordering arrow is unobservable
+    // on the single-writer model; the port keeps the behavioral half: the competitor
+    // (the write lock = the `accounts` row lock) parks the accept and the accept
+    // completes with a 201 after release.
+    let mut competitor = f
+        .pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .expect("begin the competing transaction");
+    sqlx::query("SELECT id FROM accounts WHERE id = $1")
         .bind(f.org)
         .execute(&mut *competitor)
         .await
-        .expect("hold the account row");
-    let competitor_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(&mut *competitor)
-        .await
-        .expect("the competitor's backend pid");
-    assert_account_row_is_held(&f.pool, f.org).await;
+        .expect("read the account row");
     // The sibling's non-vacuity guard, which this test was missing (FIX_ROUND-6, R6-2). The
     // probe below reads the OWNER rows; an account with none would make it prove nothing.
     let owners: Vec<Uuid> = sqlx::query_scalar(
@@ -1723,30 +1652,9 @@ async fn accept_never_holds_the_owner_rows_while_waiting_for_the_account_row() {
          this test vacuous"
     );
 
-    let pool = f.pool.clone();
     let probe = async move {
-        await_lock_waiters(&pool, 1, competitor_pid).await;
-
-        let got = sqlx::query_scalar::<_, Uuid>(
-            "SELECT user_id FROM account_members WHERE account_id = $1 AND role = 'owner' \
-             FOR UPDATE NOWAIT",
-        )
-        .bind(f.org)
-        .fetch_optional(&pool)
-        .await;
-        match got {
-            Ok(Some(_)) => {}
-            Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("55P03") => panic!(
-                "the accept is holding the OWNER rows while it waits for the ACCOUNTS row. \
-                 Every membership-mutating path in this module takes `accounts` FIRST, so this \
-                 inverts the order against all of them: the competitor holds `accounts` and \
-                 cannot reach the owner rows, the accept holds the owner rows and cannot reach \
-                 `accounts`. Take `lock_account_row` BEFORE the owner-row `FOR UPDATE` in \
-                 `accept_invitation`."
-            ),
-            other => panic!("unexpected probe result: {other:?}"),
-        }
-
+        // Fixed grace — the port of `await_lock_waiters` (record).
+        tokio::time::sleep(LOCK_BARRIER_GRACE).await;
         competitor.commit().await.expect("release the account row");
     };
 
@@ -1955,10 +1863,14 @@ async fn signup_then_accept_works_end_to_end_with_no_change_to_register() {
 #[tokio::test]
 async fn inv18_the_token_is_accepted_only_in_the_request_body() {
     const PATH: &str = "/api/account-invitations/accept";
-    for spec_path in [
-        "../ui/openapi/openapi.json",
-        "../ui/openapi-saas/openapi.json",
-    ] {
+    // The `-saas` client artifact is STRIPPED on this node; the wire contract is
+    // asserted from the ONE generated client there is (the same branch convention
+    // as `seat_allowance_test::test18`).
+    let spec_paths: Vec<&str> = ["../ui/openapi/openapi.json"]
+        .into_iter()
+        .filter(|p| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(p).exists())
+        .collect();
+    for spec_path in spec_paths {
         let spec: Value = serde_json::from_str(
             &std::fs::read_to_string(
                 std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(spec_path),
@@ -2072,15 +1984,14 @@ async fn accept_is_authenticated_but_not_capability_gated() {
 
     // Strip every group-granted capability from the invitee — including
     // `account::members::manage`, the switch an operator flips to turn self-service off.
-    let stripped = f
-        .server
-        .client
-        .delete(f.server.api_url(&format!("/groups/{id}/{USERS_GROUP_ID}/remove")))
-        .bearer_auth(&f.admin)
-        .send()
+    // The `/groups/{id}/…` admin route has no object on this node (stripped);
+    // the same `user_groups` row is deleted directly — the RBAC gate reads it.
+    sqlx::query("DELETE FROM user_groups WHERE user_id = $1 AND group_id = $2")
+        .bind(id)
+        .bind(USERS_GROUP_ID.parse::<Uuid>().expect("users group id"))
+        .execute(&f.pool)
         .await
         .expect("strip group");
-    assert!(stripped.status().is_success(), "strip group");
     // Re-login so the request carries an identity resolved after the strip.
     let bearer_after = login(&f.server, "i11_new").await;
 
@@ -2377,21 +2288,23 @@ async fn the_admin_add_path_still_writes_a_joined_row_with_no_invitation_id() {
     let target = create_user(&f.server, &f.admin, "i17c_t", "i17c_t@cyto.test").await;
     let before = member_count(&f.pool, f.org).await;
 
-    let resp = f
-        .server
-        .client
-        .post(f.server.api_url(&format!("/admin/accounts/{}/members", f.org)))
-        .bearer_auth(&f.admin)
-        .json(&json!({ "user_id": target, "role": "member" }))
-        .send()
+    // The `/admin/accounts/{id}/members` route has no object on this node (stripped);
+    // the repository function it drove is the retained admin add, driven directly
+    // under `PlatformStaff` (the ceiling the admin route carried).
+    let repo = cytoanalyst::modules::account::AccountRepository::new(f.pool.clone());
+    let member = repo
+        .add_member(
+            f.org,
+            target,
+            cytoanalyst::modules::account::AccountRole::Member,
+            cytoanalyst::modules::account::ActorCeiling::PlatformStaff {
+                staff_user_id: Uuid::parse_str("00000000-0000-4000-8000-00000000f148")
+                    .expect("staff uuid"),
+            },
+        )
         .await
         .expect("admin add member");
-    assert!(
-        resp.status().is_success(),
-        "admin add: {} {}",
-        resp.status(),
-        resp.text().await.unwrap_or_default()
-    );
+    assert_eq!(member.user_id, target, "admin add returns the created member");
 
     assert_eq!(member_count(&f.pool, f.org).await, before + 1);
     let rows = events(&f.pool, f.org, "joined", target).await;
@@ -2705,18 +2618,12 @@ async fn a_successful_accept_fans_an_account_member_frame_to_the_other_members()
         "member",
     )
     .await;
-    sqlx::query(
-        "CREATE OR REPLACE FUNCTION cyto_test_sync_fault() RETURNS trigger AS $$ \
-         BEGIN RAISE EXCEPTION 'injected fault after the membership insert'; END; \
-         $$ LANGUAGE plpgsql",
-    )
-    .execute(&f.pool)
-    .await
-    .expect("create sync fault function");
+    // SQLite port: the plpgsql fault function is a `SELECT RAISE(ABORT, …)` trigger body.
+    let org_hex_sync = format!("{:x}", f.org).replace('-', "");
     sqlx::query(&format!(
         "CREATE TRIGGER cyto_test_sync_fault BEFORE INSERT ON account_member_events \
-         FOR EACH ROW WHEN (NEW.account_id = '{}') EXECUTE FUNCTION cyto_test_sync_fault()",
-        f.org
+         FOR EACH ROW WHEN (lower(hex(NEW.account_id)) = '{org_hex_sync}') \
+         BEGIN SELECT RAISE(ABORT, 'injected fault after the membership insert'); END"
     ))
     .execute(&f.pool)
     .await
@@ -2735,7 +2642,7 @@ async fn a_successful_accept_fans_an_account_member_frame_to_the_other_members()
     );
     owner_probe.expect_silence(Duration::from_millis(750)).await;
 
-    sqlx::query("DROP TRIGGER cyto_test_sync_fault ON account_member_events")
+    sqlx::query("DROP TRIGGER cyto_test_sync_fault")
         .execute(&f.pool)
         .await
         .expect("disarm the sync fault trigger");
@@ -2765,16 +2672,11 @@ async fn a_successful_accept_fans_an_account_member_frame_to_the_other_members()
 #[test]
 fn both_generated_clients_carry_the_accept_operation_and_its_types() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    for (spec_path, types_path) in [
-        (
-            "../ui/openapi/openapi.json",
-            "../ui/src/api-client/types.ts",
-        ),
-        (
-            "../ui/openapi-saas/openapi.json",
-            "../ui/src/api-client-saas/types.ts",
-        ),
-    ] {
+    // The `-saas` client artifact is STRIPPED on this node (record; the same branch
+    // convention as `seat_allowance_test::test18`): the assertions apply to every
+    // generated client that EXISTS, and the default client is the one there is.
+    let clients: [(&str, &str); 1] = [("../ui/openapi/openapi.json", "../ui/src/api-client/types.ts")];
+    for (spec_path, types_path) in clients {
         let spec: Value = serde_json::from_str(
             &std::fs::read_to_string(root.join(spec_path))
                 .unwrap_or_else(|e| panic!("read {spec_path}: {e}")),

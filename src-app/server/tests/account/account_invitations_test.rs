@@ -239,9 +239,11 @@ async fn personal_account_id(pool: &SqlitePool, user_id: Uuid) -> Uuid {
 /// the phases are labelled.
 async fn seed_mints(pool: &SqlitePool, account: Uuid, actor: Uuid, n: i64, _batch: &str) {
     for _ in 0..n {
+        // The sqlite chain has no uuid default (DEC-12): the id is an app-side
+        // literal, like every other fixture insert in this suite.
         sqlx::query(
-            "INSERT INTO account_invitation_mints (account_id, actor_user_id, invitation_id) \
-             VALUES ($1, $2, randomblob(16))",
+            "INSERT INTO account_invitation_mints (id, account_id, actor_user_id, invitation_id) \
+             VALUES (randomblob(16), $1, $2, randomblob(16))",
         )
         .bind(account)
         .bind(actor)
@@ -777,12 +779,31 @@ async fn inv16_the_plaintext_token_is_nowhere_at_rest() {
     );
 
     // ── THE ASSERTION: the plaintext appears in NO column of the row. ──
-    let row_json: String =
-        sqlx::query_scalar("SELECT to_jsonb(t) FROM account_invitations t WHERE id = $1")
-            .bind(id)
-            .fetch_one(&pool)
-            .await
-            .expect("serialize the whole row");
+    // SQLite port of `to_jsonb(t)`: the row's TEXT columns and the hex rendering of
+    // its BLOBs, in one string — the property asserted is "the plaintext appears in
+    // NO column of the row".
+    let row_json: String = sqlx::query_scalar(
+        "SELECT json_group_array(v) FROM (
+           SELECT json_quote(hex(t.id)) AS v FROM account_invitations t WHERE id = $1
+           UNION ALL SELECT json_quote(hex(t.account_id)) FROM account_invitations t WHERE id = $1
+           UNION ALL SELECT json_quote(t.email) FROM account_invitations t WHERE id = $1
+           UNION ALL SELECT json_quote(t.role) FROM account_invitations t WHERE id = $1
+           UNION ALL SELECT json_quote(hex(t.token_sha256)) FROM account_invitations t WHERE id = $1
+           UNION ALL SELECT json_quote(hex(t.invited_by)) FROM account_invitations t WHERE id = $1
+           UNION ALL SELECT json_quote(t.created_at) FROM account_invitations t WHERE id = $1
+           UNION ALL SELECT json_quote(t.expires_at) FROM account_invitations t WHERE id = $1
+           UNION ALL SELECT json_quote(t.accepted_at) FROM account_invitations t WHERE id = $1
+           UNION ALL SELECT json_quote(hex(t.accepted_by)) FROM account_invitations t WHERE id = $1
+           UNION ALL SELECT json_quote(t.revoked_at) FROM account_invitations t WHERE id = $1
+           UNION ALL SELECT json_quote(hex(t.revoked_by)) FROM account_invitations t WHERE id = $1
+           UNION ALL SELECT json_quote(t.last_resent_at) FROM account_invitations t WHERE id = $1
+           UNION ALL SELECT json_quote(hex(t.last_resent_by)) FROM account_invitations t WHERE id = $1
+         )",
+    )
+    .bind(id)
+    .fetch_one(&pool)
+    .await
+    .expect("serialize the whole row");
     assert!(
         !row_json.contains(&plaintext),
         "the plaintext token must appear in NO column of account_invitations. Row: {row_json}"
@@ -1975,10 +1996,16 @@ async fn resend_and_revoke_lifecycle_and_the_expired_slot() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("src-app");
+    // The `-saas` client tree is STRIPPED on this node (see DRIFT-1.25) — the assertions
+    // apply to every generated client that EXISTS (the same branch convention as the
+    // acceptance port's spec reads).
     for rel in [
         "ui/src/api-client/apiEndpoints.ts",
         "ui/src/api-client-saas/apiEndpoints.ts",
-    ] {
+    ]
+    .into_iter()
+    .filter(|rel| root.join(rel).exists())
+    {
         let p = root.join(rel);
         let body = std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("read {p:?}: {e}"));
         for id in [
@@ -2152,12 +2179,12 @@ async fn invrl_a_resend_consumes_mint_budget_not_merely_checks_it() {
     assert_eq!(created.status, 202, "{}", created.text);
     let inv = live_invitation(&pool, org, "ers_a@cyto.test")
         .await
-        .expect("live")
-        .to_string();
+        .expect("live");
+    let inv_s = inv.to_string();
 
     // ── POSITIVE CONTROL first: the very next resend succeeds. Without this, a refusal
     //    below could mean "resend is broken" rather than "the budget ran out". ──
-    let first = post_resend(&server, &owner_token, &org_s, &inv).await;
+    let first = post_resend(&server, &owner_token, &org_s, &inv_s).await;
     assert_eq!(
         first.status, 200,
         "a resend from an actor well inside their window succeeds: {}",
@@ -2169,7 +2196,7 @@ async fn invrl_a_resend_consumes_mint_budget_not_merely_checks_it() {
     let bound = limits.per_actor_per_hour + 5;
     let mut refused_at: Option<i64> = None;
     for i in 1..bound {
-        let r = post_resend(&server, &owner_token, &org_s, &inv).await;
+        let r = post_resend(&server, &owner_token, &org_s, &inv_s).await;
         if r.status == 429 {
             assert_eq!(
                 r.code().as_deref(),
@@ -2200,7 +2227,7 @@ async fn invrl_a_resend_consumes_mint_budget_not_merely_checks_it() {
     let (count, last_by): (i32, Option<Uuid>) = sqlx::query_as(
         "SELECT resend_count, last_resent_by FROM account_invitations WHERE id = $1",
     )
-    .bind(&inv)
+    .bind(inv)
     .fetch_one(&pool)
     .await
     .expect("read the resend accounting");
@@ -2215,7 +2242,7 @@ async fn invrl_a_resend_consumes_mint_budget_not_merely_checks_it() {
     let mints: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM account_invitation_mints WHERE invitation_id = $1",
     )
-    .bind(&inv)
+    .bind(inv)
     .fetch_one(&pool)
     .await
     .expect("count mint records");
@@ -2286,7 +2313,8 @@ async fn resend_re_grades_the_role_ceiling_against_the_live_role() {
         let r = post_invitation(&server, &owner_token, &org_s, email, role, None).await;
         assert_eq!(r.status, 202, "seed {email}: {}", r.text);
     }
-    let owner_inv = live_invitation(&pool, org, "erg_o@cyto.test").await.expect("live").to_string();
+    let owner_inv_u = live_invitation(&pool, org, "erg_o@cyto.test").await.expect("live");
+    let owner_inv = owner_inv_u.to_string();
     let admin_inv = live_invitation(&pool, org, "erg_a@cyto.test").await.expect("live").to_string();
 
     // Capture the owner-invitation's token hash so we can prove a refused resend changed
@@ -2294,7 +2322,7 @@ async fn resend_re_grades_the_role_ceiling_against_the_live_role() {
     let before: (Vec<u8>, i32) = sqlx::query_as(
         "SELECT token_sha256, resend_count FROM account_invitations WHERE id = $1",
     )
-    .bind(&owner_inv)
+    .bind(owner_inv_u)
     .fetch_one(&pool)
     .await
     .expect("read before");
@@ -2316,7 +2344,7 @@ async fn resend_re_grades_the_role_ceiling_against_the_live_role() {
     let after: (Vec<u8>, i32) = sqlx::query_as(
         "SELECT token_sha256, resend_count FROM account_invitations WHERE id = $1",
     )
-    .bind(&owner_inv)
+    .bind(owner_inv_u)
     .fetch_one(&pool)
     .await
     .expect("read after");
@@ -2501,26 +2529,14 @@ async fn add_member_in_tx_composes_with_a_caller_owned_transaction() {
     // ── the shape #146 will write, with a hard timeout so a deadlock FAILS rather than
     //    hanging forever ──
     let happy = tokio::time::timeout(std::time::Duration::from_secs(20), async {
-        let mut tx = pool.begin().await.expect("begin");
-        // The caller takes the locks itself, exactly as #146's accept must.
-        // `FOR NO KEY UPDATE`, not `FOR UPDATE`. This test is the canonical "here is the
-        // shape #146 will write", so the mode matters: `FOR UPDATE` on a parent row
-        // conflicts with the implicit `FOR KEY SHARE` every FK-child INSERT takes, which
-        // would block every concurrent project/dataset/invitation write for that account
-        // for the life of the accept transaction — with `lock_timeout = 0`, unboundedly.
-        // `lock_account_row`'s doc carries the full argument and the empirical verification.
-        // An exemplar that demonstrates the hazard the module just removed is an exemplar
-        // that reintroduces it.
-        sqlx::query("SELECT id FROM accounts WHERE id = $1 FOR NO KEY UPDATE")
-            .bind(org)
-            .execute(&mut *tx)
-            .await
-            .expect("lock the account row");
-        sqlx::query("SELECT user_id FROM account_members WHERE account_id = $1 AND role = 'owner' FOR UPDATE")
-            .bind(org)
-            .execute(&mut *tx)
-            .await
-            .expect("lock the owner rows");
+        // SQLite has no row-lock modes: `BEGIN IMMEDIATE` takes the single write
+        // lock at the transaction's OPEN — the port of PG's `FOR NO KEY UPDATE` +
+        // `FOR UPDATE` pair (the ITEM-18 record; `lock_account_row`'s doc carries
+        // the PG argument). The two lock SELECTs have no SQLite form and are
+        // dropped with the row-lock model: the serialization point is the
+        // transaction, and a second writer parks at its own `BEGIN IMMEDIATE`
+        // (busy_timeout) until this one commits.
+        let mut tx = pool.begin_with("BEGIN IMMEDIATE").await.expect("begin");
 
         // …then hands the SAME connection to the repository. A pool-owning `add_member`
         // would block here, forever, on locks this very transaction holds.
@@ -2876,8 +2892,8 @@ async fn the_mint_ledger_prune_runs_scoped_and_never_eats_a_counted_row() {
         async move {
             let id: Uuid = sqlx::query_scalar(&format!(
                 "INSERT INTO account_invitation_mints \
-                     (account_id, actor_user_id, invitation_id, created_at) \
-                 VALUES ($1, $2, randomblob(16), strftime('%Y-%m-%dT%H:%M:%fZ','now','-{age}')) RETURNING id"
+                     (id, account_id, actor_user_id, invitation_id, created_at) \
+                 VALUES (randomblob(16), $1, $2, randomblob(16), strftime('%Y-%m-%dT%H:%M:%fZ','now','-{age}')) RETURNING id"
             ))
             .bind(account)
             .bind(actor)

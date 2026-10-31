@@ -195,19 +195,26 @@ async fn remove_member_from_a_personal_account_is_refused_by_name() {
 
     let personal = personal_account_of(&pool, victim).await;
 
-    // The helper returns only a status, so drive the raw request to read the code.
-    let resp = server
-        .client
-        .delete(server.api_url(&format!("/admin/accounts/{personal}/members/{victim}")))
-        .bearer_auth(&admin)
-        .send()
+    // The helper returns only a status, so drive the repository call directly to read the
+    // code — the same `PlatformStaff` principal the removed admin handler acted under
+    // (see `tests/admin/mod.rs` for the strip note).
+    let err = AccountRepository::new(pool.clone())
+        .remove_member(
+            personal,
+            victim,
+            cytoanalyst::modules::account::ActorCeiling::PlatformStaff {
+                staff_user_id: uuid::Uuid::nil(),
+            },
+        )
         .await
-        .expect("admin remove member");
-    let status = resp.status().as_u16();
-    let body: Value = resp.json().await.unwrap_or(Value::Null);
-    assert_eq!(status, 422, "H-2: the personal owner may not be removed");
+        .expect_err("H-2: the personal owner may not be removed");
     assert_eq!(
-        code_of(&body),
+        err.status_code(),
+        422,
+        "H-2: the personal owner may not be removed"
+    );
+    assert_eq!(
+        err.error_code(),
         CODE,
         "refused BY NAME — not incidentally via LAST_OWNER, which would silently \
          stop protecting this the day a personal account had two owners"
@@ -289,42 +296,53 @@ async fn a_freshly_registered_user_still_gets_one_personal_account_with_one_owne
 async fn admin_account_reads_still_work_for_both_account_kinds() {
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
-    let user = create_user(&server, &admin, "u", "u@x.test").await;
+    let user = create_user(&server, &admin, "reads_user", "reads_user@x.test").await;
     let pool = pool_for(&server).await;
     let personal = personal_account_of(&pool, user).await;
     let org = make_org_account(&pool, "Lab", user).await;
 
-    for (id, label) in [(personal, "personal"), (org, "organization")] {
-        let resp = server
-            .client
-            .get(server.api_url(&format!("/admin/accounts/{id}")))
-            .bearer_auth(&admin)
-            .send()
-            .await
-            .expect("admin get account");
-        assert!(
-            resp.status().is_success(),
-            "platform staff must still READ a {label} account (got {})",
-            resp.status()
-        );
-    }
-
-    let resp = server
-        .client
-        .get(server.api_url("/admin/accounts"))
-        .bearer_auth(&admin)
-        .send()
+    // SQLite port: the `/admin/accounts/*` HTTP read surface is stripped on this node
+    // (see DRIFT-1.25), so the reads it served are asserted at the repository layer they
+    // delegated to — the same reachable surface, with the route removed.
+    let repo = AccountRepository::new(pool.clone());
+    let personal_row = repo
+        .get(personal)
         .await
-        .expect("admin list accounts");
+        .expect("admin get personal account")
+        .expect("the personal account exists");
+    assert_eq!(
+        personal_row.kind,
+        cytoanalyst::modules::account::AccountKind::Personal,
+        "platform staff must still READ a personal account"
+    );
+    let org_row = repo
+        .get(org)
+        .await
+        .expect("admin get org account")
+        .expect("the org account exists");
+    assert_eq!(
+        org_row.kind,
+        cytoanalyst::modules::account::AccountKind::Organization,
+        "platform staff must still READ an organization account"
+    );
+
+    let listed = repo
+        .list_all_accounts(100, 0, None)
+        .await
+        .expect("admin list all accounts");
     assert!(
-        resp.status().is_success(),
-        "and still list all accounts (got {})",
-        resp.status()
+        listed.iter().any(|a| a.account.id == personal)
+            && listed.iter().any(|a| a.account.id == org),
+        "and still list both account kinds: {:?}",
+        listed
+            .iter()
+            .map(|a| (a.account.id, a.account.kind))
+            .collect::<Vec<_>>()
     );
 
     // The account owner can still log in and use their own account — the refusal
     // touches no read path.
-    let _token = login(&server, "u").await;
+    let _token = login(&server, "reads_user").await;
 }
 
 /// TEST-24 [acceptance] [invariant: INV-12] — the refusal lives in the REPOSITORY,

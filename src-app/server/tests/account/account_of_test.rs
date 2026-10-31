@@ -66,11 +66,13 @@ async fn account_of_resolvers_return_some_for_existing_none_for_absent() {
     );
 
     // account_of_artifact resolves transitively via a project_id back-pointer.
+    // The sqlite chain has no uuid default (DEC-12): the id is an app-side
+    // `randomblob(16)` literal, the same fixture idiom as `removal_revokes_test`.
     let artifact_id: Uuid = sqlx::query_scalar(
         "INSERT INTO artifacts \
-           (project_id, output_id, datatype, object_key, is_multifile, content_hash, \
+           (id, project_id, output_id, datatype, object_key, is_multifile, content_hash, \
             structure, meta, role, status, stored_bytes, hidden) \
-         VALUES ($1, 'out-1', 'data/opaque', 'k/1', false, $2, \
+         VALUES (randomblob(16), $1, 'out-1', 'data/opaque', 'k/1', false, $2, \
                  '{}', '{}', 'artifact', 'ready', 1, false) \
          RETURNING id",
     )

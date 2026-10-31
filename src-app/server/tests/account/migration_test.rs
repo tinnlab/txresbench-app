@@ -13,11 +13,11 @@ use crate::common::TestServer;
 /// (the test then fails loudly, which is the point).
 async fn run_backfill(pool: &sqlx::SqlitePool) {
     sqlx::query(
-        r#"INSERT INTO public.accounts (id, kind, name, personal_user_id)
+        r#"INSERT INTO accounts (id, kind, name, personal_user_id)
            SELECT randomblob(16), 'personal', u.username, u.id
-           FROM public.users u
+           FROM users u
            WHERE NOT EXISTS (
-               SELECT 1 FROM public.accounts a
+               SELECT 1 FROM accounts a
                WHERE a.kind = 'personal' AND a.personal_user_id = u.id
            )"#,
     )
@@ -26,9 +26,9 @@ async fn run_backfill(pool: &sqlx::SqlitePool) {
     .expect("backfill accounts");
 
     sqlx::query(
-        r#"INSERT INTO public.account_members (account_id, user_id, role)
+        r#"INSERT INTO account_members (account_id, user_id, role)
            SELECT a.id, a.personal_user_id, 'owner'
-           FROM public.accounts a
+           FROM accounts a
            WHERE a.kind = 'personal' AND a.personal_user_id IS NOT NULL
            ON CONFLICT (account_id, user_id) DO NOTHING"#,
     )
@@ -49,7 +49,7 @@ async fn schema_shape_and_constraints() {
     // tables exist
     for table in ["accounts", "account_members"] {
         let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name=$1)",
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=$1)",
         )
         .bind(table)
         .fetch_one(&pool)
@@ -58,25 +58,29 @@ async fn schema_shape_and_constraints() {
         assert!(exists, "table {table} exists after migrate");
     }
 
-    // named constraints exist (kind CHECK, personal-has-user CHECK, role CHECK)
+    // named constraints exist (kind CHECK, personal-has-user CHECK, role CHECK) —
+    // SQLite keeps named constraints in the CREATE TABLE text (`sqlite_master.sql`),
+    // the same census `pg_constraint` was.
     for con in [
         "accounts_kind_check",
         "accounts_personal_has_user",
         "account_members_role_check",
     ] {
-        let exists: bool =
-            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname=$1)")
-                .bind(con)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM sqlite_master \
+              WHERE type='table' AND sql LIKE '%CONSTRAINT ' || $1 || '%')",
+        )
+        .bind(con)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         assert!(exists, "constraint {con} exists");
     }
 
     // partial unique index + user index exist
     for idx in ["uq_accounts_personal_user", "idx_account_members_user"] {
         let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname='public' AND indexname=$1)",
+            "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type='index' AND name=$1)",
         )
         .bind(idx)
         .fetch_one(&pool)
@@ -87,11 +91,8 @@ async fn schema_shape_and_constraints() {
 
     // composite PK on account_members(account_id, user_id)
     let pk_cols: Vec<String> = sqlx::query_scalar(
-        r#"SELECT a.attname
-           FROM pg_index i
-           JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
-           WHERE i.indrelid = 'public.account_members'::regclass AND i.indisprimary
-           ORDER BY a.attnum"#,
+        r#"SELECT name FROM pragma_table_info('account_members')
+           WHERE pk > 0 ORDER BY pk"#,
     )
     .fetch_all(&pool)
     .await
@@ -126,8 +127,9 @@ async fn schema_shape_and_constraints() {
 
     // A SECOND personal account for the same user violates uq_accounts_personal_user.
     let dup = sqlx::query(
-        "INSERT INTO accounts (kind, name, personal_user_id) VALUES ('personal', 'alice2', $1)",
+        "INSERT INTO accounts (id, kind, name, personal_user_id) VALUES ($1, 'personal', 'alice2', $2)",
     )
+    .bind(Uuid::new_v4())
     .bind(alice)
     .execute(&pool)
     .await;
@@ -150,7 +152,10 @@ async fn schema_shape_and_constraints() {
     );
 
     // A bad kind violates accounts_kind_check.
-    let bad_kind = sqlx::query("INSERT INTO accounts (kind, name) VALUES ('team', 'x')")
+    let bad_kind = sqlx::query(
+        "INSERT INTO accounts (id, kind, name) VALUES ($1, 'team', 'x')",
+    )
+    .bind(Uuid::new_v4())
         .execute(&pool)
         .await;
     assert!(
@@ -167,7 +172,7 @@ async fn users_group_holds_account_read_not_manage() {
     let pool = pool_for(&server).await;
 
     let perms: Vec<String> =
-        sqlx::query_scalar("SELECT unnest(permissions) FROM public.groups WHERE name = 'Users'")
+        sqlx::query_scalar("SELECT value FROM groups, json_each(groups.permissions) WHERE name = 'Users'")
             .fetch_all(&pool)
             .await
             .unwrap();
@@ -192,7 +197,7 @@ async fn account_module_boots_and_schema_is_live() {
     let pool = pool_for(&server).await;
     // A trivial read against the module's table proves the migration applied and
     // the module linked into the booted binary.
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM public.accounts")
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM accounts")
         .fetch_one(&pool)
         .await
         .expect("accounts table is queryable");
@@ -209,9 +214,9 @@ async fn backfill_is_idempotent_and_one_personal_per_user() {
     let admin = setup_admin(&server).await;
 
     // Three users created AFTER boot → no backfill ran for them yet.
-    let u1 = create_user(&server, &admin, "u1", "u1@x.test").await;
-    let u2 = create_user(&server, &admin, "u2", "u2@x.test").await;
-    let u3 = create_user(&server, &admin, "u3", "u3@x.test").await;
+    let u1 = create_user(&server, &admin, "user1", "u1@x.test").await;
+    let u2 = create_user(&server, &admin, "user2", "u2@x.test").await;
+    let u3 = create_user(&server, &admin, "user3", "u3@x.test").await;
     let users = [u1, u2, u3];
 
     // Apply the backfill TWICE (the double-apply proof).

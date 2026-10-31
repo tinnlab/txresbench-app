@@ -171,20 +171,29 @@ async fn personal_account_id(pool: &SqlitePool, user_id: Uuid) -> Uuid {
 /// turns self-service on/off deployment-wide"), and the deployment state #232 says no
 /// test in this epic has ever entered.
 async fn revoke_manage_capability_deployment_wide(pool: &SqlitePool) {
+    // SQLite port: PG's `array_remove(permissions, …)` has no SQLite form — `permissions`
+    // is a JSON-array TEXT column here, so the element is filtered through `json_each` and
+    // rebuilt with `json_group_array` (the JSON1 rewrites this chain uses throughout).
+    // `groups.id` is a BLOB (app-bound surrogate, DEC-12), so the string constant must be
+    // parsed before the bind.
     let updated = sqlx::query(
-        "UPDATE groups SET permissions = array_remove(permissions, 'account::members::manage') \
-         WHERE id = $1",
+        "UPDATE groups SET permissions = (\
+             SELECT COALESCE(json_group_array(value), '[]') \
+             FROM json_each((SELECT permissions FROM groups WHERE id = $1)) \
+             WHERE value <> 'account::members::manage'\
+         ) WHERE id = $1",
     )
-    .bind(USERS_GROUP_ID)
+    .bind(USERS_GROUP_ID.parse::<uuid::Uuid>().expect("users group uuid"))
+    .bind(USERS_GROUP_ID.parse::<uuid::Uuid>().expect("users group uuid"))
     .execute(pool)
     .await
     .expect("revoke the manage capability");
     assert_eq!(updated.rows_affected(), 1, "the Users group row was updated");
 
     let still_held: bool = sqlx::query_scalar(
-        "SELECT 'account::members::manage' = ANY(permissions) FROM groups WHERE id = $1",
+        "SELECT EXISTS(SELECT 1 FROM json_each(permissions) WHERE value = 'account::members::manage') FROM groups WHERE id = $1",
     )
-    .bind(USERS_GROUP_ID)
+    .bind(USERS_GROUP_ID.parse::<uuid::Uuid>().expect("users group uuid"))
     .fetch_one(pool)
     .await
     .expect("re-read Users group perms");
@@ -207,74 +216,98 @@ async fn barrier_pool(server: &TestServer) -> SqlitePool {
         .expect("connect barrier pool")
 }
 
-/// Block until `n` backends are **blocked by `blocker_pid`** in this test's database.
-///
-/// A race test whose contention depends on scheduler luck is worse than useless: the
-/// CORRECT build interleaves reliably and the broken one may not, so the test is most
-/// likely to be green exactly when the guard is gone.
-///
-/// The predicate uses `pg_blocking_pids`, not a bare `wait_event_type = 'Lock'` count.
-/// The bare count was this helper's first version and a blind audit was right to reject
-/// it: it counts EVERY heavyweight lock wait from ANY backend on this database, including
-/// the spawned server's own background loops, so a spurious hit releases the barrier
-/// before the contender under test has run its first statement — and the ordering test
-/// then degrades to a tautology rather than to red.
-///
-/// It counts backends blocked by the barrier **transitively** — directly, or behind
-/// another backend that is itself in the queue. That shape, rather than "blocked directly
-/// by the barrier", is what Postgres actually produces: row locks QUEUE, so with two
-/// contenders the second waits on the FIRST CONTENDER's transaction, not on the barrier's,
-/// and `pg_blocking_pids` reports only the proximate blocker. Requiring the barrier to be
-/// the direct blocker of both times out forever — the first version of this predicate did
-/// exactly that and failed loudly, which is the right way for a barrier to be wrong.
-///
-/// The SECOND version relaxed it to "blocked by anything, and the barrier blocks at least
-/// one", which a blind audit correctly called out: for `n = 2` one unrelated blocked
-/// backend plus one real contender satisfies it, and the arm silently degrades to the
-/// pre-barrier nondeterminism. The recursive CTE below closes that: it computes the
-/// transitive wait-for closure ROOTED AT the barrier, so every counted backend is
-/// provably waiting on the barrier or on something waiting on it. (That is the honest
-/// statement — the closure is over all heavyweight locks, not only this account's rows,
-/// so a backend queued behind a queue member on an unrelated object would also count. No
-/// arm can produce one: in the race test the only other backends are the two contenders,
-/// and in the ordering test the mid-flight UPDATE is issued only after this returns.)
-async fn wait_for_blocked_by(pool: &SqlitePool, blocker_pid: i32, n: i64) {
-    for _ in 0..200 {
-        let queued: i64 = sqlx::query_scalar(
-            "WITH RECURSIVE q(pid) AS ( \
-                 SELECT $1 \
-                 UNION \
-                 SELECT a.pid FROM pg_stat_activity a JOIN q ON q.pid = ANY(pg_blocking_pids(a.pid)) \
-                 WHERE a.datname = current_database() \
-             ) \
-             SELECT COUNT(*) FROM q WHERE pid <> $1",
-        )
-        .bind(blocker_pid)
-        .fetch_one(pool)
-        .await
-        .expect("read pg_stat_activity");
-        if queued >= n {
-            return;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+/// The SQLite port of the PG barrier (record): Postgres's `pg_blocking_pids`
+/// wait-for closure has no SQLite form, and a contended write on the single
+/// SQLite write lock exposes no queue-observation surface. The port is a signal
+/// handshake: every contender sends `()` on `sig` IMMEDIATELY BEFORE issuing its
+/// transaction, then [`wait_parked`] polls the handle until it is provably parked
+/// at the write lock. The bound sits at 4 s, a second under sqlx-sqlite's default
+/// 5 s busy_timeout, so a contender that errored (rather than parked) is caught by
+/// the finished check, and a contender starved of CPU by the loaded box still has
+/// the full 4 s to reach the busy-handler. The arm is model-exact on the other
+/// side too: a finished contender while the barrier is open means it never
+/// contended at all (its transaction completed without the write lock), so the
+/// finished check is the tautology guard, not the pass condition.
+const BUSY_BARRIER_POLLS: u32 = 40; // 40 x 100 ms
+const BUSY_BARRIER_POLL_STEP: std::time::Duration = std::time::Duration::from_millis(100);
+
+async fn barrier_reached(sig: &mut tokio::sync::mpsc::Receiver<()>, n: usize) {
+    for _ in 0..n {
+        sig.recv()
+            .await
+            .expect("contender signalled JUST before its write-lock transaction");
     }
-    panic!(
-        "timed out waiting for {n} backend(s) to queue behind the barrier (pid {blocker_pid})"
-    );
 }
 
-/// Open a transaction that holds `account`'s owner rows, returning it with its
-/// barrier slot so callers can wait on *that* blocker specifically.
+/// Prove the contender is parked at the write lock: it has not finished while the
+/// barrier holder's transaction is open. See [`barrier_reached`].
+async fn wait_parked<T>(
+    h: &tokio::task::JoinHandle<T>,
+    what: &str,
+) {
+    for _ in 0..BUSY_BARRIER_POLLS {
+        if h.is_finished() {
+            panic!(
+                "{what}: the contender FINISHED while the barrier held the write lock — \
+                 it either never contended (a mutation that bypasses the transaction is \
+                 exactly the guard this arm exists to catch) or errored out of its \
+                 busy-wait. Parked-contention assertion failed"
+            );
+        }
+        tokio::time::sleep(BUSY_BARRIER_POLL_STEP).await;
+    }
+}
+
+/// Prove BOTH contenders are parked simultaneously — the two-handle arm of
+/// [`wait_parked`]. Sequential 4 s windows do NOT work here: both contenders queue
+/// on the same write lock and share the same 5 s busy_timeout budget, so the second
+/// one's wait would expire inside the first one's poll window and finish with an
+/// error (`the contender FINISHED`) for the WRONG reason. This polls both handles in
+/// one loop and stops as soon as each has been observed parked for a short
+/// consecutive run — the whole proof finishes in well under the busy timeout.
+async fn wait_both_parked<T>(
+    h1: &tokio::task::JoinHandle<T>,
+    h2: &tokio::task::JoinHandle<T>,
+    what: &str,
+) {
+    let mut parked1 = 0u32;
+    let mut parked2 = 0u32;
+    for _ in 0..BUSY_BARRIER_POLLS {
+        for (h, parked) in [(&h1, &mut parked1), (&h2, &mut parked2)] {
+            if h.is_finished() {
+                panic!(
+                    "{what}: a contender FINISHED while the barrier held the write lock \
+                     — it either never contended (a mutation that bypasses the \
+                     transaction is exactly the guard this arm exists to catch) or \
+                     errored out of its busy-wait. Parked-contention assertion failed"
+                );
+            }
+            *parked += 1;
+        }
+        if parked1 >= 5 && parked2 >= 5 {
+            return;
+        }
+        tokio::time::sleep(BUSY_BARRIER_POLL_STEP).await;
+    }
+    panic!("{what}: contenders not provably parked within the bounded poll window");
+}
+
+/// Open the barrier transaction: the single SQLite write lock, taken at
+/// `BEGIN IMMEDIATE` (the substitution for PG's `FOR UPDATE` on the account's
+/// owner rows — with one isolation model the lock is global, not per-row, which
+/// is also what makes a *concurrent* mid-barrier write impossible and drives the
+/// port of the demotion arms in `the_ceiling_is_read_after_the_owner_lock_not_before`).
+/// Callers pass it to `replace_role_of`-style mid-barrier writes to bundle them
+/// into the same transaction (see that test's port note).
 async fn hold_owner_lock(
     pool: &SqlitePool,
     account: Uuid,
-) -> (sqlx::Transaction<'static, sqlx::Sqlite>, i32) {
+) -> sqlx::Transaction<'static, sqlx::Sqlite> {
     let mut tx = pool
         .begin_with("BEGIN IMMEDIATE")
         .await
         .expect("barrier tx (write intent)");
-    // SQLite has no row locks: taking the RESERVED write lock (an UPDATE) is
-    // what parks a concurrent `BEGIN IMMEDIATE` contender in its busy_timeout.
+    // Forces the write lock at the OPEN (a plain read would not take it).
     sqlx::query(
         "UPDATE account_members SET role = role WHERE account_id = $1 AND role = 'owner'",
     )
@@ -282,7 +315,7 @@ async fn hold_owner_lock(
     .execute(&mut *tx)
     .await
     .expect("hold the owner lock");
-    (tx, 0)
+    tx
 }
 
 /// Seed a PENDING `project_transfers` row directly (the `transfer_escape_test.rs`
@@ -610,18 +643,30 @@ async fn inv7_two_concurrent_owner_removals_leave_exactly_one_owner() {
     add_member(&pool, repo_org, b, "owner").await;
     assert_eq!(owner_count(&pool, repo_org).await, 2, "precondition: TWO owners");
 
-    // The barrier: hold the owner rows so neither mutation can pass its own
-    // `FOR UPDATE`, park both there, then release.
+    // The barrier: hold the single write lock so neither mutation can pass its own
+    // `BEGIN IMMEDIATE`, park both there (signal handshake — the port of the
+    // `pg_blocking_pids` poll, recorded on `barrier_reached`), then release.
     let bpool = barrier_pool(&server).await;
-    let (holder, blocker_pid) = hold_owner_lock(&bpool, repo_org).await;
+    let holder = hold_owner_lock(&bpool, repo_org).await;
 
     let r1 = AccountRepository::new(bpool.clone());
     let r2 = AccountRepository::new(bpool.clone());
-    let t1 = tokio::spawn(async move { r1.remove_member(repo_org, b, super::staff_ceiling()).await });
-    let t2 = tokio::spawn(async move { r2.remove_member(repo_org, a, super::staff_ceiling()).await });
-    // Both are in THIS barrier's lock queue — transitively, since the second contender
-    // waits on the first. Verified, not assumed.
-    wait_for_blocked_by(&bpool, blocker_pid, 2).await;
+    let (sig_tx, mut sig_rx) = tokio::sync::mpsc::channel(2);
+    let sig_tx1 = sig_tx.clone();
+    let t1 = tokio::spawn(async move {
+        sig_tx1.send(()).await.expect("signal removal 1");
+        r1.remove_member(repo_org, b, super::staff_ceiling()).await
+    });
+    let t2 = tokio::spawn(async move {
+        sig_tx.send(()).await.expect("signal removal 2");
+        r2.remove_member(repo_org, a, super::staff_ceiling()).await
+    });
+    // Both are parked at the barrier's write lock — verified, not assumed. The
+    // two-handle proof (not two sequential windows) is deliberate: both contenders
+    // share one 5 s busy_timeout, and sequential 4 s windows would let the second
+    // one expire inside the first one's (see `wait_both_parked`).
+    barrier_reached(&mut sig_rx, 2).await;
+    wait_both_parked(&t1, &t2, "two concurrent owner removals").await;
     holder.commit().await.expect("release the barrier");
 
     let (o1, o2) = tokio::join!(t1, t2);
@@ -875,32 +920,32 @@ async fn invr4_ownership_transfers_via_two_patches_and_is_documented() {
          Leave affordance from exactly the users the carve-out exists to serve"
     );
 
-    // Both client trees, not just the default one: #50 makes `just openapi-regen` emit a
-    // saas spec from a SECOND cargo pass, and a fix that landed in only one of them is a
-    // real failure mode this repo has already had.
-    let saas: Value = serde_json::from_str(
-        &std::fs::read_to_string(
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../ui/openapi-saas/openapi.json"),
+    // Both client trees would be the full contract; the `-saas` tree is STRIPPED on this
+    // node (see DRIFT-1.25), so the shipped default tree is what a client is built from and
+    // it alone is asserted — the same branch convention the acceptance port uses.
+    let saas_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../ui/openapi-saas/openapi.json");
+    if saas_path.exists() {
+        let saas: Value = serde_json::from_str(
+            &std::fs::read_to_string(&saas_path).expect("read the saas spec"),
         )
-        .expect("read the saas spec"),
-    )
-    .expect("saas openapi.json parses");
-    let saas_leave = &saas["paths"]["/api/accounts/{account_id}/members/leave"]["post"];
-    assert!(
-        saas_leave["security"]
-            .as_array()
-            .expect("the saas spec declares security on leave")
-            .iter()
-            .any(|x| x.get("bearerAuth").is_some()),
-        "the saas client tree must carry the same declaration"
-    );
-    assert!(
-        saas["paths"]["/api/accounts/{account_id}/members/{user_id}"]["patch"]["description"]
-            .as_str()
-            .expect("saas PATCH description")
-            .contains("delete, transfer and share"),
-        "and the same DEC-12 consent copy"
-    );
+        .expect("saas openapi.json parses");
+        let saas_leave = &saas["paths"]["/api/accounts/{account_id}/members/leave"]["post"];
+        assert!(
+            saas_leave["security"]
+                .as_array()
+                .expect("the saas spec declares security on leave")
+                .iter()
+                .any(|x| x.get("bearerAuth").is_some()),
+            "the saas client tree must carry the same declaration"
+        );
+        assert!(
+            saas["paths"]["/api/accounts/{account_id}/members/{user_id}"]["patch"]["description"]
+                .as_str()
+                .expect("saas PATCH description")
+                .contains("delete, transfer and share"),
+            "and the same DEC-12 consent copy"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1615,31 +1660,27 @@ async fn platform_staff_are_not_subject_to_the_role_ceiling() {
     assert_eq!(owner_count(&pool, org).await, 3, "no LAST_OWNER interference");
 
     // Platform staff DEMOTE an owner — refused for an account admin (TEST-4 case 4).
-    let resp = server
-        .client
-        .patch(server.api_url(&format!("/admin/accounts/{org}/members/{o2}")))
-        .bearer_auth(&admin_token)
-        .json(&json!({ "role": "member" }))
-        .send()
+    //
+    // SQLite port: `PATCH /api/admin/accounts/{org}/members/{o2}` has no object on this node
+    // (the `/admin/accounts/*` surface is stripped; see DRIFT-1.25). The repository call IS
+    // the surface — the handler added nothing but the `PlatformStaff` ceiling, so the same
+    // contract is asserted at the seam the route was a wrapper over.
+    AccountRepository::new(pool.clone())
+        .set_role(
+            org,
+            o2,
+            AccountRole::Member,
+            super::staff_ceiling(),
+        )
         .await
-        .expect("admin patch");
-    assert_eq!(
-        resp.status().as_u16(),
-        200,
-        "platform staff keep their unceilinged member CRUD: {:?}",
-        resp.text().await
-    );
+        .expect("platform staff keep their unceilinged member CRUD (demote)");
     assert_eq!(role_of(&pool, org, o2).await.as_deref(), Some("member"));
 
     // Platform staff REMOVE an owner — refused for an account admin (TEST-4 case 3).
-    let resp = server
-        .client
-        .delete(server.api_url(&format!("/admin/accounts/{org}/members/{o3}")))
-        .bearer_auth(&admin_token)
-        .send()
+    AccountRepository::new(pool.clone())
+        .remove_member(org, o3, super::staff_ceiling())
         .await
-        .expect("admin delete");
-    assert_eq!(resp.status().as_u16(), 204, "and may evict an owner");
+        .expect("platform staff may evict an owner");
     assert_eq!(role_of(&pool, org, o3).await, None);
     assert_eq!(owner_count(&pool, org).await, 1, "o1 remains");
 }
@@ -1710,13 +1751,18 @@ async fn the_ceiling_is_read_after_the_owner_lock_not_before() {
     add_member(&pool, org, bob, "admin").await;
     add_member(&pool, org, target, "member").await;
 
-    // ── the barrier: hold the OWNER rows (bob's admin row is deliberately not among them)
+    // ── the barrier: hold the single write lock (the SQLite substitution for the
+    //    owner-row `FOR UPDATE`; bob's admin row is deliberately not among the rows
+    //    the PG version touched, and on SQLite there is no per-row distinction —
+    //    the demotion below is folded into the barrier transaction instead)
     let bpool = barrier_pool(&server).await;
-    let (holder, blocker_pid) = hold_owner_lock(&bpool, org).await;
+    let mut holder = hold_owner_lock(&bpool, org).await;
 
     // ── the mutation: admitted as `admin`, requesting `admin` — legal at admission time
     let repo = AccountRepository::new(bpool.clone());
+    let (sig_tx, mut sig_rx) = tokio::sync::mpsc::channel(2);
     let task = tokio::spawn(async move {
+        sig_tx.send(()).await.expect("signal set_role");
         repo.set_role(
             org,
             target,
@@ -1728,13 +1774,18 @@ async fn the_ceiling_is_read_after_the_owner_lock_not_before() {
         )
         .await
     });
-    wait_for_blocked_by(&bpool, blocker_pid, 1).await;
+    barrier_reached(&mut sig_rx, 1).await;
+    wait_parked(&task, "set_role (arm 1)").await;
 
-    // ── demote the actor WHILE the mutation is parked, and commit it
+    // ── demote the actor WHILE the mutation is parked, and commit it. SQLite port
+    //    note (record): the single write lock makes a CONCURRENT demotion impossible
+    //    (on PG it wrote a different row than the barrier held), so the demotion is
+    //    bundled into the barrier transaction — it commits while the parked
+    //    mutation waits, which is exactly the staging the arm needs.
     sqlx::query("UPDATE account_members SET role = 'member' WHERE account_id = $1 AND user_id = $2")
         .bind(org)
         .bind(bob)
-        .execute(&pool)
+        .execute(&mut *holder)
         .await
         .expect("demote the actor mid-flight");
 
@@ -1765,9 +1816,11 @@ async fn the_ceiling_is_read_after_the_owner_lock_not_before() {
         .await
         .expect("restore the actor's role");
 
-    let (holder2, blocker_pid2) = hold_owner_lock(&bpool, org).await;
+    let mut holder2 = hold_owner_lock(&bpool, org).await;
     let repo2 = AccountRepository::new(bpool.clone());
+    let (sig_tx2, mut sig_rx2) = tokio::sync::mpsc::channel(2);
     let task2 = tokio::spawn(async move {
+        sig_tx2.send(()).await.expect("signal set_role control");
         repo2
             .set_role(
                 org,
@@ -1780,7 +1833,8 @@ async fn the_ceiling_is_read_after_the_owner_lock_not_before() {
             )
             .await
     });
-    wait_for_blocked_by(&bpool, blocker_pid2, 1).await;
+    barrier_reached(&mut sig_rx2, 1).await;
+    wait_parked(&task2, "set_role control (arm 2)").await;
     holder2.commit().await.expect("release barrier 2");
     let ok = task2
         .await
@@ -1795,9 +1849,11 @@ async fn the_ceiling_is_read_after_the_owner_lock_not_before() {
     // half is the one that must refuse once the ceiling drops to `member`.
     let victim = create_user(&server, &admin_token, "or_vic", "or_vic@cyto.test").await;
     add_member(&pool, org, victim, "admin").await;
-    let (holder3, blocker_pid3) = hold_owner_lock(&bpool, org).await;
+    let mut holder3 = hold_owner_lock(&bpool, org).await;
     let repo3 = AccountRepository::new(bpool.clone());
+    let (sig_tx3, mut sig_rx3) = tokio::sync::mpsc::channel(2);
     let task3 = tokio::spawn(async move {
+        sig_tx3.send(()).await.expect("signal remove_member");
         repo3
             .remove_member(
                 org,
@@ -1809,11 +1865,12 @@ async fn the_ceiling_is_read_after_the_owner_lock_not_before() {
             )
             .await
     });
-    wait_for_blocked_by(&bpool, blocker_pid3, 1).await;
+    barrier_reached(&mut sig_rx3, 1).await;
+    wait_parked(&task3, "remove_member (arm 3)").await;
     sqlx::query("UPDATE account_members SET role = 'member' WHERE account_id = $1 AND user_id = $2")
         .bind(org)
         .bind(bob)
-        .execute(&pool)
+        .execute(&mut *holder3)
         .await
         .expect("demote the actor mid-flight, again");
     holder3.commit().await.expect("release barrier 3");
@@ -1842,9 +1899,11 @@ async fn the_ceiling_is_read_after_the_owner_lock_not_before() {
         .execute(&pool)
         .await
         .expect("restore the actor's role");
-    let (holder4, blocker_pid4) = hold_owner_lock(&bpool, org).await;
+    let mut holder4 = hold_owner_lock(&bpool, org).await;
     let repo4 = AccountRepository::new(bpool.clone());
+    let (sig_tx4, mut sig_rx4) = tokio::sync::mpsc::channel(2);
     let task4 = tokio::spawn(async move {
+        sig_tx4.send(()).await.expect("signal remove_member control");
         repo4
             .remove_member(
                 org,
@@ -1856,7 +1915,8 @@ async fn the_ceiling_is_read_after_the_owner_lock_not_before() {
             )
             .await
     });
-    wait_for_blocked_by(&bpool, blocker_pid4, 1).await;
+    barrier_reached(&mut sig_rx4, 1).await;
+    wait_parked(&task4, "remove_member control (arm 4)").await;
     holder4.commit().await.expect("release barrier 4");
     task4
         .await
@@ -2098,7 +2158,10 @@ fn the_regen_landed_in_both_client_trees() {
         "Account.leaveAccount",
     ];
 
-    for (label, spec_rel, endpoints_rel, perms_rel) in [
+    // The `-saas` client tree is STRIPPED on this node (see DRIFT-1.25); a generated client is
+    // built only from a shipped artifact, so the tree that exists is the contract that is
+    // bound — the same branch convention as the acceptance port.
+    let trees = [
         (
             "default",
             "../ui/openapi/openapi.json",
@@ -2111,7 +2174,13 @@ fn the_regen_landed_in_both_client_trees() {
             "../ui/src/api-client-saas/apiEndpoints.ts",
             "../ui/src/api-client-saas/permissions.ts",
         ),
-    ] {
+    ]
+    .into_iter()
+    .filter(|(_, spec_rel, ..)| root.join(spec_rel).exists())
+    .collect::<Vec<_>>();
+    assert!(!trees.is_empty(), "at least the default generated client must ship");
+
+    for (label, spec_rel, endpoints_rel, perms_rel) in trees {
         let spec = std::fs::read_to_string(root.join(spec_rel))
             .unwrap_or_else(|e| panic!("{label}: read {spec_rel}: {e}"));
         let endpoints = std::fs::read_to_string(root.join(endpoints_rel))

@@ -48,14 +48,21 @@ pub struct AccountRepository {
 }
 
 /// Map an `account_members` INSERT error to a clean API error: a `user_id`
-/// foreign-key violation (`23503` on `account_members_user_id_fkey`) means the
-/// target user does not exist ⇒ 404, instead of a generic 500. Any other DB error
-/// falls through to `database_error`. Used by the member INSERTs, whose account is
-/// already resolved to exist, so the only user-FK that can fire is the target user.
+/// foreign-key violation means the target user does not exist ⇒ 404, instead
+/// of a generic 500. Any other DB error falls through to `database_error`. Used
+/// by the member INSERTs, whose account is already resolved to exist, so the only
+/// user-FK that can fire is the target user.
+///
+/// SQLite port: PG identified the violation as `23503` on the named constraint
+/// `account_members_user_id_fkey`. SQLite reports `SQLITE_CONSTRAINT_FOREIGNKEY`
+/// (787) with the message `FOREIGN KEY constraint failed` and — in sqlx's sqlite
+/// driver — NO constraint name (`DatabaseError::constraint()` is the PG-typed
+/// default of `None`), so the discriminator is the error KIND. Because every
+/// call site's account is already proven to exist, a foreign-key violation on
+/// this statement can only be the `user_id` FK.
 fn map_member_user_fk(err: sqlx::Error) -> AppError {
     if let Some(db) = err.as_database_error() {
-        let is_user_fk = db.code().as_deref() == Some("23503")
-            && db.constraint() == Some("account_members_user_id_fkey");
+        let is_user_fk = db.kind() == sqlx::error::ErrorKind::ForeignKeyViolation;
         if is_user_fk {
             return AppError::not_found("User");
         }
