@@ -29,7 +29,7 @@ use cytoanalyst::modules::jobs::settings::{
 use crate::account::{create_user_without_projects, login, pool_for, setup_admin};
 use crate::common::TestServer;
 
-async fn admin_id(pool: &sqlx::PgPool) -> Uuid {
+async fn admin_id(pool: &sqlx::SqlitePool) -> Uuid {
     sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE username = 'admin'")
         .fetch_one(pool)
         .await

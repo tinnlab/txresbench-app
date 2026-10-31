@@ -9,7 +9,7 @@ use super::{account_body, features_put, global_body, DEMO_FLAG};
 use crate::account::{pool_for, setup_admin};
 use crate::common::TestServer;
 
-async fn row_count(pool: &sqlx::PgPool, flag: &str, account: Option<Uuid>) -> i64 {
+async fn row_count(pool: &sqlx::SqlitePool, flag: &str, account: Option<Uuid>) -> i64 {
     match account {
         Some(a) => sqlx::query_scalar::<_, i64>(
             "SELECT count(*) FROM feature_flags WHERE flag_key = $1 AND account_id = $2",

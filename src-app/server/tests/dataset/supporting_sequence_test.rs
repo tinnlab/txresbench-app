@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use reqwest::multipart::{Form, Part};
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::jobs::repository::JobRepository;
@@ -28,7 +28,7 @@ use crate::common::TestServer;
 const H5AD_BYTES: &[u8] = b"\x89HDF\r\n\x1a\n fake anndata payload for supporting-sequence test";
 const ANNOTATION_CSV: &[u8] = b"barcode,cluster\nAAACCCAAGAAACACT,0\nAAACCCACAGAAACAC,1\n";
 
-async fn status_of(pool: &PgPool, id: Uuid) -> String {
+async fn status_of(pool: &SqlitePool, id: Uuid) -> String {
     sqlx::query_scalar("SELECT status FROM jobs WHERE id = $1")
         .bind(id)
         .fetch_one(pool)
@@ -36,7 +36,7 @@ async fn status_of(pool: &PgPool, id: Uuid) -> String {
         .expect("read job status")
 }
 
-async fn name_of(pool: &PgPool, id: Uuid) -> String {
+async fn name_of(pool: &SqlitePool, id: Uuid) -> String {
     sqlx::query_scalar("SELECT name FROM jobs WHERE id = $1")
         .bind(id)
         .fetch_one(pool)
@@ -44,7 +44,7 @@ async fn name_of(pool: &PgPool, id: Uuid) -> String {
         .expect("read job name")
 }
 
-async fn poll_status(pool: &PgPool, id: Uuid, wanted: &str, timeout: Duration) -> String {
+async fn poll_status(pool: &SqlitePool, id: Uuid, wanted: &str, timeout: Duration) -> String {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         let s = status_of(pool, id).await;

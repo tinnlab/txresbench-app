@@ -872,7 +872,7 @@ async fn the_production_staging_function_does_not_rebuffer() {
     // The server's blob store is a local filesystem tree under its per-test data
     // dir, so the test process can open the very same store.
     let storage = ziee_file::init_file_storage(server.data_dir().join("files"));
-    let pool = sqlx::PgPool::connect(server.database_url())
+    let pool = sqlx::SqlitePool::connect(server.database_url())
         .await
         .expect("connect to the test database");
 
@@ -1121,7 +1121,7 @@ async fn double_ingest_is_a_typed_error_not_a_panic() {
     // Point this process at the server's own blob store + database, so the ingest is
     // the real one against real rows.
     ziee_file::init_file_storage(server.data_dir().join("files"));
-    let pool = sqlx::PgPool::connect(server.database_url())
+    let pool = sqlx::SqlitePool::connect(server.database_url())
         .await
         .expect("connect to the test database");
     let repo = ziee_file::FileRepository::new(pool.clone());

@@ -25,7 +25,7 @@
 //!   enumeration holes get reintroduced.
 
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::account::{
@@ -109,7 +109,7 @@ async fn post_accept_token_in_query(server: &TestServer, bearer: &str, token: &s
 async fn mint_invitation(
     server: &TestServer,
     inviter_token: &str,
-    pool: &PgPool,
+    pool: &SqlitePool,
     account: Uuid,
     email: &str,
     role: &str,
@@ -169,7 +169,7 @@ async fn mint_invitation(
 /// Uses the module's OWN `mint_token`/`token_sha256`, so the planted row is
 /// indistinguishable from a real one to everything under test.
 async fn plant_invitation(
-    pool: &PgPool,
+    pool: &SqlitePool,
     account: Uuid,
     email: &str,
     role: &str,
@@ -195,7 +195,7 @@ async fn plant_invitation(
 
 // ── DB read helpers ────────────────────────────────────────────────────────
 
-async fn role_of(pool: &PgPool, account: Uuid, user: Uuid) -> Option<String> {
+async fn role_of(pool: &SqlitePool, account: Uuid, user: Uuid) -> Option<String> {
     sqlx::query_scalar::<_, String>(
         "SELECT role FROM account_members WHERE account_id = $1 AND user_id = $2",
     )
@@ -206,7 +206,7 @@ async fn role_of(pool: &PgPool, account: Uuid, user: Uuid) -> Option<String> {
     .expect("read role")
 }
 
-async fn member_count(pool: &PgPool, account: Uuid) -> i64 {
+async fn member_count(pool: &SqlitePool, account: Uuid) -> i64 {
     sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM account_members WHERE account_id = $1")
         .bind(account)
         .fetch_one(pool)
@@ -215,7 +215,7 @@ async fn member_count(pool: &PgPool, account: Uuid) -> i64 {
 }
 
 /// `(accepted_at IS NOT NULL, accepted_by)` for one invitation.
-async fn accepted_state(pool: &PgPool, invitation: Uuid) -> (bool, Option<Uuid>) {
+async fn accepted_state(pool: &SqlitePool, invitation: Uuid) -> (bool, Option<Uuid>) {
     sqlx::query_as::<_, (bool, Option<Uuid>)>(
         "SELECT accepted_at IS NOT NULL, accepted_by FROM account_invitations WHERE id = $1",
     )
@@ -227,7 +227,7 @@ async fn accepted_state(pool: &PgPool, invitation: Uuid) -> (bool, Option<Uuid>)
 
 /// Every `account_member_events` row for `(account, target)` with this action.
 async fn events(
-    pool: &PgPool,
+    pool: &SqlitePool,
     account: Uuid,
     action: &str,
     target: Uuid,
@@ -246,7 +246,7 @@ async fn events(
     .expect("read member events")
 }
 
-async fn expire(pool: &PgPool, invitation: Uuid) {
+async fn expire(pool: &SqlitePool, invitation: Uuid) {
     sqlx::query("UPDATE account_invitations SET expires_at = now() - interval '1 hour' WHERE id = $1")
         .bind(invitation)
         .execute(pool)
@@ -254,7 +254,7 @@ async fn expire(pool: &PgPool, invitation: Uuid) {
         .expect("expire invitation");
 }
 
-async fn revoke(pool: &PgPool, invitation: Uuid, by: Uuid) {
+async fn revoke(pool: &SqlitePool, invitation: Uuid, by: Uuid) {
     sqlx::query("UPDATE account_invitations SET revoked_at = now(), revoked_by = $2 WHERE id = $1")
         .bind(invitation)
         .bind(by)
@@ -264,7 +264,7 @@ async fn revoke(pool: &PgPool, invitation: Uuid, by: Uuid) {
 }
 
 /// Set a member's role directly (a demotion the accept path must observe LIVE).
-async fn set_role(pool: &PgPool, account: Uuid, user: Uuid, role: &str) {
+async fn set_role(pool: &SqlitePool, account: Uuid, user: Uuid, role: &str) {
     let n = sqlx::query("UPDATE account_members SET role = $3 WHERE account_id = $1 AND user_id = $2")
         .bind(account)
         .bind(user)
@@ -276,7 +276,7 @@ async fn set_role(pool: &PgPool, account: Uuid, user: Uuid, role: &str) {
     assert_eq!(n, 1, "the demotion fixture must actually move a row");
 }
 
-async fn remove_member(pool: &PgPool, account: Uuid, user: Uuid) {
+async fn remove_member(pool: &SqlitePool, account: Uuid, user: Uuid) {
     let n = sqlx::query("DELETE FROM account_members WHERE account_id = $1 AND user_id = $2")
         .bind(account)
         .bind(user)
@@ -313,7 +313,7 @@ async fn remove_member(pool: &PgPool, account: Uuid, user: Uuid) {
 /// in THIS test's database, and **panics** on a bounded deadline rather than proceeding. The
 /// test therefore either proves interleaving or fails loudly.
 async fn while_the_account_row_is_held<F, T>(
-    pool: &PgPool,
+    pool: &SqlitePool,
     account_id: Uuid,
     waiters: i64,
     f: F,
@@ -352,7 +352,7 @@ where
 /// never holding anything. `FOR NO KEY UPDATE NOWAIT` from a second connection either takes
 /// the lock (⇒ the hold was ineffective, and the test is not testing what it says) or fails
 /// immediately with SQLSTATE **55P03** `lock_not_available`, which is the proof.
-async fn assert_account_row_is_held(pool: &PgPool, account_id: Uuid) {
+async fn assert_account_row_is_held(pool: &SqlitePool, account_id: Uuid) {
     let probe = sqlx::query("SELECT id FROM accounts WHERE id = $1 FOR NO KEY UPDATE NOWAIT")
         .bind(account_id)
         .fetch_optional(pool)
@@ -361,7 +361,11 @@ async fn assert_account_row_is_held(pool: &PgPool, account_id: Uuid) {
         Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("55P03") => {}
         other => panic!(
             "the account row is NOT held, so a test asserting that nothing blocks on it \
-             proves nothing: {other:?}"
+             proves nothing: {}",
+            match other {
+                Err(e) => format!("ERROR {e:?}"),
+                Ok(r) => format!("ROW returned: {}", r.is_some()),
+            }
         ),
     }
 }
@@ -376,7 +380,7 @@ async fn assert_account_row_is_held(pool: &PgPool, account_id: Uuid) {
 /// It is neutral about WHAT `blocker_pid` holds — callers pass a session holding the accounts
 /// row or one holding the owner rows — so neither this doc nor its panic names a resource
 /// (FIX_ROUND-5, C5-2).
-async fn await_lock_waiters(pool: &PgPool, waiters: i64, blocker_pid: i32) {
+async fn await_lock_waiters(pool: &SqlitePool, waiters: i64, blocker_pid: i32) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
     loop {
         // Sessions blocked BY THE BLOCKER, named by its backend pid — not merely "some
@@ -442,7 +446,7 @@ async fn await_lock_waiters(pool: &PgPool, waiters: i64, blocker_pid: i32) {
 /// exists so every refusal below is observed against real state rather than an empty table.
 struct Fixture {
     server: TestServer,
-    pool: PgPool,
+    pool: SqlitePool,
     admin: String,
     owner_id: Uuid,
     owner_token: String,

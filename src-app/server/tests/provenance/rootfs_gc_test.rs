@@ -136,11 +136,11 @@ use cytoanalyst::modules::provenance::settings::ProvenanceSettingsRepository;
 use cytoanalyst::modules::rootfs::{cache, scoped_data_root};
 use super::{create_project, setup_admin};
 use serde_json::json;
-use sqlx::postgres::PgPoolOptions;
+use sqlx::sqlite::SqlitePoolOptions;
 use uuid::Uuid;
 
-async fn gc_pool(server: &TestServer) -> sqlx::PgPool {
-    PgPoolOptions::new()
+async fn gc_pool(server: &TestServer) -> sqlx::SqlitePool {
+    SqlitePoolOptions::new()
         .max_connections(2)
         .connect(server.database_url())
         .await
@@ -237,7 +237,7 @@ async fn gc_never_deletes_provenance_records() {
         .await
         .expect("seed run_repro audit row");
 
-    let repro_count = |p: sqlx::PgPool| async move {
+    let repro_count = |p: sqlx::SqlitePool| async move {
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM provenance_run_repro")
             .fetch_one(&p)
             .await

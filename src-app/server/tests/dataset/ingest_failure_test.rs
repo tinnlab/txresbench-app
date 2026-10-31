@@ -115,7 +115,7 @@ async fn stage_declared_vs_present(
 
 /// The `Job` row `finalize_analysis_with` takes, read back through the production
 /// repository (not hand-built) so the fixture cannot drift from the real shape.
-async fn job_of(pool: &sqlx::PgPool, id: uuid::Uuid) -> Job {
+async fn job_of(pool: &sqlx::SqlitePool, id: uuid::Uuid) -> Job {
     JobRepository::new(pool.clone())
         .get_any(id)
         .await
@@ -374,11 +374,14 @@ async fn missing_or_escaping_output_fails_and_preserves_workspace() {
          must not take the evidence with it"
     );
     // No partial catalog — zero artifacts for either run.
-    let n: i64 = sqlx::query_scalar("SELECT count(*) FROM artifacts WHERE run_id = ANY($1)")
-        .bind(vec![job_missing, job_escape])
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    let n: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM artifacts \
+         WHERE run_id IN (SELECT unhex(j.value) FROM json_each($1) AS j)",
+    )
+    .bind(uuid_list_json(&[job_missing, job_escape]))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert_eq!(n, 0, "no partial catalog rows from a failed ingest");
 
     // (c) Direct ingest of a missing-file manifest → hard error, zero rows, ws kept.

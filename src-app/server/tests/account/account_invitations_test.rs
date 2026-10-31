@@ -29,7 +29,7 @@
 // assertion in this file changed.
 
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::account::{
@@ -172,7 +172,7 @@ async fn get_members(server: &TestServer, token: &str, account: &str) -> Resp {
 // ── DB read helpers ────────────────────────────────────────────────────────
 
 /// How many invitation rows exist for `(account, email)`, in ANY state.
-async fn invitation_rows(pool: &PgPool, account: Uuid, email: &str) -> i64 {
+async fn invitation_rows(pool: &SqlitePool, account: Uuid, email: &str) -> i64 {
     sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM account_invitations WHERE account_id = $1 AND email = $2",
     )
@@ -184,7 +184,7 @@ async fn invitation_rows(pool: &PgPool, account: Uuid, email: &str) -> i64 {
 }
 
 /// The LIVE (pending, unrevoked, unexpired) invitation id for `(account, email)`.
-async fn live_invitation(pool: &PgPool, account: Uuid, email: &str) -> Option<Uuid> {
+async fn live_invitation(pool: &SqlitePool, account: Uuid, email: &str) -> Option<Uuid> {
     sqlx::query_scalar::<_, Uuid>(
         "SELECT id FROM account_invitations \
          WHERE account_id = $1 AND email = $2 \
@@ -197,7 +197,7 @@ async fn live_invitation(pool: &PgPool, account: Uuid, email: &str) -> Option<Uu
     .expect("read live invitation")
 }
 
-async fn member_count(pool: &PgPool, account: Uuid) -> i64 {
+async fn member_count(pool: &SqlitePool, account: Uuid) -> i64 {
     sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM account_members WHERE account_id = $1")
         .bind(account)
         .fetch_one(pool)
@@ -205,7 +205,7 @@ async fn member_count(pool: &PgPool, account: Uuid) -> i64 {
         .expect("count members")
 }
 
-async fn role_of(pool: &PgPool, account: Uuid, user: Uuid) -> Option<String> {
+async fn role_of(pool: &SqlitePool, account: Uuid, user: Uuid) -> Option<String> {
     sqlx::query_scalar::<_, String>(
         "SELECT role FROM account_members WHERE account_id = $1 AND user_id = $2",
     )
@@ -216,7 +216,7 @@ async fn role_of(pool: &PgPool, account: Uuid, user: Uuid) -> Option<String> {
     .expect("read role")
 }
 
-async fn personal_account_id(pool: &PgPool, user_id: Uuid) -> Uuid {
+async fn personal_account_id(pool: &SqlitePool, user_id: Uuid) -> Uuid {
     sqlx::query_scalar::<_, Uuid>(
         "SELECT id FROM accounts WHERE kind='personal' AND personal_user_id=$1",
     )
@@ -237,7 +237,7 @@ async fn personal_account_id(pool: &PgPool, user_id: Uuid) -> Uuid {
 /// `batch` distinguishes successive calls only for readability now that nothing unique is
 /// being inserted; it is kept because the log of a failing run is much easier to read when
 /// the phases are labelled.
-async fn seed_mints(pool: &PgPool, account: Uuid, actor: Uuid, n: i64, _batch: &str) {
+async fn seed_mints(pool: &SqlitePool, account: Uuid, actor: Uuid, n: i64, _batch: &str) {
     for _ in 0..n {
         sqlx::query(
             "INSERT INTO account_invitation_mints (account_id, actor_user_id, invitation_id) \
@@ -261,7 +261,7 @@ async fn seed_mints(pool: &PgPool, account: Uuid, actor: Uuid, n: i64, _batch: &
 /// repository prunes at a 1-day horizon at every mint, so a row aged 30 days would be
 /// deleted by the very next create and the arm would then be proving that DELETION works,
 /// not that the window slides.
-async fn age_out_mints(pool: &PgPool, account: Uuid) {
+async fn age_out_mints(pool: &SqlitePool, account: Uuid) {
     sqlx::query(
         "UPDATE account_invitation_mints SET created_at = now() - interval '23 hours' \
          WHERE account_id = $1",
@@ -2779,7 +2779,7 @@ async fn concurrent_creates_for_one_address_serialize_even_with_no_owner_rows() 
         "precondition: the owner-row FOR UPDATE now locks NOTHING"
     );
 
-    let wide = sqlx::postgres::PgPoolOptions::new()
+    let wide = sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(12)
         .connect(server.database_url())
         .await

@@ -105,7 +105,7 @@ fn recorded_params() -> Value {
 /// Seed a COMPLETED run of the ordering analysis, the same way the sibling filter test
 /// seeds one: a jobs row plus its project scope, then the real recorder. No sandbox is
 /// started — the narration is a function of the recorded run, which is the thing under test.
-async fn record_ordering_run(pool: &sqlx::PgPool, project_id: Uuid, root_artifact_id: Uuid)
+async fn record_ordering_run(pool: &sqlx::SqlitePool, project_id: Uuid, root_artifact_id: Uuid)
     -> Uuid
 {
     use cytoanalyst::modules::jobs::models::Job;

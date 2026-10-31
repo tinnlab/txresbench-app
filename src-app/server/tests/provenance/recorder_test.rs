@@ -49,7 +49,7 @@ fn analysis_job(owner: Uuid, run_id: Option<Uuid>, root_id: Uuid) -> Job {
 }
 
 /// The first-run admin's user id (a real FK target for a seeded `jobs.owner_id`).
-async fn admin_id(pool: &PgPool) -> Uuid {
+async fn admin_id(pool: &SqlitePool) -> Uuid {
     sqlx::query_scalar("SELECT id FROM users WHERE username = 'admin'")
         .fetch_one(pool)
         .await
@@ -58,7 +58,7 @@ async fn admin_id(pool: &PgPool) -> Uuid {
 
 /// Seed the synthetic job's `jobs` row + (when `project` is `Some`) a project-scoped
 /// `job_scope` row, so the recorder resolves the run's scope from the table (ITEM-68).
-async fn seed_job_scope(pool: &PgPool, job: &Job, project: Option<Uuid>) {
+async fn seed_job_scope(pool: &SqlitePool, job: &Job, project: Option<Uuid>) {
     sqlx::query("INSERT INTO jobs (id, owner_id, job_type, name, status) VALUES ($1, $2, $3, $4, $5)")
         .bind(job.id)
         .bind(job.owner_id)
@@ -665,7 +665,7 @@ fn analysis_job_with_inputs(owner: Uuid, inputs: Value) -> Job {
 
 /// Record `job` through the REAL recorder (project-scoped) and return the
 /// `inputs_json` array it persisted.
-async fn recorded_edges(pool: &PgPool, job: &Job, project_id: Uuid) -> Vec<Value> {
+async fn recorded_edges(pool: &SqlitePool, job: &Job, project_id: Uuid) -> Vec<Value> {
     seed_job_scope(pool, job, Some(project_id)).await;
     ProvenanceRunRecorder::new(pool.clone())
         .record_run(job, &[], 0, PeakMetrics::default(), &std::env::temp_dir())

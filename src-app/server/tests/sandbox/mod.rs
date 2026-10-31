@@ -963,8 +963,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use async_trait::async_trait;
-use sqlx::postgres::PgPoolOptions;
-use sqlx::PgPool;
+use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 use ziee_core::AppError;
 
@@ -977,8 +977,8 @@ use cytoanalyst::modules::workstore::object_store::{
     BlobLink, ByteStream, ContentKey, GcReport, LocalFsStore, MultiFilePut, ObjectStat, ObjectStore,
 };
 
-async fn pool_for(server: &TestServer) -> PgPool {
-    PgPoolOptions::new()
+async fn pool_for(server: &TestServer) -> SqlitePool {
+    SqlitePoolOptions::new()
         .max_connections(2)
         .connect(server.database_url())
         .await

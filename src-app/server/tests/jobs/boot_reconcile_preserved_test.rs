@@ -10,7 +10,7 @@
 //!     stale-claim reaper (`reclaim_stale`), so the reaper cannot swallow a case
 //!     the boot reconcile is meant to handle.
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::jobs::repository::JobRepository;
@@ -18,7 +18,7 @@ use cytoanalyst::modules::jobs::repository::JobRepository;
 use super::{pool_for, register_user};
 use crate::common::{TestOptions, TestServer};
 
-async fn column_exists(pool: &PgPool, table: &str, column: &str) -> bool {
+async fn column_exists(pool: &SqlitePool, table: &str, column: &str) -> bool {
     sqlx::query_scalar::<_, i64>(
         "SELECT count(*) FROM information_schema.columns WHERE table_name = $1 AND column_name = $2",
     )
@@ -30,7 +30,7 @@ async fn column_exists(pool: &PgPool, table: &str, column: &str) -> bool {
         > 0
 }
 
-async fn index_exists(pool: &PgPool, index: &str) -> bool {
+async fn index_exists(pool: &SqlitePool, index: &str) -> bool {
     sqlx::query_scalar::<_, i64>("SELECT count(*) FROM pg_indexes WHERE indexname = $1")
         .bind(index)
         .fetch_one(pool)

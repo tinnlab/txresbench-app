@@ -2,7 +2,7 @@
 //! table + `drafts_project_idx` exist, and the `drafts::use` grant is appended to the
 //! Users group exactly once (idempotent re-run).
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 
 use super::*;
 use crate::common::TestServer;
@@ -11,7 +11,7 @@ use crate::common::TestServer;
 async fn drafts_schema_and_grant_are_present() {
     let server = TestServer::spawn().await;
     let _admin = setup_admin(&server).await;
-    let pool = PgPool::connect(server.database_url()).await.unwrap();
+    let pool = SqlitePool::connect(server.database_url()).await.unwrap();
 
     // The table exists with the expected columns.
     let cols: Vec<String> = sqlx::query_scalar::<_, String>(
@@ -64,7 +64,7 @@ async fn drafts_schema_and_grant_are_present() {
     }
 
     // The grant lands on the Users group EXACTLY ONCE (append-if-absent is idempotent).
-    let grant_count = |pool: PgPool| async move {
+    let grant_count = |pool: SqlitePool| async move {
         sqlx::query_scalar::<_, i64>(
             "SELECT count(*) FROM (SELECT unnest(permissions) AS p FROM groups WHERE name = 'Users') s \
              WHERE s.p = 'drafts::use'",

@@ -121,7 +121,7 @@ where
                ORDER BY claim_heartbeat ASC
                LIMIT $3
            )
-           RETURNING id as "id!", owner_id as "owner_id!""#,
+           RETURNING id as "id: Uuid", owner_id as "owner_id: Uuid""#,
         stale_secs,
         max_reclaims,
         limit
@@ -161,7 +161,7 @@ where
                ORDER BY claim_heartbeat ASC
                LIMIT $3
            )
-           RETURNING id as "id!", owner_id as "owner_id!""#,
+           RETURNING id as "id: Uuid", owner_id as "owner_id: Uuid""#,
         stale_secs,
         max_reclaims,
         limit
@@ -343,11 +343,13 @@ impl JobRepository {
         let (born_status, born_error): (&str, Option<&str>) = if deps.is_empty() {
             ("queued", None)
         } else {
+            // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+            let json_deps = uuid_list_json(deps);
             let dep_rows = sqlx::query!(
-                r#"SELECT id as "id!", status as "status!"
+                r#"SELECT id as "id: Uuid", status as "status!"
                    FROM jobs
                   WHERE id IN (SELECT unhex(j.value) FROM json_each($1) AS j)"#,
-                uuid_list_json(deps),
+                json_deps,
             )
             .fetch_all(&mut *conn)
             .await
@@ -393,14 +395,14 @@ impl JobRepository {
                VALUES ($1, $2, $3, $4, $8, $5, $6, $7, $9,
                        CASE WHEN $8 = 'failed'
                             THEN strftime('%Y-%m-%dT%H:%M:%fZ','now') ELSE NULL END)
-               RETURNING id, owner_id, job_type, name, status,
+               RETURNING id as "id: Uuid", owner_id as "owner_id: Uuid", job_type, name, status,
                          params as "params: serde_json::Value",
                          created_at as "created_at: DateTime<Utc>",
                          started_at as "started_at?: DateTime<Utc>",
                          finished_at as "finished_at?: DateTime<Utc>",
                          exit_code as "exit_code?: i32", error, pid as "pid?: i32",
                          priority_class, resource_class, req_cpu as "req_cpu?: i32",
-                         req_mem_bytes, run_id"#,
+                         req_mem_bytes, run_id as "run_id: Uuid""#,
             id,
             owner_id,
             req.job_type,
@@ -472,7 +474,7 @@ impl JobRepository {
     /// `ON DELETE CASCADE` when the job itself is deleted.
     pub async fn job_scope(pool: &SqlitePool, job_id: Uuid) -> Result<Option<JobScope>, AppError> {
         let row = sqlx::query!(
-            r#"SELECT js.scope_kind, js.scope_id
+            r#"SELECT js.scope_kind, js.scope_id as "scope_id: Uuid"
                FROM job_scope js
                WHERE js.job_id = $1
                  AND (
@@ -572,16 +574,18 @@ impl JobRepository {
         per_page: i64,
     ) -> Result<(Vec<Job>, i64), AppError> {
         let offset = (page - 1).max(0) * per_page;
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let json_group_ids = uuid_list_json(group_ids);
         let jobs = sqlx::query_as!(
             Job,
-            r#"SELECT id, owner_id, job_type, name, status,
+            r#"SELECT id as "id: Uuid", owner_id as "owner_id: Uuid", job_type, name, status,
                       params as "params: serde_json::Value",
                       created_at as "created_at: DateTime<Utc>",
                       started_at as "started_at?: DateTime<Utc>",
                       finished_at as "finished_at?: DateTime<Utc>",
                       exit_code as "exit_code?: i32", error, pid as "pid?: i32",
                       priority_class, resource_class, req_cpu as "req_cpu?: i32",
-                      req_mem_bytes, run_id
+                      req_mem_bytes, run_id as "run_id: Uuid"
                FROM jobs
                WHERE (
                        (jobs.owner_id = $1 AND (
@@ -657,7 +661,7 @@ impl JobRepository {
                          AND js2.scope_kind = 'project' AND js2.scope_id = $5))
                ORDER BY created_at DESC, id DESC LIMIT $3 OFFSET $4"#,
             user_id,
-            uuid_list_json(group_ids),
+            json_group_ids,
             per_page,
             offset,
             project_id,
@@ -665,6 +669,8 @@ impl JobRepository {
         .fetch_all(&self.pool)
         .await
         .map_err(AppError::database_error)?;
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let json_group_ids = uuid_list_json(group_ids);
         let total = sqlx::query_scalar!(
             r#"SELECT COUNT(*) as "count!" FROM jobs
                WHERE (
@@ -740,7 +746,7 @@ impl JobRepository {
                        WHERE js2.job_id = jobs.id
                          AND js2.scope_kind = 'project' AND js2.scope_id = $3))"#,
             user_id,
-            uuid_list_json(group_ids),
+            json_group_ids,
             project_id,
         )
         .fetch_one(&self.pool)
@@ -810,14 +816,14 @@ impl JobRepository {
                SELECT $1, $2, $3, $4, 'running', $5, 'normal', 'cpu-sandbox',
                       strftime('%Y-%m-%dT%H:%M:%fZ','now')
                 WHERE (SELECT count(*) FROM jobs WHERE status = 'running') < $6
-               RETURNING id, owner_id, job_type, name, status,
+               RETURNING id as "id: Uuid", owner_id as "owner_id: Uuid", job_type, name, status,
                          params as "params: serde_json::Value",
                          created_at as "created_at: DateTime<Utc>",
                          started_at as "started_at?: DateTime<Utc>",
                          finished_at as "finished_at?: DateTime<Utc>",
                          exit_code as "exit_code?: i32", error, pid as "pid?: i32",
                          priority_class, resource_class, req_cpu as "req_cpu?: i32",
-                         req_mem_bytes, run_id"#,
+                         req_mem_bytes, run_id as "run_id: Uuid""#,
             id,
             owner_id,
             job_type,
@@ -891,8 +897,11 @@ impl JobRepository {
         user_id: Uuid,
         group_ids: &[Uuid],
     ) -> Result<std::collections::HashSet<Uuid>, AppError> {
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let json_ids = uuid_list_json(ids);
+        let json_group_ids = uuid_list_json(group_ids);
         let rows = sqlx::query_scalar!(
-            r#"SELECT j.id as "id!" FROM jobs j
+            r#"SELECT j.id as "id: Uuid" FROM jobs j
                WHERE j.id IN (SELECT unhex(jv.value) FROM json_each($1) AS jv)
                  AND (
                        (j.owner_id = $2 AND (
@@ -948,9 +957,9 @@ impl JobRepository {
                                            SELECT am.account_id FROM account_members am
                                             WHERE am.user_id = $2)))))
                  )"#,
-            uuid_list_json(ids),
+            json_ids,
             user_id,
-            uuid_list_json(group_ids),
+            json_group_ids,
         )
         .fetch_all(&self.pool)
         .await
@@ -976,7 +985,7 @@ impl JobRepository {
     /// ## #167 × #168 — the CREATOR anchor (the fourth instance neither issue named)
     ///
     /// The job's own creator used to be returned unconditionally, from a bare
-    /// `SELECT owner_id FROM jobs WHERE id = $1`, and the caller then put that id in
+    /// `SELECT owner_id as "owner_id: Uuid" FROM jobs WHERE id = $1`, and the caller then put that id in
     /// the fan-out's owner slot. #147 hardened the dataset/project arms of the query
     /// BELOW and left that anchor standing, so a removed member could no longer OPEN
     /// the account's jobs and was still told, in real time, every time one changed
@@ -1013,7 +1022,7 @@ impl JobRepository {
         pool: &SqlitePool,
         job_id: Uuid,
     ) -> Result<Option<(Uuid, Vec<Uuid>)>, AppError> {
-        let owner = sqlx::query_scalar!("SELECT owner_id FROM jobs WHERE id = $1", job_id)
+        let owner = sqlx::query_scalar!(r#"SELECT owner_id as "owner_id: Uuid" FROM jobs WHERE id = $1"#, job_id)
             .fetch_optional(pool)
             .await
             .map_err(AppError::database_error)?
@@ -1024,7 +1033,7 @@ impl JobRepository {
         // EVERY job transition — the shape that looks tidiest is the one that degrades
         // with the size of the deployment.
         let audience = sqlx::query_scalar!(
-            r#"SELECT DISTINCT uid as "id!" FROM (
+            r#"SELECT DISTINCT uid as "id: Uuid" FROM (
                  SELECT j.owner_id AS uid
                    FROM jobs j
                   WHERE j.id = $1 AND (
@@ -1128,14 +1137,14 @@ impl JobRepository {
         let offset = (page - 1).max(0) * per_page;
         let jobs = sqlx::query_as!(
             Job,
-            r#"SELECT id, owner_id, job_type, name, status,
+            r#"SELECT id as "id: Uuid", owner_id as "owner_id: Uuid", job_type, name, status,
                       params as "params: serde_json::Value",
                       created_at as "created_at: DateTime<Utc>",
                       started_at as "started_at?: DateTime<Utc>",
                       finished_at as "finished_at?: DateTime<Utc>",
                       exit_code as "exit_code?: i32", error, pid as "pid?: i32",
                       priority_class, resource_class, req_cpu as "req_cpu?: i32",
-                      req_mem_bytes, run_id
+                      req_mem_bytes, run_id as "run_id: Uuid"
                FROM jobs
                WHERE ($3 IS NULL OR EXISTS (
                        SELECT 1 FROM job_scope js
@@ -1167,14 +1176,14 @@ impl JobRepository {
     pub async fn get_any(&self, id: Uuid) -> Result<Option<Job>, AppError> {
         sqlx::query_as!(
             Job,
-            r#"SELECT id, owner_id, job_type, name, status,
+            r#"SELECT id as "id: Uuid", owner_id as "owner_id: Uuid", job_type, name, status,
                       params as "params: serde_json::Value",
                       created_at as "created_at: DateTime<Utc>",
                       started_at as "started_at?: DateTime<Utc>",
                       finished_at as "finished_at?: DateTime<Utc>",
                       exit_code as "exit_code?: i32", error, pid as "pid?: i32",
                       priority_class, resource_class, req_cpu as "req_cpu?: i32",
-                      req_mem_bytes, run_id
+                      req_mem_bytes, run_id as "run_id: Uuid"
                FROM jobs WHERE id = $1"#,
             id
         )
@@ -1275,14 +1284,14 @@ impl JobRepository {
                             j.created_at ASC
                    LIMIT 1
                )
-               RETURNING id, owner_id, job_type, name, status,
+               RETURNING id as "id: Uuid", owner_id as "owner_id: Uuid", job_type, name, status,
                          params as "params: serde_json::Value",
                          created_at as "created_at: DateTime<Utc>",
                          started_at as "started_at?: DateTime<Utc>",
                          finished_at as "finished_at?: DateTime<Utc>",
                          exit_code as "exit_code?: i32", error, pid as "pid?: i32",
                          priority_class, resource_class, req_cpu as "req_cpu?: i32",
-                         req_mem_bytes, run_id"#,
+                         req_mem_bytes, run_id as "run_id: Uuid""#,
             exclude_batch,
             worker_id,
             global_cap,
@@ -1376,14 +1385,13 @@ impl JobRepository {
             .try_lock()
         {
             Ok(guard) => guard,
-            Err(tokio::sync::TryLockError::WouldBlock) => {
-                // Another reaper in THIS process owns this tick — do nothing
-                // (the PG path's `pg_try_advisory_xact_lock` false arm).
-                return Ok(None);
-            }
-            Err(tokio::sync::TryLockError::Closed(_)) => {
-                // The gate mutex was poisoned by a panic in a previous sweep; the
-                // gate is an optimization, never a correctness requirement.
+            Err(_) => {
+                // Either another reaper in THIS process owns this tick (the PG
+                // path's `pg_try_advisory_xact_lock` false arm) or the gate
+                // mutex was poisoned by a panic in a previous sweep. The gate is
+                // an optimization, never a correctness requirement — both arms
+                // are the same no-op. (tokio 1.52's `TryLockError` is a unit
+                // struct with no variants to match.)
                 return Ok(None);
             }
         };
@@ -1437,7 +1445,7 @@ impl JobRepository {
         let n = sqlx::query_scalar!(
             r#"SELECT EXISTS(
                    SELECT 1 FROM jobs WHERE status = 'queued' AND priority_class = $1
-               ) as "exists!""#,
+               ) as "exists: bool""#,
             class
         )
         .fetch_one(&self.pool)
@@ -1526,10 +1534,10 @@ impl JobRepository {
         // guarded statement, read off the row we just wrote (no second lookup that a
         // concurrent delete could race).
         let owner_id = sqlx::query_scalar!(
-            "UPDATE jobs SET status = $2,
+            r#"UPDATE jobs SET status = $2,
               finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), exit_code = $3, pid = NULL
              WHERE id = $1 AND status = 'running'
-             RETURNING owner_id",
+             RETURNING owner_id as "owner_id: Uuid""#,
             id,
             status,
             exit_code
@@ -1686,10 +1694,10 @@ impl JobRepository {
         // unfinalizable orphan), and `failed` is just as terminal for the dataset badge
         // as `completed` is.
         let owner = sqlx::query_scalar!(
-            "UPDATE jobs SET status = 'failed',
+            r#"UPDATE jobs SET status = 'failed',
               finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), error = $2, pid = NULL
              WHERE id = $1 AND status IN ('blocked','queued','running')
-             RETURNING owner_id",
+             RETURNING owner_id as "owner_id: Uuid""#,
             id,
             error
         )
@@ -1775,11 +1783,14 @@ impl JobRepository {
     /// superblock version number)`) lives ONLY in `job_logs`, so every surface that shows
     /// `job.error` reports a terminal failure with no cause.
     pub async fn last_stderr_lines(&self, id: Uuid, n: i64) -> Result<Vec<String>, AppError> {
+        // let-bound: the sqlx bind is borrowed across the statement, so a
+        // fn-call temporary would drop before the execute (E0716 class).
+        let tail = n.clamp(1, 100);
         let mut rows: Vec<String> = sqlx::query_scalar!(
             "SELECT content FROM job_logs WHERE job_id = $1 AND stream = 'stderr'
              ORDER BY seq DESC LIMIT $2",
             id,
-            n.clamp(1, 100),
+            tail,
         )
         .fetch_all(&self.pool)
         .await
@@ -1804,14 +1815,14 @@ impl JobRepository {
             r#"UPDATE jobs SET status = 'stopped',
                       finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), pid = NULL
                WHERE id = $1 AND status IN ('blocked','queued','running')
-               RETURNING id, owner_id, job_type, name, status,
+               RETURNING id as "id: Uuid", owner_id as "owner_id: Uuid", job_type, name, status,
                          params as "params: serde_json::Value",
                          created_at as "created_at: DateTime<Utc>",
                          started_at as "started_at?: DateTime<Utc>",
                          finished_at as "finished_at?: DateTime<Utc>",
                          exit_code as "exit_code?: i32", error, pid as "pid?: i32",
                          priority_class, resource_class, req_cpu as "req_cpu?: i32",
-                         req_mem_bytes, run_id"#,
+                         req_mem_bytes, run_id as "run_id: Uuid""#,
             id
         )
         .fetch_optional(&mut *tx)
@@ -1875,7 +1886,7 @@ impl JobRepository {
     ) -> Result<(), AppError> {
         // (1) Read the still-`blocked` direct dependents.
         let locked: Vec<Uuid> = sqlx::query_scalar!(
-            r#"SELECT id as "id!" FROM jobs
+            r#"SELECT id as "id: Uuid" FROM jobs
                WHERE status = 'blocked'
                  AND id IN (SELECT job_id FROM job_dependencies WHERE depends_on_job_id = $1)
                ORDER BY id"#,
@@ -1893,6 +1904,8 @@ impl JobRepository {
         // every concurrent finisher committed, so it is GUARANTEED to see the
         // winner's `completed` — the same "last finisher in wins" property the PG
         // per-statement READ-COMMITTED snapshots produced.
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let json_locked = uuid_list_json(&locked);
         sqlx::query!(
             r#"UPDATE jobs SET status = 'queued'
                WHERE status = 'blocked'
@@ -1900,7 +1913,7 @@ impl JobRepository {
                  AND NOT EXISTS (
                      SELECT 1 FROM job_dependencies jd JOIN jobs j ON j.id = jd.depends_on_job_id
                      WHERE jd.job_id = jobs.id AND j.status <> 'completed')"#,
-            uuid_list_json(&locked),
+            json_locked,
         )
         .execute(conn)
         .await
@@ -1931,7 +1944,7 @@ impl JobRepository {
                                error = $2, pid = NULL
                WHERE id IN (SELECT job_id FROM dependents)
                  AND status IN ('blocked','queued')
-               RETURNING id as "id!""#,
+               RETURNING id as "id: Uuid""#,
             failed_id,
             DEPENDENCY_FAILED,
         )
@@ -1964,7 +1977,7 @@ impl JobRepository {
         dep_job_id: Uuid,
     ) -> Result<Vec<(Uuid, serde_json::Value)>, AppError> {
         let rows = sqlx::query!(
-            r#"SELECT id, params as "params: serde_json::Value"
+            r#"SELECT id as "id: Uuid", params as "params: serde_json::Value"
                FROM jobs
                WHERE status = 'blocked'
                  AND id IN (SELECT job_id FROM job_dependencies WHERE depends_on_job_id = $1)
@@ -2011,7 +2024,7 @@ impl JobRepository {
         .fetch_optional(&mut *conn)
         .await
         .map_err(AppError::database_error)?;
-        Ok(row)
+        Ok(row.flatten())
     }
 
     /// Boot run-durability reconcile (ITEM-19 / DEC-18): every job still `running`
@@ -2023,14 +2036,14 @@ impl JobRepository {
     pub async fn list_running(&self) -> Result<Vec<Job>, AppError> {
         sqlx::query_as!(
             Job,
-            r#"SELECT id, owner_id, job_type, name, status,
+            r#"SELECT id as "id: Uuid", owner_id as "owner_id: Uuid", job_type, name, status,
                       params as "params: serde_json::Value",
                       created_at as "created_at: DateTime<Utc>",
                       started_at as "started_at?: DateTime<Utc>",
                       finished_at as "finished_at?: DateTime<Utc>",
                       exit_code as "exit_code?: i32", error, pid as "pid?: i32",
                       priority_class, resource_class, req_cpu as "req_cpu?: i32",
-                      req_mem_bytes, run_id
+                      req_mem_bytes, run_id as "run_id: Uuid"
                FROM jobs WHERE status = 'running' ORDER BY created_at ASC"#
         )
         .fetch_all(&self.pool)
@@ -2044,7 +2057,7 @@ impl JobRepository {
     /// dependencies keeps any future workspace — a blocked job is LIVE, not dead.
     pub async fn all_live_job_ids(&self) -> Result<Vec<Uuid>, AppError> {
         sqlx::query_scalar!(
-            r#"SELECT id as "id!" FROM jobs WHERE status IN ('blocked','queued','running')"#
+            r#"SELECT id as "id: Uuid" FROM jobs WHERE status IN ('blocked','queued','running')"#
         )
         .fetch_all(&self.pool)
         .await
@@ -2091,7 +2104,7 @@ impl JobRepository {
                                error = $1, pid = NULL
                WHERE id IN (SELECT job_id FROM dependents)
                  AND status = 'blocked'
-               RETURNING id as "id!""#,
+               RETURNING id as "id: Uuid""#,
             DEPENDENCY_FAILED,
         )
         .fetch_all(&mut *tx)
@@ -2133,7 +2146,7 @@ impl JobRepository {
             JobLog,
             r#"INSERT INTO job_logs (id, job_id, seq, stream, content)
                VALUES ($1, $2, $3, $4, $5)
-               RETURNING id, job_id, seq as "seq: i32", stream, content,
+               RETURNING id as "id: Uuid", job_id as "job_id: Uuid", seq as "seq: i32", stream, content,
                          created_at as "created_at: DateTime<Utc>""#,
             id,
             job_id,
@@ -2168,7 +2181,7 @@ impl JobRepository {
         // served by the paged endpoint (`list_logs_paged`, ITEM-12b).
         sqlx::query_as!(
             JobLog,
-            r#"SELECT id, job_id, seq as "seq: i32", stream, content,
+            r#"SELECT id as "id: Uuid", job_id as "job_id: Uuid", seq as "seq: i32", stream, content,
                       created_at as "created_at: DateTime<Utc>"
                FROM job_logs WHERE job_id = $1 ORDER BY seq ASC LIMIT 10000"#,
             job_id
@@ -2192,7 +2205,7 @@ impl JobRepository {
     ) -> Result<Vec<JobLog>, AppError> {
         sqlx::query_as!(
             JobLog,
-            r#"SELECT id, job_id, seq as "seq: i32", stream, content,
+            r#"SELECT id as "id: Uuid", job_id as "job_id: Uuid", seq as "seq: i32", stream, content,
                       created_at as "created_at: DateTime<Utc>"
                FROM job_logs WHERE job_id = $1 AND seq > $2
                ORDER BY seq ASC LIMIT $3"#,
@@ -2236,7 +2249,7 @@ impl JobRepository {
             JobMilestone,
             r#"INSERT INTO job_milestones (id, job_id, milestone_id, status, detail)
                VALUES ($1, $2, $3, $4, $5)
-               RETURNING id, job_id, milestone_id, status,
+               RETURNING id as "id: Uuid", job_id as "job_id: Uuid", milestone_id as "milestone_id: Uuid", status,
                          detail as "detail: serde_json::Value",
                          created_at as "created_at: DateTime<Utc>""#,
             id,
@@ -2255,7 +2268,7 @@ impl JobRepository {
     pub async fn list_milestones(&self, job_id: Uuid) -> Result<Vec<JobMilestone>, AppError> {
         sqlx::query_as!(
             JobMilestone,
-            r#"SELECT id, job_id, milestone_id, status,
+            r#"SELECT id as "id: Uuid", job_id as "job_id: Uuid", milestone_id as "milestone_id: Uuid", status,
                       detail as "detail: serde_json::Value",
                       created_at as "created_at: DateTime<Utc>"
                FROM job_milestones WHERE job_id = $1 ORDER BY created_at ASC, id ASC LIMIT 10000"#,
@@ -2284,7 +2297,7 @@ impl JobRepository {
             JobMetric,
             r#"INSERT INTO job_metrics (id, job_id, cpu_pct, mem_bytes, mem_peak_bytes, pids_current)
                VALUES ($1, $2, $3, $4, $5, $6)
-               RETURNING id, job_id, sampled_at as "sampled_at: DateTime<Utc>",
+               RETURNING id as "id: Uuid", job_id as "job_id: Uuid", sampled_at as "sampled_at: DateTime<Utc>",
                          cpu_pct as "cpu_pct: f32", mem_bytes, mem_peak_bytes,
                          pids_current as "pids_current?: i32""#,
             id,
@@ -2302,7 +2315,7 @@ impl JobRepository {
     pub async fn list_metrics(&self, job_id: Uuid) -> Result<Vec<JobMetric>, AppError> {
         sqlx::query_as!(
             JobMetric,
-            r#"SELECT id, job_id, sampled_at as "sampled_at: DateTime<Utc>",
+            r#"SELECT id as "id: Uuid", job_id as "job_id: Uuid", sampled_at as "sampled_at: DateTime<Utc>",
                       cpu_pct as "cpu_pct: f32", mem_bytes, mem_peak_bytes,
                       pids_current as "pids_current?: i32"
                FROM job_metrics WHERE job_id = $1 ORDER BY sampled_at ASC LIMIT 10000"#,

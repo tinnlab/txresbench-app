@@ -153,7 +153,7 @@ impl ProjectRepository {
             Project,
             r#"INSERT INTO projects (id, owner_id, account_id, name, description)
                VALUES ($1, $2, $3, $4, $5)
-               RETURNING id, owner_id, account_id, name, description,
+               RETURNING id as "id: Uuid", owner_id as "owner_id: Uuid", account_id as "account_id!: Uuid", name, description,
                          created_at as "created_at: DateTime<Utc>",
                          updated_at as "updated_at: DateTime<Utc>""#,
             id,
@@ -170,7 +170,7 @@ impl ProjectRepository {
     pub async fn get(&self, id: Uuid) -> Result<Option<Project>, AppError> {
         sqlx::query_as!(
             Project,
-            r#"SELECT id, owner_id, account_id, name, description,
+            r#"SELECT id as "id: Uuid", owner_id as "owner_id: Uuid", account_id as "account_id!: Uuid", name, description,
                       created_at as "created_at: DateTime<Utc>",
                       updated_at as "updated_at: DateTime<Utc>"
                FROM projects WHERE id = $1"#,
@@ -201,7 +201,7 @@ impl ProjectRepository {
         // One query resolves owner + the project's account + the caller's membership
         // role in that account (indexed by `idx_account_members_user`).
         let owner = sqlx::query!(
-            r#"SELECT p.owner_id,
+            r#"SELECT p.owner_id as "owner_id: Uuid",
                       (SELECT am.role FROM account_members am
                         WHERE am.account_id = p.account_id AND am.user_id = $2)
                           as "member_role?"
@@ -299,7 +299,7 @@ impl ProjectRepository {
         // `MAX(a, b)` — SQLite's scalar multi-arg `max()`.
         let projects = sqlx::query_as!(
             ProjectDto,
-            r#"SELECT s.id, s.owner_id, s.name, s.description,
+            r#"SELECT s.id as "id: Uuid", s.owner_id as "owner_id: Uuid", s.name, s.description,
                       s.created_at as "created_at: DateTime<Utc>",
                       s.updated_at as "updated_at: DateTime<Utc>",
                       CASE WHEN s.owner_id = $1
@@ -372,7 +372,7 @@ impl ProjectRepository {
                  description = COALESCE($3, description),
                  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
                WHERE id = $1
-               RETURNING id, owner_id, account_id, name, description,
+               RETURNING id as "id: Uuid", owner_id as "owner_id: Uuid", account_id as "account_id!: Uuid", name, description,
                          created_at as "created_at: DateTime<Utc>",
                          updated_at as "updated_at: DateTime<Utc>""#,
             id,
@@ -419,7 +419,7 @@ impl ProjectRepository {
             // within the account it lives in. Behaviour-preserving for personal
             // accounts (the account's projects == the owner's projects).
             let exists = sqlx::query_scalar!(
-                r#"SELECT EXISTS(SELECT 1 FROM projects WHERE account_id = $1 AND name = $2) as "exists!""#,
+                r#"SELECT EXISTS(SELECT 1 FROM projects WHERE account_id = $1 AND name = $2) as "exists!: bool""#,
                 source.account_id,
                 candidate,
             )
@@ -442,7 +442,7 @@ impl ProjectRepository {
             Project,
             r#"INSERT INTO projects (id, owner_id, account_id, name, description)
                VALUES ($1, $2, $3, $4, $5)
-               RETURNING id, owner_id, account_id, name, description,
+               RETURNING id as "id: Uuid", owner_id as "owner_id: Uuid", account_id as "account_id!: Uuid", name, description,
                          created_at as "created_at: DateTime<Utc>",
                          updated_at as "updated_at: DateTime<Utc>""#,
             id,
@@ -471,7 +471,7 @@ impl ProjectRepository {
     /// True if `dataset_id` exists (referential-integrity guard for attach).
     pub async fn dataset_exists(&self, dataset_id: Uuid) -> Result<bool, AppError> {
         sqlx::query_scalar!(
-            r#"SELECT EXISTS(SELECT 1 FROM datasets WHERE id = $1) as "exists!""#,
+            r#"SELECT EXISTS(SELECT 1 FROM datasets WHERE id = $1) as "exists!: bool""#,
             dataset_id,
         )
         .fetch_one(&self.pool)
@@ -511,7 +511,7 @@ impl ProjectRepository {
         .await
         .map_err(AppError::database_error)?;
         let already = sqlx::query_scalar!(
-            r#"SELECT EXISTS(SELECT 1 FROM project_datasets WHERE project_id = $1 AND dataset_id = $2) as "exists!""#,
+            r#"SELECT EXISTS(SELECT 1 FROM project_datasets WHERE project_id = $1 AND dataset_id = $2) as "exists!: bool""#,
             project_id,
             dataset_id,
         )
@@ -572,9 +572,9 @@ impl ProjectRepository {
         // `d.`-qualified: `datasets` and `project_datasets` BOTH have `created_at`.
         let datasets = sqlx::query_as!(
             Dataset,
-            r#"SELECT d.id, d.name, d.owner_id, d.account_id, d.datatype,
+            r#"SELECT d.id as "id: Uuid", d.name, d.owner_id as "owner_id: Uuid", d.account_id as "account_id!: Uuid", d.datatype,
                       d.metadata as "metadata: serde_json::Value",
-                      d.source, d.source_artifact_id, d.content_hash,
+                      d.source, d.source_artifact_id as "source_artifact_id: Uuid", d.content_hash,
                       d.created_at as "created_at: DateTime<Utc>",
                       d.updated_at as "updated_at: DateTime<Utc>"
                FROM datasets d
@@ -609,7 +609,7 @@ impl ProjectRepository {
                ON CONFLICT (project_id, recipient_id) DO UPDATE SET
                  permission_level = EXCLUDED.permission_level,
                  status = 'pending', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-               RETURNING id, project_id, owner_id, recipient_id, permission_level, status,
+               RETURNING id as "id: Uuid", project_id as "project_id: Uuid", owner_id as "owner_id: Uuid", recipient_id as "recipient_id: Uuid", permission_level, status,
                          created_at as "created_at: DateTime<Utc>",
                          updated_at as "updated_at: DateTime<Utc>""#,
             id,
@@ -630,7 +630,7 @@ impl ProjectRepository {
     ) -> Result<bool, AppError> {
         sqlx::query_scalar!(
             r#"SELECT EXISTS(SELECT 1 FROM project_shares
-                 WHERE project_id = $1 AND recipient_id = $2 AND status IN ('pending','accepted')) as "exists!""#,
+                 WHERE project_id = $1 AND recipient_id = $2 AND status IN ('pending','accepted')) as "exists!: bool""#,
             project_id,
             recipient_id,
         )
@@ -643,7 +643,7 @@ impl ProjectRepository {
     /// audience so editors/viewers see live updates).
     pub async fn accepted_recipient_ids(&self, project_id: Uuid) -> Result<Vec<Uuid>, AppError> {
         let rows = sqlx::query!(
-            "SELECT recipient_id FROM project_shares WHERE project_id = $1 AND status = 'accepted'",
+            "SELECT recipient_id as \"recipient_id: Uuid\" FROM project_shares WHERE project_id = $1 AND status = 'accepted'",
             project_id,
         )
         .fetch_all(&self.pool)
@@ -666,7 +666,7 @@ impl ProjectRepository {
     /// (#172).
     pub async fn audience_user_ids(&self, project_id: Uuid) -> Result<Vec<Uuid>, AppError> {
         let rows = sqlx::query_scalar!(
-            r#"SELECT DISTINCT uid as "id!" FROM (
+            r#"SELECT DISTINCT uid as "id!: Uuid" FROM (
                  SELECT am.user_id AS uid
                    FROM projects p
                    JOIN account_members am ON am.account_id = p.account_id
@@ -688,7 +688,7 @@ impl ProjectRepository {
     pub async fn get_share(&self, id: Uuid) -> Result<Option<ProjectShare>, AppError> {
         sqlx::query_as!(
             ProjectShare,
-            r#"SELECT id, project_id, owner_id, recipient_id, permission_level, status,
+            r#"SELECT id as "id: Uuid", project_id as "project_id: Uuid", owner_id as "owner_id: Uuid", recipient_id as "recipient_id: Uuid", permission_level, status,
                       created_at as "created_at: DateTime<Utc>",
                       updated_at as "updated_at: DateTime<Utc>"
                FROM project_shares WHERE id = $1"#,
@@ -705,7 +705,7 @@ impl ProjectRepository {
     ) -> Result<Vec<ProjectShareDto>, AppError> {
         sqlx::query_as!(
             ProjectShareDto,
-            r#"SELECT sh.id, sh.project_id, sh.recipient_id,
+            r#"SELECT sh.id as "id: Uuid", sh.project_id as "project_id: Uuid", sh.recipient_id as "recipient_id: Uuid",
                       u.username as recipient_username, u.email as recipient_email,
                       sh.permission_level, sh.status,
                       sh.created_at as "created_at: DateTime<Utc>"
@@ -835,7 +835,7 @@ impl ProjectRepository {
             ProjectTransfer,
             r#"INSERT INTO project_transfers (id, project_id, from_user_id, to_user_id, status)
                VALUES ($1, $2, $3, $4, 'pending')
-               RETURNING id, project_id, from_user_id, to_user_id, status,
+               RETURNING id as "id: Uuid", project_id as "project_id: Uuid", from_user_id as "from_user_id: Uuid", to_user_id as "to_user_id: Uuid", status,
                          created_at as "created_at: DateTime<Utc>",
                          updated_at as "updated_at: DateTime<Utc>""#,
             id,
@@ -1060,8 +1060,8 @@ impl ProjectRepository {
                              WHERE t.status = 'pending'
                                AND p.account_id = $1
                                AND (t.from_user_id = $2 OR t.to_user_id = $2))
-             RETURNING id as "id!", project_id as "project_id!",
-                       from_user_id as "from_user_id!", to_user_id as "to_user_id!""#,
+             RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid",
+                       from_user_id as "from_user_id!: Uuid", to_user_id as "to_user_id!: Uuid""#,
             account_id,
             user_id,
         )
@@ -1081,7 +1081,7 @@ impl ProjectRepository {
 
     pub async fn pending_transfer_exists(&self, project_id: Uuid) -> Result<bool, AppError> {
         sqlx::query_scalar!(
-            r#"SELECT EXISTS(SELECT 1 FROM project_transfers WHERE project_id = $1 AND status = 'pending') as "exists!""#,
+            r#"SELECT EXISTS(SELECT 1 FROM project_transfers WHERE project_id = $1 AND status = 'pending') as "exists!: bool""#,
             project_id,
         )
         .fetch_one(&self.pool)
@@ -1092,7 +1092,7 @@ impl ProjectRepository {
     pub async fn get_transfer(&self, id: Uuid) -> Result<Option<ProjectTransfer>, AppError> {
         sqlx::query_as!(
             ProjectTransfer,
-            r#"SELECT id, project_id, from_user_id, to_user_id, status,
+            r#"SELECT id as "id: Uuid", project_id as "project_id: Uuid", from_user_id as "from_user_id: Uuid", to_user_id as "to_user_id: Uuid", status,
                       created_at as "created_at: DateTime<Utc>",
                       updated_at as "updated_at: DateTime<Utc>"
                FROM project_transfers WHERE id = $1"#,
@@ -1439,7 +1439,7 @@ impl ProjectRepository {
     pub async fn get_settings(&self) -> Result<ProjectSettings, AppError> {
         let row = sqlx::query_as!(
             ProjectSettings,
-            r#"SELECT transfer_enabled, updated_at as "updated_at: DateTime<Utc>"
+            r#"SELECT transfer_enabled as "transfer_enabled: bool", updated_at as "updated_at: DateTime<Utc>"
                FROM project_settings WHERE singleton = true"#,
         )
         .fetch_optional(&self.pool)
@@ -1461,7 +1461,7 @@ impl ProjectRepository {
                VALUES (true, $1, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
                ON CONFLICT (singleton) DO UPDATE SET
                  transfer_enabled = EXCLUDED.transfer_enabled, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-               RETURNING transfer_enabled, updated_at as "updated_at: DateTime<Utc>""#,
+               RETURNING transfer_enabled as "transfer_enabled: bool", updated_at as "updated_at: DateTime<Utc>""#,
             transfer_enabled,
         )
         .fetch_one(&self.pool)
@@ -1493,16 +1493,16 @@ impl ProjectRepository {
 
         let rows = sqlx::query_as!(
             AdminProjectRow,
-            r#"SELECT s.id, s.owner_id, s.name, s.description,
+            r#"SELECT s.id as "id: Uuid", s.owner_id as "owner_id: Uuid", s.name, s.description,
                   s.created_at as "created_at: DateTime<Utc>",
                   s.updated_at as "updated_at: DateTime<Utc>",
                   u.username as "owner_username!", u.email as "owner_email!",
                   u.display_name as "owner_display_name",
-                  u.is_active as "owner_is_active!",
+                  u.is_active as "owner_is_active!: bool",
                   (SELECT count(*) FROM project_datasets sd WHERE sd.project_id = s.id) as "dataset_count!",
                   (SELECT count(*) FROM project_shares sh WHERE sh.project_id = s.id AND sh.status IN ('pending','accepted')) as "share_count!",
-                  EXISTS(SELECT 1 FROM project_transfers t WHERE t.project_id = s.id AND t.status = 'pending') as "transfer_pending!",
-                  (NOT u.is_active) as "is_orphaned!",
+                  EXISTS(SELECT 1 FROM project_transfers t WHERE t.project_id = s.id AND t.status = 'pending') as "transfer_pending!: bool",
+                  (NOT u.is_active) as "is_orphaned!: bool",
                   MAX(s.updated_at,
                     COALESCE((SELECT MAX(d.updated_at) FROM datasets d JOIN project_datasets sd ON sd.dataset_id = d.id WHERE sd.project_id = s.id), s.updated_at))
                     as "last_activity!: DateTime<Utc>"
@@ -1575,7 +1575,7 @@ impl ProjectRepository {
             return Ok(None);
         };
         let owner = sqlx::query!(
-            "SELECT username, email, display_name, is_active FROM users WHERE id = $1",
+            r#"SELECT username, email, display_name, is_active as "is_active: bool" FROM users WHERE id = $1"#,
             project.owner_id,
         )
         .fetch_optional(&self.pool)
@@ -1606,7 +1606,7 @@ impl ProjectRepository {
     ) -> Result<Option<ProjectTransfer>, AppError> {
         sqlx::query_as!(
             ProjectTransfer,
-            r#"SELECT id, project_id, from_user_id, to_user_id, status,
+            r#"SELECT id as "id: Uuid", project_id as "project_id: Uuid", from_user_id as "from_user_id: Uuid", to_user_id as "to_user_id: Uuid", status,
                       created_at as "created_at: DateTime<Utc>",
                       updated_at as "updated_at: DateTime<Utc>"
                FROM project_transfers WHERE project_id = $1 AND status = 'pending'
@@ -1623,7 +1623,7 @@ impl ProjectRepository {
     /// target (400) distinctly from a deactivated one (422 — a deactivated owner
     /// would instantly orphan the project + get an unseeable notification).
     pub async fn user_active_status(&self, user_id: Uuid) -> Result<Option<bool>, AppError> {
-        let row = sqlx::query!("SELECT is_active FROM users WHERE id = $1", user_id)
+        let row = sqlx::query!(r#"SELECT is_active as "is_active: bool" FROM users WHERE id = $1"#, user_id)
             .fetch_optional(&self.pool)
             .await
             .map_err(AppError::database_error)?;
@@ -1632,7 +1632,7 @@ impl ProjectRepository {
 
     /// Ids of every project owned by `owner_id` (the reassign-all source set).
     pub async fn projects_owned_by(&self, owner_id: Uuid) -> Result<Vec<Uuid>, AppError> {
-        let rows = sqlx::query!("SELECT id FROM projects WHERE owner_id = $1", owner_id)
+        let rows = sqlx::query!("SELECT id as \"id: Uuid\" FROM projects WHERE owner_id = $1", owner_id)
             .fetch_all(&self.pool)
             .await
             .map_err(AppError::database_error)?;
@@ -1665,7 +1665,7 @@ impl ProjectRepository {
             .begin_with("BEGIN IMMEDIATE")
             .await
             .map_err(AppError::database_error)?;
-        let row = sqlx::query!("SELECT owner_id FROM projects WHERE id = $1", project_id,)
+        let row = sqlx::query!("SELECT owner_id as \"owner_id: Uuid\" FROM projects WHERE id = $1", project_id,)
             .fetch_optional(&mut *tx)
             .await
             .map_err(AppError::database_error)?;
@@ -1747,7 +1747,7 @@ impl ProjectRepository {
         let limit = limit.clamp(1, 50);
         sqlx::query_as!(
             super::models::AdminUserOption,
-            r#"SELECT id, username, email, display_name, is_active
+            r#"SELECT id as "id: Uuid", username, email, display_name, is_active as "is_active: bool"
                FROM users
                WHERE ($1 IS NULL
                       OR instr(lower(username), lower($1)) > 0

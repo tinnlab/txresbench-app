@@ -25,7 +25,7 @@ use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
 
 /// Seed a recorded COMPUTE run (sidecar) whose `rerun_spec_json` = `spec`. Returns
 /// the run id.
-async fn seed_compute_run(pool: &PgPool, project_id: Uuid, spec: Value) -> Uuid {
+async fn seed_compute_run(pool: &SqlitePool, project_id: Uuid, spec: Value) -> Uuid {
     let run_id = Uuid::new_v4();
     let nr = NewRun {
         run_id,
@@ -52,7 +52,7 @@ async fn seed_compute_run(pool: &PgPool, project_id: Uuid, spec: Value) -> Uuid 
 }
 
 /// Seed a catalog OUTPUT artifact produced by `run_id` (its recorded signature).
-async fn seed_output(pool: &PgPool, project_id: Uuid, run_id: Uuid, output_id: &str, content_hash: &str) {
+async fn seed_output(pool: &SqlitePool, project_id: Uuid, run_id: Uuid, output_id: &str, content_hash: &str) {
     CatalogRepository::new(pool.clone())
         .insert_artifact(&NewArtifact {
             project_id: Some(project_id), // ITEM-23: project/dataset scope now nullable
@@ -670,7 +670,7 @@ use crate::dataset::hardening_common::{
 /// The uploaded dataset's single file id — the `dataset_file_ref` a PROJECT-scoped
 /// analysis job binds (the same bytes a dataset-scoped run gets, staged through the
 /// same authorized chokepoint).
-async fn dataset_file_id(pool: &PgPool, dataset_id: Uuid) -> Uuid {
+async fn dataset_file_id(pool: &SqlitePool, dataset_id: Uuid) -> Uuid {
     sqlx::query_scalar("SELECT file_id FROM dataset_files WHERE dataset_id = $1 LIMIT 1")
         .bind(dataset_id)
         .fetch_one(pool)

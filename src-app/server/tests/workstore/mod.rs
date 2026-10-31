@@ -9,8 +9,8 @@
 use std::collections::HashSet;
 
 use serde_json::{json, Value};
-use sqlx::postgres::PgPoolOptions;
-use sqlx::PgPool;
+use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::workstore::catalog::models::NewArtifact;
@@ -227,8 +227,8 @@ async fn create_project(server: &TestServer, token: &str, name: &str) -> Uuid {
     Uuid::parse_str(s["id"].as_str().expect("project id")).unwrap()
 }
 
-async fn pool_for(server: &TestServer) -> PgPool {
-    PgPoolOptions::new()
+async fn pool_for(server: &TestServer) -> SqlitePool {
+    SqlitePoolOptions::new()
         .max_connections(2)
         .connect(server.database_url())
         .await

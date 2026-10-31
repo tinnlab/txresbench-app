@@ -36,7 +36,7 @@
 // assertion in this file changed.
 
 use serde_json::Value;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 
 use super::{add_member, create_user, make_org_account, pool_for, setup_admin};
 use crate::common::TestServer;
@@ -68,7 +68,7 @@ fn code_of(body: &Value) -> &str {
 /// `SELECT count(*) FROM account_members` — the DB-layer truth the invariant is stated in.
 /// Every refusal assertion in this file re-queries it, because "the response said 422" and
 /// "no membership row was created" are different claims and only the second is INV-10.
-async fn member_count(pool: &PgPool, account: uuid::Uuid) -> i64 {
+async fn member_count(pool: &SqlitePool, account: uuid::Uuid) -> i64 {
     sqlx::query_scalar::<_, i64>("SELECT count(*) FROM account_members WHERE account_id = $1")
         .bind(account)
         .fetch_one(pool)
@@ -78,7 +78,7 @@ async fn member_count(pool: &PgPool, account: uuid::Uuid) -> i64 {
 
 /// The member set as an ORDERED, comparable snapshot — used by the cross-tenant test to
 /// prove the OTHER account was untouched, rather than merely that its count is the same.
-async fn member_snapshot(pool: &PgPool, account: uuid::Uuid) -> Vec<(uuid::Uuid, String)> {
+async fn member_snapshot(pool: &SqlitePool, account: uuid::Uuid) -> Vec<(uuid::Uuid, String)> {
     sqlx::query_as::<_, (uuid::Uuid, String)>(
         "SELECT user_id, role FROM account_members WHERE account_id = $1 ORDER BY user_id",
     )
@@ -104,7 +104,7 @@ fn free_allowance() -> i64 {
 async fn fill_to(
     server: &TestServer,
     admin: &str,
-    pool: &PgPool,
+    pool: &SqlitePool,
     account: uuid::Uuid,
     target: i64,
     prefix: &str,
@@ -499,7 +499,7 @@ async fn test8_minting_is_ungated_and_membership_creation_is_the_only_authority(
 /// "coverage that isn't" this module refuses elsewhere.
 #[tokio::test]
 async fn test20_the_guard_refuses_an_unserializable_transaction_context() {
-    use cytoanalyst::modules::account::seat::{SEAT_NO_TRANSACTION, SEAT_UNSERIALIZED_ISOLATION};
+    use cytoanalyst::modules::account::seat::SEAT_NO_TRANSACTION;
     use cytoanalyst::modules::account::{AccountRepository, AccountRole, ActorCeiling};
     use sqlx::Acquire;
 
@@ -557,12 +557,30 @@ async fn test20_the_guard_refuses_an_unserializable_transaction_context() {
         "and it admitted nobody on the unserialized path"
     );
 
-    // ── ARM 2: REPEATABLE READ — in a transaction, but on an unsound snapshot ──
+    // ── ARM 2 (SQLite port): the stale-snapshot arm changed SHAPE, not died ──
+    //
+    // PG had two context questions and refused the second (`SEAT_UNSERIALIZED_ISOLATION`).
+    // SQLite has ONE isolation model, so that refusal has no object (see
+    // `seat.rs::assert_serializable_context`'s port note). Its guarantee — a stale
+    // count can never be committed SILENTLY — is now the engine's: a deferred
+    // transaction whose snapshot is stale fails its write (`database is locked` /
+    // `SQLITE_BUSY_SNAPSHOT`) instead of passing. Pin that: the call under a stale
+    // snapshot FAILS and admits nobody.
     let mut tx = pool.begin().await.expect("begin");
-    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-        .execute(&mut *tx)
+    // Take the snapshot: a read pins the deferred transaction's file view.
+    let _ = sqlx::query_scalar::<_, i64>("SELECT 1")
+        .fetch_one(&mut *tx)
         .await
-        .expect("set isolation");
+        .expect("snapshot read");
+    // Advance the file from a SECOND connection so the snapshot is stale by the
+    // time the mutation's write runs.
+    let mut other = pool.acquire().await.expect("other connection");
+    sqlx::query("UPDATE accounts SET name = name WHERE id = $1")
+        .bind(org)
+        .execute(&mut *other)
+        .await
+        .expect("advance the file");
+    drop(other);
     let err = AccountRepository::add_member_in_tx(
         &mut tx,
         org,
@@ -574,16 +592,14 @@ async fn test20_the_guard_refuses_an_unserializable_transaction_context() {
         None,
     )
     .await
-    .expect_err("a repeatable-read snapshot cannot serialize the seat count");
-    assert_eq!(err.status_code(), 500);
-    assert_eq!(
-        err.error_code(),
-        SEAT_UNSERIALIZED_ISOLATION,
-        "refused for the ISOLATION LEVEL specifically — a DIFFERENT code from arm 1, so a \
-         regression that collapsed the two branches fails here: {err:?}"
-    );
+    .expect_err("a stale snapshot must be refused by the engine, never silently committed");
+    assert_eq!(err.status_code(), 500, "server-side failure, not a client error");
     tx.rollback().await.expect("rollback");
-    assert_eq!(member_count(&pool, org).await, 1);
+    assert_eq!(
+        member_count(&pool, org).await,
+        1,
+        "the stale-snapshot path admitted nobody"
+    );
 
     // ── ARM 4: the guard fires BEFORE the R-1 ceiling re-read, not merely before the
     //          INSERT (FIX_ROUND-6, R6-2) ──
@@ -648,25 +664,21 @@ async fn test20_the_guard_refuses_an_unserializable_transaction_context() {
         "the control really added the member"
     );
 
-    // ── ARM 3: SERIALIZABLE is ALSO refused, and the reversal is the point ──
+    // ── ARM 3 (SQLite port): the second isolation level does not exist ──
     //
-    // FIX_ROUND-2 ACCEPTED SERIALIZABLE, reasoning it aborts on exactly the read-write
-    // conflict REPEATABLE READ hides. FIX_ROUND-3 showed that is false IN THIS DEPLOYMENT:
-    // PostgreSQL's SSI only serializes against OTHER serializable transactions, nothing sets
-    // `default_transaction_isolation`, and the shipped caller (`add_member` → `pool.begin()`)
-    // is READ COMMITTED. A SERIALIZABLE accept racing a READ COMMITTED admin add gets the
-    // failure verbatim — stale snapshot, no 40001 from a lock-only tuple, no SSI abort
-    // because the counterparty is not serializable — and BOTH take the last seat.
-    //
-    // So this arm asserts the CURRENT, corrected behaviour. If a future change makes every
-    // membership-mutating transaction serializable, this is the test that must be
-    // consciously rewritten — which is exactly what a pin is for.
+    // The PG arm set `SERIALIZABLE` and asserted the REFUSAL
+    // (`SEAT_UNSERIALIZED_ISOLATION`): PostgreSQL's SSI only serializes against
+    // OTHER serializable transactions, so a SERIALIZABLE accept could race a
+    // READ COMMITTED add and both take the last seat. SQLite has ONE isolation
+    // model — writers serialize on the database write lock — so neither the
+    // refusal nor its failure mode exists (the port note in
+    // `seat.rs::assert_serializable_context`). The guarantee ARM 3 existed to
+    // pin ("a stale count can never be committed silently") is now the ported
+    // ARM 2 above: a stale snapshot is refused by the engine. The honest
+    // positive corollary here: an explicit transaction — the ONLY mode there is
+    // — is admitted, and its write serializes.
     let mut ser_tx = pool.begin().await.expect("begin");
-    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-        .execute(&mut *ser_tx)
-        .await
-        .expect("set isolation");
-    let err = AccountRepository::add_member_in_tx(
+    AccountRepository::add_member_in_tx(
         &mut ser_tx,
         org,
         v,
@@ -677,18 +689,12 @@ async fn test20_the_guard_refuses_an_unserializable_transaction_context() {
         None,
     )
     .await
-    .expect_err("SSI does not protect against a READ COMMITTED counterparty");
-    assert_eq!(err.status_code(), 500);
-    assert_eq!(
-        err.error_code(),
-        SEAT_UNSERIALIZED_ISOLATION,
-        "SERIALIZABLE is refused for the ISOLATION reason, same code as repeatable read: {err:?}"
-    );
-    ser_tx.rollback().await.expect("rollback");
+    .expect("an explicit transaction's write serializes on the engine write lock");
+    ser_tx.commit().await.expect("commit");
     assert_eq!(
         member_count(&pool, org).await,
-        2,
-        "and it admitted nobody — the count is unchanged from the positive control"
+        3,
+        "the explicit-transaction add committed (count 2 from the control + this one)"
     );
 }
 

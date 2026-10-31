@@ -250,7 +250,7 @@ async fn dataset_summary_route_and_acl() {
 #[tokio::test]
 async fn cleanup_query_is_index_backed() {
     let server = TestServer::spawn().await;
-    let pool = sqlx::PgPool::connect(server.database_url())
+    let pool = sqlx::SqlitePool::connect(server.database_url())
         .await
         .expect("connect to test db");
     // An index on project_datasets whose definition leads with (project_id ...) —

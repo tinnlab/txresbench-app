@@ -18,8 +18,8 @@
 //! and this test is a real assertion against it again, not a recorded narrowing.
 
 use serde_json::{json, Value};
-use sqlx::postgres::PgPoolOptions;
-use sqlx::PgPool;
+use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::workstore::catalog::models::NewArtifact;
@@ -31,8 +31,8 @@ use crate::common::TestServer;
 
 /// A pool against the spawned server's per-test DB (for direct catalog seeding +
 /// the run-node assertion the REST surface has no endpoint for).
-async fn pool_for(server: &TestServer) -> PgPool {
-    PgPoolOptions::new()
+async fn pool_for(server: &TestServer) -> SqlitePool {
+    SqlitePoolOptions::new()
         .max_connections(2)
         .connect(server.database_url())
         .await

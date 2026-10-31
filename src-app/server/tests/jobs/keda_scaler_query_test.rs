@@ -8,7 +8,7 @@
 
 use std::path::Path;
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use super::{pool_for, register_user};
@@ -42,7 +42,7 @@ fn scaler_query() -> String {
     panic!("no `query:` line in keda-scaledobject.yaml");
 }
 
-async fn insert_job(pool: &PgPool, owner: Uuid, status: &str) {
+async fn insert_job(pool: &SqlitePool, owner: Uuid, status: &str) {
     sqlx::query(
         "INSERT INTO jobs (id, owner_id, job_type, name, status, started_at, finished_at) \
          VALUES ($1, $2, 'stub', 'k', $3, CASE WHEN $3 <> 'queued' THEN now() END, \

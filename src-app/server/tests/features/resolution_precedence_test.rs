@@ -8,7 +8,7 @@ use super::DEMO_FLAG;
 use crate::account::pool_for;
 use crate::common::TestServer;
 
-async fn make_account(pool: &sqlx::PgPool, name: &str) -> Uuid {
+async fn make_account(pool: &sqlx::SqlitePool, name: &str) -> Uuid {
     sqlx::query_scalar::<_, Uuid>(
         "INSERT INTO accounts (kind, name) VALUES ('organization', $1) RETURNING id",
     )
@@ -18,7 +18,7 @@ async fn make_account(pool: &sqlx::PgPool, name: &str) -> Uuid {
     .expect("insert account")
 }
 
-async fn set_row(pool: &sqlx::PgPool, flag: &str, account: Option<Uuid>, enabled: bool) {
+async fn set_row(pool: &sqlx::SqlitePool, flag: &str, account: Option<Uuid>, enabled: bool) {
     sqlx::query("INSERT INTO feature_flags (flag_key, account_id, enabled) VALUES ($1, $2, $3)")
         .bind(flag)
         .bind(account)

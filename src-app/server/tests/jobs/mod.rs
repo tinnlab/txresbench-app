@@ -8,8 +8,8 @@
 use std::time::Duration;
 
 use serde_json::{json, Value};
-use sqlx::postgres::PgPoolOptions;
-use sqlx::PgPool;
+use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::common::TestServer;
@@ -399,7 +399,7 @@ async fn boot_reconcile_fails_orphan_without_manifest() {
 
     // Connect our own pool to this test's DB and insert an orphaned running job
     // (as if the server had died mid-run).
-    let pool = sqlx::PgPool::connect(server.database_url())
+    let pool = sqlx::SqlitePool::connect(server.database_url())
         .await
         .expect("connect test db");
     let owner: Uuid = sqlx::query_scalar("SELECT id FROM users LIMIT 1")
@@ -906,7 +906,7 @@ async fn boot_reconcile_finalizes_uningested_and_fails_midrun() {
 
     let server = TestServer::spawn().await;
     setup_admin(&server).await;
-    let pool = sqlx::PgPool::connect(server.database_url())
+    let pool = sqlx::SqlitePool::connect(server.database_url())
         .await
         .expect("connect test db");
     let owner: Uuid = sqlx::query_scalar("SELECT id FROM users LIMIT 1")
@@ -1105,7 +1105,7 @@ async fn job_logs_paging_bounded_pages_and_stable_cursor() {
 
     // Append a controlled batch so the log is comfortably multi-page + deterministic,
     // independent of the stub's exact line count (mirrors TEST-14's direct-DB seed).
-    let pool = sqlx::PgPool::connect(server.database_url()).await.expect("db");
+    let pool = sqlx::SqlitePool::connect(server.database_url()).await.expect("db");
     let job_uuid = Uuid::parse_str(&id).unwrap();
     let max_seq: i32 = sqlx::query_scalar("SELECT COALESCE(MAX(seq), 0) FROM job_logs WHERE job_id = $1")
         .bind(job_uuid)
@@ -1175,8 +1175,8 @@ async fn job_logs_paging_bounded_pages_and_stable_cursor() {
 
 /// A pool onto the SAME per-test DB the spawned server uses (lets a test drive the
 /// library authz/ingest chokepoints directly).
-async fn pool_for(server: &TestServer) -> PgPool {
-    PgPoolOptions::new()
+async fn pool_for(server: &TestServer) -> SqlitePool {
+    SqlitePoolOptions::new()
         .max_connections(4)
         .connect(server.database_url())
         .await
@@ -1854,7 +1854,7 @@ async fn stalled_staging_phase_reaches_terminal_failed() {
 
     let server = TestServer::spawn().await;
     setup_admin(&server).await;
-    let pool = sqlx::PgPool::connect(server.database_url())
+    let pool = sqlx::SqlitePool::connect(server.database_url())
         .await
         .expect("connect test db");
     let owner: Uuid = sqlx::query_scalar("SELECT id FROM users LIMIT 1")

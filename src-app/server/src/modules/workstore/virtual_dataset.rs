@@ -972,14 +972,14 @@ async fn run_artifacts(
 ) -> Result<Vec<Artifact>, AppError> {
     sqlx::query_as!(
         Artifact,
-        r#"SELECT id, project_id, dataset_id, run_id, output_id, datatype,
-                  object_key, is_multifile, content_hash,
+        r#"SELECT id as "id: Uuid", project_id as "project_id?: Uuid", dataset_id as "dataset_id?: Uuid", run_id as "run_id?: Uuid", output_id, datatype,
+                  object_key, is_multifile as "is_multifile: bool", content_hash,
                   structure as "structure: serde_json::Value",
                   meta as "meta: serde_json::Value",
-                  role, status, stored_bytes, logical_bytes, created_by,
+                  role, status, stored_bytes, logical_bytes, created_by as "created_by: Uuid",
                   created_at as "created_at: DateTime<Utc>",
                   updated_at as "updated_at: DateTime<Utc>",
-                  hidden, representation_of
+                  hidden as "hidden: bool", representation_of as "representation_of?: Uuid"
            FROM artifacts
            WHERE run_id = $1
              AND ($2 IS NULL OR project_id = $2)
@@ -1052,11 +1052,13 @@ async fn existing_virtual_dataset(
     pool: &SqlitePool,
     run_id: Uuid,
 ) -> Result<Option<Uuid>, AppError> {
+    // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+    let bind_run_id_str = run_id.to_string();
     let row = sqlx::query!(
-        "SELECT id FROM datasets
-         WHERE source = $1 AND json_extract(metadata, '$.alignment_run_id') = $2",
+        r#"SELECT id as "id: Uuid" FROM datasets
+         WHERE source = $1 AND json_extract(metadata, '$.alignment_run_id') = $2"#,
         DATASET_SOURCE_INTEGRATE,
-        run_id.to_string(),
+        bind_run_id_str,
     )
     .fetch_optional(pool)
     .await
@@ -1170,10 +1172,10 @@ pub async fn create_for_run(
     // pass loses the race rather than minting a second dataset. `ON CONFLICT DO NOTHING`
     // turns that loss into the `AlreadyCreated` answer.
     let inserted = sqlx::query!(
-        "INSERT INTO datasets (id, name, owner_id, account_id, datatype, metadata, source)
+        r#"INSERT INTO datasets (id, name, owner_id, account_id, datatype, metadata, source)
          VALUES ($1, $2, $3, $4, NULL, $5, $6)
          ON CONFLICT DO NOTHING
-         RETURNING id",
+         RETURNING id as "id: Uuid""#,
         new_dataset,
         name,
         job.owner_id,
@@ -1474,10 +1476,12 @@ async fn existing_filter_dataset(
     pool: &SqlitePool,
     run_id: Uuid,
 ) -> Result<Option<Uuid>, AppError> {
+    // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+    let bind_run_id_str2 = run_id.to_string();
     let row = sqlx::query!(
-        "SELECT id FROM datasets WHERE source = $1 AND json_extract(metadata, '$.filter_run_id') = $2",
+        r#"SELECT id as "id: Uuid" FROM datasets WHERE source = $1 AND json_extract(metadata, '$.filter_run_id') = $2"#,
         DATASET_SOURCE_FILTER,
-        run_id.to_string(),
+        bind_run_id_str2,
     )
     .fetch_optional(pool)
     .await
@@ -1487,7 +1491,7 @@ async fn existing_filter_dataset(
 
 /// One artifact's owning `dataset_id`, whatever its status.
 async fn artifact_dataset_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Uuid>, AppError> {
-    let row = sqlx::query!("SELECT dataset_id FROM artifacts WHERE id = $1", id)
+    let row = sqlx::query!(r#"SELECT dataset_id as "dataset_id?: Uuid" FROM artifacts WHERE id = $1"#, id)
         .fetch_optional(pool)
         .await
         .map_err(AppError::database_error)?;
@@ -1582,10 +1586,10 @@ pub async fn create_filter_vd_for_run(
     let account_id =
         crate::modules::account::scope::ensure_personal_account_for(pool, job.owner_id).await?;
     let inserted = sqlx::query!(
-        "INSERT INTO datasets (id, name, owner_id, account_id, datatype, metadata, source)
+        r#"INSERT INTO datasets (id, name, owner_id, account_id, datatype, metadata, source)
          VALUES ($1, $2, $3, $4, NULL, $5, $6)
          ON CONFLICT DO NOTHING
-         RETURNING id",
+         RETURNING id as "id: Uuid""#,
         new_dataset,
         name,
         job.owner_id,

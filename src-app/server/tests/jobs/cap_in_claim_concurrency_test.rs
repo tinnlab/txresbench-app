@@ -18,7 +18,7 @@
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::jobs::repository::JobRepository;
@@ -28,7 +28,7 @@ use crate::common::{TestOptions, TestServer};
 
 /// Insert a `queued` job for `owner` and return its id (status defaults to
 /// 'queued'; priority/resource classes default).
-async fn insert_queued(pool: &PgPool, owner: Uuid, name: &str) -> Uuid {
+async fn insert_queued(pool: &SqlitePool, owner: Uuid, name: &str) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query("INSERT INTO jobs (id, owner_id, job_type, name) VALUES ($1, $2, 'stub', $3)")
         .bind(id)
@@ -40,7 +40,7 @@ async fn insert_queued(pool: &PgPool, owner: Uuid, name: &str) -> Uuid {
     id
 }
 
-async fn running_count_for(pool: &PgPool, owner: Uuid) -> i64 {
+async fn running_count_for(pool: &SqlitePool, owner: Uuid) -> i64 {
     sqlx::query_scalar("SELECT count(*) FROM jobs WHERE owner_id = $1 AND status = 'running'")
         .bind(owner)
         .fetch_one(pool)
@@ -48,7 +48,7 @@ async fn running_count_for(pool: &PgPool, owner: Uuid) -> i64 {
         .expect("count running for owner")
 }
 
-async fn total_running(pool: &PgPool) -> i64 {
+async fn total_running(pool: &SqlitePool) -> i64 {
     sqlx::query_scalar("SELECT count(*) FROM jobs WHERE status = 'running'")
         .fetch_one(pool)
         .await
@@ -59,7 +59,7 @@ async fn total_running(pool: &PgPool) -> i64 {
 /// None. Returns every claimed id (with duplicates, if any bug produced them) so
 /// the caller can assert single-claim.
 async fn drain_concurrently(
-    pool: &PgPool,
+    pool: &SqlitePool,
     workers: usize,
     global_cap: i64,
     per_tenant_cap: i64,

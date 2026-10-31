@@ -57,7 +57,7 @@
 
 use cytoanalyst::modules::account::{AccountRepository, AccountRole};
 use cytoanalyst::modules::project::{EffectivePermission, ProjectRepository};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use super::{add_member, create_user, make_org_account, move_project_to_account, pool_for,
@@ -101,7 +101,7 @@ const UNBLOCK_BOUND: std::time::Duration = std::time::Duration::from_secs(30);
 /// dana(member); **P** created by bob, **Q** by dana, **R** by alice, all three moved
 /// into the org. **eve** is never a member of anything but her own personal account.
 struct Fixture {
-    pool: PgPool,
+    pool: SqlitePool,
     admin_token: String,
     org: Uuid,
     /// account `owner`, stays a member — the authority-intact initiator control.
@@ -1089,7 +1089,7 @@ async fn a_deactivated_initiators_transfer_cannot_be_accepted_either() {
 /// a hang, and step 5 a refusal rather than a crash.
 #[tokio::test]
 async fn a_removal_committing_mid_accept_still_refuses_the_transfer() {
-    use sqlx::postgres::PgPoolOptions;
+    use sqlx::sqlite::SqlitePoolOptions;
 
     for (commit, label) in [(true, "removal COMMITS"), (false, "removal ROLLS BACK")] {
         let server = TestServer::spawn().await;
@@ -1098,7 +1098,7 @@ async fn a_removal_committing_mid_accept_still_refuses_the_transfer() {
 
         // A separate pool, so holding the removal open cannot starve accept of a
         // connection and turn a lock-wait into a pool-wait.
-        let blocking = PgPoolOptions::new()
+        let blocking = SqlitePoolOptions::new()
             .max_connections(2)
             .connect(server.database_url())
             .await
@@ -1244,7 +1244,7 @@ async fn the_admin_removal_route_tells_both_parties_the_offer_is_gone() {
 /// recorded on `accept_transfer` rather than overstated here.
 #[tokio::test]
 async fn a_removal_queues_behind_an_in_flight_accepts_membership_lock() {
-    use sqlx::postgres::PgPoolOptions;
+    use sqlx::sqlite::SqlitePoolOptions;
 
     let server = TestServer::spawn().await;
     let fx = Fixture::build(&server).await;
@@ -1252,7 +1252,7 @@ async fn a_removal_queues_behind_an_in_flight_accepts_membership_lock() {
 
     // Stand in for an accept that has taken its `FOR SHARE` and not yet committed, by
     // taking the identical lock on the identical row from a separate pool.
-    let holder_pool = PgPoolOptions::new()
+    let holder_pool = SqlitePoolOptions::new()
         .max_connections(2)
         .connect(server.database_url())
         .await
@@ -1434,7 +1434,7 @@ async fn the_in_transaction_reassert_agrees_with_effective_permission() {
     // spellings were this test's copy and itself — reverting the production predicate
     // to its existence-only form left the entire suite green. The mutation battery
     // caught it; the fix was to give the predicate a name so a test can reach it.
-    async fn reassert(pool: &PgPool, project: Uuid, user: Uuid) -> bool {
+    async fn reassert(pool: &SqlitePool, project: Uuid, user: Uuid) -> bool {
         let mut conn = pool.acquire().await.expect("connection");
         ProjectRepository::initiator_still_owner_locked(&mut conn, project, user)
             .await
@@ -1525,7 +1525,7 @@ async fn the_in_transaction_reassert_agrees_with_effective_permission() {
 /// refuses here can only be the in-transaction re-assert reading `am.role`.
 #[tokio::test]
 async fn a_demotion_committing_mid_accept_still_refuses_the_transfer() {
-    use sqlx::postgres::PgPoolOptions;
+    use sqlx::sqlite::SqlitePoolOptions;
 
     for (commit, label) in [(true, "demotion COMMITS"), (false, "demotion ROLLS BACK")] {
         let server = TestServer::spawn().await;
@@ -1539,7 +1539,7 @@ async fn a_demotion_committing_mid_accept_still_refuses_the_transfer() {
             "{label}: control — the initiator is deliberately NOT the project's owner_id"
         );
 
-        let blocking = PgPoolOptions::new()
+        let blocking = SqlitePoolOptions::new()
             .max_connections(2)
             .connect(server.database_url())
             .await
@@ -1617,7 +1617,7 @@ async fn a_demotion_committing_mid_accept_still_refuses_the_transfer() {
 /// invisible — which is exactly why it went unnoticed.
 #[tokio::test]
 async fn an_owner_id_change_committing_mid_accept_is_not_read_stale() {
-    use sqlx::postgres::PgPoolOptions;
+    use sqlx::sqlite::SqlitePoolOptions;
 
     for (commit, label) in [(true, "owner_id change COMMITS"), (false, "it ROLLS BACK")] {
         let server = TestServer::spawn().await;
@@ -1630,7 +1630,7 @@ async fn an_owner_id_change_committing_mid_accept_is_not_read_stale() {
              only thing giving him authority here"
         );
 
-        let blocking = PgPoolOptions::new()
+        let blocking = SqlitePoolOptions::new()
             .max_connections(2)
             .connect(server.database_url())
             .await
@@ -1725,7 +1725,7 @@ async fn an_owner_id_change_committing_mid_accept_is_not_read_stale() {
 /// transaction commits, refuses rather than completing on a row that is gone.
 #[tokio::test]
 async fn an_accept_racing_a_claimed_transfer_row_loses_to_it() {
-    use sqlx::postgres::PgPoolOptions;
+    use sqlx::sqlite::SqlitePoolOptions;
 
     for (commit, label) in [(true, "the claim COMMITS"), (false, "the claim ROLLS BACK")] {
         let server = TestServer::spawn().await;
@@ -1740,7 +1740,7 @@ async fn an_accept_racing_a_claimed_transfer_row_loses_to_it() {
              accept-time check structurally cannot cover, so half (a) is alone"
         );
 
-        let blocking = PgPoolOptions::new()
+        let blocking = SqlitePoolOptions::new()
             .max_connections(2)
             .connect(server.database_url())
             .await
@@ -1836,13 +1836,13 @@ async fn an_accept_racing_a_claimed_transfer_row_loses_to_it() {
 /// makes the probe clean.)
 #[tokio::test]
 async fn removal_claims_the_transfers_before_deleting_the_membership() {
-    use sqlx::postgres::PgPoolOptions;
+    use sqlx::sqlite::SqlitePoolOptions;
 
     let server = TestServer::spawn().await;
     let fx = Fixture::build(&server).await;
     let offer = fx.seed_pending(fx.r, fx.alice, fx.bob).await;
 
-    let holder_pool = PgPoolOptions::new()
+    let holder_pool = SqlitePoolOptions::new()
         .max_connections(2)
         .connect(server.database_url())
         .await
@@ -1877,7 +1877,7 @@ async fn removal_claims_the_transfers_before_deleting_the_membership() {
     );
 
     // THE DISCRIMINATOR.
-    let probe_pool = PgPoolOptions::new()
+    let probe_pool = SqlitePoolOptions::new()
         .max_connections(1)
         .connect(server.database_url())
         .await

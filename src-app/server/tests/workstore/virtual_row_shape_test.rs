@@ -34,7 +34,7 @@
 //! refusal assertions go red while both positive ones stay green.**
 
 use serde_json::json;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::common::TestServer;
@@ -48,7 +48,7 @@ use super::{create_project, pool_for, setup_admin};
 /// test the writer instead of the constraint — and it is the writer this constraint exists
 /// to outlive.
 async fn try_insert(
-    pool: &PgPool,
+    pool: &SqlitePool,
     project_id: Uuid,
     output_id: &str,
     object_key: Option<&str>,

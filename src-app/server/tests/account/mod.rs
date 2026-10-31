@@ -8,8 +8,8 @@
 //! the per-test DB pool.
 
 use serde_json::{json, Value};
-use sqlx::postgres::PgPoolOptions;
-use sqlx::PgPool;
+use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::SqlitePool;
 
 use crate::common::TestServer;
 
@@ -142,7 +142,7 @@ pub async fn create_user_without_projects(
 
 /// Create an ORGANIZATION account with `owner` as its `owner` member, returning the
 /// account id — the shared (multi-member) account the A3 flip is exercised against.
-pub async fn make_org_account(pool: &PgPool, name: &str, owner: uuid::Uuid) -> uuid::Uuid {
+pub async fn make_org_account(pool: &SqlitePool, name: &str, owner: uuid::Uuid) -> uuid::Uuid {
     let id: uuid::Uuid = sqlx::query_scalar(
         "INSERT INTO accounts (kind, name) VALUES ('organization', $1) RETURNING id",
     )
@@ -155,7 +155,7 @@ pub async fn make_org_account(pool: &PgPool, name: &str, owner: uuid::Uuid) -> u
 }
 
 /// Add `user` to `account` with `role` (`owner`/`admin`/`member`).
-pub async fn add_member(pool: &PgPool, account: uuid::Uuid, user: uuid::Uuid, role: &str) {
+pub async fn add_member(pool: &SqlitePool, account: uuid::Uuid, user: uuid::Uuid, role: &str) {
     sqlx::query("INSERT INTO account_members (account_id, user_id, role) VALUES ($1, $2, $3)")
         .bind(account)
         .bind(user)
@@ -167,7 +167,7 @@ pub async fn add_member(pool: &PgPool, account: uuid::Uuid, user: uuid::Uuid, ro
 
 /// Move a project into `account` (simulating a project created in / transferred to a
 /// shared org account); `owner_id` is left as the creating member.
-pub async fn move_project_to_account(pool: &PgPool, project: uuid::Uuid, account: uuid::Uuid) {
+pub async fn move_project_to_account(pool: &SqlitePool, project: uuid::Uuid, account: uuid::Uuid) {
     sqlx::query("UPDATE projects SET account_id = $1 WHERE id = $2")
         .bind(account)
         .bind(project)
@@ -177,7 +177,7 @@ pub async fn move_project_to_account(pool: &PgPool, project: uuid::Uuid, account
 }
 
 /// Move a dataset into `account`.
-pub async fn move_dataset_to_account(pool: &PgPool, dataset: uuid::Uuid, account: uuid::Uuid) {
+pub async fn move_dataset_to_account(pool: &SqlitePool, dataset: uuid::Uuid, account: uuid::Uuid) {
     sqlx::query("UPDATE datasets SET account_id = $1 WHERE id = $2")
         .bind(account)
         .bind(dataset)
@@ -207,8 +207,8 @@ pub async fn post_accounts(
 
 /// A connection pool onto this test's isolated database — lets a test assert at
 /// the DB layer + call `AccountRepository` directly.
-pub async fn pool_for(server: &TestServer) -> PgPool {
-    PgPoolOptions::new()
+pub async fn pool_for(server: &TestServer) -> SqlitePool {
+    SqlitePoolOptions::new()
         .max_connections(4)
         .connect(server.database_url())
         .await

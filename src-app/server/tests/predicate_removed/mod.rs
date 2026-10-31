@@ -143,7 +143,7 @@ async fn the_app_boots_with_the_predicate_limits_migration_removed() {
     // A fresh per-test DB is migrated from scratch, so its absence here is the real check.
     let server = TestServer::spawn().await;
 
-    let pool = sqlx::postgres::PgPoolOptions::new()
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(2)
         .connect(server.database_url())
         .await

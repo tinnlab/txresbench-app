@@ -162,7 +162,7 @@ async fn promote_source_columns_round_trip() {
 
     let dataset_id = uuid::Uuid::new_v4();
     let artifact_id = uuid::Uuid::new_v4();
-    let pool = sqlx::PgPool::connect(server.database_url()).await.unwrap();
+    let pool = sqlx::SqlitePool::connect(server.database_url()).await.unwrap();
     // A2: `datasets.account_id` is NOT NULL. This raw seed bypasses the repository
     // (the promote endpoint is ITEM-7), so ensure the owner's personal account and
     // stamp it — the same value the repository's `create_promoted` would stamp.

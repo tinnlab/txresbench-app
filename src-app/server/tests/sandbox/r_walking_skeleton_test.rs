@@ -367,7 +367,7 @@ fn has_library_version_field(body: &str) -> bool {
 /// The gate is DETACHED (`dispatch_after_ingest` spawns it), so this polls the producing
 /// run's own `job_logs` — the channel that module documents as where an operator meets
 /// the verdict — rather than racing it.
-async fn conformance_verdict(pool: &sqlx::PgPool, run: Uuid, budget_secs: u64) -> Option<String> {
+async fn conformance_verdict(pool: &sqlx::SqlitePool, run: Uuid, budget_secs: u64) -> Option<String> {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(budget_secs);
     loop {
         let line: Option<String> = sqlx::query_scalar(
@@ -451,7 +451,7 @@ fn probe_params(a: i64, b: i64, seed: i64, draws: i64) -> Value {
 async fn submit_and_wait(
     server: &TestServer,
     token: &str,
-    pool: &sqlx::PgPool,
+    pool: &sqlx::SqlitePool,
     project: Uuid,
     name: &str,
     spec: Value,
@@ -476,7 +476,7 @@ async fn submit_and_wait(
     (id, status)
 }
 
-async fn job_error_and_logs(pool: &sqlx::PgPool, id: Uuid) -> String {
+async fn job_error_and_logs(pool: &sqlx::SqlitePool, id: Uuid) -> String {
     let err: Option<String> = sqlx::query_scalar("SELECT error FROM jobs WHERE id = $1")
         .bind(id)
         .fetch_one(pool)
@@ -499,7 +499,7 @@ async fn job_error_and_logs(pool: &sqlx::PgPool, id: Uuid) -> String {
     format!("job.error={err:?}\n--- logs ---\n{body}")
 }
 
-async fn artifact_ids(pool: &sqlx::PgPool, run: Uuid) -> Vec<(Uuid, String)> {
+async fn artifact_ids(pool: &sqlx::SqlitePool, run: Uuid) -> Vec<(Uuid, String)> {
     sqlx::query_as("SELECT id, output_id FROM artifacts WHERE run_id = $1 ORDER BY output_id")
         .bind(run)
         .fetch_all(pool)
@@ -580,7 +580,7 @@ fn write_run_job_config(dir: &Path, database_url: &str) -> PathBuf {
 /// Insert an already-claimed (`running`) analysis job carrying `params` verbatim — the
 /// state the control plane leaves a job in when it hands it to a job-per-run pod.
 async fn running_job(
-    pool: &sqlx::PgPool,
+    pool: &sqlx::SqlitePool,
     owner: Uuid,
     project: Option<Uuid>,
     params: Value,
@@ -594,7 +594,7 @@ async fn running_job(
     id
 }
 
-async fn owner_id(pool: &sqlx::PgPool) -> Uuid {
+async fn owner_id(pool: &sqlx::SqlitePool) -> Uuid {
     sqlx::query_scalar("SELECT id FROM users WHERE username = 'sbxadmin'")
         .fetch_one(pool)
         .await
@@ -1545,7 +1545,7 @@ json.dump({'outputs':[{'id':'result','datatype':'data/opaque','path':'result.bin
     }
 }
 
-async fn artifact_signature(pool: &sqlx::PgPool, run: Uuid) -> Vec<(String, String)> {
+async fn artifact_signature(pool: &sqlx::SqlitePool, run: Uuid) -> Vec<(String, String)> {
     sqlx::query_as(
         "SELECT output_id, content_hash FROM artifacts WHERE run_id = $1 ORDER BY output_id",
     )

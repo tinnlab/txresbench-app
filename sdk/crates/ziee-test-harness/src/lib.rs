@@ -30,12 +30,23 @@ use std::process::{Child, Command};
 use std::time::Duration;
 
 use sqlx::postgres::PgPoolOptions;
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use uuid::Uuid;
 
 // Re-export the per-worktree DB keying so a consumer keeps one import; shared
 // with build.rs (via ziee-build-support) so the suffix derivation is identical
 // on both sides.
 pub use ziee_build_support::worktree_db;
+
+// The sqlite leg of the per-test DATABASE lifecycle: file naming, ownership,
+// drop and sweep. Behind the schema-level dispatch in `database_leg` — never
+// compiled away, because the leg is a runtime `DATABASE_URL` scheme choice,
+// not a cargo feature (the crate links both drivers already).
+pub mod file_db;
+
+pub use file_db::{
+    sweep_stale_test_db_files, sweep_test_file_dir, FileSweepReport, OwnedTestFile,
+};
 
 // App-neutral auth/sync test fixtures. Two independently-selectable groups —
 // `sync-probe` (the SSE reader) and `auth-mocks` (oauth/ldap/apple) — so an app
@@ -86,12 +97,32 @@ pub struct DbConn {
     pub password: String,
 }
 
+/// Which database driver leg this engine runs. Selected at runtime by the
+/// `DATABASE_URL` scheme — the same dispatch the build-DB provisioner uses — so
+/// the app (sqlite-only) and ziee (postgres) run the same harness binary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DbLeg {
+    Postgres,
+    Sqlite,
+}
+
+/// The leg for a given admin/database URL.
+fn database_leg(url: &str) -> DbLeg {
+    if url.starts_with("sqlite:") {
+        DbLeg::Sqlite
+    } else {
+        DbLeg::Postgres
+    }
+}
+
 /// Everything the engine has computed for this spawn that the app needs to
 /// render its config. The app OWNS the config content (issuer/audience literals,
 /// feature sections); the harness owns these generic facts.
 pub struct SpawnFacts<'a> {
     pub db: &'a DbConn,
     /// The generated per-test database name (already cloned from the template).
+    /// Under the sqlite leg this is the per-test FILE STEM (name without
+    /// `.sqlite`); under Postgres it is the cluster database name.
     pub database_name: &'a str,
     /// The free port the server must bind.
     pub server_port: u16,
@@ -100,6 +131,11 @@ pub struct SpawnFacts<'a> {
     pub data_dir: &'a Path,
     /// The unique test id (usable for per-test override dirs, filenames, etc.).
     pub test_id: &'a str,
+    /// The connection URL this test's database is reachable at:
+    /// `sqlite://<abs path>` under the sqlite leg, the per-test
+    /// `postgresql://…` URL under Postgres. The app renders it into
+    /// `database.url` directly (the sqlite leg's config carries no PG parts).
+    pub database_url: &'a str,
 }
 
 /// The app's per-spawn plan: the rendered config plus how to launch + what to
@@ -436,6 +472,24 @@ async fn sweep_stale_test_dbs_once(admin_url: &str) {
     sweep_stale_test_dbs(admin_url, min_age).await;
 }
 
+/// Run the sqlite-leg's [`file_db::sweep_stale_test_db_files`] once per test
+/// process with the configured floor.
+///
+/// Sets the SAME startup flag as [`sweep_stale_test_dbs_once`] (one leg runs
+/// per process, decided by the `DATABASE_URL` scheme), so
+/// [`startup_sweep_ran`] attests "the startup sweep hook ran" for either leg.
+fn sweep_stale_test_db_files_once(base: &str) {
+    STARTUP_SWEEP_RAN.store(true, std::sync::atomic::Ordering::SeqCst);
+    if env::var("ZIEE_TEST_DB_SWEEP").as_deref() == Ok("0") {
+        return;
+    }
+    let min_age = env::var("ZIEE_TEST_DB_SWEEP_MIN_AGE_SECS")
+        .ok()
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(file_db::DEFAULT_SWEEP_MIN_AGE_SECS as i64);
+    file_db::sweep_stale_test_db_files(base, min_age as u64);
+}
+
 /// The fully-migrated TEMPLATE database name = the app's per-variant base +
 /// the per-worktree suffix.
 fn test_template_db<A: HarnessApp>(app: &A, variant: Variant, manifest_dir: &Path) -> String {
@@ -446,11 +500,174 @@ fn test_template_db<A: HarnessApp>(app: &A, variant: Variant, manifest_dir: &Pat
     )
 }
 
-/// Build the migrated template DB exactly once per process (the OnceCell makes
-/// every concurrent test await the single build before any of them clone). The
-/// template must have NO active connections when a clone runs, so we close our
-/// pools and terminate any stragglers before returning.
+/// The sqlite leg's fully-migrated TEMPLATE FILE path — the file analogue of the
+/// template database's name.
+fn sqlite_template_path<A: HarnessApp>(
+    app: &A,
+    variant: Variant,
+    manifest_dir: &Path,
+) -> PathBuf {
+    std::env::temp_dir().join(file_db::template_file_name(
+        &app.template_db_base(variant),
+        &worktree_suffix(manifest_dir),
+    ))
+}
+
+/// The sqlite leg's per-test database FILE: `(path, stem)` where the stem is
+/// what `SpawnFacts.database_name` carries and `TestServer::database_name()`
+/// exposes (the Postgres leg exposes the cluster database name there).
+fn sqlite_test_db_path<A: HarnessApp>(
+    app: &A,
+    variant: Variant,
+    manifest_dir: &Path,
+    test_id: &str,
+) -> (PathBuf, String) {
+    let name = file_db::test_file_name(
+        &app.template_db_base(variant),
+        &worktree_suffix(manifest_dir),
+        &test_id.replace('-', ""),
+    );
+    (std::env::temp_dir().join(&name), name)
+}
+
+/// The once-per-process sqlite template build; separate from `TEST_TEMPLATE`
+/// because the two legs cannot share a type-ordering (the PG cell's closure
+/// binds a `PgPool`, the sqlite one an `SqlitePool`).
+static SQLITE_TEMPLATE: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
+
+/// Build the migrated template FILE exactly once per process, and run the
+/// startup file sweep before this process starts copying from it.
+async fn ensure_test_template_sqlite<A: HarnessApp>(
+    app: &A,
+    variant: Variant,
+    manifest_dir: &Path,
+) {
+    SQLITE_TEMPLATE
+        .get_or_init(|| async {
+            let base = app.template_db_base(variant);
+
+            // Reclaim the per-test FILES no `Drop` could have reaped
+            // (abort/SIGKILL/OOM/timeout), BEFORE this process starts copying
+            // its own. Self-healing: it needs nothing from the run that leaked.
+            // The template file is never a candidate (its name carries no
+            // `_test_` segment); nor is the data dir — same run, below.
+            sweep_stale_test_db_files_once(&base);
+            // The same half of the same problem, for the per-test DATA DIR.
+            data_dir::sweep_stale_test_data_dirs_once();
+
+            let template_path = sqlite_template_path(app, variant, manifest_dir);
+            build_template_file(app, variant, manifest_dir, &template_path).await;
+        })
+        .await;
+}
+
+/// Apply the app's migration dirs to a fresh scratch file, then `VACUUM INTO` a
+/// clean single-file template and publish it atomically (`rename`), so a
+/// concurrent process copying the template never sees a partial file and a
+/// rebuild can never corrupt a running reader's inode.
+async fn build_template_file<A: HarnessApp>(
+    app: &A,
+    variant: Variant,
+    manifest_dir: &Path,
+    template_path: &Path,
+) {
+    // Serialise the build across test processes sharing the temp dir. If the
+    // lock is held another process is building right now — wait for it (a
+    // bounded loop), then still proceed: the atomic rename means the later
+    // builder wins cleanly.
+    for _ in 0..12 {
+        if file_db::lock_template_build(template_path)
+            .expect("open template build lock file")
+            .is_some()
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
+
+    let stem = template_path
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .expect("template path has a file stem");
+    let scratch = std::env::temp_dir().join(format!("{stem}.scratch-{}", std::process::id()));
+    let staging = std::env::temp_dir().join(format!("{stem}.vacuum-{}", std::process::id()));
+    let _ = fs::remove_file(&scratch);
+    let _ = fs::remove_file(&staging);
+
+    // Migrate the scratch file at RUNTIME from the on-disk migration dirs (the
+    // same reason the PG leg does not use `sqlx::migrate!`: a desktop test
+    // binary would resolve the macro against the desktop crate's own dir).
+    // `Delete` journal + `synchronous=Off` keep the build fast and its output a
+    // single clean file (no WAL sidecar to reconcile before the copy).
+    let opts = SqliteConnectOptions::new()
+        .filename(&scratch)
+        .create_if_missing(true)
+        .journal_mode(SqliteJournalMode::Delete)
+        .synchronous(SqliteSynchronous::Off);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(opts)
+        .await
+        .unwrap_or_else(|e| panic!("create sqlite template scratch {}: {e}", scratch.display()));
+    for dir in app.migration_dirs(variant, manifest_dir) {
+        let mut migrator = sqlx::migrate::Migrator::new(dir.clone())
+            .await
+            .unwrap_or_else(|e| panic!("create migrator for {}: {e}", dir.display()));
+        // A later migration set (e.g. desktop) carries version numbers above an
+        // earlier one; ignore-missing lets each migrator run against a file
+        // that already has the other set applied.
+        migrator.set_ignore_missing(true);
+        migrator
+            .run(&pool)
+            .await
+            .unwrap_or_else(|e| panic!("migrate sqlite template scratch from {}: {e}", dir.display()));
+    }
+    pool.close().await;
+
+    // The compact single-file snapshot (also VACUUMs away the scratch's DELETE
+    // journal remnants). `VACUUM INTO` is 3.27+; the bundled 3.46 has it.
+    let opts2 = SqliteConnectOptions::new()
+        .filename(&scratch)
+        .journal_mode(SqliteJournalMode::Delete)
+        .synchronous(SqliteSynchronous::Off);
+    let pool2 = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(opts2)
+        .await
+        .expect("reopen sqlite template scratch");
+    let staging_sql = staging
+        .to_str()
+        .expect("utf-8 staging path")
+        .replace('\'', "''");
+    sqlx::raw_sql(&format!("VACUUM INTO '{staging_sql}'"))
+        .execute(&pool2)
+        .await
+        .unwrap_or_else(|e| panic!("VACUUM INTO template {}: {e}", template_path.display()));
+    pool2.close().await;
+
+    // Publish atomically: the reader keep the old inode until the rename lands.
+    fs::rename(&staging, template_path)
+        .unwrap_or_else(|e| panic!("publish sqlite test template {}: {e}", template_path.display()));
+    let _ = fs::remove_file(&scratch);
+}
+
+/// Build the migrated template exactly once per process (the OnceCell makes
+/// every concurrent test await the single build before any of them clone or
+/// copy). The leg is chosen by the `DATABASE_URL` scheme, exactly as the
+/// build-DB provisioner chooses.
 async fn ensure_test_template<A: HarnessApp>(
+    admin_url: &str,
+    app: &A,
+    variant: Variant,
+    manifest_dir: &Path,
+) {
+    match database_leg(admin_url) {
+        DbLeg::Postgres => ensure_test_template_postgres(admin_url, app, variant, manifest_dir).await,
+        DbLeg::Sqlite => ensure_test_template_sqlite(app, variant, manifest_dir).await,
+    }
+}
+
+async fn ensure_test_template_postgres<A: HarnessApp>(
     admin_url: &str,
     app: &A,
     variant: Variant,
@@ -541,8 +758,9 @@ pub struct SpawnedServer {
     pub database_url: String,
     temp_config_path: PathBuf,
     /// Declared AFTER `process`/`temp_config_path` so it drops after them: the
-    /// child's Postgres sessions are gone before the reap asks for the database.
-    _db: PerTestDb,
+    /// child's Postgres sessions (or their sqlite-file equivalents) are gone
+    /// before the reap asks for the database.
+    _db: OwnedPerTestDb,
     /// Per-test isolated data_dir (mutable state), reclaimed at test end.
     ///
     /// Ordering is load-bearing and is provided by [`SpawnedServer::drop`]'s BODY,
@@ -609,6 +827,21 @@ async fn reap_test_database(admin_url: &str, database_name: &str) -> Result<(), 
 struct PerTestDb {
     name: String,
     admin_url: String,
+}
+
+/// The per-test database, in the driver that is active for this process: a
+/// cluster database (Postgres leg) or a file (sqlite leg). Both arms take
+/// ownership where the resource is created and reclaim it on drop — the
+/// Postgres arm on a dedicated thread with its own runtime (see
+/// [`PerTestDb`]'s drop), the file arm synchronously in process (a file delete
+/// is local I/O; no runtime is needed).
+enum OwnedPerTestDb {
+    // The payloads are owned FOR their Drop impls (reap / delete); nothing reads
+    // them, which is the point — owning is the whole reason the variants exist.
+    #[allow(dead_code)]
+    Postgres(PerTestDb),
+    #[allow(dead_code)]
+    Sqlite(file_db::OwnedTestFile),
 }
 
 impl Drop for PerTestDb {
@@ -757,73 +990,115 @@ impl<A: HarnessApp> TestHarness<A> {
 
         // Unique identifiers.
         let test_id = Uuid::new_v4().to_string();
-        let database_name = format!("test_db_{}", test_id.replace('-', "_"));
 
         // OS-aware free-port reservation (avoids the "Address already in use"
         // boot-timeout cluster a random pick caused).
         let server_port =
             portpicker::pick_unused_port().expect("No free TCP port available for TestServer");
 
-        // Parse DATABASE_URL into connection parts.
-        let db_url = admin_database_url();
-        let url = url::Url::parse(&db_url).expect("Invalid DATABASE_URL");
-        let db = DbConn {
-            host: url.host_str().unwrap_or("127.0.0.1").to_string(),
-            port: url.port().unwrap_or(54321),
-            username: url.username().to_string(),
-            password: url.password().unwrap_or("").to_string(),
-        };
-
         // Per-test isolated data_dir (mutable state fresh per test; binary
         // caches symlinked-in shared). Held on the handle so its tree is reaped.
         let data_tempdir = make_isolated_data_dir(&self.manifest_dir);
         let data_dir_path = data_tempdir.path().to_path_buf();
 
-        // Let the app render the config + decide the launch plan.
-        let plan = self.app.plan_spawn(
-            &opts,
-            &SpawnFacts {
-                db: &db,
-                database_name: &database_name,
-                server_port,
-                data_dir: &data_dir_path,
-                test_id: &test_id,
-            },
-        );
+        // The database facts + the app's spawn plan, per driver leg.
+        let db_url = admin_database_url();
+        let (database_name, database_url, db_guard, plan) = match database_leg(&db_url) {
+            DbLeg::Postgres => {
+                let database_name = format!("test_db_{}", test_id.replace('-', "_"));
+                let url = url::Url::parse(&db_url).expect("Invalid DATABASE_URL");
+                let db = DbConn {
+                    host: url.host_str().unwrap_or("127.0.0.1").to_string(),
+                    port: url.port().unwrap_or(54321),
+                    username: url.username().to_string(),
+                    password: url.password().unwrap_or("").to_string(),
+                };
+                // Let the app render the config + decide the launch plan.
+                let plan = self.app.plan_spawn(
+                    &opts,
+                    &SpawnFacts {
+                        db: &db,
+                        database_name: &database_name,
+                        server_port,
+                        data_dir: &data_dir_path,
+                        test_id: &test_id,
+                        database_url: "",
+                    },
+                );
+
+                // Ensure the fully-migrated template exists (built once per
+                // process), then clone the per-test DB from it — no migrations
+                // run per test.
+                ensure_test_template(&db_url, &self.app, self.variant, &self.manifest_dir).await;
+
+                let pool = PgPoolOptions::new()
+                    .max_connections(1)
+                    .connect(&db_url)
+                    .await
+                    .expect("Failed to connect to PostgreSQL - ensure docker compose is running");
+
+                sqlx::query(&format!(
+                    "CREATE DATABASE {} TEMPLATE {}",
+                    database_name,
+                    test_template_db(&self.app, self.variant, &self.manifest_dir)
+                ))
+                .execute(&pool)
+                .await
+                .expect("Failed to create test database from template");
+
+                pool.close().await;
+
+                let database_url = format!(
+                    "postgresql://{}:{}@{}:{}/{}",
+                    db.username, db.password, db.host, db.port, database_name
+                );
+                let db_guard = OwnedPerTestDb::Postgres(PerTestDb {
+                    name: database_name.clone(),
+                    admin_url: db_url.clone(),
+                });
+                (database_name, database_url, db_guard, plan)
+            }
+            DbLeg::Sqlite => {
+                // The per-test FILE: copied from the migrated template, then
+                // owned (flock + delete-on-drop) before anything below can
+                // panic — the same "ownership starts where the resource does"
+                // property the Postgres leg gets from `CREATE DATABASE`.
+                let (db_path, db_stem) =
+                    sqlite_test_db_path(&self.app, self.variant, &self.manifest_dir, &test_id);
+                ensure_test_template(&db_url, &self.app, self.variant, &self.manifest_dir).await;
+                fs::copy(
+                    sqlite_template_path(&self.app, self.variant, &self.manifest_dir),
+                    &db_path,
+                )
+                .unwrap_or_else(|e| panic!("copy per-test sqlite db to {}: {e}", db_path.display()));
+                let owned = file_db::OwnedTestFile::lock(db_path.clone())
+                    .unwrap_or_else(|e| panic!("lock per-test sqlite db {}: {e}", db_path.display()));
+                let database_url = format!("sqlite://{}", db_path.display());
+
+                let db = DbConn {
+                    host: String::new(),
+                    port: 0,
+                    username: String::new(),
+                    password: String::new(),
+                };
+                let plan = self.app.plan_spawn(
+                    &opts,
+                    &SpawnFacts {
+                        db: &db,
+                        database_name: &db_stem,
+                        server_port,
+                        data_dir: &data_dir_path,
+                        test_id: &test_id,
+                        database_url: &database_url,
+                    },
+                );
+                (db_stem, database_url, OwnedPerTestDb::Sqlite(owned), plan)
+            }
+        };
 
         // Write the temp config (cross-platform temp dir).
         let temp_config_path = std::env::temp_dir().join(format!("testharness-{test_id}.yaml"));
         fs::write(&temp_config_path, &plan.config_yaml).expect("Failed to write temporary config");
-
-        // Ensure the fully-migrated template exists (built once per process),
-        // then clone the per-test DB from it — no migrations run per test.
-        ensure_test_template(&db_url, &self.app, self.variant, &self.manifest_dir).await;
-
-        let pool = PgPoolOptions::new()
-            .max_connections(1)
-            .connect(&db_url)
-            .await
-            .expect("Failed to connect to PostgreSQL - ensure docker compose is running");
-
-        sqlx::query(&format!(
-            "CREATE DATABASE {} TEMPLATE {}",
-            database_name,
-            test_template_db(&self.app, self.variant, &self.manifest_dir)
-        ))
-        .execute(&pool)
-        .await
-        .expect("Failed to create test database from template");
-
-        pool.close().await;
-
-        // The database now EXISTS. Take ownership before anything below can panic —
-        // writing the config, a missing binary, the readiness ceiling — so an unwind
-        // from any of them reaps it. This assignment is the whole no-leak property;
-        // everything after it is inside the guard's scope.
-        let db_guard = PerTestDb {
-            name: database_name.clone(),
-            admin_url: db_url.clone(),
-        };
 
         // Resolve the binary path. Windows appends `.exe`. The workspace layout
         // puts `target/` at `src-app/target`, so walk up from `manifest_dir`:
@@ -865,14 +1140,10 @@ impl<A: HarnessApp> TestHarness<A> {
         let child = cmd.spawn().expect("Failed to start test server");
 
         let base_url = format!("http://127.0.0.1:{}", server_port);
-        let test_database_url = format!(
-            "postgresql://{}:{}@{}:{}/{}",
-            db.username, db.password, db.host, db.port, database_name
-        );
 
         // Wait for the server to be ready (150 × 200ms = 30s ceiling; boot runs
-        // the security middleware + module registration + external Postgres
-        // connect, which can exceed a few seconds on a busy box).
+        // the security middleware + module registration + the database
+        // connect/migrate, which can exceed a few seconds on a busy box).
         let client = reqwest::Client::new();
         let health_url = format!("{}{}", base_url, self.app.health_path());
         let mut ready = false;
@@ -896,7 +1167,7 @@ impl<A: HarnessApp> TestHarness<A> {
             process: child,
             base_url,
             database_name,
-            database_url: test_database_url,
+            database_url,
             temp_config_path,
             _db: db_guard,
             _data_tempdir: data_tempdir,

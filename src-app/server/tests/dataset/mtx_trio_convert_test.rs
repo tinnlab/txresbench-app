@@ -74,7 +74,7 @@ async fn upload(server: &TestServer, token: &str, form: Form) -> (u16, Value) {
 /// The `(job_id, job_type)` of the converter auto-enqueued for `dataset_id`. A job's
 /// tenancy scope lives in `job_scope` (ITEM-68 — the `jobs.dataset_id` column was
 /// dropped by migration …280001), so resolve via that join. Reads the server's own DB.
-async fn converter_job_for(pool: &sqlx::PgPool, dataset_id: Uuid) -> Option<(Uuid, String)> {
+async fn converter_job_for(pool: &sqlx::SqlitePool, dataset_id: Uuid) -> Option<(Uuid, String)> {
     sqlx::query_as(
         "SELECT j.id, j.job_type FROM jobs j \
          JOIN job_scope s ON s.job_id = j.id \

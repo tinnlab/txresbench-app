@@ -55,7 +55,7 @@
 
 use reqwest::multipart::{Form, Part};
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use super::account::{add_member, make_org_account, move_dataset_to_account, pool_for, setup_admin};
@@ -186,7 +186,7 @@ async fn dataset_with_uploaded_file(
 /// Every "after" assertion is therefore attributable to that one DELETE.
 struct Fx {
     admin: String,
-    pool: PgPool,
+    pool: SqlitePool,
     /// the ORG dataset bob's file is linked to — the dataset branch's subject.
     d_bob: Uuid,
     org: Uuid,
@@ -1740,7 +1740,7 @@ async fn the_write_branch_agrees_with_require_can_edit() {
 
 /// Re-export shim so the subset assertion above reads clearly.
 async fn readable_file_ids_pub(
-    pool: &sqlx::PgPool,
+    pool: &sqlx::SqlitePool,
     user: Uuid,
     ids: &[Uuid],
 ) -> Result<Vec<Uuid>, ziee_core::AppError> {

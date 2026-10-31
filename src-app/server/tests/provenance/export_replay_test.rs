@@ -40,7 +40,7 @@
 use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::common::zarr;
@@ -169,7 +169,7 @@ fn work_tree(dir: &Path) -> String {
 /// ingest carries through verbatim.
 async fn original_keep_mask(
     server: &TestServer,
-    pool: &PgPool,
+    pool: &SqlitePool,
     run_id: Uuid,
 ) -> (String, String, zarr::Store) {
     let rows: Vec<(String, String, Value)> = sqlx::query_as(

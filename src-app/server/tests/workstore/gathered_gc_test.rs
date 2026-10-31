@@ -169,7 +169,7 @@ async fn gathered_row(
 /// kept by the base case regardless of reachability, and every survival assertion below would
 /// pass against a keep-set with no reachability rule at all. That is exactly how the previous
 /// version of this file came to prove nothing.
-async fn assert_outside_base_case(pool: &sqlx::PgPool, project: Uuid, ids: &[Uuid]) {
+async fn assert_outside_base_case(pool: &sqlx::SqlitePool, project: Uuid, ids: &[Uuid]) {
     for id in ids {
         let in_base: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM artifacts WHERE id = $1 AND project_id = $2)",
@@ -188,7 +188,7 @@ async fn assert_outside_base_case(pool: &sqlx::PgPool, project: Uuid, ids: &[Uui
 }
 
 /// The keep-set for a project, as GC computes it.
-async fn keep_keys(pool: &sqlx::PgPool, project: Uuid) -> Result<Vec<String>, String> {
+async fn keep_keys(pool: &sqlx::SqlitePool, project: Uuid) -> Result<Vec<String>, String> {
     let mut tx = pool.begin().await.expect("begin");
     let refs = CatalogRepository::object_keys_for_project_in_tx(&mut tx, project)
         .await

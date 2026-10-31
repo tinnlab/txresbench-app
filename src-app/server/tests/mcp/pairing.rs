@@ -98,7 +98,7 @@ async fn pair_exchange_rejects_expired_code() {
     // ALREADY-EXPIRED code directly at the DB layer (this test's own
     // isolated per-test database) to exercise the same `expires_at > NOW()`
     // clause the atomic claim enforces, without a real-time wait.
-    let pool = sqlx::PgPool::connect(server.database_url())
+    let pool = sqlx::SqlitePool::connect(server.database_url())
         .await
         .expect("connect test db");
     let code = Uuid::new_v4().to_string();

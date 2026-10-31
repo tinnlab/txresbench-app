@@ -743,9 +743,9 @@ impl DatasetRepository {
             Dataset,
             r#"INSERT INTO datasets (id, name, owner_id, account_id, datatype, metadata, source)
                VALUES ($1, $2, $3, $4, $5, $6, 'upload')
-               RETURNING id, name, owner_id, account_id, datatype,
+               RETURNING id as "id: Uuid", name, owner_id as "owner_id: Uuid", account_id as "account_id!: Uuid", datatype,
                          metadata as "metadata: serde_json::Value",
-                         source, source_artifact_id, content_hash,
+                         source, source_artifact_id as "source_artifact_id: Uuid", content_hash,
                          created_at as "created_at: DateTime<Utc>",
                          updated_at as "updated_at: DateTime<Utc>""#,
             id,
@@ -783,9 +783,9 @@ impl DatasetRepository {
             r#"INSERT INTO datasets
                  (id, name, owner_id, account_id, datatype, metadata, source, source_artifact_id)
                VALUES ($1, $2, $3, $4, $5, $6, 'promote', $7)
-               RETURNING id, name, owner_id, account_id, datatype,
+               RETURNING id as "id: Uuid", name, owner_id as "owner_id: Uuid", account_id as "account_id!: Uuid", datatype,
                          metadata as "metadata: serde_json::Value",
-                         source, source_artifact_id, content_hash,
+                         source, source_artifact_id as "source_artifact_id: Uuid", content_hash,
                          created_at as "created_at: DateTime<Utc>",
                          updated_at as "updated_at: DateTime<Utc>""#,
             id,
@@ -804,9 +804,9 @@ impl DatasetRepository {
     pub async fn get(&self, id: Uuid) -> Result<Option<Dataset>, AppError> {
         sqlx::query_as!(
             Dataset,
-            r#"SELECT id, name, owner_id, account_id, datatype,
+            r#"SELECT id as "id: Uuid", name, owner_id as "owner_id: Uuid", account_id as "account_id!: Uuid", datatype,
                       metadata as "metadata: serde_json::Value",
-                      source, source_artifact_id, content_hash,
+                      source, source_artifact_id as "source_artifact_id: Uuid", content_hash,
                       created_at as "created_at: DateTime<Utc>",
                       updated_at as "updated_at: DateTime<Utc>"
                FROM datasets WHERE id = $1"#,
@@ -830,11 +830,13 @@ impl DatasetRepository {
         page: i64,
         per_page: i64,
     ) -> Result<(Vec<Dataset>, i64), AppError> {
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let page_off = page_offset(page, per_page);
         let items = sqlx::query_as!(
             Dataset,
-            r#"SELECT d.id, d.name, d.owner_id, d.account_id, d.datatype,
+            r#"SELECT d.id as "id: Uuid", d.name, d.owner_id as "owner_id: Uuid", d.account_id as "account_id!: Uuid", d.datatype,
                       d.metadata as "metadata: serde_json::Value",
-                      d.source, d.source_artifact_id, d.content_hash,
+                      d.source, d.source_artifact_id as "source_artifact_id: Uuid", d.content_hash,
                       d.created_at as "created_at: DateTime<Utc>",
                       d.updated_at as "updated_at: DateTime<Utc>"
                FROM datasets d
@@ -861,7 +863,7 @@ impl DatasetRepository {
             search,
             folder_id,
             per_page,
-            page_offset(page, per_page),
+            page_off,
         )
         .fetch_all(&self.pool)
         .await
@@ -908,11 +910,14 @@ impl DatasetRepository {
         page: i64,
         per_page: i64,
     ) -> Result<(Vec<Dataset>, i64), AppError> {
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let json_group_ids = uuid_list_json(group_ids);
+        let page_off = page_offset(page, per_page);
         let items = sqlx::query_as!(
             Dataset,
-            r#"SELECT d.id, d.name, d.owner_id, d.account_id, d.datatype,
+            r#"SELECT d.id as "id: Uuid", d.name, d.owner_id as "owner_id: Uuid", d.account_id as "account_id!: Uuid", d.datatype,
                       d.metadata as "metadata: serde_json::Value",
-                      d.source, d.source_artifact_id, d.content_hash,
+                      d.source, d.source_artifact_id as "source_artifact_id: Uuid", d.content_hash,
                       d.created_at as "created_at: DateTime<Utc>",
                       d.updated_at as "updated_at: DateTime<Utc>"
                FROM datasets d
@@ -926,15 +931,17 @@ impl DatasetRepository {
                ORDER BY d.created_at DESC
                LIMIT $4 OFFSET $5"#,
             user_id,
-            uuid_list_json(group_ids),
+            json_group_ids,
             search,
             per_page,
-            page_offset(page, per_page),
+            page_off,
         )
         .fetch_all(&self.pool)
         .await
         .map_err(AppError::database_error)?;
 
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let json_group_ids = uuid_list_json(group_ids);
         let total = sqlx::query_scalar!(
             r#"SELECT COUNT(*) as "count!"
                FROM datasets d
@@ -946,7 +953,7 @@ impl DatasetRepository {
                         OR (ds.principal_type = 'group' AND ds.principal_id IN
                               (SELECT unhex(j.value) FROM json_each($2) AS j)) ))"#,
             user_id,
-            uuid_list_json(group_ids),
+            json_group_ids,
             search,
         )
         .fetch_one(&self.pool)
@@ -995,6 +1002,8 @@ impl DatasetRepository {
         dataset_cap: i64,
         group_cap: i64,
     ) -> Result<Vec<(Uuid, i64, i64, Option<DatasetArtifactGroup>)>, AppError> {
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let json_group_ids = uuid_list_json(group_ids);
         let rows = sqlx::query!(
             r#"WITH visible AS (
                    SELECT d.id, d.created_at
@@ -1071,7 +1080,7 @@ impl DatasetRepository {
                -- LEFT JOIN from `visible`, so a dataset holding nothing still yields a
                -- row (with a NULL group). See the doc comment: absence has to mean
                -- exactly one thing, and it means "not covered".
-               SELECT v.id as "dataset_id!",
+               SELECT v.id as "dataset_id!: Uuid",
                       COALESCE(r.total_count, 0) as "total_count!",
                       COALESCE(r.total_bytes, 0) as "total_bytes!",
                       r.datatype as "datatype?",
@@ -1084,7 +1093,7 @@ impl DatasetRepository {
                  LEFT JOIN ranked r ON r.dataset_id = v.id AND r.rn <= $4
                 ORDER BY v.id, r.rn"#,
             user_id,
-            uuid_list_json(group_ids),
+            json_group_ids,
             dataset_cap,
             group_cap,
         )
@@ -1126,6 +1135,8 @@ impl DatasetRepository {
         user_id: Uuid,
         group_ids: &[Uuid],
     ) -> Result<bool, AppError> {
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let json_group_ids = uuid_list_json(group_ids);
         sqlx::query_scalar!(
             // A3 (ITEM-3/DEC-9): visibility widens from owner ∪ sharee to ALSO admit
             // any member of the dataset's `account_id` (the account-membership union),
@@ -1155,10 +1166,10 @@ impl DatasetRepository {
                      SELECT 1 FROM dataset_shares ds WHERE ds.dataset_id = d.id
                        AND ( (ds.principal_type = 'user'  AND ds.principal_id = $2)
                           OR (ds.principal_type = 'group' AND ds.principal_id IN (SELECT unhex(j.value) FROM json_each($3) AS j)) ))
-                 )) as "e!""#,
+                 )) as "e!: bool""#,
             id,
             user_id,
-            uuid_list_json(group_ids),
+            json_group_ids,
         )
         .fetch_one(&self.pool)
         .await
@@ -1175,6 +1186,8 @@ impl DatasetRepository {
         user_id: Uuid,
         group_ids: &[Uuid],
     ) -> Result<DatasetAccess, AppError> {
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let json_group_ids = uuid_list_json(group_ids);
         let row = sqlx::query!(
             // A3 (ITEM-3/DEC-9/DEC-12): the account-membership union — any member of
             // the dataset's account is VISIBLE (Viewer floor); an account `admin`/
@@ -1217,7 +1230,7 @@ impl DatasetRepository {
                FROM datasets d WHERE d.id = $1"#,
             id,
             user_id,
-            uuid_list_json(group_ids),
+            json_group_ids,
         )
         .fetch_optional(&self.pool)
         .await
@@ -1265,6 +1278,9 @@ impl DatasetRepository {
         user_id: Uuid,
         group_ids: &[Uuid],
     ) -> Result<std::collections::HashSet<Uuid>, AppError> {
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let json_ids = uuid_list_json(ids);
+        let json_group_ids = uuid_list_json(group_ids);
         let rows = sqlx::query_scalar!(
             // A3 (ITEM-3): kept byte-for-byte aligned with the `can_edit` arm of
             // `access` (asserted by `editable_subset_matches_access`) — the SAME
@@ -1276,7 +1292,7 @@ impl DatasetRepository {
             // carries the same conjoined-membership owner branch as `access`'s
             // `can_edit` arm, byte-for-byte, or `editable_subset_matches_access`
             // becomes false for exactly the removed-owner principal.
-            r#"SELECT d.id as "id!" FROM datasets d
+            r#"SELECT d.id as "id!: Uuid" FROM datasets d
                WHERE d.id IN (SELECT unhex(j.value) FROM json_each($1) AS j)
                  AND ((d.owner_id = $2
                        AND d.account_id IN (SELECT am.account_id FROM account_members am
@@ -1289,9 +1305,9 @@ impl DatasetRepository {
                       AND ( (ds.principal_type = 'user'  AND ds.principal_id = $2)
                          OR (ds.principal_type = 'group' AND ds.principal_id IN (SELECT unhex(j.value) FROM json_each($3) AS j)) ))
                  )"#,
-            uuid_list_json(ids),
+            json_ids,
             user_id,
-            uuid_list_json(group_ids),
+            json_group_ids,
         )
         .fetch_all(&self.pool)
         .await
@@ -1341,7 +1357,7 @@ impl DatasetRepository {
                   WHERE d.id = $1 AND d.owner_id = $2
                     AND d.account_id IN (SELECT am.account_id FROM account_members am
                                           WHERE am.user_id = $2)
-               ) as "e!""#,
+               ) as "e!: bool""#,
             id,
             user_id,
         )
@@ -1351,7 +1367,7 @@ impl DatasetRepository {
     }
 
     pub async fn owner_of(&self, id: Uuid) -> Result<Option<Uuid>, AppError> {
-        let row = sqlx::query!("SELECT owner_id FROM datasets WHERE id = $1", id)
+        let row = sqlx::query!("SELECT owner_id as \"owner_id: Uuid\" FROM datasets WHERE id = $1", id)
             .fetch_optional(&self.pool)
             .await
             .map_err(AppError::database_error)?;
@@ -1366,9 +1382,9 @@ impl DatasetRepository {
             Dataset,
             r#"UPDATE datasets SET name = $2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
                WHERE id = $1
-               RETURNING id, name, owner_id, account_id, datatype,
+               RETURNING id as "id: Uuid", name, owner_id as "owner_id: Uuid", account_id as "account_id!: Uuid", datatype,
                          metadata as "metadata: serde_json::Value",
-                         source, source_artifact_id, content_hash,
+                         source, source_artifact_id as "source_artifact_id: Uuid", content_hash,
                          created_at as "created_at: DateTime<Utc>",
                          updated_at as "updated_at: DateTime<Utc>""#,
             id,
@@ -1394,9 +1410,9 @@ impl DatasetRepository {
             Dataset,
             r#"UPDATE datasets SET metadata = $2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
                WHERE id = $1
-               RETURNING id, name, owner_id, account_id, datatype,
+               RETURNING id as "id: Uuid", name, owner_id as "owner_id: Uuid", account_id as "account_id!: Uuid", datatype,
                          metadata as "metadata: serde_json::Value",
-                         source, source_artifact_id, content_hash,
+                         source, source_artifact_id as "source_artifact_id: Uuid", content_hash,
                          created_at as "created_at: DateTime<Utc>",
                          updated_at as "updated_at: DateTime<Utc>""#,
             id,
@@ -1504,12 +1520,14 @@ impl DatasetRepository {
         &self,
         ids: &[Uuid],
     ) -> Result<std::collections::HashMap<Uuid, (Option<String>, Option<String>)>, AppError> {
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let json_ids = uuid_list_json(ids);
         let rows = sqlx::query!(
-            r#"SELECT d.id as "id!", j.status as "status?", j.error as "error?"
+            r#"SELECT d.id as "id!: Uuid", j.status as "status?", j.error as "error?"
                FROM datasets d
                LEFT JOIN jobs j ON j.id = d.processing_job_id
                WHERE d.id IN (SELECT unhex(j.value) FROM json_each($1) AS j)"#,
-            uuid_list_json(ids),
+            json_ids,
         )
         .fetch_all(&self.pool)
         .await
@@ -1625,9 +1643,11 @@ impl DatasetRepository {
         page: i64,
         per_page: i64,
     ) -> Result<Vec<DatasetFile>, AppError> {
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let page_off = page_offset(page, per_page);
         sqlx::query_as!(
             DatasetFile,
-            r#"SELECT df.file_id, f.filename, f.file_size, df.ordinal as "ordinal: i32",
+            r#"SELECT df.file_id as "file_id: Uuid", f.filename, f.file_size, df.ordinal as "ordinal: i32",
                       df.role, df.kind,
                       CASE
                         WHEN df.role <> 'supporting'      THEN NULL
@@ -1646,7 +1666,7 @@ impl DatasetRepository {
                LIMIT $2 OFFSET $3"#,
             dataset_id,
             per_page,
-            page_offset(page, per_page),
+            page_off,
         )
         .fetch_all(&self.pool)
         .await
@@ -1720,7 +1740,7 @@ impl DatasetRepository {
                VALUES ($1, $2, $3, $4, $5)
                ON CONFLICT (dataset_id, principal_type, principal_id)
                  DO UPDATE SET role = EXCLUDED.role
-               RETURNING id, dataset_id, principal_type, principal_id, role,
+               RETURNING id as "id: Uuid", dataset_id as "dataset_id: Uuid", principal_type, principal_id as "principal_id: Uuid", role,
                          created_at as "created_at: DateTime<Utc>""#,
             id,
             dataset_id,
@@ -1751,15 +1771,17 @@ impl DatasetRepository {
         page: i64,
         per_page: i64,
     ) -> Result<Vec<DatasetShare>, AppError> {
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let page_off = page_offset(page, per_page);
         sqlx::query_as!(
             DatasetShare,
-            r#"SELECT id, dataset_id, principal_type, principal_id, role,
+            r#"SELECT id as "id: Uuid", dataset_id as "dataset_id: Uuid", principal_type, principal_id as "principal_id: Uuid", role,
                       created_at as "created_at: DateTime<Utc>"
                FROM dataset_shares WHERE dataset_id = $1 ORDER BY created_at DESC
                LIMIT $2 OFFSET $3"#,
             dataset_id,
             per_page,
-            page_offset(page, per_page),
+            page_off,
         )
         .fetch_all(&self.pool)
         .await
@@ -1796,7 +1818,7 @@ impl DatasetRepository {
     /// job audience admits editors only.
     pub async fn audience_user_ids(&self, dataset_id: Uuid) -> Result<Vec<Uuid>, AppError> {
         let rows = sqlx::query_scalar!(
-            r#"SELECT DISTINCT uid as "id!" FROM (
+            r#"SELECT DISTINCT uid as "id!: Uuid" FROM (
                  SELECT am.user_id AS uid
                    FROM datasets d
                    JOIN account_members am ON am.account_id = d.account_id
@@ -1832,7 +1854,7 @@ impl DatasetRepository {
         sqlx::query_as!(
             DatasetFolder,
             r#"INSERT INTO dataset_folders (id, owner_id, name) VALUES ($1, $2, $3)
-               RETURNING id, owner_id, name,
+               RETURNING id as "id: Uuid", owner_id as "owner_id: Uuid", name,
                          created_at as "created_at: DateTime<Utc>",
                          updated_at as "updated_at: DateTime<Utc>""#,
             id,
@@ -1847,7 +1869,7 @@ impl DatasetRepository {
     pub async fn get_folder(&self, id: Uuid) -> Result<Option<DatasetFolder>, AppError> {
         sqlx::query_as!(
             DatasetFolder,
-            r#"SELECT id, owner_id, name,
+            r#"SELECT id as "id: Uuid", owner_id as "owner_id: Uuid", name,
                       created_at as "created_at: DateTime<Utc>",
                       updated_at as "updated_at: DateTime<Utc>"
                FROM dataset_folders WHERE id = $1"#,
@@ -1864,16 +1886,18 @@ impl DatasetRepository {
         page: i64,
         per_page: i64,
     ) -> Result<Vec<DatasetFolder>, AppError> {
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let page_off = page_offset(page, per_page);
         sqlx::query_as!(
             DatasetFolder,
-            r#"SELECT id, owner_id, name,
+            r#"SELECT id as "id: Uuid", owner_id as "owner_id: Uuid", name,
                       created_at as "created_at: DateTime<Utc>",
                       updated_at as "updated_at: DateTime<Utc>"
                FROM dataset_folders WHERE owner_id = $1 ORDER BY created_at DESC
                LIMIT $2 OFFSET $3"#,
             owner_id,
             per_page,
-            page_offset(page, per_page),
+            page_off,
         )
         .fetch_all(&self.pool)
         .await
@@ -1890,7 +1914,7 @@ impl DatasetRepository {
             DatasetFolder,
             r#"UPDATE dataset_folders SET name = $3, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
                WHERE id = $1 AND owner_id = $2
-               RETURNING id, owner_id, name,
+               RETURNING id as "id: Uuid", owner_id as "owner_id: Uuid", name,
                          created_at as "created_at: DateTime<Utc>",
                          updated_at as "updated_at: DateTime<Utc>""#,
             id,
@@ -1964,7 +1988,7 @@ impl DatasetRepository {
                  WHERE m.folder_id = $1 AND m.dataset_id = $2 AND fo.owner_id = $3
                    AND d.owner_id = $3
                    AND d.account_id IN (SELECT am.account_id FROM account_members am
-                                         WHERE am.user_id = $3)) as "e!""#,
+                                         WHERE am.user_id = $3)) as "e!: bool""#,
             folder_id,
             dataset_id,
             owner_id,
@@ -2010,11 +2034,13 @@ impl DatasetRepository {
         page: i64,
         per_page: i64,
     ) -> Result<Vec<Dataset>, AppError> {
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let page_off = page_offset(page, per_page);
         sqlx::query_as!(
             Dataset,
-            r#"SELECT d.id, d.name, d.owner_id, d.account_id, d.datatype,
+            r#"SELECT d.id as "id: Uuid", d.name, d.owner_id as "owner_id: Uuid", d.account_id as "account_id!: Uuid", d.datatype,
                       d.metadata as "metadata: serde_json::Value",
-                      d.source, d.source_artifact_id, d.content_hash,
+                      d.source, d.source_artifact_id as "source_artifact_id: Uuid", d.content_hash,
                       d.created_at as "created_at: DateTime<Utc>",
                       d.updated_at as "updated_at: DateTime<Utc>"
                FROM datasets d
@@ -2036,7 +2062,7 @@ impl DatasetRepository {
             folder_id,
             owner_id,
             per_page,
-            page_offset(page, per_page),
+            page_off,
         )
         .fetch_all(&self.pool)
         .await

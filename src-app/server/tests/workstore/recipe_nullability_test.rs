@@ -22,11 +22,11 @@ use crate::dataset::create_dataset;
 /// INSERT a GATHERED artifact (no stored bytes; the recipe rides `structure.gathered_from`)
 /// straight against the pool, returning the raw sqlx result so a constraint name is visible.
 async fn insert_gathered(
-    pool: &sqlx::PgPool,
+    pool: &sqlx::SqlitePool,
     dataset_id: Uuid,
     output_id: &str,
     structure: Value,
-) -> Result<sqlx::postgres::PgQueryResult, sqlx::Error> {
+) -> Result<sqlx::sqlite::SqliteQueryResult, sqlx::Error> {
     let hash = format!("sha256:{}", "d".repeat(64));
     sqlx::query(
         "INSERT INTO artifacts \

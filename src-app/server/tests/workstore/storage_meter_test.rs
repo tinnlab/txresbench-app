@@ -221,7 +221,7 @@ async fn deltas_recorded_at_ingest_and_gc() {
     );
 }
 
-async fn meter_rows(pool: &sqlx::PgPool, content_hash: &str) -> Vec<MeterRow> {
+async fn meter_rows(pool: &sqlx::SqlitePool, content_hash: &str) -> Vec<MeterRow> {
     sqlx::query_as::<_, MeterRow>(
         "SELECT content_hash, delta_bytes, reason, project_id, account_id, logical_bytes \
          FROM storage_meter WHERE content_hash = $1 ORDER BY id",

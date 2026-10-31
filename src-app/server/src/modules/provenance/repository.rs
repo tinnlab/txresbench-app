@@ -245,14 +245,14 @@ impl ProvenanceRepository {
                   code_sha256, env_rootfs_sha256, lockfile_json, seed, params,
                   inputs_json, acting_user, rerun_spec_json)
                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-               RETURNING run_id, project_id, dataset_id, kind, status, generator_id, generator_version,
+               RETURNING run_id as "run_id: Uuid", project_id as "project_id: Uuid", dataset_id as "dataset_id: Uuid", kind, status, generator_id, generator_version,
                          code_sha256, env_rootfs_sha256,
                          lockfile_json as "lockfile_json?: serde_json::Value",
                          seed,
                          params as "params: serde_json::Value",
                          inputs_json as "inputs_json: serde_json::Value",
                          rerun_spec_json as "rerun_spec_json?: serde_json::Value",
-                         acting_user,
+                         acting_user as "acting_user: Uuid",
                          started_at as "started_at?: DateTime<Utc>",
                          finished_at as "finished_at?: DateTime<Utc>",
                          captured_at as "captured_at: DateTime<Utc>""#,
@@ -298,14 +298,14 @@ impl ProvenanceRepository {
     pub async fn get_run(&self, run_id: Uuid) -> Result<Option<RunReproRow>, AppError> {
         sqlx::query_as!(
             RunReproRow,
-            r#"SELECT run_id, project_id, dataset_id, kind, status, generator_id, generator_version,
+            r#"SELECT run_id as "run_id: Uuid", project_id as "project_id: Uuid", dataset_id as "dataset_id: Uuid", kind, status, generator_id, generator_version,
                       code_sha256, env_rootfs_sha256,
                       lockfile_json as "lockfile_json?: serde_json::Value",
                       seed,
                       params as "params: serde_json::Value",
                       inputs_json as "inputs_json: serde_json::Value",
                       rerun_spec_json as "rerun_spec_json?: serde_json::Value",
-                      acting_user,
+                      acting_user as "acting_user: Uuid",
                       started_at as "started_at?: DateTime<Utc>",
                       finished_at as "finished_at?: DateTime<Utc>",
                       captured_at as "captured_at: DateTime<Utc>"
@@ -386,7 +386,7 @@ impl ProvenanceRepository {
             }
             // 1. The artifact's own dataset scope wins (an ingested/uploaded file).
             let art = sqlx::query!(
-                r#"SELECT dataset_id, run_id FROM artifacts WHERE id = $1"#,
+                r#"SELECT dataset_id as "dataset_id: Uuid", run_id as "run_id: Uuid" FROM artifacts WHERE id = $1"#,
                 artifact_id
             )
             .fetch_optional(&self.pool)
@@ -433,14 +433,14 @@ impl ProvenanceRepository {
     pub async fn runs_for_project(&self, project_id: Uuid) -> Result<Vec<RunReproRow>, AppError> {
         sqlx::query_as!(
             RunReproRow,
-            r#"SELECT run_id, project_id, dataset_id, kind, status, generator_id, generator_version,
+            r#"SELECT run_id as "run_id: Uuid", project_id as "project_id: Uuid", dataset_id as "dataset_id: Uuid", kind, status, generator_id, generator_version,
                       code_sha256, env_rootfs_sha256,
                       lockfile_json as "lockfile_json?: serde_json::Value",
                       seed,
                       params as "params: serde_json::Value",
                       inputs_json as "inputs_json: serde_json::Value",
                       rerun_spec_json as "rerun_spec_json?: serde_json::Value",
-                      acting_user,
+                      acting_user as "acting_user: Uuid",
                       started_at as "started_at?: DateTime<Utc>",
                       finished_at as "finished_at?: DateTime<Utc>",
                       captured_at as "captured_at: DateTime<Utc>"
@@ -460,14 +460,14 @@ impl ProvenanceRepository {
     pub async fn runs_for_dataset(&self, dataset_id: Uuid) -> Result<Vec<RunReproRow>, AppError> {
         sqlx::query_as!(
             RunReproRow,
-            r#"SELECT run_id, project_id, dataset_id, kind, status, generator_id, generator_version,
+            r#"SELECT run_id as "run_id: Uuid", project_id as "project_id: Uuid", dataset_id as "dataset_id: Uuid", kind, status, generator_id, generator_version,
                       code_sha256, env_rootfs_sha256,
                       lockfile_json as "lockfile_json?: serde_json::Value",
                       seed,
                       params as "params: serde_json::Value",
                       inputs_json as "inputs_json: serde_json::Value",
                       rerun_spec_json as "rerun_spec_json?: serde_json::Value",
-                      acting_user,
+                      acting_user as "acting_user: Uuid",
                       started_at as "started_at?: DateTime<Utc>",
                       finished_at as "finished_at?: DateTime<Utc>",
                       captured_at as "captured_at: DateTime<Utc>"
@@ -486,14 +486,14 @@ impl ProvenanceRepository {
     pub async fn promote_runs_for_user(&self, user_id: Uuid) -> Result<Vec<RunReproRow>, AppError> {
         sqlx::query_as!(
             RunReproRow,
-            r#"SELECT run_id, project_id, dataset_id, kind, status, generator_id, generator_version,
+            r#"SELECT run_id as "run_id: Uuid", project_id as "project_id: Uuid", dataset_id as "dataset_id: Uuid", kind, status, generator_id, generator_version,
                       code_sha256, env_rootfs_sha256,
                       lockfile_json as "lockfile_json?: serde_json::Value",
                       seed,
                       params as "params: serde_json::Value",
                       inputs_json as "inputs_json: serde_json::Value",
                       rerun_spec_json as "rerun_spec_json?: serde_json::Value",
-                      acting_user,
+                      acting_user as "acting_user: Uuid",
                       started_at as "started_at?: DateTime<Utc>",
                       finished_at as "finished_at?: DateTime<Utc>",
                       captured_at as "captured_at: DateTime<Utc>"
@@ -516,7 +516,7 @@ impl ProvenanceRepository {
         dataset_id: Uuid,
     ) -> Result<Option<Uuid>, AppError> {
         let row = sqlx::query!(
-            r#"SELECT run_id FROM provenance_run_repro
+            r#"SELECT run_id as "run_id: Uuid" FROM provenance_run_repro
                WHERE dataset_id = $1 AND kind = 'promote'
                ORDER BY captured_at ASC
                LIMIT 1"#,
@@ -539,7 +539,7 @@ impl ProvenanceRepository {
         // needs a deterministic `ORDER BY` — otherwise which dataset's scope wins
         // is nondeterministic across runs. Earliest-created (then id) wins, stable.
         let row = sqlx::query!(
-            r#"SELECT d.id as "dataset_id!", d.content_hash
+            r#"SELECT d.id as "dataset_id!: Uuid", d.content_hash
                FROM dataset_files df JOIN datasets d ON d.id = df.dataset_id
                WHERE df.file_id = $1
                ORDER BY d.created_at ASC, d.id ASC
@@ -556,7 +556,7 @@ impl ProvenanceRepository {
     /// project's datasets that seed the project-graph walk's dataset nodes (ITEM-20).
     pub async fn dataset_ids_for_project(&self, project_id: Uuid) -> Result<Vec<Uuid>, AppError> {
         let rows = sqlx::query!(
-            r#"SELECT dataset_id FROM project_datasets WHERE project_id = $1"#,
+            r#"SELECT dataset_id as "dataset_id: Uuid" FROM project_datasets WHERE project_id = $1"#,
             project_id,
         )
         .fetch_all(&self.pool)
@@ -575,14 +575,14 @@ impl ProvenanceRepository {
     ) -> Result<Vec<crate::modules::workstore::catalog::models::Artifact>, AppError> {
         sqlx::query_as!(
             crate::modules::workstore::catalog::models::Artifact,
-            r#"SELECT id, project_id, dataset_id, run_id, output_id, datatype,
-                      object_key, is_multifile, content_hash,
+            r#"SELECT id as "id: Uuid", project_id as "project_id: Uuid", dataset_id as "dataset_id: Uuid", run_id as "run_id: Uuid", output_id, datatype,
+                      object_key, is_multifile as "is_multifile: bool", content_hash,
                       structure as "structure: serde_json::Value",
                       meta as "meta: serde_json::Value",
-                      role, status, stored_bytes, logical_bytes, created_by,
+                      role, status, stored_bytes, logical_bytes, created_by as "created_by: Uuid",
                       created_at as "created_at: DateTime<Utc>",
                       updated_at as "updated_at: DateTime<Utc>",
-                      hidden, representation_of
+                      hidden as "hidden: bool", representation_of as "representation_of: Uuid"
                FROM artifacts WHERE dataset_id = $1
                ORDER BY created_at DESC"#,
             dataset_id,
@@ -602,14 +602,14 @@ impl ProvenanceRepository {
         let offset = (page - 1).max(0) * per_page;
         let rows = sqlx::query_as!(
             RunReproRow,
-            r#"SELECT run_id, project_id, dataset_id, kind, status, generator_id, generator_version,
+            r#"SELECT run_id as "run_id: Uuid", project_id as "project_id: Uuid", dataset_id as "dataset_id: Uuid", kind, status, generator_id, generator_version,
                       code_sha256, env_rootfs_sha256,
                       lockfile_json as "lockfile_json?: serde_json::Value",
                       seed,
                       params as "params: serde_json::Value",
                       inputs_json as "inputs_json: serde_json::Value",
                       rerun_spec_json as "rerun_spec_json?: serde_json::Value",
-                      acting_user,
+                      acting_user as "acting_user: Uuid",
                       started_at as "started_at?: DateTime<Utc>",
                       finished_at as "finished_at?: DateTime<Utc>",
                       captured_at as "captured_at: DateTime<Utc>"
@@ -648,7 +648,7 @@ impl ProvenanceRepository {
     ) -> Result<Option<ReferenceRow>, AppError> {
         sqlx::query_as!(
             ReferenceRow,
-            r#"SELECT id, project_id, kind, name, version, accession, doi, content_hash,
+            r#"SELECT id as "id: Uuid", project_id as "project_id: Uuid", kind, name, version, accession, doi, content_hash,
                       created_at as "created_at: DateTime<Utc>"
                FROM provenance_reference_resources
                WHERE content_hash = $1 AND project_id IS NOT DISTINCT FROM $2
@@ -670,18 +670,19 @@ impl ProvenanceRepository {
         if let Some(existing) = self.find_reference_in_scope(r.project_id, &r.content_hash).await? {
             return Ok(existing);
         }
+        let new_reference_id = Uuid::new_v4();
         let inserted = sqlx::query_as!(
             ReferenceRow,
             r#"INSERT INTO provenance_reference_resources
                  (id, project_id, kind, name, version, accession, doi, content_hash)
                VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
                ON CONFLICT DO NOTHING
-               RETURNING id, project_id, kind, name, version, accession, doi, content_hash,
+               RETURNING id as "id: Uuid", project_id as "project_id: Uuid", kind, name, version, accession, doi, content_hash,
                          created_at as "created_at: DateTime<Utc>""#,
             // (DEC-12: the PG chain's `DEFAULT gen_random_uuid()` has no SQLite
             // form — the ITEM-11 sqlite chain port records NO id default, so the
             // id is an app-side bind; RETURNING it is the same value.)
-            Uuid::new_v4(),
+            new_reference_id,
             r.project_id,
             r.kind,
             r.name,
@@ -713,7 +714,7 @@ impl ProvenanceRepository {
     ) -> Result<Option<ReferenceRow>, AppError> {
         sqlx::query_as!(
             ReferenceRow,
-            r#"SELECT id, project_id, kind, name, version, accession, doi, content_hash,
+            r#"SELECT id as "id: Uuid", project_id as "project_id: Uuid", kind, name, version, accession, doi, content_hash,
                       created_at as "created_at: DateTime<Utc>"
                FROM provenance_reference_resources
                WHERE id = $1 AND (project_id = $2 OR project_id IS NULL)"#,
@@ -728,7 +729,7 @@ impl ProvenanceRepository {
     pub async fn list_references(&self, project_id: Uuid) -> Result<Vec<ReferenceRow>, AppError> {
         sqlx::query_as!(
             ReferenceRow,
-            r#"SELECT id, project_id, kind, name, version, accession, doi, content_hash,
+            r#"SELECT id as "id: Uuid", project_id as "project_id: Uuid", kind, name, version, accession, doi, content_hash,
                       created_at as "created_at: DateTime<Utc>"
                FROM provenance_reference_resources
                WHERE project_id = $1 OR project_id IS NULL
@@ -762,7 +763,7 @@ impl ProvenanceRepository {
             r#"INSERT INTO provenance_verifications
                  (id, target_run_id, project_id, status, tolerance_mode)
                VALUES ($1, $2, $3, $4, $5)
-               RETURNING id, target_run_id, project_id, status, tolerance_mode,
+               RETURNING id as "id: Uuid", target_run_id as "target_run_id: Uuid", project_id as "project_id: Uuid", status, tolerance_mode,
                          diff_report as "diff_report: serde_json::Value",
                          rootfs_digest,
                          cert_json as "cert_json?: serde_json::Value",
@@ -797,7 +798,7 @@ impl ProvenanceRepository {
                     -- chronological on both sides — the ITEM-19/20/21 form.)
                     verified_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
                WHERE id = $1
-               RETURNING id, target_run_id, project_id, status, tolerance_mode,
+               RETURNING id as "id: Uuid", target_run_id as "target_run_id: Uuid", project_id as "project_id: Uuid", status, tolerance_mode,
                          diff_report as "diff_report: serde_json::Value",
                          rootfs_digest,
                          cert_json as "cert_json?: serde_json::Value",
@@ -820,7 +821,7 @@ impl ProvenanceRepository {
     ) -> Result<Option<VerificationRow>, AppError> {
         sqlx::query_as!(
             VerificationRow,
-            r#"SELECT id, target_run_id, project_id, status, tolerance_mode,
+            r#"SELECT id as "id: Uuid", target_run_id as "target_run_id: Uuid", project_id as "project_id: Uuid", status, tolerance_mode,
                       diff_report as "diff_report: serde_json::Value",
                       rootfs_digest,
                       cert_json as "cert_json?: serde_json::Value",
@@ -847,7 +848,7 @@ impl ProvenanceRepository {
         let offset = (page - 1).max(0) * per_page;
         sqlx::query_as!(
             VerificationRow,
-            r#"SELECT id, target_run_id, project_id, status, tolerance_mode,
+            r#"SELECT id as "id: Uuid", target_run_id as "target_run_id: Uuid", project_id as "project_id: Uuid", status, tolerance_mode,
                       diff_report as "diff_report: serde_json::Value",
                       rootfs_digest,
                       cert_json as "cert_json?: serde_json::Value",
@@ -879,9 +880,11 @@ impl ProvenanceRepository {
         if run_ids.is_empty() {
             return Ok(HashMap::new());
         }
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let json_run_ids = uuid_list_json(run_ids);
         let rows = sqlx::query_as!(
             VerificationRow,
-            r#"SELECT id, target_run_id, project_id, status, tolerance_mode,
+            r#"SELECT id as "id: Uuid", target_run_id as "target_run_id: Uuid", project_id as "project_id: Uuid", status, tolerance_mode,
                       diff_report as "diff_report: serde_json::Value",
                       rootfs_digest,
                       cert_json as "cert_json?: serde_json::Value",
@@ -904,7 +907,7 @@ impl ProvenanceRepository {
                       AND status <> 'pending'
                )
                WHERE rn = 1"#,
-            uuid_list_json(run_ids),
+            json_run_ids,
         )
         .fetch_all(&self.pool)
         .await
@@ -940,7 +943,7 @@ impl ProvenanceRepository {
     ) -> Result<Option<VerificationRow>, AppError> {
         sqlx::query_as!(
             VerificationRow,
-            r#"SELECT id, target_run_id, project_id, status, tolerance_mode,
+            r#"SELECT id as "id: Uuid", target_run_id as "target_run_id: Uuid", project_id as "project_id: Uuid", status, tolerance_mode,
                       diff_report as "diff_report: serde_json::Value",
                       rootfs_digest,
                       cert_json as "cert_json?: serde_json::Value",

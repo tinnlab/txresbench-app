@@ -83,7 +83,7 @@ fn fused_job(owner: Uuid, members: &[Uuid]) -> Job {
 
 /// Seed the synthetic job's `jobs` row + its project `job_scope` row, so the recorder
 /// resolves the run's scope from the table (ITEM-68).
-async fn seed_job_scope(pool: &PgPool, job: &Job, project: Uuid) {
+async fn seed_job_scope(pool: &SqlitePool, job: &Job, project: Uuid) {
     sqlx::query(
         "INSERT INTO jobs (id, owner_id, job_type, name, status) VALUES ($1, $2, $3, $4, $5)",
     )
@@ -110,7 +110,7 @@ async fn seed_job_scope(pool: &PgPool, job: &Job, project: Uuid) {
 /// artifacts are, and it is the arm the widened tenancy check exists for. A
 /// project-scoped pair would resolve through the direct match and never exercise it.
 async fn attached_dataset_artifact(
-    pool: &PgPool,
+    pool: &SqlitePool,
     project: Uuid,
     name: &str,
     content_hash: &str,

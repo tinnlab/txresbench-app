@@ -265,7 +265,7 @@ async fn workstore_and_job_and_sandbox_gates_are_account_aware() {
 /// return the `Artifact` value `require_artifact_read` dispatches on (only its
 /// `project_id`/`dataset_id` scope is read). `object_key` present satisfies the
 /// bytes-or-recipe CHECK.
-async fn seed_project_artifact(pool: &sqlx::PgPool, project_id: uuid::Uuid) -> Artifact {
+async fn seed_project_artifact(pool: &sqlx::SqlitePool, project_id: uuid::Uuid) -> Artifact {
     let catalog = CatalogRepository::new(pool.clone());
     catalog
         .insert_artifact(&NewArtifact {

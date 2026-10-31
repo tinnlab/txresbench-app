@@ -86,7 +86,7 @@ async fn main() {
                 std::process::exit(2);
             }
         };
-        let pool = match sqlx::postgres::PgPoolOptions::new()
+        let pool = match sqlx::sqlite::SqlitePoolOptions::new()
             .max_connections(2)
             .connect(&url)
             .await

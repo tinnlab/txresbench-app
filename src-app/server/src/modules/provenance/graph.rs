@@ -473,10 +473,12 @@ async fn code_blob_lens(
     // (DEC-12: `sha256 = ANY($1)` has no SQLite form — the TEXT-array batch is
     // JSON1 membership over a JSON array of plain strings, the workstore
     // `text_list_json` convention: `col IN (SELECT j.value FROM json_each($1) AS j)`.)
+    // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+    let json = serde_json::to_string(shas).expect("a Vec<String> is always JSON-serializable");
     let rows = sqlx::query!(
         r#"SELECT sha256, byte_len FROM provenance_code_blobs
            WHERE sha256 IN (SELECT j.value FROM json_each($1) AS j)"#,
-        serde_json::to_string(shas).expect("a Vec<String> is always JSON-serializable"),
+        json,
     )
     .fetch_all(pool)
     .await
@@ -895,14 +897,14 @@ pub async fn write_capture_atomically(
               code_sha256, env_rootfs_sha256, lockfile_json, seed, params,
               inputs_json, acting_user, rerun_spec_json)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-           RETURNING run_id, project_id, dataset_id, kind, status, generator_id, generator_version,
+           RETURNING run_id as "run_id: Uuid", project_id as "project_id: Uuid", dataset_id as "dataset_id: Uuid", kind, status, generator_id, generator_version,
                      code_sha256, env_rootfs_sha256,
                      lockfile_json as "lockfile_json?: serde_json::Value",
                      seed,
                      params as "params: serde_json::Value",
                      inputs_json as "inputs_json: serde_json::Value",
                      rerun_spec_json as "rerun_spec_json?: serde_json::Value",
-                     acting_user,
+                     acting_user as "acting_user?: Uuid",
                      started_at as "started_at?: chrono::DateTime<chrono::Utc>",
                      finished_at as "finished_at?: chrono::DateTime<chrono::Utc>",
                      captured_at as "captured_at: chrono::DateTime<chrono::Utc>""#,

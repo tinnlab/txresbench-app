@@ -17,7 +17,7 @@
 use std::time::Duration;
 
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::jobs::repository::JobRepository;
@@ -30,7 +30,7 @@ use cytoanalyst::modules::jobs::settings::{
 use crate::account::{create_user_without_projects, login, pool_for, setup_admin};
 use crate::common::{TestOptions, TestServer};
 
-async fn admin_id(pool: &PgPool) -> Uuid {
+async fn admin_id(pool: &SqlitePool) -> Uuid {
     sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE username = 'admin'")
         .fetch_one(pool)
         .await
@@ -51,7 +51,7 @@ async fn get_settings(server: &TestServer, token: &str) -> Value {
 }
 
 /// Insert a `running` row `claimed_by = worker`, heartbeat `age_secs` in the past.
-async fn insert_running(pool: &PgPool, owner: Uuid, worker: &str, age_secs: i64) -> Uuid {
+async fn insert_running(pool: &SqlitePool, owner: Uuid, worker: &str, age_secs: i64) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO jobs (id, owner_id, job_type, name, status, started_at, claimed_by, claim_heartbeat) \

@@ -21,7 +21,7 @@ use crate::dataset::create_dataset;
 
 /// A recorded run whose inputs name `datasets`, scoped to `project`.
 async fn run_with_dataset_inputs(
-    pool: &sqlx::PgPool,
+    pool: &sqlx::SqlitePool,
     project: Uuid,
     datasets: &[Uuid],
 ) -> Uuid {
@@ -88,7 +88,7 @@ async fn floating_artifact(
     .id
 }
 
-async fn dataset_id_of(pool: &sqlx::PgPool, artifact: Uuid) -> Option<Uuid> {
+async fn dataset_id_of(pool: &sqlx::SqlitePool, artifact: Uuid) -> Option<Uuid> {
     sqlx::query_scalar::<_, Option<Uuid>>("SELECT dataset_id FROM artifacts WHERE id = $1")
         .bind(artifact)
         .fetch_one(pool)
@@ -100,7 +100,7 @@ async fn dataset_id_of(pool: &sqlx::PgPool, artifact: Uuid) -> Option<Uuid> {
 async fn three_buckets(
     server: &TestServer,
     token: &str,
-    pool: &sqlx::PgPool,
+    pool: &sqlx::SqlitePool,
     tag: &str,
 ) -> (Uuid, Uuid, Uuid, Uuid, Uuid) {
     let project = create_project(server, token, &format!("backfill {tag}")).await;

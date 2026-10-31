@@ -67,7 +67,7 @@
 //!     this one. The assertion is on which field the error names.
 
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
@@ -77,7 +77,7 @@ use super::{create_project, pool_for, server_store, setup_admin, write_manifest}
 use crate::common::TestServer;
 
 /// `(is_nullable, column_default)` for one `artifacts` column.
-async fn column_contract(pool: &PgPool, column: &str) -> (String, Option<String>) {
+async fn column_contract(pool: &SqlitePool, column: &str) -> (String, Option<String>) {
     sqlx::query_as::<_, (String, Option<String>)>(
         "SELECT is_nullable::text, column_default::text
            FROM information_schema.columns
@@ -93,7 +93,7 @@ async fn column_contract(pool: &PgPool, column: &str) -> (String, Option<String>
 /// Every `artifacts` column an INSERT must state: `NOT NULL` with no default.
 /// Returned as `(name, sql_type)` pairs, ordered, so the callers below can both
 /// enumerate the set and build a literal for each member.
-async fn required_columns(pool: &PgPool) -> Vec<(String, String)> {
+async fn required_columns(pool: &SqlitePool) -> Vec<(String, String)> {
     sqlx::query_as(
         "SELECT column_name::text, data_type::text FROM information_schema.columns
           WHERE table_schema = 'public' AND table_name = 'artifacts'
@@ -138,7 +138,7 @@ fn entry_keys() -> Vec<String> {
 /// Ingest one manifest entry into a fresh run; returns the run id and the outcome.
 async fn ingest_entry(
     server: &TestServer,
-    pool: &PgPool,
+    pool: &SqlitePool,
     store: &cytoanalyst::modules::workstore::object_store::LocalFsStore,
     project: Uuid,
     entry: Value,
@@ -270,7 +270,7 @@ async fn test3_an_insert_omitting_a_declaration_errors_and_stores_nothing() {
     let pool = pool_for(&server).await;
 
     /// Rows this project holds right now.
-    async fn count(pool: &PgPool, sid: Uuid) -> i64 {
+    async fn count(pool: &SqlitePool, sid: Uuid) -> i64 {
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM artifacts WHERE project_id = $1")
             .bind(sid)
             .fetch_one(pool)

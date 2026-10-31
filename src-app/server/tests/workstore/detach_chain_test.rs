@@ -153,7 +153,7 @@ async fn seed_alignment(
 /// The VIRTUAL DATASET row an integration run produces — the same shape
 /// `virtual_dataset::create_for_run` inserts, `metadata.alignment.artifact_id` and all.
 async fn seed_virtual_dataset(
-    pool: &sqlx::PgPool,
+    pool: &sqlx::SqlitePool,
     owner_of: Uuid,
     name: &str,
     alignment: Uuid,
@@ -373,7 +373,7 @@ async fn the_database_refuses_an_integrate_dataset_with_no_alignment_edge() {
 /// Seed a `source='filter'` VD in `project`: a stored mask bound to it (recording `source` in its
 /// `meta.sources[]`, exactly as `create_filter_vd_for_run` does), attached via `project_datasets`.
 async fn seed_filter_vd(
-    pool: &sqlx::PgPool,
+    pool: &sqlx::SqlitePool,
     repo: &CatalogRepository,
     project: Uuid,
     name: &str,

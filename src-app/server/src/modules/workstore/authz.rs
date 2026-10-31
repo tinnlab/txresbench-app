@@ -116,7 +116,7 @@ pub async fn require_dataset_read(
                            JOIN groups g ON g.id = ug.group_id
                           WHERE ug.user_id = $2 AND g.is_active)) )
                )
-             )) as "e!""#,
+             )) as "e!: bool""#,
         dataset_id,
         user_id,
     )

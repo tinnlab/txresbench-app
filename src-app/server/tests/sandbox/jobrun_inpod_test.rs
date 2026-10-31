@@ -26,7 +26,7 @@ use crate::dataset::hardening_common::{create_project, pool_for, skip_no_rootfs}
 
 const TEST_6_7: &str = "sandbox::jobrun_inpod::real_run";
 
-async fn owner_id(pool: &sqlx::PgPool) -> Uuid {
+async fn owner_id(pool: &sqlx::SqlitePool) -> Uuid {
     sqlx::query_scalar("SELECT id FROM users WHERE username = 'sbxadmin'")
         .fetch_one(pool)
         .await
@@ -36,7 +36,7 @@ async fn owner_id(pool: &sqlx::PgPool) -> Uuid {
 /// Insert an ALREADY-CLAIMED (`running`) analysis job — the state the control plane leaves a job
 /// in when it hands it to the job-per-run pod — marked a heavy resource class. Returns the id.
 async fn running_heavy_job(
-    pool: &sqlx::PgPool,
+    pool: &sqlx::SqlitePool,
     owner: Uuid,
     project: Option<Uuid>,
     params: serde_json::Value,
@@ -105,7 +105,7 @@ async fn run_job_subprocess(server: &TestServer, job_id: Uuid) -> (i32, String) 
     (out.status.code().unwrap_or(-1), combined)
 }
 
-async fn artifact_rows(pool: &sqlx::PgPool, run: Uuid) -> Vec<(String, Option<String>)> {
+async fn artifact_rows(pool: &sqlx::SqlitePool, run: Uuid) -> Vec<(String, Option<String>)> {
     sqlx::query_as("SELECT content_hash, object_key FROM artifacts WHERE run_id = $1")
         .bind(run)
         .fetch_all(pool)

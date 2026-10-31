@@ -152,10 +152,11 @@ async fn derive_listing_provenance(
     };
     let mut names: std::collections::HashMap<Uuid, String> = std::collections::HashMap::new();
     if !distinct.is_empty() {
+        let distinct_json = super::catalog::repository::uuid_list_json(&distinct);
         let rows = sqlx::query!(
-            r#"SELECT id, name FROM datasets WHERE id IN
+            r#"SELECT id as "id: Uuid", name FROM datasets WHERE id IN
                (SELECT unhex(j.value) FROM json_each($1) AS j)"#,
-            super::catalog::repository::uuid_list_json(&distinct),
+            distinct_json,
         )
         .fetch_all(pool)
         .await
@@ -181,10 +182,11 @@ async fn derive_listing_provenance(
     };
     let mut generators: std::collections::HashMap<Uuid, String> = std::collections::HashMap::new();
     if !distinct_runs.is_empty() {
+        let distinct_runs_json = super::catalog::repository::uuid_list_json(&distinct_runs);
         let rows = sqlx::query!(
-            r#"SELECT run_id, generator_id FROM provenance_run_repro WHERE run_id IN
+            r#"SELECT run_id as "run_id: Uuid", generator_id FROM provenance_run_repro WHERE run_id IN
                (SELECT unhex(j.value) FROM json_each($1) AS j)"#,
-            super::catalog::repository::uuid_list_json(&distinct_runs),
+            distinct_runs_json,
         )
         .fetch_all(pool)
         .await

@@ -12,7 +12,7 @@
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::jobs::repository::JobRepository;
@@ -20,7 +20,7 @@ use cytoanalyst::modules::jobs::repository::JobRepository;
 use super::{pool_for, register_user};
 use crate::common::{TestOptions, TestServer};
 
-async fn insert_queued(pool: &PgPool, owner: Uuid, name: &str) -> Uuid {
+async fn insert_queued(pool: &SqlitePool, owner: Uuid, name: &str) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query("INSERT INTO jobs (id, owner_id, job_type, name) VALUES ($1, $2, 'stub', $3)")
         .bind(id)

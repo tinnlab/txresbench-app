@@ -137,11 +137,13 @@ async fn scheduler_interleaves_owners_and_claims_atomically() {
     );
 
     // Atomic claim: exactly 4 completed rows for these ids, no extras.
-    let completed: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM jobs WHERE status = 'completed' AND id = ANY($1)")
-            .bind(vec![a1, a2, a3, b1])
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+    let completed: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM jobs WHERE status = 'completed' \
+         AND id IN (SELECT unhex(j.value) FROM json_each($1) AS j)",
+    )
+    .bind(uuid_list_json(&[a1, a2, a3, b1]))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert_eq!(completed, 4, "all four claimed + completed exactly once");
 }

@@ -957,7 +957,7 @@ async fn artifact_summary_representative_ranking() {
         ra.get::<String, _>(6),
         "a4",
         "representative = newest of the two canonically-equal non-empty structures \
-         (the ORDER BY's only JSON comparison is against the '{}' literal)"
+         (the ORDER BY's only JSON comparison is against the '{{}}' literal)"
     );
     let rmeta: serde_json::Value =
         serde_json::from_str(ra.get::<String, _>(7).as_str()).expect("meta");
@@ -1039,11 +1039,17 @@ async fn visibility_access_and_editable_alignment() {
         .await
         .expect("edit share");
 
-    let vis = |ds: Uuid, u: Uuid| -> bool {
-        sqlx::query_scalar(IS_VISIBLE_TO)
-            .bind(ds)
-            .bind(u)
-            .bind(uuid_json(&[]))
+    let vis = |ds: Uuid, u: Uuid| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query_scalar(IS_VISIBLE_TO)
+                .bind(ds)
+                .bind(u)
+                .bind(uuid_json(&[]))
+                .fetch_one(&pool)
+                .await
+                .expect("visibility")
+        }
     };
     async fn access_row(pool: &SqlitePool, ds: Uuid, u: Uuid) -> (bool, bool) {
         let row = sqlx::query(ACCESS)
@@ -1097,18 +1103,24 @@ async fn visibility_access_and_editable_alignment() {
     assert_eq!(access_row(&pool, d2, owner).await, (true, true));
 
     // editable_subset agrees with access's can_edit arm per role
-    let subset = |u: Uuid, ids: Vec<Uuid>| -> Vec<Uuid> {
-        sqlx::query_scalar(EDITABLE_SUBSET)
-            .bind(uuid_json(&ids))
-            .bind(u)
-            .bind(uuid_json(&[]))
+    let subset = |u: Uuid, ids: Vec<Uuid>| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query_scalar(EDITABLE_SUBSET)
+                .bind(uuid_json(&ids))
+                .bind(u)
+                .bind(uuid_json(&[]))
+                .fetch_all(&pool)
+                .await
+                .expect("editable subset")
+        }
     };
     let ids = vec![d, d2];
-    let s_owner = subset(owner, ids.clone()).await;
+    let s_owner: Vec<Uuid> = subset(owner, ids.clone()).await;
     assert!(s_owner.contains(&d) && s_owner.contains(&d2));
-    let s_viewer = subset(viewer, ids.clone()).await;
+    let s_viewer: Vec<Uuid> = subset(viewer, ids.clone()).await;
     assert!(!s_viewer.contains(&d), "viewer cannot edit");
-    let s_admin = subset(admin, ids.clone()).await;
+    let s_admin: Vec<Uuid> = subset(admin, ids.clone()).await;
     assert!(s_admin.contains(&d2), "org admin edits the org dataset");
     assert!(!s_admin.contains(&d), "org admin is not the personal owner");
 
@@ -1120,7 +1132,7 @@ async fn visibility_access_and_editable_alignment() {
         .await
         .expect("removal");
     assert_eq!(access_row(&pool, d2, owner).await, (false, false));
-    let s_owner2 = subset(owner, ids.clone()).await;
+    let s_owner2: Vec<Uuid> = subset(owner, ids.clone()).await;
     assert!(!s_owner2.contains(&d2));
     assert!(s_owner2.contains(&d));
 }

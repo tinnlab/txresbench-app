@@ -332,7 +332,7 @@ fn work_dir_for(verify_sh: &str, run_id: Uuid) -> String {
 /// `env`/`code` control the step's EXECUTABILITY class: both `Some` → a runnable
 /// step (`verify_step`); either `None` → a `never`-executable step (`skip_step`).
 async fn seed_run_with_output(
-    pool: &sqlx::PgPool,
+    pool: &sqlx::SqlitePool,
     project_id: Uuid,
     root_hash: &str,
     env: Option<&str>,

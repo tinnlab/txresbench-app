@@ -160,7 +160,7 @@ async fn put_produced_mask(repo: &CatalogRepository, source_dataset: Uuid, run_i
 async fn scene(
     server: &TestServer,
 ) -> (
-    sqlx::PgPool,
+    sqlx::SqlitePool,
     cytoanalyst::modules::jobs::models::Job,
     Uuid,
     Uuid,
@@ -267,7 +267,7 @@ async fn a_filter_run_creates_a_filter_virtual_dataset() {
 
     // The mask: re-bound to the VD, role='mask', hidden, recording its source (§3.4).
     let m = sqlx::query!(
-        "SELECT dataset_id, role, hidden, meta as \"meta: serde_json::Value\" FROM artifacts WHERE id = $1",
+        "SELECT dataset_id as \"dataset_id: Uuid\", role, hidden as \"hidden: bool\", meta as \"meta: serde_json::Value\" FROM artifacts WHERE id = $1",
         mask
     )
     .fetch_one(&pool)
@@ -295,7 +295,7 @@ async fn a_filter_run_creates_a_filter_virtual_dataset() {
         let pool = pool.clone();
         async move {
             sqlx::query!(
-                "SELECT dataset_id, object_key, structure as \"structure: serde_json::Value\" FROM artifacts WHERE id = $1",
+                "SELECT dataset_id as \"dataset_id: Uuid\", object_key, structure as \"structure: serde_json::Value\" FROM artifacts WHERE id = $1",
                 id
             )
             .fetch_one(&pool)
@@ -318,13 +318,14 @@ async fn a_filter_run_creates_a_filter_virtual_dataset() {
     // On-axis (matrix + row column) ride the mask; the off-axis (col) column does NOT (INV-1).
     let mask_applied = |src_artifact: Uuid| {
         let pool = pool.clone();
+        let src_artifact_s = src_artifact.to_string();
         async move {
             let row = sqlx::query!(
                 "SELECT structure as \"structure: serde_json::Value\" FROM artifacts \
                  WHERE dataset_id = $1 AND object_key IS NULL \
                    AND structure -> 'gathered_from' -> 'sources' -> 0 ->> 'artifact_id' = $2",
                 vd,
-                src_artifact.to_string()
+                src_artifact_s
             )
             .fetch_one(&pool)
             .await
@@ -422,10 +423,13 @@ async fn a_filter_vd_stamps_the_creating_run_and_producer_identity() {
         "the filter run produced gathered columns"
     );
     for g in &gathered {
-        let row = sqlx::query!("SELECT created_by, run_id FROM artifacts WHERE id = $1", g)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+        let row = sqlx::query!(
+            "SELECT created_by as \"created_by: Uuid\", run_id as \"run_id: Uuid\" FROM artifacts WHERE id = $1",
+            g
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         assert_eq!(
             row.created_by,
             Some(owner),
@@ -458,7 +462,7 @@ async fn a_filter_virtual_dataset_costs_no_stored_bytes() {
     };
 
     let sum = sqlx::query!(
-        "SELECT COALESCE(SUM(stored_bytes), 0)::bigint as \"sum!\" FROM artifacts WHERE dataset_id = $1 AND object_key IS NULL",
+        "SELECT COALESCE(SUM(stored_bytes), 0) as \"sum!\" FROM artifacts WHERE dataset_id = $1 AND object_key IS NULL",
         vd
     )
     .fetch_one(&pool)
@@ -721,13 +725,14 @@ async fn a_row_mask_does_not_ride_a_col_column_when_dims_coincide() {
 
     let mask_applied = |src_artifact: Uuid| {
         let pool = pool.clone();
+        let src_artifact_s = src_artifact.to_string();
         async move {
             let row = sqlx::query!(
                 "SELECT structure as \"structure: serde_json::Value\" FROM artifacts \
                  WHERE dataset_id = $1 AND object_key IS NULL \
                    AND structure -> 'gathered_from' -> 'sources' -> 0 ->> 'artifact_id' = $2",
                 vd,
-                src_artifact.to_string()
+                src_artifact_s
             )
             .fetch_one(&pool)
             .await
@@ -1101,7 +1106,7 @@ async fn byte_scene(
     n_rows: usize,
     n_cols: usize,
 ) -> (
-    sqlx::PgPool,
+    sqlx::SqlitePool,
     LocalFsStore,
     CatalogRepository,
     Uuid, // the source dataset
@@ -1132,7 +1137,7 @@ async fn byte_scene(
     (pool, store, repo, source, job_id)
 }
 
-async fn fetch_job(pool: &sqlx::PgPool, job_id: Uuid) -> cytoanalyst::modules::jobs::models::Job {
+async fn fetch_job(pool: &sqlx::SqlitePool, job_id: Uuid) -> cytoanalyst::modules::jobs::models::Job {
     cytoanalyst::modules::jobs::repository::JobRepository::new(pool.clone())
         .get_any(job_id)
         .await
@@ -1141,12 +1146,13 @@ async fn fetch_job(pool: &sqlx::PgPool, job_id: Uuid) -> cytoanalyst::modules::j
 }
 
 /// The VD's gathered recipe row for one SOURCE artifact, or `None` if the sink minted none.
-async fn gathered_for(pool: &sqlx::PgPool, vd: Uuid, src: Uuid) -> Option<Uuid> {
+async fn gathered_for(pool: &sqlx::SqlitePool, vd: Uuid, src: Uuid) -> Option<Uuid> {
+    let src_s = src.to_string();
     sqlx::query_scalar!(
-        "SELECT id FROM artifacts WHERE dataset_id = $1 AND object_key IS NULL \
+        "SELECT id as \"id: Uuid\" FROM artifacts WHERE dataset_id = $1 AND object_key IS NULL \
            AND structure -> 'gathered_from' -> 'sources' -> 0 ->> 'artifact_id' = $2",
         vd,
-        src.to_string()
+        src_s
     )
     .fetch_optional(pool)
     .await

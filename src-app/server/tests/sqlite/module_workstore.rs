@@ -1124,7 +1124,7 @@ async fn migration_repo_lifecycle_and_progress_monotonicity() {
     );
 
     // the single-active guard: a second create conflicts with the sqlite extended code
-    let err = sqlx::query(&mig_sql(MIG_CREATE))
+    let err = match sqlx::query(&mig_sql(MIG_CREATE))
         .bind(Uuid::new_v4())
         .bind("local")
         .bind(Option::<String>::None)
@@ -1141,7 +1141,10 @@ async fn migration_repo_lifecycle_and_progress_monotonicity() {
         .bind(Option::<Vec<u8>>::None)
         .fetch_one(&pool)
         .await
-        .expect_err("second create must conflict");
+    {
+        Ok(_) => panic!("second create must conflict"),
+        Err(e) => e,
+    };
     let db = err.as_database_error().expect("db error");
     let code = db.code().map(|c| c.to_string());
     assert!(

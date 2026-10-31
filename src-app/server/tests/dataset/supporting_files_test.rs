@@ -22,7 +22,7 @@ use std::time::Duration;
 
 use reqwest::multipart::{Form, Part};
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::dataset::repository::DatasetRepository;
@@ -526,7 +526,7 @@ async fn add_supporting_emits_sync_and_records_integrate_provenance() {
 
 /// Insert a controlled `analysis` job in a chosen status (so the background
 /// scheduler never races a terminal one) → its id.
-async fn insert_job(pool: &PgPool, owner: Uuid, status: &str) -> Uuid {
+async fn insert_job(pool: &SqlitePool, owner: Uuid, status: &str) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO jobs (id, owner_id, job_type, name, status, params, priority_class, resource_class)

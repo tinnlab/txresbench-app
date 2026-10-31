@@ -19,8 +19,8 @@ use crate::common::TestServer;
 
 use super::{create_user, login, setup_admin};
 
-async fn pool_for(server: &TestServer) -> sqlx::PgPool {
-    sqlx::PgPool::connect(server.database_url())
+async fn pool_for(server: &TestServer) -> sqlx::SqlitePool {
+    sqlx::SqlitePool::connect(server.database_url())
         .await
         .expect("connect test db")
 }

@@ -16,7 +16,7 @@
 //!   inferred would produce a DIFFERENT, recognisable result rather than simply passing.
 
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
@@ -44,7 +44,7 @@ async fn list_artifacts_http(server: &TestServer, token: &str, project: Uuid) ->
 /// The four columns artifact-model ITEM-7 dropped.
 const DROPPED_COLUMNS: [&str; 4] = ["shape", "params", "covered_axes", "storage_layout"];
 
-async fn artifact_columns(pool: &PgPool) -> Vec<String> {
+async fn artifact_columns(pool: &SqlitePool) -> Vec<String> {
     sqlx::query_scalar::<_, String>(
         "SELECT column_name::text FROM information_schema.columns
          WHERE table_schema = 'public' AND table_name = 'artifacts'",

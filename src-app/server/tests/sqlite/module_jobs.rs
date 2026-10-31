@@ -42,6 +42,7 @@
 use std::time::Duration;
 
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions};
+use sqlx::Row;
 use uuid::Uuid;
 
 use super::apply_chain::{apply_chain, compose_sqlite_chain, Scratch};

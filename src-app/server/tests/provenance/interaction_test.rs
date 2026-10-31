@@ -197,7 +197,7 @@ async fn the_server_side_capture_chokepoint_is_unique() {
 
 /// Every `provenance_run_repro` / `artifacts` / `provenance_code_blobs` count, as a
 /// triple, so a test can assert "this request persisted NOTHING".
-async fn persisted_counts(pool: &PgPool) -> (i64, i64, i64) {
+async fn persisted_counts(pool: &SqlitePool) -> (i64, i64, i64) {
     let one = |sql: &'static str| {
         let pool = pool.clone();
         async move { sqlx::query_scalar::<_, i64>(sql).fetch_one(&pool).await.expect("count") }
@@ -535,7 +535,7 @@ async fn a_dropped_capture_commits_no_orphan_artifact() {
     // global naming a deleted directory for every later test that sweeps.
     crate::common::object_store::shared_object_store_root();
 
-    async fn counts(p: &PgPool, project_id: Uuid) -> (i64, i64) {
+    async fn counts(p: &SqlitePool, project_id: Uuid) -> (i64, i64) {
         let arts: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM artifacts WHERE project_id = $1 AND output_id = 'selection'",
         )

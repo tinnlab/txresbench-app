@@ -390,7 +390,7 @@ async fn artifact_meta(server: &TestServer, token: &str, id: Uuid) -> Value {
 async fn poll_terminal(
     server: &TestServer,
     _token: &str,
-    pool: &sqlx::PgPool,
+    pool: &sqlx::SqlitePool,
     job_id: Uuid,
     secs: u64,
 ) -> String {

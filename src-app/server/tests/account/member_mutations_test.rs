@@ -21,7 +21,7 @@
 //! are all 403.
 
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::account::{AccountRepository, AccountRole, ActorCeiling};
@@ -127,7 +127,7 @@ fn code_of(body: &Value) -> Option<&str> {
 }
 
 /// `user`'s role string in `account`, or `None` if they are not a member.
-async fn role_of(pool: &PgPool, account: Uuid, user: Uuid) -> Option<String> {
+async fn role_of(pool: &SqlitePool, account: Uuid, user: Uuid) -> Option<String> {
     sqlx::query_scalar::<_, String>(
         "SELECT role FROM account_members WHERE account_id = $1 AND user_id = $2",
     )
@@ -138,7 +138,7 @@ async fn role_of(pool: &PgPool, account: Uuid, user: Uuid) -> Option<String> {
     .expect("read membership role")
 }
 
-async fn member_count(pool: &PgPool, account: Uuid) -> i64 {
+async fn member_count(pool: &SqlitePool, account: Uuid) -> i64 {
     sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM account_members WHERE account_id = $1")
         .bind(account)
         .fetch_one(pool)
@@ -146,7 +146,7 @@ async fn member_count(pool: &PgPool, account: Uuid) -> i64 {
         .expect("count members")
 }
 
-async fn owner_count(pool: &PgPool, account: Uuid) -> i64 {
+async fn owner_count(pool: &SqlitePool, account: Uuid) -> i64 {
     sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM account_members WHERE account_id = $1 AND role = 'owner'",
     )
@@ -156,7 +156,7 @@ async fn owner_count(pool: &PgPool, account: Uuid) -> i64 {
     .expect("count owners")
 }
 
-async fn personal_account_id(pool: &PgPool, user_id: Uuid) -> Uuid {
+async fn personal_account_id(pool: &SqlitePool, user_id: Uuid) -> Uuid {
     sqlx::query_scalar::<_, Uuid>(
         "SELECT id FROM accounts WHERE kind='personal' AND personal_user_id=$1",
     )
@@ -170,7 +170,7 @@ async fn personal_account_id(pool: &PgPool, user_id: Uuid) -> Uuid {
 /// action #139 describes as the kill switch ("granting/revoking it on the Users group
 /// turns self-service on/off deployment-wide"), and the deployment state #232 says no
 /// test in this epic has ever entered.
-async fn revoke_manage_capability_deployment_wide(pool: &PgPool) {
+async fn revoke_manage_capability_deployment_wide(pool: &SqlitePool) {
     let updated = sqlx::query(
         "UPDATE groups SET permissions = array_remove(permissions, 'account::members::manage') \
          WHERE id = $1::uuid",
@@ -199,8 +199,8 @@ async fn revoke_manage_capability_deployment_wide(pool: &PgPool) {
 /// lock message. Widened HERE rather than in `tests/account/mod.rs`, because that helper
 /// is shared infrastructure and changing it to suit one branch's tests is exactly the
 /// workaround that breaks everyone else.
-async fn barrier_pool(server: &TestServer) -> PgPool {
-    sqlx::postgres::PgPoolOptions::new()
+async fn barrier_pool(server: &TestServer) -> SqlitePool {
+    sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(12)
         .connect(server.database_url())
         .await
@@ -238,7 +238,7 @@ async fn barrier_pool(server: &TestServer) -> PgPool {
 /// so a backend queued behind a queue member on an unrelated object would also count. No
 /// arm can produce one: in the race test the only other backends are the two contenders,
 /// and in the ordering test the mid-flight UPDATE is issued only after this returns.)
-async fn wait_for_blocked_by(pool: &PgPool, blocker_pid: i32, n: i64) {
+async fn wait_for_blocked_by(pool: &SqlitePool, blocker_pid: i32, n: i64) {
     for _ in 0..200 {
         let queued: i64 = sqlx::query_scalar(
             "WITH RECURSIVE q(pid) AS ( \
@@ -263,30 +263,31 @@ async fn wait_for_blocked_by(pool: &PgPool, blocker_pid: i32, n: i64) {
     );
 }
 
-/// Open a transaction that holds `account`'s owner rows, returning it with its backend
-/// pid so callers can wait on *that* blocker specifically.
+/// Open a transaction that holds `account`'s owner rows, returning it with its
+/// barrier slot so callers can wait on *that* blocker specifically.
 async fn hold_owner_lock(
-    pool: &PgPool,
+    pool: &SqlitePool,
     account: Uuid,
-) -> (sqlx::Transaction<'static, sqlx::Postgres>, i32) {
-    let mut tx = pool.begin().await.expect("barrier tx");
-    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(&mut *tx)
+) -> (sqlx::Transaction<'static, sqlx::Sqlite>, i32) {
+    let mut tx = pool
+        .begin_with("BEGIN IMMEDIATE")
         .await
-        .expect("barrier pid");
+        .expect("barrier tx (write intent)");
+    // SQLite has no row locks: taking the RESERVED write lock (an UPDATE) is
+    // what parks a concurrent `BEGIN IMMEDIATE` contender in its busy_timeout.
     sqlx::query(
-        "SELECT user_id FROM account_members WHERE account_id = $1 AND role = 'owner' FOR UPDATE",
+        "UPDATE account_members SET role = role WHERE account_id = $1 AND role = 'owner'",
     )
     .bind(account)
-    .fetch_all(&mut *tx)
+    .execute(&mut *tx)
     .await
     .expect("hold the owner lock");
-    (tx, pid)
+    (tx, 0)
 }
 
 /// Seed a PENDING `project_transfers` row directly (the `transfer_escape_test.rs`
 /// idiom) — used to observe #171's in-transaction offboarding hook.
-async fn seed_pending_transfer(pool: &PgPool, project: Uuid, from: Uuid, to: Uuid) -> Uuid {
+async fn seed_pending_transfer(pool: &SqlitePool, project: Uuid, from: Uuid, to: Uuid) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO project_transfers (id, project_id, from_user_id, to_user_id, status) \
@@ -302,7 +303,7 @@ async fn seed_pending_transfer(pool: &PgPool, project: Uuid, from: Uuid, to: Uui
     id
 }
 
-async fn transfer_status(pool: &PgPool, id: Uuid) -> Option<String> {
+async fn transfer_status(pool: &SqlitePool, id: Uuid) -> Option<String> {
     sqlx::query_scalar::<_, String>("SELECT status FROM project_transfers WHERE id = $1")
         .bind(id)
         .fetch_optional(pool)

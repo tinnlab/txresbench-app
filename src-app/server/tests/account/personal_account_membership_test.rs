@@ -49,7 +49,7 @@ fn code_of(body: &Value) -> String {
     body.to_string()
 }
 
-async fn personal_account_of(pool: &sqlx::PgPool, user: uuid::Uuid) -> uuid::Uuid {
+async fn personal_account_of(pool: &sqlx::SqlitePool, user: uuid::Uuid) -> uuid::Uuid {
     sqlx::query_scalar("SELECT id FROM accounts WHERE kind = 'personal' AND personal_user_id = $1")
         .bind(user)
         .fetch_one(pool)
@@ -57,7 +57,7 @@ async fn personal_account_of(pool: &sqlx::PgPool, user: uuid::Uuid) -> uuid::Uui
         .expect("every user has exactly one personal account")
 }
 
-async fn member_count(pool: &sqlx::PgPool, account: uuid::Uuid) -> i64 {
+async fn member_count(pool: &sqlx::SqlitePool, account: uuid::Uuid) -> i64 {
     sqlx::query_scalar("SELECT count(*) FROM account_members WHERE account_id = $1")
         .bind(account)
         .fetch_one(pool)

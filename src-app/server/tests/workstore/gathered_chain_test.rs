@@ -81,7 +81,7 @@ async fn stored(
 /// kept two wrong recipes green.
 async fn alignment_artifact(
     repo: &CatalogRepository,
-    pool: &sqlx::PgPool,
+    pool: &sqlx::SqlitePool,
     store: &dyn ObjectStore,
     project: Uuid,
     output_id: &str,
@@ -1124,7 +1124,7 @@ async fn the_route_reproduces_the_committed_dropping_scene_fixture() {
 async fn capture_route_fixture(
     server: &TestServer,
     token: &str,
-    pool: &sqlx::PgPool,
+    pool: &sqlx::SqlitePool,
     g: Uuid,
     dir: &str,
     chunks: usize,
@@ -1700,7 +1700,7 @@ async fn a_gathered_artifact_materialises_to_the_same_bytes_the_route_serves() {
 }
 
 /// The two byte columns of one artifact row: `(stored_bytes, logical_bytes)`.
-async fn row_byte_columns(pool: &sqlx::PgPool, id: Uuid) -> (i64, Option<i64>) {
+async fn row_byte_columns(pool: &sqlx::SqlitePool, id: Uuid) -> (i64, Option<i64>) {
     sqlx::query_as::<_, (i64, Option<i64>)>(
         "SELECT stored_bytes, logical_bytes FROM artifacts WHERE id = $1",
     )
@@ -2654,7 +2654,7 @@ struct GatheredLevel {
 }
 
 async fn decode_level(
-    pool: &sqlx::PgPool,
+    pool: &sqlx::SqlitePool,
     store: &dyn ObjectStore,
     codes_artifact: Uuid,
     codes_structure: &serde_json::Value,
@@ -2861,7 +2861,7 @@ struct Level {
 async fn extend_chain(
     repo: &CatalogRepository,
     store: &dyn ObjectStore,
-    pool: &sqlx::PgPool,
+    pool: &sqlx::SqlitePool,
     project: Uuid,
     prev: &Level,
     // `(dataset id, row keys, group labels)` — a SLICE, so a level can carry more than two

@@ -270,7 +270,7 @@ async fn put_stored(
 /// the 2-D tissue map, its two Option-A 1-D siblings, a categorical colour column, and the
 /// run-produced marked keep-mask.
 struct SpatialScene {
-    pool: sqlx::PgPool,
+    pool: sqlx::SqlitePool,
     store: LocalFsStore,
     repo: CatalogRepository,
     owner: Uuid,
@@ -420,7 +420,7 @@ async fn spatial_scene_named(server: &TestServer, name: &str, member: &str) -> S
     }
 }
 
-async fn fetch_job(pool: &sqlx::PgPool, job_id: Uuid) -> cytoanalyst::modules::jobs::models::Job {
+async fn fetch_job(pool: &sqlx::SqlitePool, job_id: Uuid) -> cytoanalyst::modules::jobs::models::Job {
     cytoanalyst::modules::jobs::repository::JobRepository::new(pool.clone())
         .get_any(job_id)
         .await
@@ -434,12 +434,13 @@ async fn fetch_job(pool: &sqlx::PgPool, job_id: Uuid) -> cytoanalyst::modules::j
 /// `ORDER BY`, so if the sink ever minted two rows for one source, `fetch_optional` would hand
 /// back an arbitrary one and every assertion in every test here would silently measure
 /// whichever Postgres happened to return first. A duplicate mint must be a named failure.
-async fn gathered_for(pool: &sqlx::PgPool, vd: Uuid, src: Uuid) -> Option<Uuid> {
+async fn gathered_for(pool: &sqlx::SqlitePool, vd: Uuid, src: Uuid) -> Option<Uuid> {
+    let src_s = src.to_string();
     let rows = sqlx::query_scalar!(
-        "SELECT id FROM artifacts WHERE dataset_id = $1 AND object_key IS NULL \
+        "SELECT id as \"id: Uuid\" FROM artifacts WHERE dataset_id = $1 AND object_key IS NULL \
            AND structure -> 'gathered_from' -> 'sources' -> 0 ->> 'artifact_id' = $2",
         vd,
-        src.to_string()
+        src_s
     )
     .fetch_all(pool)
     .await

@@ -23,7 +23,7 @@
 //! whose refused account was empty cannot tell "refused" from "there was nothing there".
 
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::account::{
@@ -56,7 +56,7 @@ struct StoredEvent {
 }
 
 /// Every stored row for one account, oldest first.
-async fn stored_events(pool: &PgPool, account: Uuid) -> Vec<StoredEvent> {
+async fn stored_events(pool: &SqlitePool, account: Uuid) -> Vec<StoredEvent> {
     sqlx::query_as::<_, StoredEvent>(
         "SELECT action, actor_kind, actor_user_id, target_user_id, target_email, \
                 old_role, new_role, invitation_id, reason \
@@ -68,7 +68,7 @@ async fn stored_events(pool: &PgPool, account: Uuid) -> Vec<StoredEvent> {
     .expect("read stored ledger rows")
 }
 
-async fn event_count(pool: &PgPool, account: Uuid) -> i64 {
+async fn event_count(pool: &SqlitePool, account: Uuid) -> i64 {
     sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM account_member_events WHERE account_id = $1",
     )
@@ -79,7 +79,7 @@ async fn event_count(pool: &PgPool, account: Uuid) -> i64 {
 }
 
 /// The admin (first-run owner) user id.
-async fn admin_user_id(pool: &PgPool) -> Uuid {
+async fn admin_user_id(pool: &SqlitePool) -> Uuid {
     sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE is_admin = true LIMIT 1")
         .fetch_one(pool)
         .await
@@ -90,8 +90,8 @@ async fn admin_user_id(pool: &PgPool) -> Uuid {
 /// `tests/account/mod.rs` helper — changing shared harness to suit one branch's tests is the
 /// workaround that breaks everyone else (B3). Four connections is exactly zero headroom for a
 /// holder + a blocked mutation + a poller + an observer.
-async fn barrier_pool(server: &TestServer) -> PgPool {
-    sqlx::postgres::PgPoolOptions::new()
+async fn barrier_pool(server: &TestServer) -> SqlitePool {
+    sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(12)
         .connect(server.database_url())
         .await
@@ -113,7 +113,7 @@ async fn barrier_pool(server: &TestServer) -> PgPool {
 ///   than one — it polls again rather than cancelling an arbitrary member of the set. The poll
 ///   is bounded (200 x 50 ms), so a persistent extra waiter fails the test rather than hanging
 ///   it.
-async fn wait_for_blocked_by(pool: &PgPool, blocker_pid: i32) -> i32 {
+async fn wait_for_blocked_by(pool: &SqlitePool, blocker_pid: i32) -> i32 {
     for _ in 0..200 {
         let pids: Vec<i32> = sqlx::query_scalar(
             "SELECT pid FROM pg_stat_activity \

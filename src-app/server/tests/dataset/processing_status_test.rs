@@ -4,7 +4,7 @@
 //! error is surfaced to the OWNER but REDACTED for a non-owner sharee.
 
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::dataset::repository::DatasetRepository;
@@ -17,7 +17,7 @@ use crate::common::TestServer;
 /// terminal/running statuses are used (a `queued`/`blocked` job would be claimed +
 /// run by the background scheduler, racing the assertion).
 async fn insert_processing_job(
-    pool: &PgPool,
+    pool: &SqlitePool,
     owner: Uuid,
     status: &str,
     error: Option<&str>,

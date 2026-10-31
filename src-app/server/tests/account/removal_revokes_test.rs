@@ -37,7 +37,7 @@ use cytoanalyst::modules::workstore::authz::{
     require_artifact_read, require_dataset_read, require_project_read,
 };
 use cytoanalyst::modules::workstore::catalog::{Artifact, CatalogRepository, NewArtifact};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use super::{
@@ -49,7 +49,7 @@ use crate::common::TestServer;
 /// The shared H-1 fixture. See the module docs for the principals and why dana
 /// exists.
 struct Fixture {
-    pool: PgPool,
+    pool: SqlitePool,
     /// the platform admin's bearer token (kept because `login()` uses the
     /// created-user password, which the setup admin does not have).
     admin_token: String,
@@ -2403,7 +2403,7 @@ async fn the_two_filed_holes_are_closed() {
 /// Seed a `jobs` row owned by `owner`, optionally scoped. Returns its id.
 /// (Deliberately raw SQL, like the fixture's own jobs: the create ROUTE would apply
 /// its own admission gate and this suite is about the READ/CONTROL gates.)
-async fn seed_job(pool: &PgPool, owner: Uuid, scope: Option<(&str, Uuid)>) -> Uuid {
+async fn seed_job(pool: &SqlitePool, owner: Uuid, scope: Option<(&str, Uuid)>) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO jobs (id, owner_id, job_type, name, status, params, created_at, \
@@ -2427,7 +2427,7 @@ async fn seed_job(pool: &PgPool, owner: Uuid, scope: Option<(&str, Uuid)>) -> Uu
     id
 }
 
-async fn load_job(pool: &PgPool, id: Uuid) -> cytoanalyst::modules::jobs::models::Job {
+async fn load_job(pool: &SqlitePool, id: Uuid) -> cytoanalyst::modules::jobs::models::Job {
     sqlx::query_as("SELECT * FROM jobs WHERE id = $1")
         .bind(id)
         .fetch_one(pool)
@@ -2437,7 +2437,7 @@ async fn load_job(pool: &PgPool, id: Uuid) -> cytoanalyst::modules::jobs::models
 
 /// Seed a `files` row uploaded by `uploader`, optionally linked into `dataset`.
 /// `files.user_id` is the UPLOADING ACTOR, which is the whole subject of #170.
-async fn seed_file(pool: &PgPool, uploader: Uuid, dataset: Option<Uuid>) -> Uuid {
+async fn seed_file(pool: &SqlitePool, uploader: Uuid, dataset: Option<Uuid>) -> Uuid {
     let id: Uuid = sqlx::query_scalar(
         "INSERT INTO files (id, user_id, filename, file_size, current_version_id, created_by) \
          VALUES (gen_random_uuid(), $1, 'seed.csv', 10, gen_random_uuid(), 'user') RETURNING id",

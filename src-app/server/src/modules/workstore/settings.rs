@@ -267,7 +267,7 @@ impl WorkstoreSettingsRepository {
     pub async fn get(&self) -> Result<WorkstoreSettings, AppError> {
         sqlx::query_as!(
             WorkstoreSettings,
-            r#"SELECT gc_enabled, gc_interval_hours, gc_grace_secs,
+            r#"SELECT gc_enabled as "gc_enabled: bool", gc_interval_hours, gc_grace_secs,
                       max_output_file_bytes, max_multifile_total_bytes,
                       max_upload_body_bytes, max_upload_parts
                FROM workstore_settings WHERE id = TRUE"#
@@ -298,7 +298,7 @@ impl WorkstoreSettingsRepository {
                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
                     updated_by = $8
                WHERE id = TRUE
-               RETURNING gc_enabled, gc_interval_hours, gc_grace_secs,
+               RETURNING gc_enabled as "gc_enabled: bool", gc_interval_hours, gc_grace_secs,
                          max_output_file_bytes, max_multifile_total_bytes,
                          max_upload_body_bytes, max_upload_parts"#,
             req.gc_enabled,

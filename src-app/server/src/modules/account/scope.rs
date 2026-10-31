@@ -50,7 +50,7 @@ pub async fn account_of_project(
     .fetch_optional(pool)
     .await
     .map_err(AppError::database_error)?;
-    Ok(row.map(|r| r.account_id))
+    Ok(row.and_then(|r| r.account_id))
 }
 
 /// The account a dataset belongs to (PROV-A2-2). `None` = no such dataset.
@@ -65,7 +65,7 @@ pub async fn account_of_dataset(
     .fetch_optional(pool)
     .await
     .map_err(AppError::database_error)?;
-    Ok(row.map(|r| r.account_id))
+    Ok(row.and_then(|r| r.account_id))
 }
 
 /// The account an artifact belongs to (PROV-A2-4), resolved **transitively**:

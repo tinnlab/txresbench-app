@@ -13,7 +13,7 @@ use crate::account::{create_user, login, make_org_account, pool_for, setup_admin
 use crate::common::TestServer;
 
 /// The id of `user_id`'s personal account (the INV-1 default).
-async fn personal_account_id(pool: &sqlx::PgPool, user_id: Uuid) -> Uuid {
+async fn personal_account_id(pool: &sqlx::SqlitePool, user_id: Uuid) -> Uuid {
     sqlx::query_scalar::<_, Uuid>(
         "SELECT id FROM accounts WHERE kind='personal' AND personal_user_id=$1",
     )
@@ -24,7 +24,7 @@ async fn personal_account_id(pool: &sqlx::PgPool, user_id: Uuid) -> Uuid {
 }
 
 /// The `account_id` a project was stamped with.
-async fn project_account(pool: &sqlx::PgPool, project_id: Uuid) -> Uuid {
+async fn project_account(pool: &sqlx::SqlitePool, project_id: Uuid) -> Uuid {
     sqlx::query_scalar::<_, Uuid>("SELECT account_id FROM projects WHERE id=$1")
         .bind(project_id)
         .fetch_one(pool)
@@ -111,7 +111,7 @@ async fn member_acts_under_org_or_personal() {
 }
 
 /// The `account_id` a dataset was stamped with.
-async fn dataset_account(pool: &sqlx::PgPool, dataset_id: Uuid) -> Uuid {
+async fn dataset_account(pool: &sqlx::SqlitePool, dataset_id: Uuid) -> Uuid {
     sqlx::query_scalar::<_, Uuid>("SELECT account_id FROM datasets WHERE id=$1")
         .bind(dataset_id)
         .fetch_one(pool)

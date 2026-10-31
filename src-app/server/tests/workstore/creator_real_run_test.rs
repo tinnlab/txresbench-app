@@ -39,7 +39,7 @@
 use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::common::TestServer;
@@ -168,7 +168,7 @@ fn binding(slot: &str, artifact: Uuid) -> Value {
 }
 
 /// The virtual dataset this run created, if any.
-async fn virtual_dataset_for(pool: &PgPool, run_id: Uuid) -> Option<(Uuid, String, Value)> {
+async fn virtual_dataset_for(pool: &SqlitePool, run_id: Uuid) -> Option<(Uuid, String, Value)> {
     sqlx::query_as::<_, (Uuid, String, Value)>(
         "SELECT id, source, metadata FROM datasets
          WHERE source = 'integrate' AND metadata ->> 'alignment_run_id' = $1",

@@ -95,6 +95,7 @@ impl CatalogRepository {
     /// The pool-or-tx variant is folded via a plain executor-generic helper below;
     /// callers inside the ingest transaction use `insert_artifact_in_tx`.
     async fn insert_artifact_tx(pool: &SqlitePool, a: &NewArtifact) -> Result<Artifact, AppError> {
+        let new_artifact_id = Uuid::new_v4();
         sqlx::query_as!(
             Artifact,
             r#"INSERT INTO artifacts
@@ -118,15 +119,16 @@ impl CatalogRepository {
                              hidden = EXCLUDED.hidden,
                              representation_of = EXCLUDED.representation_of,
                              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-               RETURNING id, project_id, dataset_id, run_id, output_id, datatype,
-                         object_key, is_multifile, content_hash,
+               RETURNING id as "id: Uuid", project_id as "project_id: Uuid", dataset_id as "dataset_id: Uuid", run_id as "run_id: Uuid", output_id, datatype,
+                         object_key, is_multifile as "is_multifile: bool", content_hash,
                          structure as "structure: serde_json::Value",
                          meta as "meta: serde_json::Value",
-                         role, status, stored_bytes, logical_bytes, created_by,
+                         role, status, stored_bytes, logical_bytes, created_by as "created_by: Uuid",
                          created_at as "created_at: DateTime<Utc>",
                          updated_at as "updated_at: DateTime<Utc>",
-                         hidden, representation_of"#,
-            Uuid::new_v4(),
+                         hidden as "hidden: bool", representation_of as "representation_of: Uuid""#,
+
+            new_artifact_id,
             a.project_id,
             a.dataset_id,
             a.run_id,
@@ -154,6 +156,7 @@ impl CatalogRepository {
         tx: &mut Transaction<'_, Sqlite>,
         a: &NewArtifact,
     ) -> Result<Artifact, AppError> {
+        let new_artifact_id = Uuid::new_v4();
         sqlx::query_as!(
             Artifact,
             r#"INSERT INTO artifacts
@@ -177,15 +180,16 @@ impl CatalogRepository {
                              hidden = EXCLUDED.hidden,
                              representation_of = EXCLUDED.representation_of,
                              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
-               RETURNING id, project_id, dataset_id, run_id, output_id, datatype,
-                         object_key, is_multifile, content_hash,
+               RETURNING id as "id: Uuid", project_id as "project_id: Uuid", dataset_id as "dataset_id: Uuid", run_id as "run_id: Uuid", output_id, datatype,
+                         object_key, is_multifile as "is_multifile: bool", content_hash,
                          structure as "structure: serde_json::Value",
                          meta as "meta: serde_json::Value",
-                         role, status, stored_bytes, logical_bytes, created_by,
+                         role, status, stored_bytes, logical_bytes, created_by as "created_by: Uuid",
                          created_at as "created_at: DateTime<Utc>",
                          updated_at as "updated_at: DateTime<Utc>",
-                         hidden, representation_of"#,
-            Uuid::new_v4(),
+                         hidden as "hidden: bool", representation_of as "representation_of: Uuid""#,
+
+            new_artifact_id,
             a.project_id,
             a.dataset_id,
             a.run_id,
@@ -227,14 +231,14 @@ impl CatalogRepository {
     pub async fn get_any_status(&self, id: Uuid) -> Result<Option<Artifact>, AppError> {
         sqlx::query_as!(
             Artifact,
-            r#"SELECT id, project_id, dataset_id, run_id, output_id, datatype,
-                      object_key, is_multifile, content_hash,
+            r#"SELECT id as "id: Uuid", project_id as "project_id: Uuid", dataset_id as "dataset_id: Uuid", run_id as "run_id: Uuid", output_id, datatype,
+                      object_key, is_multifile as "is_multifile: bool", content_hash,
                       structure as "structure: serde_json::Value",
                       meta as "meta: serde_json::Value",
-                      role, status, stored_bytes, logical_bytes, created_by,
+                      role, status, stored_bytes, logical_bytes, created_by as "created_by: Uuid",
                       created_at as "created_at: DateTime<Utc>",
                       updated_at as "updated_at: DateTime<Utc>",
-                      hidden, representation_of
+                      hidden as "hidden: bool", representation_of as "representation_of: Uuid"
                FROM artifacts WHERE id = $1"#,
             id,
         )
@@ -254,16 +258,20 @@ impl CatalogRepository {
         filter: &ArtifactFilter,
         datatype_allow: Option<&[String]>,
     ) -> Result<Vec<Artifact>, AppError> {
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let datatype_bind = filter.datatype.as_deref();
+        let output_id_bind = filter.output_id.as_deref();
+        let datatype_allow_bind = datatype_allow.map(text_list_json);
         sqlx::query_as!(
             Artifact,
-            r#"SELECT id, project_id, dataset_id, run_id, output_id, datatype,
-                      object_key, is_multifile, content_hash,
+            r#"SELECT id as "id: Uuid", project_id as "project_id: Uuid", dataset_id as "dataset_id: Uuid", run_id as "run_id: Uuid", output_id, datatype,
+                      object_key, is_multifile as "is_multifile: bool", content_hash,
                       structure as "structure: serde_json::Value",
                       meta as "meta: serde_json::Value",
-                      role, status, stored_bytes, logical_bytes, created_by,
+                      role, status, stored_bytes, logical_bytes, created_by as "created_by: Uuid",
                       created_at as "created_at: DateTime<Utc>",
                       updated_at as "updated_at: DateTime<Utc>",
-                      hidden, representation_of
+                      hidden as "hidden: bool", representation_of as "representation_of: Uuid"
                FROM artifacts
                WHERE project_id = $1
                  AND ($2 IS NULL OR datatype = $2)
@@ -272,10 +280,10 @@ impl CatalogRepository {
                  AND ($5 IS NULL OR datatype IN (SELECT j.value FROM json_each($5) AS j))
                ORDER BY created_at DESC"#,
             project_id,
-            filter.datatype.as_deref(),
+            datatype_bind,
             filter.run_id,
-            filter.output_id.as_deref(),
-            datatype_allow.map(text_list_json),
+            output_id_bind,
+            datatype_allow_bind,
         )
         .fetch_all(&self.pool)
         .await
@@ -299,16 +307,21 @@ impl CatalogRepository {
         filter: &ArtifactFilter,
         datatype_allow: Option<&[String]>,
     ) -> Result<Vec<Artifact>, AppError> {
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let datatype_bind = filter.datatype.as_deref();
+        let output_id_bind = filter.output_id.as_deref();
+        let datatype_allow_bind = datatype_allow.map(text_list_json);
+        let on_axis_bind = filter.on_axis.as_deref();
         sqlx::query_as!(
             Artifact,
-            r#"SELECT id, project_id, dataset_id, run_id, output_id, datatype,
-                      object_key, is_multifile, content_hash,
+            r#"SELECT id as "id: Uuid", project_id as "project_id: Uuid", dataset_id as "dataset_id: Uuid", run_id as "run_id: Uuid", output_id, datatype,
+                      object_key, is_multifile as "is_multifile: bool", content_hash,
                       structure as "structure: serde_json::Value",
                       meta as "meta: serde_json::Value",
-                      role, status, stored_bytes, logical_bytes, created_by,
+                      role, status, stored_bytes, logical_bytes, created_by as "created_by: Uuid",
                       created_at as "created_at: DateTime<Utc>",
                       updated_at as "updated_at: DateTime<Utc>",
-                      hidden, representation_of
+                      hidden as "hidden: bool", representation_of as "representation_of: Uuid"
                FROM artifacts
                -- ITEM-49 — THE LISTING USES THE SAME SCOPE RULE AS THE AUTHZ GATE.
                --
@@ -387,11 +400,11 @@ impl CatalogRepository {
                             AND json_type(structure, '$.aligned_to') IS NULL)))
                ORDER BY created_at DESC"#,
             project_id,
-            filter.datatype.as_deref(),
+            datatype_bind,
             filter.run_id,
-            filter.output_id.as_deref(),
-            datatype_allow.map(text_list_json),
-            filter.on_axis.as_deref(),
+            output_id_bind,
+            datatype_allow_bind,
+            on_axis_bind,
         )
         .fetch_all(&self.pool)
         .await
@@ -441,16 +454,18 @@ impl CatalogRepository {
         axis: &str,
         datatype_allow: &[String],
     ) -> Result<Vec<Artifact>, AppError> {
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let datatype_allow_json = text_list_json(datatype_allow);
         sqlx::query_as!(
             Artifact,
-            r#"SELECT id, project_id, dataset_id, run_id, output_id, datatype,
-                      object_key, is_multifile, content_hash,
+            r#"SELECT id as "id: Uuid", project_id as "project_id: Uuid", dataset_id as "dataset_id: Uuid", run_id as "run_id: Uuid", output_id, datatype,
+                      object_key, is_multifile as "is_multifile: bool", content_hash,
                       structure as "structure: serde_json::Value",
                       meta as "meta: serde_json::Value",
-                      role, status, stored_bytes, logical_bytes, created_by,
+                      role, status, stored_bytes, logical_bytes, created_by as "created_by: Uuid",
                       created_at as "created_at: DateTime<Utc>",
                       updated_at as "updated_at: DateTime<Utc>",
-                      hidden, representation_of
+                      hidden as "hidden: bool", representation_of as "representation_of: Uuid"
                FROM artifacts
                WHERE dataset_id = $1
                  AND datatype IN (SELECT j.value FROM json_each($2) AS j)
@@ -459,7 +474,7 @@ impl CatalogRepository {
                  AND status = 'ready'
                ORDER BY id"#,
             dataset_id,
-            text_list_json(datatype_allow),
+            datatype_allow_json,
             axis,
         )
         .fetch_all(&self.pool)
@@ -497,14 +512,14 @@ impl CatalogRepository {
     ) -> Result<Vec<Artifact>, AppError> {
         sqlx::query_as!(
             Artifact,
-            r#"SELECT id, project_id, dataset_id, run_id, output_id, datatype,
-                      object_key, is_multifile, content_hash,
+            r#"SELECT id as "id: Uuid", project_id as "project_id: Uuid", dataset_id as "dataset_id: Uuid", run_id as "run_id: Uuid", output_id, datatype,
+                      object_key, is_multifile as "is_multifile: bool", content_hash,
                       structure as "structure: serde_json::Value",
                       meta as "meta: serde_json::Value",
-                      role, status, stored_bytes, logical_bytes, created_by,
+                      role, status, stored_bytes, logical_bytes, created_by as "created_by: Uuid",
                       created_at as "created_at: DateTime<Utc>",
                       updated_at as "updated_at: DateTime<Utc>",
-                      hidden, representation_of
+                      hidden as "hidden: bool", representation_of as "representation_of: Uuid"
                FROM artifacts WHERE project_id = $1 AND run_id = $2
                ORDER BY created_at DESC"#,
             project_id,
@@ -533,16 +548,16 @@ impl CatalogRepository {
         // forced with `!` (the jsonb/timestamptz casts keep their type override too).
         sqlx::query_as!(
             Artifact,
-            r#"SELECT id as "id!", project_id, dataset_id, run_id, output_id as "output_id!",
-                      datatype as "datatype!", object_key, is_multifile as "is_multifile!",
+            r#"SELECT id as "id!: Uuid", project_id as "project_id: Uuid", dataset_id as "dataset_id: Uuid", run_id as "run_id: Uuid", output_id as "output_id!",
+                      datatype as "datatype!", object_key, is_multifile as "is_multifile!: bool",
                       content_hash as "content_hash!",
                       structure as "structure!: serde_json::Value",
                       meta as "meta!: serde_json::Value",
                       role as "role!", status as "status!", stored_bytes as "stored_bytes!",
-                      logical_bytes, created_by,
+                      logical_bytes, created_by as "created_by: Uuid",
                       created_at as "created_at!: DateTime<Utc>",
                       updated_at as "updated_at!: DateTime<Utc>",
-                      hidden as "hidden!", representation_of
+                      hidden as "hidden!: bool", representation_of as "representation_of: Uuid"
                FROM usable_artifacts WHERE dataset_id = $1
                ORDER BY created_at ASC"#,
             dataset_id,
@@ -742,7 +757,7 @@ impl CatalogRepository {
                      AND json_type(a.structure, '$.gathered_from') IS NOT NULL
                      AND json_type(jt.value, '$.artifact_id') = 'text'
                )
-               SELECT a.id, a.project_id, a.output_id, a.object_key, a.is_multifile
+               SELECT a.id as "id: Uuid", a.project_id as "project_id: Uuid", a.output_id, a.object_key, a.is_multifile as "is_multifile: bool"
                FROM artifacts a JOIN reach r ON a.id = r.id"#,
             project_id,
         )
@@ -816,7 +831,7 @@ impl CatalogRepository {
     /// collect) and `footprint` (disk used is disk used, whatever the status).
     pub async fn all_blob_refs(&self) -> Result<Vec<BlobRefRow>, AppError> {
         let rows = sqlx::query!(
-            r#"SELECT id, project_id, output_id, object_key, is_multifile FROM artifacts"#
+            r#"SELECT id as "id: Uuid", project_id as "project_id: Uuid", output_id, object_key, is_multifile as "is_multifile: bool" FROM artifacts"#
         )
         .fetch_all(&self.pool)
         .await

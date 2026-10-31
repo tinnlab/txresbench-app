@@ -186,7 +186,8 @@ impl ProvenanceSettingsRepository {
             ProvenanceSettings,
             r#"SELECT export_bundle_max_bytes, capture_code_max_bytes,
                       export_retention_days,
-                      methods_llm_polish_enabled, verify_default_tolerance,
+                      methods_llm_polish_enabled as "methods_llm_polish_enabled: bool",
+                      verify_default_tolerance as "verify_default_tolerance: bool",
                       verify_time_budget_secs, verify_size_budget_bytes,
                       rootfs_gc_interval_secs, rootfs_cache_max_digests,
                       updated_by as "updated_by: uuid::Uuid"
@@ -221,7 +222,8 @@ impl ProvenanceSettingsRepository {
                WHERE id = TRUE
                RETURNING export_bundle_max_bytes, capture_code_max_bytes,
                          export_retention_days,
-                         methods_llm_polish_enabled, verify_default_tolerance,
+                         methods_llm_polish_enabled as "methods_llm_polish_enabled: bool",
+                         verify_default_tolerance as "verify_default_tolerance: bool",
                          verify_time_budget_secs, verify_size_budget_bytes,
                          rootfs_gc_interval_secs, rootfs_cache_max_digests,
                          updated_by as "updated_by: uuid::Uuid""#,

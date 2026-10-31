@@ -60,7 +60,7 @@
 //! would report a clean schema and pass forever.
 
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
@@ -76,7 +76,7 @@ use crate::common::TestServer;
 ///
 /// Parameterized rather than hard-coded so the positive control below runs *this*
 /// function, not a hand-written echo of it.
-async fn schema_sites_for(pool: &PgPool, token: &str) -> Vec<String> {
+async fn schema_sites_for(pool: &SqlitePool, token: &str) -> Vec<String> {
     let mut sites = Vec::new();
 
     let tables: Vec<String> = sqlx::query_scalar(
@@ -136,7 +136,7 @@ async fn schema_sites_for(pool: &PgPool, token: &str) -> Vec<String> {
 /// Every base table holding `needle` anywhere in any column, with the row count.
 /// One `to_jsonb(row)::text` scan per table, so a value hidden in a JSONB blob, an
 /// array or a text column is found the same way a scalar column is.
-async fn tables_containing(pool: &PgPool, needle: &str) -> Vec<(String, i64)> {
+async fn tables_containing(pool: &SqlitePool, needle: &str) -> Vec<(String, i64)> {
     let tables: Vec<String> = sqlx::query_scalar(
         "SELECT table_name::text FROM information_schema.tables
           WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
@@ -176,7 +176,7 @@ async fn tables_containing(pool: &PgPool, needle: &str) -> Vec<(String, i64)> {
 /// same string in two columns and blunt the value census below.
 async fn ingest_key_artifact(
     server: &TestServer,
-    pool: &PgPool,
+    pool: &SqlitePool,
     store: &cytoanalyst::modules::workstore::object_store::LocalFsStore,
     project: Uuid,
     output_id: &str,
@@ -205,7 +205,7 @@ async fn ingest_key_artifact(
 #[allow(clippy::too_many_arguments)]
 async fn ingest_key_artifact_scoped(
     server: &TestServer,
-    pool: &PgPool,
+    pool: &SqlitePool,
     store: &cytoanalyst::modules::workstore::object_store::LocalFsStore,
     project: Option<Uuid>,
     dataset: Option<Uuid>,

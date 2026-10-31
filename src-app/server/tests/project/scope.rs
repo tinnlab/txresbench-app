@@ -82,7 +82,7 @@ async fn resolve_admin_reaches_but_never_widens() {
     let x_uuid = Uuid::parse_str(&x_id).unwrap();
     let y_uuid = Uuid::parse_str(&y_id).unwrap();
 
-    let pool = sqlx::PgPool::connect(server.database_url()).await.unwrap();
+    let pool = sqlx::SqlitePool::connect(server.database_url()).await.unwrap();
     let repo = ProjectRepository::new(pool);
 
     // Base guard: the admin has no ACL on X's project → None (no widening baked in).
@@ -223,7 +223,7 @@ async fn gc_manifest_threading_and_sweep() {
     let ds = create_dataset(&server, &owner, "gc-matrix").await;
     attach_dataset(&server, &owner, &sid.to_string(), &ds).await;
 
-    let pool = sqlx::PgPool::connect(server.database_url()).await.unwrap();
+    let pool = sqlx::SqlitePool::connect(server.database_url()).await.unwrap();
 
     // Build a registry with the REAL dataset extension + fire it over a real tx,
     // threading a project-scoped manifest through it.
@@ -285,7 +285,7 @@ async fn project_audience_is_owner_union_accepted() {
     // Share with the pending user but do NOT accept.
     let _ps = share(&server, &owner, &sid.to_string(), "ap@x.test", "viewer").await;
 
-    let pool = sqlx::PgPool::connect(server.database_url()).await.unwrap();
+    let pool = sqlx::SqlitePool::connect(server.database_url()).await.unwrap();
     let repo = ProjectRepository::new(pool);
 
     // #168: the audience is now `Option` — `None` means nobody may see the project,
@@ -314,7 +314,7 @@ async fn project_audience_empty_is_fan_to_self() {
     let project = create_project(&server, &owner, "Solo project").await;
     let sid = uid(&project["id"]);
 
-    let pool = sqlx::PgPool::connect(server.database_url()).await.unwrap();
+    let pool = sqlx::SqlitePool::connect(server.database_url()).await.unwrap();
     let repo = ProjectRepository::new(pool);
 
     let (got_owner, recipients) = project_audience(&repo, sid)

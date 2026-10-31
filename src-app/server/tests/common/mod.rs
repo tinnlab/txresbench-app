@@ -1,13 +1,15 @@
 //! CytoAnalyst integration-test harness — the app side of the SDK's
 //! `ziee-test-harness` `HarnessApp` seam.
 //!
-//! The SDK crate owns the generic engine (per-worktree template DB, per-test DB
-//! clone, spawn + readiness + teardown). CytoAnalyst supplies ONE `HarnessApp`
+//! The SDK crate owns the generic engine (per-worktree template, per-test
+//! database, spawn + readiness + teardown). CytoAnalyst supplies ONE `HarnessApp`
 //! impl (binary name, template-DB base, migration dirs, rendered config) plus a
 //! thin `TestServer` wrapper that re-exposes `base_url`/`api_url` + HTTP helpers.
 //!
-//! Needs a reachable Postgres: `DATABASE_URL` or the shared-cluster default
-//! `127.0.0.1:54321`.
+//! The engine runs the sqlite leg (a `sqlite://` `DATABASE_URL`, which is what
+//! `.cargo/config.toml` ships): the per-test database is a FILE copied from a
+//! fully-migrated template file, rendered into the config as `database.url`.
+//! No Postgres cluster, no `DATABASE_URL`-reaching server — only the temp dir.
 
 use std::path::{Path, PathBuf};
 
@@ -114,27 +116,18 @@ impl HarnessApp for CytoHarnessApp {
     }
 
     fn plan_spawn(&self, opts: &Self::Options, facts: &SpawnFacts) -> SpawnPlan {
-        // External-DB config: the harness cloned a fresh per-test DB and handed
-        // us its connection parts; we render CytoAnalyst's config against them.
+        // The sqlite leg hands the app the per-test FILE's connection URL (the
+        // harness copied it from the migrated template and owns its lifecycle);
+        // `database.url` is exactly the config key `ServerConfig` resolves.
+        // The postgresql block is GONE from the app's config surface — the app
+        // is single-driver (sqlite) under this node.
         let config_yaml = format!(
             r#"
 app:
   data_dir: '{data_dir}'
 
-postgresql:
-  use_embedded: false
-  external:
-    host: "{host}"
-    port: {port}
-    username: "{user}"
-    password: "{pass}"
-    database: "{db}"
-  pool:
-    max_connections: 5
-    min_connections: 1
-    acquire_timeout_secs: 3
-    idle_timeout_secs: 10
-    max_lifetime_secs: 60
+database:
+  url: "{database_url}"
 
 server:
   host: "127.0.0.1"
@@ -154,11 +147,7 @@ jwt:
   refresh_token_expiry_days: 30
 "#,
             data_dir = facts.data_dir.display(),
-            host = facts.db.host,
-            port = facts.db.port,
-            user = facts.db.username,
-            pass = facts.db.password,
-            db = facts.database_name,
+            database_url = facts.database_url,
             server_port = facts.server_port,
         );
 

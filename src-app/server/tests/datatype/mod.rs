@@ -12,8 +12,8 @@ mod cross_side_test;
 use std::sync::Arc;
 
 use serde_json::{json, Value};
-use sqlx::postgres::PgPoolOptions;
-use sqlx::PgPool;
+use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::datatype::registry::{set_global_registry, DatatypeRegistry};
@@ -110,8 +110,8 @@ async fn strip_users_group(server: &TestServer, admin: &str, user_id: Uuid) {
     assert!(r.status().is_success(), "strip group: {}", r.status());
 }
 
-async fn pool_for(server: &TestServer) -> PgPool {
-    PgPoolOptions::new()
+async fn pool_for(server: &TestServer) -> SqlitePool {
+    SqlitePoolOptions::new()
         .max_connections(2)
         .connect(server.database_url())
         .await
@@ -580,29 +580,43 @@ async fn test24_datatype_column_is_open_text_no_enum_check_fk() {
     // `workstore::test9_axis_entry_table_is_gone_and_axes_derive_from_declarations` and the
     // inverse wire pins in `catalog::models`.
     for col in ["datatype"] {
-        let row = sqlx::query!(
-            r#"SELECT data_type as "data_type!" FROM information_schema.columns
-               WHERE table_name = 'artifacts' AND column_name = $1"#,
-            col,
+        // SQLite port: `information_schema.columns` / `pg_constraint` have no
+        // SQLite form. The declared type and the CHECK/FK constraint text both
+        // live in the CREATE TABLE statement (`sqlite_master.sql`); SQLite has
+        // no enum type at all, so the open-model property is: declared TEXT and
+        // no constraint whose definition mentions the column.
+        let ddl = sqlx::query!(
+            r#"SELECT sql as "ddl!" FROM sqlite_master
+               WHERE type = 'table' AND name = 'artifacts'"#,
         )
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(row.data_type, "text", "{col} must be plain TEXT (no enum)");
+        let ddl_lc = ddl.ddl.to_lowercase();
+        let idx = ddl_lc
+            .find(col)
+            .unwrap_or_else(|| panic!("{col} missing from artifacts DDL"));
+        let frag_end = ddl_lc[idx..]
+            .find(',')
+            .map(|c| idx + c)
+            .unwrap_or(ddl_lc.len());
+        let declared = ddl_lc[idx + col.len()..frag_end].trim();
+        assert!(
+            declared.starts_with("text"),
+            "{col} must be plain TEXT (no enum): [{declared}]"
+        );
 
         // No CHECK or FK constraint on the artifacts table references this column.
-        let cnt = sqlx::query!(
-            r#"SELECT count(*) as "n!" FROM pg_constraint c
-               JOIN pg_class t ON c.conrelid = t.oid
-               WHERE t.relname = 'artifacts' AND c.contype IN ('c','f')
-                 AND pg_get_constraintdef(c.oid) ILIKE $1"#,
-            format!("%{col}%"),
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let constraint_refs = ["check", "foreign key"]
+            .iter()
+            .filter(|kw| {
+                ddl_lc.match_indices(**kw).any(|(i, _)| {
+                    ddl_lc[i + kw.len()..].contains(col)
+                })
+            })
+            .count();
         assert_eq!(
-            cnt.n, 0,
+            constraint_refs, 0,
             "{col} must have no CHECK/FK constraint (open model)"
         );
     }

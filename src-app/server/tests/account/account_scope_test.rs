@@ -40,7 +40,7 @@ async fn manage_context(
 }
 
 /// The id of `user_id`'s personal account.
-async fn personal_account_id(pool: &sqlx::PgPool, user_id: Uuid) -> Uuid {
+async fn personal_account_id(pool: &sqlx::SqlitePool, user_id: Uuid) -> Uuid {
     sqlx::query_scalar::<_, Uuid>(
         "SELECT id FROM accounts WHERE kind='personal' AND personal_user_id=$1",
     )

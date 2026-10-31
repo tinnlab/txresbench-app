@@ -327,12 +327,14 @@ async fn account_query_surface_behaves_on_sqlite() {
 
     // 8. serialization substitution: the autocommit probe + BEGIN IMMEDIATE.
     let mut conn = pool.acquire().await.expect("acquire");
-    let mut h = conn.lock_handle().await.expect("handle");
-    assert!(
-        unsafe { libsqlite3_sys::sqlite3_get_autocommit(h.as_raw_handle().as_ptr()) != 0 },
-        "autocommit connection is NOT in a transaction"
-    );
-    drop((h, conn));
+    {
+        let mut h = conn.lock_handle().await.expect("handle");
+        assert!(
+            unsafe { libsqlite3_sys::sqlite3_get_autocommit(h.as_raw_handle().as_ptr()) != 0 },
+            "autocommit connection is NOT in a transaction"
+        );
+    }
+    drop(conn);
     let mut tx = pool.begin_with("BEGIN IMMEDIATE").await.expect("begin");
     {
         let mut h = tx.lock_handle().await.expect("handle");

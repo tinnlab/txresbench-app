@@ -8,8 +8,8 @@
 
 use reqwest::multipart::{Form, Part};
 use serde_json::{json, Value};
-use sqlx::postgres::PgPoolOptions;
-use sqlx::PgPool;
+use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::workstore::ingest::ingest_run_outputs;
@@ -20,8 +20,8 @@ use crate::common::TestServer;
 
 /// A pool against the spawned server's per-test DB (for the `jobs.dataset_id` +
 /// artifact-scope assertions the REST surface has no endpoint for).
-async fn pool_for(server: &TestServer) -> PgPool {
-    PgPoolOptions::new()
+async fn pool_for(server: &TestServer) -> SqlitePool {
+    SqlitePoolOptions::new()
         .max_connections(2)
         .connect(server.database_url())
         .await

@@ -616,6 +616,13 @@ pub async fn record_member_event(
     // equivalent — the id is bound app-side (the one write-once field of an
     // append-only row, so a `Uuid::new_v4()` per call cannot collide).
     let event_id = Uuid::new_v4();
+    // let-bound: the sqlx bind is borrowed across the statement, so fn-call
+    // temporaries would drop before the execute (E0716 class).
+    let actor_user_id = ev.actor.user_id();
+    let actor_kind = ev.actor.kind_str();
+    let action = ev.action.as_str();
+    let old_role = ev.old_role.map(|r| r.as_str());
+    let new_role = ev.new_role.map(|r| r.as_str());
     sqlx::query!(
         r#"INSERT INTO account_member_events
                (id, account_id, actor_user_id, actor_kind, action,
@@ -623,13 +630,13 @@ pub async fn record_member_event(
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"#,
         event_id,
         ev.account_id,
-        ev.actor.user_id(),
-        ev.actor.kind_str(),
-        ev.action.as_str(),
+        actor_user_id,
+        actor_kind,
+        action,
         ev.target_user_id,
         target_email,
-        ev.old_role.map(|r| r.as_str()),
-        ev.new_role.map(|r| r.as_str()),
+        old_role,
+        new_role,
         ev.invitation_id,
         reason,
     )
@@ -1016,7 +1023,7 @@ impl AccountRepository {
     /// (a user created before A5's signup hook + before any lazy-ensure).
     pub async fn personal_account_of(&self, user_id: Uuid) -> Result<Option<Uuid>, AppError> {
         let row = sqlx::query!(
-            r#"SELECT id FROM accounts WHERE kind = 'personal' AND personal_user_id = $1"#,
+            r#"SELECT id as "id: Uuid" FROM accounts WHERE kind = 'personal' AND personal_user_id = $1"#,
             user_id,
         )
         .fetch_optional(&self.pool)
@@ -1048,12 +1055,14 @@ impl AccountRepository {
         if user_ids.is_empty() {
             return Ok(std::collections::HashMap::new());
         }
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let json = uuid_list_json(user_ids);
         let rows = sqlx::query!(
             r#"SELECT personal_user_id AS "user_id!: Uuid", id as "id: Uuid"
                FROM accounts
                WHERE kind = 'personal'
                  AND personal_user_id IN (SELECT unhex(j.value) FROM json_each($1) AS j)"#,
-            uuid_list_json(user_ids),
+            json,
         )
         .fetch_all(&self.pool)
         .await
@@ -1304,7 +1313,7 @@ impl AccountRepository {
             r#"SELECT COUNT(*) as "count!"
                FROM accounts
                WHERE ($1 IS NULL OR kind = $1)"#,
-            kind_s as Option<&str>,
+            kind_s,
         )
         .fetch_one(&self.pool)
         .await
@@ -1345,7 +1354,7 @@ impl AccountRepository {
                WHERE ($1 IS NULL OR a.kind = $1)
                ORDER BY a.created_at ASC, a.id ASC
                LIMIT $2 OFFSET $3"#,
-            kind_s as Option<&str>,
+            kind_s,
             limit,
             offset,
         )
@@ -1686,6 +1695,8 @@ impl AccountRepository {
         // `users` identity lookup are TWO statements on the same connection, inside
         // the same transaction. `ON CONFLICT DO NOTHING` still yields zero rows on a
         // duplicate → `None ⇒ 409`, exactly as before.
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let role_str = role.as_str();
         let row = match sqlx::query!(
             r#"INSERT INTO account_members (account_id, user_id, role)
                VALUES ($1, $2, $3)
@@ -1695,7 +1706,7 @@ impl AccountRepository {
                          created_at as "created_at: DateTime<Utc>""#,
             account_id,
             user_id,
-            role.as_str(),
+            role_str,
         )
         .fetch_optional(&mut *conn)
         .await
@@ -2060,6 +2071,8 @@ impl AccountRepository {
         // is read in a second statement on the same connection. The membership is
         // guaranteed to exist here (checked above), so the UPDATE returns exactly
         // one row (#51).
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let new_role = new_role.as_str();
         let row = sqlx::query!(
             r#"UPDATE account_members SET role = $3
                WHERE account_id = $1 AND user_id = $2
@@ -2068,7 +2081,7 @@ impl AccountRepository {
                          created_at as "created_at: DateTime<Utc>""#,
             account_id,
             user_id,
-            new_role.as_str(),
+            new_role,
         )
         .fetch_one(&mut *tx)
         .await
@@ -2617,6 +2630,8 @@ impl AccountRepository {
         // DEC-12: no `gen_random_uuid()` on SQLite — the row id is bound
         // app-side (the INSERT's column list must name it explicitly).
         let invitation_row_id = Uuid::new_v4();
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let role_str = role.as_str();
         let inserted = sqlx::query!(
             r#"INSERT INTO account_invitations
                    (id, account_id, email, role, token_sha256, invited_by, expires_at)
@@ -2625,7 +2640,7 @@ impl AccountRepository {
             invitation_row_id,
             account_id,
             email,
-            role.as_str(),
+            role_str,
             token_hash,
             actor_user_id,
             expires_at_sqlite,
@@ -3574,7 +3589,7 @@ impl AccountRepository {
                   AND accepted_at IS NULL
                   AND revoked_at IS NULL
                   AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')"#,
-            &token_hash,
+            token_hash,
         )
         .fetch_optional(&self.pool)
         .await
@@ -3655,7 +3670,7 @@ impl AccountRepository {
                   AND accepted_at IS NULL
                   AND revoked_at IS NULL
                   AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')"#,
-            &token_hash,
+            token_hash,
             account_id,
         )
         .fetch_optional(&mut *tx)

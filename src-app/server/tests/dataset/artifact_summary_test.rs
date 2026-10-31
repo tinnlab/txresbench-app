@@ -17,7 +17,7 @@
 //! something the code does not do.
 
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::dataset::models::{DECL_MAX_ARRAY_ITEMS, DECL_MAX_KEYS, GROUP_CAP};
@@ -31,7 +31,7 @@ use crate::common::TestServer;
 /// ingest, no blobs, no sandbox.
 #[allow(clippy::too_many_arguments)]
 async fn insert_declared_artifact(
-    pool: &PgPool,
+    pool: &SqlitePool,
     dataset_id: Uuid,
     output_id: &str,
     datatype: &str,
@@ -74,7 +74,7 @@ async fn insert_declared_artifact(
 /// the tests that are NOT about `structure` read as they did.
 #[allow(clippy::too_many_arguments)]
 async fn insert_artifact(
-    pool: &PgPool,
+    pool: &SqlitePool,
     dataset_id: Uuid,
     output_id: &str,
     datatype: &str,

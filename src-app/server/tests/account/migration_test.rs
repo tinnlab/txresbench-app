@@ -11,7 +11,7 @@ use crate::common::TestServer;
 /// users created after boot) is the only way to prove PROV-A1-10 / INV-2 on a
 /// populated DB. If the migration's backfill changes, this copy must change with it
 /// (the test then fails loudly, which is the point).
-async fn run_backfill(pool: &sqlx::PgPool) {
+async fn run_backfill(pool: &sqlx::SqlitePool) {
     sqlx::query(
         r#"INSERT INTO public.accounts (id, kind, name, personal_user_id)
            SELECT gen_random_uuid(), 'personal', u.username, u.id
