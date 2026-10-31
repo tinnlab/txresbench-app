@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Project-admin phase-8 e2e runner (CytoAnalyst in-harness recipe).
+# Project-admin phase-8 e2e runner (TxResBench in-harness recipe).
 #
-# CytoAnalyst's web e2e model is TWO servers: the Rust backend (external docker
-# Postgres on :54321 — NOT the embedded PG, so the process-killing harness can't
-# SIGKILL a PG subprocess as exit-144) + a `vite preview` proxying /api → backend.
-# We pre-boot BOTH in the background with a trap-cleanup (the `&`+trap keeps the
-# harness from surfacing an exit-144 from a killed child), then run Playwright
-# with `reuseExistingServer` so it attaches to our servers instead of booting a
+# The backend's store is the SQLite leg of this node: ONE local file, no
+# server process, no cluster to provision. The recipe deletes the per-run DB
+# file before boot (a clean first-run-setup, which is exactly what each e2e run
+# needs) and points the backend at it via CYTO_DATABASE_URL; the runner's own
+# `vite preview` proxies /api → backend. Both servers are pre-booted in the
+# background with a trap-cleanup (the `&`+trap keeps the harness from surfacing
+# an exit-144 from a killed child), then Playwright runs with
+# `reuseExistingServer` so it attaches to our servers instead of booting a
 # fresh cytoanalyst_e2e (which would collide on :3155).
 #
 # NODE_OPTIONS=--dns-result-order=ipv4first: the backend binds 127.0.0.1 (IPv4)
@@ -22,21 +24,19 @@ pkill -f target/debug/cytoanalyst 2>/dev/null || true
 pkill -f "vite preview" 2>/dev/null || true
 sleep 1
 
-DB=cytoanalyst_e2e_admin
+DBFILE="$TMP/project-admin-e2e.sqlite"
 CFG="$TMP/project-admin-e2e.yaml"
-sed "s/cytoanalyst_e2e/$DB/g" src-app/server/config/e2e.yaml > "$CFG"
+cp src-app/server/config/e2e.yaml "$CFG"
 
-echo "== resetting DB $DB =="
-PGPASSWORD=password psql -h 127.0.0.1 -p 54321 -U postgres \
-  -c "DROP DATABASE IF EXISTS $DB WITH (FORCE)" \
-  -c "CREATE DATABASE $DB" || { echo "PSQL FAILED"; exit 2; }
+echo "== resetting sqlite DB $DBFILE =="
+rm -f "$DBFILE" "$DBFILE-wal" "$DBFILE-shm"
 
 echo "== building backend =="
 ( cd src-app/server && cargo build --bin cytoanalyst ) > "$TMP/project-admin-build-be.log" 2>&1
 if [ $? -ne 0 ]; then echo "BACKEND BUILD FAILED"; tail -40 "$TMP/project-admin-build-be.log"; exit 2; fi
 
 echo "== booting backend :3155 =="
-( cd src-app/server && CONFIG_FILE="$CFG" ../../target/debug/cytoanalyst > "$TMP/project-admin-BE.log" 2>&1 ) &
+( cd src-app/server && CYTO_DATABASE_URL="sqlite://$DBFILE" CONFIG_FILE="$CFG" ../../target/debug/cytoanalyst > "$TMP/project-admin-BE.log" 2>&1 ) &
 BE_PID=$!
 
 echo "== building frontend =="

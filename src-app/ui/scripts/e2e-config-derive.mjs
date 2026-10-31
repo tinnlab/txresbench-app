@@ -12,18 +12,19 @@
  * match a derived port, so the check would fail on every run.
  *
  * So the divergence is removed rather than policed. The resolved port and the derived
- * database name are written INTO a per-run copy of the config, and the old check
+ * database file are written INTO a per-run copy of the config, and the old check
  * survives as a POST-CONDITION on that file — an assertion about the artifact the
  * backend will really boot with, rather than a hope that four inputs were typed alike.
  *
- * ## Why the patch is BLOCK-SCOPED, and why that is the interesting failure
+ * ## The sqlite-store shape
  *
- * `postgresql.external` also carries a `port:`. A whole-file `port:` replace would
- * repoint the backend's DATABASE at the harness port while `server.port` still looked
- * right, and every other check in the config would still pass. That is why
- * `assertDerivedConfigAgrees` asserts a NEGATIVE (the postgres port must NOT have
- * become the harness port) as well as the two positives: a derivation bug is invisible
- * to the code that wrote it and obvious to code that reads the file back.
+ * The e2e backend runs on the SQLite store: `config/e2e.yaml` carries a `database:`
+ * block whose `path:` the per-run derivation replaces with the run-unique DB file
+ * (keyed on the resolved backend port, so two runs in one worktree never touch the
+ * same file). There is no `postgresql:` block to patch — a stale PG block rebooting
+ * the old external Postgres path is exactly the kind of mis-aimed patch the
+ * post-condition exists to catch, so `assertFactsAgree` REFUSES a config that still
+ * contains one.
  */
 import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 
@@ -41,8 +42,8 @@ export function patchBlock(yaml, block, edit) {
 /**
  * Replace one scalar field inside a block body, FAILING CLOSED unless it matched
  * exactly once. Two matches means the block nests a sub-map that repeats the name
- * (which is precisely how `postgresql` carries a second `port:`), and picking one is
- * a guess.
+ * (which is precisely how the old `postgresql` carried a second `port:`), and picking
+ * one is a guess.
  */
 export function setField(body, field, value) {
   const re = new RegExp(`^(\\s+${field}:\\s*)\\S.*$`, 'gm')
@@ -57,9 +58,9 @@ export function setField(body, field, value) {
 }
 
 /** The whole derivation, as a pure string→string transform (directly testable). */
-export function deriveConfig(baseYaml, { port, database }) {
+export function deriveConfig(baseYaml, { port, dbPath }) {
   let out = patchBlock(baseYaml, 'server', b => setField(b, 'port', String(port)))
-  out = patchBlock(out, 'postgresql', b => setField(b, 'database', `"${database}"`))
+  out = patchBlock(out, 'database', b => setField(b, 'path', `"${dbPath}"`))
   return out
 }
 
@@ -68,8 +69,8 @@ export function readFacts(yaml) {
   const block = name => new RegExp(`^${name}:\\s*$([\\s\\S]*?)(?=^\\S)`, 'm').exec(yaml)?.[1] ?? ''
   return {
     serverPort: /^\s+port:\s*(\d+)/m.exec(block('server'))?.[1] ?? null,
-    database: /^\s+database:\s*["']?([\w-]+)/m.exec(block('postgresql'))?.[1] ?? null,
-    pgPort: /^\s+port:\s*(\d+)/m.exec(block('postgresql'))?.[1] ?? null,
+    dbPath: /^\s+path:\s*["']?([^\s"']+)/m.exec(block('database'))?.[1] ?? null,
+    hasPostgres: /^postgresql:\s*$/m.test(yaml),
   }
 }
 
@@ -77,16 +78,16 @@ export function readFacts(yaml) {
  * Re-read the file the backend will boot with and assert it says what this run
  * decided. Reading BACK is the point: the writer cannot see its own mis-aimed regex.
  */
-export function assertFactsAgree(yaml, { port, database, path = '<derived>' }) {
+export function assertFactsAgree(yaml, { port, dbPath, path = '<derived>' }) {
   const f = readFacts(yaml)
   if (f.serverPort !== String(port))
     throw new Error(`e2e derived config ${path}: server.port ${f.serverPort} ≠ resolved ${port}`)
-  if (f.database !== database)
-    throw new Error(`e2e derived config ${path}: database ${f.database} ≠ derived ${database}`)
-  if (f.pgPort === String(port))
+  if (f.dbPath !== dbPath)
+    throw new Error(`e2e derived config ${path}: database.path ${f.dbPath} ≠ derived ${dbPath}`)
+  if (f.hasPostgres)
     throw new Error(
-      `e2e derived config ${path}: the postgresql port was rewritten to ${f.pgPort} — the patch ` +
-        'landed in the wrong block and the backend would dial the harness port for its database.',
+      `e2e derived config ${path}: a postgresql block is still present — the patch landed ` +
+        'in the wrong block, and the backend would boot the abandoned Postgres path.',
     )
   return f
 }
@@ -98,11 +99,11 @@ export function assertFactsAgree(yaml, { port, database, path = '<derived>' }) {
  * can be writing this file while the runner's backend is reading it. `write to a
  * sibling, then rename` makes a reader see the old bytes or the new bytes, never half.
  */
-export function writeDerivedConfig({ basePath, outPath, port, database }) {
-  const yaml = deriveConfig(readFileSync(basePath, 'utf8'), { port, database })
+export function writeDerivedConfig({ basePath, outPath, port, dbPath }) {
+  const yaml = deriveConfig(readFileSync(basePath, 'utf8'), { port, dbPath })
   const tmp = `${outPath}.${process.pid}.tmp`
   writeFileSync(tmp, yaml)
   renameSync(tmp, outPath)
-  assertFactsAgree(readFileSync(outPath, 'utf8'), { port, database, path: outPath })
+  assertFactsAgree(readFileSync(outPath, 'utf8'), { port, dbPath, path: outPath })
   return outPath
 }

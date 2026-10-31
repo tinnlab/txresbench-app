@@ -202,12 +202,8 @@ test('an unknown band fails closed rather than resolving nothing', async () => {
 
 // ── the derived per-run backend config ───────────────────────────────────────────
 
-const BASE_YAML = `postgresql:
-  use_embedded: false
-  external:
-    host: "127.0.0.1"
-    port: 54321
-    database: "cytoanalyst_e2e"
+const BASE_YAML = `database:
+  path: null
 server:
   host: "127.0.0.1"
   port: 3155
@@ -216,15 +212,18 @@ logging:
   level: "warn"
 `
 
-test('derivation rewrites server.port + database and NOTHING else', () => {
-  const out = deriveConfig(BASE_YAML, { port: 9251, database: 'cytoanalyst_e2e_9251' })
+test('derivation rewrites server.port + database.path and NOTHING else', () => {
+  const dbPath = '/tmp/cyto-e2e-9251.sqlite'
+  const out = deriveConfig(BASE_YAML, { port: 9251, dbPath })
   const f = readFacts(out)
   assert.equal(f.serverPort, '9251')
-  assert.equal(f.database, 'cytoanalyst_e2e_9251')
-  // The interesting one: `postgresql.external` also carries a `port:`. A whole-file
-  // replace would repoint the backend's DATABASE at the harness port while
-  // `server.port` still read correctly and every other check still passed.
-  assert.equal(f.pgPort, '54321', 'the postgres port must be untouched')
+  assert.equal(f.dbPath, dbPath)
+  // The interesting one: a stale `postgresql:` block must NOT have survived into
+  // the derived config — the backend on this node boots the SQLite store, and
+  // resetting via psql would be the mis-aimed patch the post-condition exists to
+  // catch (a whole-file replace would repoint the DATABASE at the harness port
+  // while `server.port` still read correctly and every other check still passed).
+  assert.equal(f.hasPostgres, false, 'no postgresql block may remain')
   // Exactly two lines differ from the base.
   const changed = out
     .split('\n')
@@ -242,21 +241,21 @@ test('a missing block is refused rather than silently no-op', () => {
 })
 
 test('the read-back post-condition catches a patch that landed in the wrong block', () => {
-  // Simulate an UN-scoped `port:` replace — the realistic mis-aim, and the dangerous
+  // Simulate an UN-scoped `path:` replace — the realistic mis-aim, and the dangerous
   // one, because `server.port` still reads correctly afterwards so every other check
-  // in the config passes while the backend dials the harness port for its database.
-  const wrong = deriveConfig(BASE_YAML, { port: 9251, database: 'db' }).replace(
-    'port: 54321',
-    'port: 9251',
+  // in the config passes while the backend boots the abandoned Postgres path.
+  const wrong = deriveConfig(BASE_YAML, { port: 9251, dbPath: '/tmp/db.sqlite' }).replace(
+    '  port: 3155',
+    '  port: 9251\npostgresql:\n  use_embedded: false',
   )
   assert.equal(readFacts(wrong).serverPort, '9251', 'the decoy half must look correct')
   assert.throws(
-    () => assertFactsAgree(wrong, { port: 9251, database: 'db' }),
-    /the postgresql port was rewritten/,
+    () => assertFactsAgree(wrong, { port: 9251, dbPath: '/tmp/db.sqlite' }),
+    /a postgresql block is still present/,
   )
   // And it catches a port that simply was not applied.
   assert.throws(
-    () => assertFactsAgree(BASE_YAML, { port: 9251, database: 'cytoanalyst_e2e' }),
+    () => assertFactsAgree(BASE_YAML, { port: 9251, dbPath: '/tmp/db.sqlite' }),
     /server\.port 3155 ≠ resolved 9251/,
   )
 })
