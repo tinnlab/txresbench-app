@@ -165,7 +165,7 @@ async fn pairing_ttl_is_read_at_use_after_a_settings_change() {
     // The persisted code expires ~30s out (the new ttl), NOT ~300s (the default).
     let pool = pool_for(&server).await;
     let secs_to_expiry: f64 = sqlx::query_scalar(
-        "SELECT EXTRACT(EPOCH FROM (expires_at - now()))::float8 FROM mcp_pairing_codes ORDER BY expires_at DESC LIMIT 1",
+        "SELECT EXTRACT(EPOCH FROM (expires_at - strftime('%Y-%m-%dT%H:%M:%fZ','now')))::float8 FROM mcp_pairing_codes ORDER BY expires_at DESC LIMIT 1",
     )
     .fetch_one(&pool)
     .await

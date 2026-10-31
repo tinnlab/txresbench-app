@@ -575,7 +575,7 @@ async fn a_transfer_to_a_genuine_non_member_still_completes() {
         sqlx::query(
             "INSERT INTO project_shares (id, project_id, owner_id, recipient_id, \
                                          permission_level, status) \
-             VALUES (gen_random_uuid(), $1, $2, $3, $4, 'accepted')",
+             VALUES (randomblob(16), $1, $2, $3, $4, 'accepted')",
         )
         .bind(fx.r)
         .bind(fx.alice)

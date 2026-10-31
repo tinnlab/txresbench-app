@@ -397,7 +397,7 @@ async fn the_gate_records_an_unverified_outcome_when_it_cannot_reach_a_verdict()
     for (seq, line) in [(1, "the run's first line"), (2, "the run's second line")] {
         sqlx::query(
             "INSERT INTO job_logs (id, job_id, seq, stream, content)
-             VALUES (gen_random_uuid(), $1, $2, 'stdout', $3)",
+             VALUES (randomblob(16), $1, $2, 'stdout', $3)",
         )
         .bind(job_id)
         .bind(seq as i32)

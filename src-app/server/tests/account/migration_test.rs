@@ -14,7 +14,7 @@ use crate::common::TestServer;
 async fn run_backfill(pool: &sqlx::SqlitePool) {
     sqlx::query(
         r#"INSERT INTO public.accounts (id, kind, name, personal_user_id)
-           SELECT gen_random_uuid(), 'personal', u.username, u.id
+           SELECT randomblob(16), 'personal', u.username, u.id
            FROM public.users u
            WHERE NOT EXISTS (
                SELECT 1 FROM public.accounts a
@@ -114,11 +114,13 @@ async fn schema_shape_and_constraints() {
         .await
         .expect("clear the A5 auto-created account");
 
-    let acct_id: Uuid = sqlx::query_scalar(
-        "INSERT INTO accounts (kind, name, personal_user_id) VALUES ('personal', 'alice', $1) RETURNING id",
+    let acct_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO accounts (id, kind, name, personal_user_id) VALUES ($1, 'personal', 'alice', $2)",
     )
+    .bind(acct_id)
     .bind(alice)
-    .fetch_one(&pool)
+    .execute(&pool)
     .await
     .expect("insert first personal account");
 

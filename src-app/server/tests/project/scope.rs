@@ -239,7 +239,7 @@ async fn gc_manifest_threading_and_sweep() {
     // datasets themselves — they SURVIVE a project delete (the project_datasets
     // junction cascades, but the owner keeps the dataset). So the dataset row is
     // still present here (the real cascade only fires on an actual project-row DELETE).
-    let remaining: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM datasets WHERE id = $1::uuid")
+    let remaining: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM datasets WHERE id = $1")
         .bind(&ds)
         .fetch_one(&pool)
         .await

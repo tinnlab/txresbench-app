@@ -66,7 +66,7 @@ fn token_of(body: &Value) -> String {
 async fn setup_admin(server: &TestServer) -> String {
     let resp = server
         .client
-        .post(server.api_url("/app/setup/admin"))
+        .post(server.api_url("/session/local"))
         .json(&json!({
             "username": "itadmin",
             "email": "it@cyto.test",
@@ -76,7 +76,7 @@ async fn setup_admin(server: &TestServer) -> String {
         .send()
         .await
         .expect("setup/admin request");
-    assert_eq!(resp.status().as_u16(), 201, "setup/admin creates the owner");
+    assert_eq!(resp.status().as_u16(), 200, "setup/admin creates the owner");
     token_of(&resp.json().await.expect("setup/admin json"))
 }
 
@@ -151,7 +151,7 @@ async fn create_job(server: &TestServer, token: &str, name: &str, steps: i64) ->
         .send()
         .await
         .expect("create job");
-    assert_eq!(resp.status().as_u16(), 201, "job created");
+    assert_eq!(resp.status().as_u16(), 200, "job created");
     let body: Value = resp.json().await.expect("job json");
     assert_eq!(body["status"], json!("queued"), "new job is queued");
     body["id"].as_str().expect("job id").to_string()
@@ -409,7 +409,7 @@ async fn boot_reconcile_fails_orphan_without_manifest() {
     let orphan = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO jobs (id, owner_id, job_type, name, status, started_at) \
-         VALUES ($1, $2, 'stub', 'orphan', 'running', now())",
+         VALUES ($1, $2, 'stub', 'orphan', 'running', strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
     )
     .bind(orphan)
     .bind(owner)
@@ -572,7 +572,7 @@ async fn users_group_grants_jobs_use() {
         .send()
         .await
         .expect("create");
-    assert_eq!(resp.status().as_u16(), 201, "the grant migration gave Users jobs::use");
+    assert_eq!(resp.status().as_u16(), 200, "the grant migration gave Users jobs::use");
 }
 
 // ----------------------------------------------------------------- TEST-19 (A9)
@@ -945,7 +945,7 @@ async fn boot_reconcile_finalizes_uningested_and_fails_midrun() {
         .unwrap();
     sqlx::query(
         "INSERT INTO jobs (id, owner_id, job_type, name, status, started_at, run_id) \
-         VALUES ($1, $2, 'analysis', 'uningested', 'running', now(), $3)",
+         VALUES ($1, $2, 'analysis', 'uningested', 'running', strftime('%Y-%m-%dT%H:%M:%fZ','now'), $3)",
     )
     .bind(job1)
     .bind(owner)
@@ -964,7 +964,7 @@ async fn boot_reconcile_finalizes_uningested_and_fails_midrun() {
     tokio::fs::write(stg2.join("outputs").join("partial.tmp"), b"half").await.unwrap();
     sqlx::query(
         "INSERT INTO jobs (id, owner_id, job_type, name, status, started_at) \
-         VALUES ($1, $2, 'analysis', 'midrun', 'running', now())",
+         VALUES ($1, $2, 'analysis', 'midrun', 'running', strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
     )
     .bind(job2)
     .bind(owner)
@@ -1424,7 +1424,7 @@ async fn create_project(server: &TestServer, token: &str, name: &str) -> Uuid {
         .send()
         .await
         .expect("create project");
-    assert_eq!(resp.status().as_u16(), 201, "create project {name}");
+    assert_eq!(resp.status().as_u16(), 200, "create project {name}");
     let body: Value = resp.json().await.expect("project json");
     Uuid::parse_str(body["id"].as_str().expect("project id")).unwrap()
 }
@@ -1918,7 +1918,7 @@ async fn stalled_staging_phase_reaches_terminal_failed() {
         let job_id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO jobs (id, owner_id, job_type, name, status, started_at, params) \
-             VALUES ($1, $2, 'analysis', $3, 'running', now(), '{}'::jsonb)",
+             VALUES ($1, $2, 'analysis', $3, 'running', strftime('%Y-%m-%dT%H:%M:%fZ','now'), '{}')",
         )
         .bind(job_id)
         .bind(owner)

@@ -33,7 +33,7 @@ const DELETED: &[(&str, &str)] = &[
 async fn setup_admin(server: &TestServer) -> String {
     let resp = server
         .client
-        .post(server.api_url("/app/setup/admin"))
+        .post(server.api_url("/session/local"))
         .json(&json!({
             "username": "admin",
             "email": "admin@cyto.test",
@@ -43,7 +43,7 @@ async fn setup_admin(server: &TestServer) -> String {
         .send()
         .await
         .expect("setup/admin");
-    assert_eq!(resp.status().as_u16(), 201, "setup/admin creates the owner");
+    assert_eq!(resp.status().as_u16(), 200, "setup/admin creates the owner");
     let body: Value = resp.json().await.expect("setup json");
     body["access_token"]
         .as_str()

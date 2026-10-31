@@ -1138,6 +1138,25 @@ impl<A: HarnessApp> TestHarness<A> {
             cmd.env(k, v);
         }
         let child = cmd.spawn().expect("Failed to start test server");
+        // `std::process::Child::drop` does NOT kill the child, and the ownership
+        // transfer into `SpawnedServer` happens only after the readiness poll —
+        // so a panic below (health timeout, config error) would orphan the
+        // server process. Kill it on any unwind path.
+        struct KillOnDrop(Option<std::process::Child>);
+        impl KillOnDrop {
+            fn into_inner(mut self) -> std::process::Child {
+                self.0.take().expect("child already taken")
+            }
+        }
+        impl Drop for KillOnDrop {
+            fn drop(&mut self) {
+                if let Some(mut c) = self.0.take() {
+                    let _ = c.kill();
+                    let _ = c.wait();
+                }
+            }
+        }
+        let mut child = KillOnDrop(Some(child));
 
         let base_url = format!("http://127.0.0.1:{}", server_port);
 
@@ -1162,6 +1181,7 @@ impl<A: HarnessApp> TestHarness<A> {
                 base_url
             );
         }
+        let child = child.into_inner();
 
         SpawnedServer {
             process: child,

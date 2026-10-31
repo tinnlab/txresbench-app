@@ -530,7 +530,7 @@ async fn insert_job(pool: &SqlitePool, owner: Uuid, status: &str) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO jobs (id, owner_id, job_type, name, status, params, priority_class, resource_class)
-         VALUES ($1, $2, 'analysis', 'derive-test', $3, '{}'::jsonb, 'normal', 'cpu-sandbox')",
+         VALUES ($1, $2, 'analysis', 'derive-test', $3, '{}', 'normal', 'cpu-sandbox')",
     )
     .bind(id)
     .bind(owner)
@@ -691,12 +691,12 @@ async fn add_supporting_at_cap_422() {
     sqlx::query(
         "WITH new_files AS (
              INSERT INTO files (id, user_id, filename, file_size, current_version_id, created_by)
-             SELECT gen_random_uuid(), $1, 'seed-' || g || '.csv', 10, gen_random_uuid(), 'user'
+             SELECT randomblob(16), $1, 'seed-' || g || '.csv', 10, randomblob(16), 'user'
              FROM generate_series(1, 50) g
              RETURNING id
          )
          INSERT INTO dataset_files (dataset_id, file_id, ordinal, role, kind)
-         SELECT $2, id, 100 + (row_number() OVER ())::int, 'supporting', 'annotation_table'
+         SELECT $2, id, 100 + (row_number() OVER ()), 'supporting', 'annotation_table'
          FROM new_files",
     )
     .bind(owner)

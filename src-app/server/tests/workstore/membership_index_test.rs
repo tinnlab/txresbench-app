@@ -90,7 +90,7 @@ async fn test31_the_membership_index_exists_with_its_expression_and_opclass() {
     let pool = pool_for(&server).await;
 
     let def: Option<String> = sqlx::query_scalar(
-        "SELECT indexdef::text FROM pg_indexes
+        "SELECT indexdef FROM pg_indexes
           WHERE schemaname = 'public' AND indexname = 'artifacts_membership_aligned_to_idx'",
     )
     .fetch_optional(&pool)
@@ -142,7 +142,7 @@ async fn test30_on_axis_returns_exactly_the_artifacts_declaring_that_axis() {
     // would pass a single-arm fixture and drop every imported artifact in production.
     let dataset_id: Uuid = sqlx::query_scalar(
         "INSERT INTO datasets (id, name, owner_id, account_id)
-         VALUES (gen_random_uuid(), 'attached', (SELECT id FROM users LIMIT 1),
+         VALUES (randomblob(16), 'attached', (SELECT id FROM users LIMIT 1),
                  (SELECT id FROM accounts WHERE kind = 'personal' AND personal_user_id = (SELECT id FROM users LIMIT 1)))
          RETURNING id",
     )

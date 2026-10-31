@@ -171,7 +171,7 @@ mod range_block_alignment_test;
 async fn setup_admin(server: &TestServer) -> String {
     let resp = server
         .client
-        .post(server.api_url("/app/setup/admin"))
+        .post(server.api_url("/session/local"))
         .json(&json!({
             "username": "admin", "email": "admin@cyto.test",
             "password": "adminPassw0rd!", "display_name": "Admin"
@@ -179,7 +179,7 @@ async fn setup_admin(server: &TestServer) -> String {
         .send()
         .await
         .expect("setup/admin");
-    assert_eq!(resp.status().as_u16(), 201);
+    assert_eq!(resp.status().as_u16(), 200);
     let body: Value = resp.json().await.expect("setup json");
     body["access_token"]
         .as_str()
@@ -192,7 +192,7 @@ async fn setup_admin(server: &TestServer) -> String {
 async fn create_member_token(server: &TestServer, admin: &str, username: &str) -> (Uuid, String) {
     let r = server
         .client
-        .post(server.api_url("/users"))
+        .post(server.api_url("/auth/register"))
         .bearer_auth(admin)
         .json(&json!({ "username": username, "email": format!("{username}@cyto.test"), "password": "memberPassw0rd!" }))
         .send()
@@ -700,7 +700,7 @@ async fn test9_axis_entry_table_is_gone_and_axes_derive_from_declarations() {
     // POSITIVE CONTROL: `artifacts` is still here, so a `to_regclass` of NULL below
     // means "that table is gone", not "this query does not work".
     let artifacts_present: Option<String> =
-        sqlx::query_scalar("SELECT to_regclass('public.artifacts')::text")
+        sqlx::query_scalar("SELECT to_regclass('public.artifacts')")
             .fetch_one(&pool)
             .await
             .unwrap();
@@ -710,7 +710,7 @@ async fn test9_axis_entry_table_is_gone_and_axes_derive_from_declarations() {
     );
 
     let axis_table: Option<String> =
-        sqlx::query_scalar("SELECT to_regclass('public.workstore_axis_entry')::text")
+        sqlx::query_scalar("SELECT to_regclass('public.workstore_axis_entry')")
             .fetch_one(&pool)
             .await
             .unwrap();

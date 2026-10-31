@@ -665,7 +665,7 @@ async fn a_job_is_listed_exactly_when_it_can_be_opened() {
     sqlx::query(
         "INSERT INTO jobs (id, owner_id, job_type, name, status, params, created_at, \
                            priority_class, resource_class) \
-         VALUES ($1, $2, 'stub', 'rm-job', 'running', '{}'::jsonb, now(), 'normal', 'cpu-sandbox')",
+         VALUES ($1, $2, 'stub', 'rm-job', 'running', '{}', strftime('%Y-%m-%dT%H:%M:%fZ','now'), 'normal', 'cpu-sandbox')",
     )
     .bind(rm_job)
     .bind(uuid::Uuid::parse_str(&_o).unwrap())
@@ -774,7 +774,7 @@ async fn paging_rows_that_share_a_created_at_repeats_nothing_and_drops_nothing()
         sqlx::query(
             "INSERT INTO jobs (id, owner_id, job_type, name, status, params, created_at, \
                                priority_class, resource_class)
-             VALUES ($1, $2, 'stub', $3, 'completed', '{}'::jsonb, $4, 'normal', 'cpu-sandbox')",
+             VALUES ($1, $2, 'stub', $3, 'completed', '{}', $4, 'normal', 'cpu-sandbox')",
         )
         .bind(id)
         .bind(owner)

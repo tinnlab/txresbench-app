@@ -60,7 +60,7 @@ async fn teardown_metrics_noop_records_nothing() {
         )
         .await;
     let count: i64 =
-        sqlx::query("SELECT count(*)::bigint AS c FROM compute_meter")
+        sqlx::query("SELECT count(*) AS c FROM compute_meter")
             .fetch_one(&pool)
             .await
             .expect("count meter rows")

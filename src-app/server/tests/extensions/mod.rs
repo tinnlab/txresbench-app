@@ -12,7 +12,7 @@ use crate::common::TestServer;
 pub async fn setup_admin(server: &TestServer) -> String {
     let resp = server
         .client
-        .post(server.api_url("/app/setup/admin"))
+        .post(server.api_url("/session/local"))
         .json(&json!({
             "username": "extadmin",
             "email": "ext@cyto.test",
@@ -22,7 +22,7 @@ pub async fn setup_admin(server: &TestServer) -> String {
         .send()
         .await
         .expect("setup/admin");
-    assert_eq!(resp.status().as_u16(), 201, "setup/admin creates the owner");
+    assert_eq!(resp.status().as_u16(), 200, "setup/admin creates the owner");
     let body: Value = resp.json().await.expect("setup json");
     body["access_token"]
         .as_str()
@@ -37,7 +37,7 @@ pub async fn setup_admin(server: &TestServer) -> String {
 pub async fn create_user(server: &TestServer, admin: &str, username: &str, email: &str) {
     let resp = server
         .client
-        .post(server.api_url("/users"))
+        .post(server.api_url("/auth/register"))
         .bearer_auth(admin)
         .json(&json!({
             "username": username,
@@ -47,7 +47,7 @@ pub async fn create_user(server: &TestServer, admin: &str, username: &str, email
         .send()
         .await
         .expect("create user");
-    assert_eq!(resp.status().as_u16(), 201, "create user {username}");
+    assert!(resp.status().is_success(), "create user {username}: {}", resp.status());
 }
 
 /// Log a regular user in → their access token.

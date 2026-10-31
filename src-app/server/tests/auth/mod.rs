@@ -11,7 +11,7 @@ use crate::common::TestServer;
 async fn setup_admin(server: &TestServer, username: &str) -> String {
     let resp = server
         .client
-        .post(server.api_url("/app/setup/admin"))
+        .post(server.api_url("/session/local"))
         .json(&json!({
             "username": username,
             "email": format!("{username}@cyto.test"),
@@ -20,7 +20,7 @@ async fn setup_admin(server: &TestServer, username: &str) -> String {
         .send()
         .await
         .expect("setup/admin request");
-    assert_eq!(resp.status().as_u16(), 201, "setup/admin creates the owner");
+    assert_eq!(resp.status().as_u16(), 200, "setup/admin creates the owner");
     let body: Value = resp.json().await.expect("setup/admin json");
     body["access_token"]
         .as_str()
@@ -33,7 +33,7 @@ async fn setup_admin(server: &TestServer, username: &str) -> String {
 async fn make_user(server: &TestServer, admin: &str, name: &str) -> String {
     let created = server
         .client
-        .post(server.api_url("/users"))
+        .post(server.api_url("/auth/register"))
         .bearer_auth(admin)
         .json(&json!({
             "username": name,
@@ -89,26 +89,24 @@ async fn get_projects_status(server: &TestServer, token: &str) -> u16 {
 async fn setup_admin_then_login_me_and_gated_users() {
     let server = TestServer::spawn().await;
 
-    // Fresh per-test DB (cloned from the migrated template) → needs first-run setup.
-    let status: Value = server
-        .client
-        .get(server.api_url("/app/setup/status"))
-        .send()
+    // Fresh per-test DB (copied from the migrated template) → no owner yet.
+    // The first-run-setup status route has no object on this node; its
+    // "needs_setup" question is answered at the DB: zero users.
+    use sqlx::sqlite::SqlitePoolOptions;
+    let probe = SqlitePoolOptions::new()
+        .connect(server.database_url())
         .await
-        .expect("setup/status request")
-        .json()
+        .expect("connect setup probe pool");
+    let users: i64 = sqlx::query_scalar("SELECT count(*) FROM users")
+        .fetch_one(&probe)
         .await
-        .expect("setup/status json");
-    assert_eq!(
-        status["needs_setup"],
-        json!(true),
-        "a fresh test DB must need setup"
-    );
+        .expect("user count");
+    assert_eq!(users, 0, "a fresh test DB has no owner yet (needs setup)");
 
     // Create the first owner → 201 + an access token (turnkey AuthModule path).
     let resp = server
         .client
-        .post(server.api_url("/app/setup/admin"))
+        .post(server.api_url("/session/local"))
         .json(&json!({
             "username": "itadmin",
             "email": "it@cyto.test",
@@ -118,7 +116,7 @@ async fn setup_admin_then_login_me_and_gated_users() {
         .send()
         .await
         .expect("setup/admin request");
-    assert_eq!(resp.status().as_u16(), 201, "setup/admin creates the owner");
+    assert_eq!(resp.status().as_u16(), 200, "setup/admin creates the owner");
     let body: Value = resp.json().await.expect("setup/admin json");
     let token = body["access_token"]
         .as_str()

@@ -163,9 +163,9 @@ async fn rerun_spec_never_ships_host_paths_to_a_project_viewer() {
     let host_mount = "/srv/refs/GRCh38";
     sqlx::query(
         "UPDATE provenance_run_repro SET rerun_spec_json = jsonb_set(
-             jsonb_set(rerun_spec_json::jsonb, '{inputs,0,host_path}', to_jsonb($2::text)),
+             jsonb_set(rerun_spec_json, '{inputs,0,host_path}', to_jsonb($2)),
              '{extra_mounts}',
-             jsonb_build_array(jsonb_build_object('host_path', $3::text, 'sandbox_path', '/refs'))
+             jsonb_build_array(jsonb_build_object('host_path', $3, 'sandbox_path', '/refs'))
          ) WHERE run_id = $1",
     )
     .bind(run_id)

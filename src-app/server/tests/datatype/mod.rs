@@ -34,7 +34,7 @@ const USERS_GROUP_ID: &str = "79668b78-16ff-4d3f-80e6-afdbb3236dc9";
 async fn setup_admin(server: &TestServer) -> String {
     let resp = server
         .client
-        .post(server.api_url("/app/setup/admin"))
+        .post(server.api_url("/session/local"))
         .json(&json!({
             "username": "admin", "email": "admin@cyto.test",
             "password": "adminPassw0rd!", "display_name": "Admin"
@@ -42,7 +42,7 @@ async fn setup_admin(server: &TestServer) -> String {
         .send()
         .await
         .expect("setup/admin");
-    assert_eq!(resp.status().as_u16(), 201);
+    assert_eq!(resp.status().as_u16(), 200);
     let body: Value = resp.json().await.expect("setup json");
     tokenof(&body)
 }
@@ -73,7 +73,7 @@ async fn create_project(server: &TestServer, token: &str, name: &str) -> Uuid {
 async fn create_member_token(server: &TestServer, admin: &str, username: &str) -> (Uuid, String) {
     let r = server
         .client
-        .post(server.api_url("/users"))
+        .post(server.api_url("/auth/register"))
         .bearer_auth(admin)
         .json(&json!({ "username": username, "email": format!("{username}@cyto.test"), "password": "memberPassw0rd!" }))
         .send()

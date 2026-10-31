@@ -118,7 +118,7 @@ async fn wait_for_blocked_by(pool: &SqlitePool, blocker_pid: i32) -> i32 {
         let pids: Vec<i32> = sqlx::query_scalar(
             "SELECT pid FROM pg_stat_activity \
              WHERE datname = current_database() \
-               AND pg_blocking_pids(pid) @> ARRAY[$1::int] \
+               AND pg_blocking_pids(pid) @> ARRAY[$1] \
              ORDER BY pid",
         )
         .bind(blocker_pid)
@@ -887,7 +887,7 @@ async fn in_transaction_ledger_row_shares_the_mutation_xmin() {
     assert_eq!(patch_role(&server, &token, org, target, "admin").await, 200);
 
     let membership_xmin: String = sqlx::query_scalar(
-        "SELECT xmin::text FROM account_members WHERE account_id = $1 AND user_id = $2",
+        "SELECT xmin FROM account_members WHERE account_id = $1 AND user_id = $2",
     )
     .bind(org)
     .bind(target)
@@ -896,7 +896,7 @@ async fn in_transaction_ledger_row_shares_the_mutation_xmin() {
     .expect("the updated membership row");
 
     let event_xmin: String = sqlx::query_scalar(
-        "SELECT xmin::text FROM account_member_events \
+        "SELECT xmin FROM account_member_events \
          WHERE account_id = $1 AND action = 'role_changed'",
     )
     .bind(org)
@@ -2042,7 +2042,7 @@ async fn invitation_row_shape_round_trips_and_refuses_email_plus_user() {
             "a `left` whose actor is not the person who left",
             "INSERT INTO account_member_events \
                  (account_id, actor_user_id, actor_kind, action, target_user_id, old_role) \
-             VALUES ($1, $2, 'user', 'left', gen_random_uuid(), 'member')",
+             VALUES ($1, $2, 'user', 'left', randomblob(16), 'member')",
             "account_member_events_left_is_self",
         ),
         (

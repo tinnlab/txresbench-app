@@ -45,8 +45,8 @@ fn scaler_query() -> String {
 async fn insert_job(pool: &SqlitePool, owner: Uuid, status: &str) {
     sqlx::query(
         "INSERT INTO jobs (id, owner_id, job_type, name, status, started_at, finished_at) \
-         VALUES ($1, $2, 'stub', 'k', $3, CASE WHEN $3 <> 'queued' THEN now() END, \
-                 CASE WHEN $3 IN ('completed','failed') THEN now() END)",
+         VALUES ($1, $2, 'stub', 'k', $3, CASE WHEN $3 <> 'queued' THEN strftime('%Y-%m-%dT%H:%M:%fZ','now') END, \
+                 CASE WHEN $3 IN ('completed','failed') THEN strftime('%Y-%m-%dT%H:%M:%fZ','now') END)",
     )
     .bind(Uuid::new_v4())
     .bind(owner)

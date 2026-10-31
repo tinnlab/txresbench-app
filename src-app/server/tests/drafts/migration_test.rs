@@ -15,7 +15,7 @@ async fn drafts_schema_and_grant_are_present() {
 
     // The table exists with the expected columns.
     let cols: Vec<String> = sqlx::query_scalar::<_, String>(
-        "SELECT column_name::text FROM information_schema.columns \
+        "SELECT column_name FROM information_schema.columns \
          WHERE table_schema = 'public' AND table_name = 'drafts' ORDER BY column_name",
     )
     .fetch_all(&pool)
@@ -50,7 +50,7 @@ async fn drafts_schema_and_grant_are_present() {
 
     // The async-freeze mapping table (migration 202608240002) exists with its columns.
     let fj_cols: Vec<String> = sqlx::query_scalar::<_, String>(
-        "SELECT column_name::text FROM information_schema.columns \
+        "SELECT column_name FROM information_schema.columns \
          WHERE table_schema = 'public' AND table_name = 'draft_freeze_jobs' ORDER BY column_name",
     )
     .fetch_all(&pool)

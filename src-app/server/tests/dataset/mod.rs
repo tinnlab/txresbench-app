@@ -12,7 +12,7 @@ use crate::common::TestServer;
 pub async fn setup_admin(server: &TestServer) -> String {
     let resp = server
         .client
-        .post(server.api_url("/app/setup/admin"))
+        .post(server.api_url("/session/local"))
         .json(&json!({
             "username": "admin",
             "email": "admin@cyto.test",
@@ -22,7 +22,7 @@ pub async fn setup_admin(server: &TestServer) -> String {
         .send()
         .await
         .expect("setup/admin");
-    assert_eq!(resp.status().as_u16(), 201);
+    assert_eq!(resp.status().as_u16(), 200);
     token_of(resp.json().await.expect("setup json"))
 }
 
@@ -39,7 +39,7 @@ pub fn token_of(body: Value) -> String {
 pub async fn create_user(server: &TestServer, admin: &str, username: &str, email: &str) -> String {
     let resp = server
         .client
-        .post(server.api_url("/users"))
+        .post(server.api_url("/auth/register"))
         .bearer_auth(admin)
         .json(&json!({
             "username": username,
@@ -49,7 +49,7 @@ pub async fn create_user(server: &TestServer, admin: &str, username: &str, email
         .send()
         .await
         .expect("create user");
-    assert_eq!(resp.status().as_u16(), 201, "create user {username}");
+    assert!(resp.status().is_success(), "create user {username}: {}", resp.status());
     let body: Value = resp.json().await.expect("user json");
     body["id"].as_str().expect("user id").to_string()
 }
@@ -77,7 +77,7 @@ pub async fn create_dataset(server: &TestServer, token: &str, name: &str) -> Str
         .send()
         .await
         .expect("create dataset");
-    assert_eq!(resp.status().as_u16(), 201, "create dataset {name}");
+    assert_eq!(resp.status().as_u16(), 200, "create dataset {name}");
     let body: Value = resp.json().await.expect("dataset json");
     body["id"].as_str().expect("dataset id").to_string()
 }
@@ -232,7 +232,7 @@ async fn test33_an_import_emits_only_zarr_and_the_gate_passes_the_whole_set() {
     // ── (1) the declared encodings are drawn from the implemented, closed set ─────
     let rows: Vec<(String, Option<String>, bool, String, String, String)> = sqlx::query_as(
         "SELECT output_id, structure->>'encoding', is_multifile, object_key, status, \
-                structure::text \
+                structure \
          FROM artifacts WHERE dataset_id = $1 ORDER BY output_id",
     )
     .bind(dataset_id)

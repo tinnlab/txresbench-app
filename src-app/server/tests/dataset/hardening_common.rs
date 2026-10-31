@@ -765,7 +765,7 @@ pub async fn insert_running_job(
     let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO jobs (id, owner_id, job_type, name, status, params, priority_class, resource_class, created_at, started_at)
-         VALUES ($1, $2, $3, 'reconcile-seed', 'running', '{}'::jsonb, 'normal', 'cpu-sandbox', now(), now())",
+         VALUES ($1, $2, $3, 'reconcile-seed', 'running', '{}', 'normal', 'cpu-sandbox', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
     )
     .bind(id)
     .bind(owner_id)

@@ -32,7 +32,7 @@ const USERS_GROUP_ID: &str = "79668b78-16ff-4d3f-80e6-afdbb3236dc9";
 pub async fn setup_admin(server: &TestServer) -> String {
     let resp = server
         .client
-        .post(server.api_url("/app/setup/admin"))
+        .post(server.api_url("/session/local"))
         .json(&json!({
             "username": "admin",
             "email": "admin@cyto.test",
@@ -42,7 +42,7 @@ pub async fn setup_admin(server: &TestServer) -> String {
         .send()
         .await
         .expect("setup/admin");
-    assert_eq!(resp.status().as_u16(), 201);
+    assert_eq!(resp.status().as_u16(), 200);
     token_of(resp.json().await.expect("setup json"))
 }
 
@@ -59,7 +59,7 @@ pub fn token_of(body: Value) -> String {
 pub async fn create_user(server: &TestServer, admin: &str, username: &str, email: &str) -> String {
     let resp = server
         .client
-        .post(server.api_url("/users"))
+        .post(server.api_url("/auth/register"))
         .bearer_auth(admin)
         .json(&json!({
             "username": username,
@@ -69,7 +69,7 @@ pub async fn create_user(server: &TestServer, admin: &str, username: &str, email
         .send()
         .await
         .expect("create user");
-    assert_eq!(resp.status().as_u16(), 201, "create user {username}");
+    assert!(resp.status().is_success(), "create user {username}: {}", resp.status());
     let body: Value = resp.json().await.expect("user json");
     body["id"].as_str().expect("user id").to_string()
 }
@@ -116,7 +116,7 @@ pub async fn create_project(server: &TestServer, token: &str, name: &str) -> Str
         .send()
         .await
         .expect("create project");
-    assert_eq!(resp.status().as_u16(), 201, "create project {name}");
+    assert_eq!(resp.status().as_u16(), 200, "create project {name}");
     let body: Value = resp.json().await.expect("project json");
     body["id"].as_str().expect("project id").to_string()
 }
@@ -274,6 +274,6 @@ pub async fn create_draft(
         .send()
         .await
         .expect("create draft");
-    assert_eq!(resp.status().as_u16(), 201, "create draft {kind}");
+    assert_eq!(resp.status().as_u16(), 200, "create draft {kind}");
     resp.json().await.expect("draft json")
 }

@@ -58,7 +58,7 @@ async fn reach_is_by_account_id_not_owner_id() {
     sqlx::query(
         "INSERT INTO jobs (id, owner_id, job_type, name, status, params, created_at, \
                            priority_class, resource_class) \
-         VALUES ($1, $2, 'stub', 'j', 'running', '{}'::jsonb, now(), 'normal', 'cpu-sandbox')",
+         VALUES ($1, $2, 'stub', 'j', 'running', '{}', strftime('%Y-%m-%dT%H:%M:%fZ','now'), 'normal', 'cpu-sandbox')",
     )
     .bind(job_id)
     .bind(x)

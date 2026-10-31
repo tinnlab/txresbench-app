@@ -32,7 +32,7 @@ async fn insert_gathered(
         "INSERT INTO artifacts \
            (dataset_id, output_id, datatype, object_key, is_multifile, content_hash, \
             structure, meta, role, status, stored_bytes) \
-         VALUES ($1, $2, 'data/opaque', NULL, false, $3, $4, '{}'::jsonb, 'artifact', \
+         VALUES ($1, $2, 'data/opaque', NULL, false, $3, $4, '{}', 'artifact', \
                  'ready', 0)",
     )
     .bind(dataset_id)

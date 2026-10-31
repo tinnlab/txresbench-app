@@ -71,7 +71,7 @@ async fn account_of_resolvers_return_some_for_existing_none_for_absent() {
            (project_id, output_id, datatype, object_key, is_multifile, content_hash, \
             structure, meta, role, status, stored_bytes, hidden) \
          VALUES ($1, 'out-1', 'data/opaque', 'k/1', false, $2, \
-                 '{}'::jsonb, '{}'::jsonb, 'artifact', 'ready', 1, false) \
+                 '{}', '{}', 'artifact', 'ready', 1, false) \
          RETURNING id",
     )
     .bind(project.id)

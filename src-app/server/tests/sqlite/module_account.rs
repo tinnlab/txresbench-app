@@ -35,7 +35,7 @@
 //!    correctly (lexicographic == chronological) and decodes to
 //!    `DateTime<Utc>` from TEXT.
 //! 7. the `account_member_events` row insert + the redacting scoped read:
-//!    app-side `id` bind (the ITEM-10 chain dropped the PG `gen_random_uuid()`
+//!    app-side `id` bind (the ITEM-10 chain dropped the PG `randomblob(16)`
 //!    defaults per DEC-12 — every account INSERT names the id explicitly
 //!    since ITEM-17), `admin` rows NULL their `actor_user_id`.
 //! 8. the serialization substitution: `BEGIN IMMEDIATE` + the

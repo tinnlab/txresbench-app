@@ -207,10 +207,11 @@ jwt:
         }
     }
 
-    /// CytoAnalyst has no `/api/health`; the always-200 setup-status endpoint is
-    /// the readiness probe.
+    /// The framework's always-200 health endpoint is the readiness probe (the
+    /// previously-named `/api/app/setup/status` route does not exist on the
+    /// shipped router; measured against a live boot).
     fn health_path(&self) -> String {
-        "/api/app/setup/status".to_string()
+        "/api/health".to_string()
     }
 }
 

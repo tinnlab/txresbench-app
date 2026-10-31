@@ -632,7 +632,12 @@ async fn an_attached_datasets_artifact_is_a_valid_selection_input() {
 
     // A DATASET-scoped artifact (project_id NULL) — what an upload produces.
     let dataset_id = Uuid::new_v4();
-    sqlx::query("WITH a AS (INSERT INTO accounts (id, kind, name, personal_user_id) VALUES (gen_random_uuid(), 'personal', 'seed', (SELECT id FROM users LIMIT 1)) ON CONFLICT (personal_user_id) WHERE kind='personal' DO UPDATE SET name = accounts.name RETURNING id) INSERT INTO datasets (id, name, owner_id, account_id) SELECT $1, $2, (SELECT id FROM users LIMIT 1), a.id FROM a")
+    sqlx::query("INSERT INTO accounts (id, kind, name, personal_user_id) VALUES ($1, 'personal', 'seed', (SELECT id FROM users LIMIT 1)) ON CONFLICT (personal_user_id) WHERE kind='personal' DO UPDATE SET name = accounts.name")
+        .bind(Uuid::new_v4())
+        .execute(&pool)
+        .await
+        .expect("seed personal account");
+    sqlx::query("INSERT INTO datasets (id, name, owner_id, account_id) VALUES ($1, $2, (SELECT id FROM users LIMIT 1), (SELECT id FROM accounts WHERE kind='personal' LIMIT 1))")
         .bind(dataset_id)
         .bind("tenancy-fixture")
         .execute(&pool)
@@ -674,7 +679,7 @@ async fn an_attached_datasets_artifact_is_a_valid_selection_input() {
     // …and the recorded run pins THAT artifact as its used-edge (the closure terminus
     // the whole invariant is about), not nothing.
     let used: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM provenance_run_repro WHERE project_id = $1 AND inputs_json::text LIKE $2",
+        "SELECT count(*) FROM provenance_run_repro WHERE project_id = $1 AND inputs_json LIKE $2",
     )
     .bind(project_id)
     .bind(format!("%{art_id}%"))
@@ -730,7 +735,12 @@ async fn an_editor_cannot_pin_an_artifact_from_a_dataset_he_cannot_read() {
     // The ADMIN's private dataset + one of its artifacts, attached to the project.
     let dataset_id = Uuid::new_v4();
     let secret_hash = format!("sha256:{}", "c".repeat(64));
-    sqlx::query("WITH a AS (INSERT INTO accounts (id, kind, name, personal_user_id) VALUES (gen_random_uuid(), 'personal', 'seed', (SELECT id FROM users WHERE username = 'admin')) ON CONFLICT (personal_user_id) WHERE kind='personal' DO UPDATE SET name = accounts.name RETURNING id) INSERT INTO datasets (id, name, owner_id, account_id) SELECT $1, $2, (SELECT id FROM users WHERE username = 'admin'), a.id FROM a")
+    sqlx::query("INSERT INTO accounts (id, kind, name, personal_user_id) VALUES ($1, 'personal', 'seed', (SELECT id FROM users WHERE username = 'admin')) ON CONFLICT (personal_user_id) WHERE kind='personal' DO UPDATE SET name = accounts.name")
+        .bind(Uuid::new_v4())
+        .execute(&pool)
+        .await
+        .expect("seed personal account");
+    sqlx::query("INSERT INTO datasets (id, name, owner_id, account_id) VALUES ($1, $2, (SELECT id FROM users WHERE username = 'admin'), (SELECT id FROM accounts WHERE kind='personal' AND personal_user_id = (SELECT id FROM users WHERE username = 'admin')))")
         .bind(dataset_id)
         .bind("private-owner-dataset")
         .execute(&pool)
@@ -764,7 +774,7 @@ async fn an_editor_cannot_pin_an_artifact_from_a_dataset_he_cannot_read() {
 
     // Nothing about the private artifact leaked into anything he can read.
     let leaked: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM provenance_run_repro WHERE project_id = $1 AND inputs_json::text LIKE $2",
+        "SELECT count(*) FROM provenance_run_repro WHERE project_id = $1 AND inputs_json LIKE $2",
     )
     .bind(project_id)
     .bind(format!("%{art_id}%"))
@@ -802,7 +812,7 @@ async fn an_editor_cannot_pin_an_artifact_from_a_dataset_he_cannot_read() {
     // CONTROL: once the dataset is SHARED with him, the editor can too.
     sqlx::query(
         "INSERT INTO dataset_shares (id, dataset_id, principal_type, principal_id, role) \
-         VALUES (gen_random_uuid(), $1, 'user', \
+         VALUES (randomblob(16), $1, 'user', \
                  (SELECT id FROM users WHERE username = 'ds_editor'), 'view')",
     )
     .bind(dataset_id)

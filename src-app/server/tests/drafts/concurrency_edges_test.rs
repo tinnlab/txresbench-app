@@ -240,7 +240,7 @@ async fn consumer_born_on_a_completed_freeze_is_pinned() {
            FROM draft_freeze_jobs f
            JOIN drafts d ON d.id = f.draft_id
            JOIN jobs j ON j.id = f.job_id
-           WHERE f.draft_id = $1::uuid"#,
+           WHERE f.draft_id = $1"#,
         draft_uuid,
     )
     .fetch_one(&pool)
@@ -348,7 +348,7 @@ async fn editing_a_draft_mid_freeze_freezes_the_new_content() {
     let pool = SqlitePool::connect(server.database_url()).await.unwrap();
     let consumer_uuid = Uuid::parse_str(&consumer_id).unwrap();
     let deps: Vec<Uuid> = sqlx::query_scalar!(
-        r#"SELECT depends_on_job_id as "dep!: Uuid" FROM job_dependencies WHERE job_id = $1::uuid"#,
+        r#"SELECT depends_on_job_id as "dep!: Uuid" FROM job_dependencies WHERE job_id = $1"#,
         consumer_uuid,
     )
     .fetch_all(&pool)
@@ -370,7 +370,7 @@ async fn editing_a_draft_mid_freeze_freezes_the_new_content() {
     // positive proof it is not a reuse of the stale snapshot.
     let draft_uuid = Uuid::parse_str(&id).unwrap();
     let hashes: Vec<String> = sqlx::query_scalar!(
-        r#"SELECT content_hash as "h!" FROM draft_freeze_jobs WHERE draft_id = $1::uuid ORDER BY created_at"#,
+        r#"SELECT content_hash as "h!" FROM draft_freeze_jobs WHERE draft_id = $1 ORDER BY created_at"#,
         draft_uuid,
     )
     .fetch_all(&pool)

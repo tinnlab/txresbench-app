@@ -3803,7 +3803,7 @@ async fn the_project_admin_wire_shape_no_longer_carries_the_dec_m_fields() {
 
     let setup = server
         .client
-        .post(server.api_url("/app/setup/admin"))
+        .post(server.api_url("/session/local"))
         .json(&json!({
             "username": "admin",
             "email": "admin@cyto.test",

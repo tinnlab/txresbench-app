@@ -25,7 +25,7 @@ async fn insert_processing_job(
     let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO jobs (id, owner_id, job_type, name, status, error, params, priority_class, resource_class)
-         VALUES ($1, $2, 'analysis', 'Convert proc-test', $3, $4, '{}'::jsonb, 'normal', 'cpu-sandbox')",
+         VALUES ($1, $2, 'analysis', 'Convert proc-test', $3, $4, '{}', 'normal', 'cpu-sandbox')",
     )
     .bind(id)
     .bind(owner)

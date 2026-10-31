@@ -75,7 +75,7 @@ async fn list_visible_widens_to_account_membership_keeps_share_union() {
     let shared = projects.create(alice, "shared", "").await.unwrap();
     sqlx::query(
         "INSERT INTO project_shares (id, project_id, owner_id, recipient_id, permission_level, status) \
-         VALUES (gen_random_uuid(), $1, $2, $3, 'viewer', 'accepted')",
+         VALUES (randomblob(16), $1, $2, $3, 'viewer', 'accepted')",
     )
     .bind(shared.id)
     .bind(alice)
@@ -195,7 +195,7 @@ async fn workstore_and_job_and_sandbox_gates_are_account_aware() {
     sqlx::query(
         "INSERT INTO jobs (id, owner_id, job_type, name, status, params, created_at, \
                            priority_class, resource_class) \
-         VALUES ($1, $2, 'stub', 'j', 'running', '{}'::jsonb, now(), 'normal', 'cpu-sandbox')",
+         VALUES ($1, $2, 'stub', 'j', 'running', '{}', strftime('%Y-%m-%dT%H:%M:%fZ','now'), 'normal', 'cpu-sandbox')",
     )
     .bind(job_id)
     .bind(alice)

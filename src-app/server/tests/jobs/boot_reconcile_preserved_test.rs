@@ -91,7 +91,7 @@ async fn reaper_does_not_touch_a_heartbeatless_boot_orphan() {
     let orphan = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO jobs (id, owner_id, job_type, name, status, started_at) \
-         VALUES ($1, $2, 'stub', 'orphan', 'running', now())",
+         VALUES ($1, $2, 'stub', 'orphan', 'running', strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
     )
     .bind(orphan)
     .bind(owner)

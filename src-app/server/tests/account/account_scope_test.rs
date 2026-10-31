@@ -205,7 +205,7 @@ async fn inv3_holding_the_capability_is_not_authority_over_another_account() {
 
     // U holds the capability — via the Users group grant this branch's migration adds.
     let held: bool = sqlx::query_scalar(
-        "SELECT 'account::members::manage' = ANY(g.permissions) FROM groups g WHERE g.id = $1::uuid",
+        "SELECT 'account::members::manage' = ANY(g.permissions) FROM groups g WHERE g.id = $1",
     )
     .bind(USERS_GROUP_ID)
     .fetch_one(&pool)

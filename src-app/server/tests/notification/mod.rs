@@ -9,14 +9,14 @@ use crate::common::TestServer;
 const USERS_GROUP_ID: &str = "79668b78-16ff-4d3f-80e6-afdbb3236dc9";
 
 async fn setup_admin(server: &TestServer) -> String {
-    let r = server.client.post(server.api_url("/app/setup/admin"))
+    let r = server.client.post(server.api_url("/session/local"))
         .json(&json!({"username":"adm","email":"adm@x.test","password":"admPassw0rd!"})).send().await.unwrap();
     let b: Value = r.json().await.unwrap();
     b["access_token"].as_str().or_else(|| b["token"].as_str()).unwrap().to_string()
 }
 
 async fn user(server: &TestServer, admin: &str, name: &str) -> (String, String) {
-    let cr = server.client.post(server.api_url("/users")).bearer_auth(admin)
+    let cr = server.client.post(server.api_url("/auth/register")).bearer_auth(admin)
         .json(&json!({"username":name,"email":format!("{name}@x.test"),"password":"userPassw0rd!"})).send().await.unwrap();
     let id = cr.json::<Value>().await.unwrap()["id"].as_str().unwrap().to_string();
     let lr = server.client.post(server.api_url("/auth/login"))

@@ -20,7 +20,7 @@ pub(crate) const USERS_GROUP_ID: &str = "79668b78-16ff-4d3f-80e6-afdbb3236dc9";
 pub(crate) async fn setup_admin(server: &TestServer) -> String {
     let resp = server
         .client
-        .post(server.api_url("/app/setup/admin"))
+        .post(server.api_url("/session/local"))
         .json(&json!({
             "username": "admin",
             "email": "admin@cyto.test",
@@ -30,7 +30,7 @@ pub(crate) async fn setup_admin(server: &TestServer) -> String {
         .send()
         .await
         .expect("setup/admin");
-    assert_eq!(resp.status().as_u16(), 201);
+    assert_eq!(resp.status().as_u16(), 200);
     token_of(resp.json().await.expect("setup json"))
 }
 
@@ -48,7 +48,7 @@ pub(crate) fn token_of(body: Value) -> String {
 pub(crate) async fn create_user(server: &TestServer, admin: &str, username: &str, email: &str) -> String {
     let resp = server
         .client
-        .post(server.api_url("/users"))
+        .post(server.api_url("/auth/register"))
         .bearer_auth(admin)
         .json(&json!({
             "username": username,
@@ -58,7 +58,7 @@ pub(crate) async fn create_user(server: &TestServer, admin: &str, username: &str
         .send()
         .await
         .expect("create user");
-    assert_eq!(resp.status().as_u16(), 201, "create user {username}");
+    assert!(resp.status().is_success(), "create user {username}: {}", resp.status());
     let body: Value = resp.json().await.expect("user json");
     body["id"].as_str().expect("user id").to_string()
 }

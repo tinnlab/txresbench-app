@@ -173,7 +173,7 @@ async fn personal_account_id(pool: &SqlitePool, user_id: Uuid) -> Uuid {
 async fn revoke_manage_capability_deployment_wide(pool: &SqlitePool) {
     let updated = sqlx::query(
         "UPDATE groups SET permissions = array_remove(permissions, 'account::members::manage') \
-         WHERE id = $1::uuid",
+         WHERE id = $1",
     )
     .bind(USERS_GROUP_ID)
     .execute(pool)
@@ -182,7 +182,7 @@ async fn revoke_manage_capability_deployment_wide(pool: &SqlitePool) {
     assert_eq!(updated.rows_affected(), 1, "the Users group row was updated");
 
     let still_held: bool = sqlx::query_scalar(
-        "SELECT 'account::members::manage' = ANY(permissions) FROM groups WHERE id = $1::uuid",
+        "SELECT 'account::members::manage' = ANY(permissions) FROM groups WHERE id = $1",
     )
     .bind(USERS_GROUP_ID)
     .fetch_one(pool)
@@ -242,12 +242,12 @@ async fn wait_for_blocked_by(pool: &SqlitePool, blocker_pid: i32, n: i64) {
     for _ in 0..200 {
         let queued: i64 = sqlx::query_scalar(
             "WITH RECURSIVE q(pid) AS ( \
-                 SELECT $1::int \
+                 SELECT $1 \
                  UNION \
                  SELECT a.pid FROM pg_stat_activity a JOIN q ON q.pid = ANY(pg_blocking_pids(a.pid)) \
                  WHERE a.datname = current_database() \
              ) \
-             SELECT COUNT(*) FROM q WHERE pid <> $1::int",
+             SELECT COUNT(*) FROM q WHERE pid <> $1",
         )
         .bind(blocker_pid)
         .fetch_one(pool)

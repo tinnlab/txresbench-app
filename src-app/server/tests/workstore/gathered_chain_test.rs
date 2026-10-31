@@ -3333,7 +3333,7 @@ async fn a_cycle_is_refused_by_name_rather_than_walked_forever() {
     // Close the loop out of band — the one thing immutability is supposed to forbid.
     sqlx::query(
         "UPDATE artifacts SET structure = jsonb_set(structure, \
-         '{gathered_from,sources,0,artifact_id}', to_jsonb($2::text)) WHERE id = $1",
+         '{gathered_from,sources,0,artifact_id}', to_jsonb($2)) WHERE id = $1",
     )
     .bind(a)
     .bind(b.to_string())

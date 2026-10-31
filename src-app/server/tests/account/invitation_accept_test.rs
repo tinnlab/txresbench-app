@@ -132,7 +132,7 @@ async fn mint_invitation(
     let id = sqlx::query_scalar::<_, Uuid>(
         "SELECT id FROM account_invitations \
          WHERE account_id = $1 AND email = $2 \
-           AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now()",
+           AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')",
     )
     .bind(account)
     .bind(&normalized)
@@ -180,7 +180,7 @@ async fn plant_invitation(
     let id = sqlx::query_scalar::<_, Uuid>(
         "INSERT INTO account_invitations \
            (account_id, email, role, token_sha256, invited_by, expires_at) \
-         VALUES ($1, $2, $3, $4, $5, now() + interval '7 days') RETURNING id",
+         VALUES ($1, $2, $3, $4, $5, strftime('%Y-%m-%dT%H:%M:%fZ','now','+7 days')) RETURNING id",
     )
     .bind(account)
     .bind(email)
@@ -247,7 +247,7 @@ async fn events(
 }
 
 async fn expire(pool: &SqlitePool, invitation: Uuid) {
-    sqlx::query("UPDATE account_invitations SET expires_at = now() - interval '1 hour' WHERE id = $1")
+    sqlx::query("UPDATE account_invitations SET expires_at = strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 hour') WHERE id = $1")
         .bind(invitation)
         .execute(pool)
         .await
@@ -255,7 +255,7 @@ async fn expire(pool: &SqlitePool, invitation: Uuid) {
 }
 
 async fn revoke(pool: &SqlitePool, invitation: Uuid, by: Uuid) {
-    sqlx::query("UPDATE account_invitations SET revoked_at = now(), revoked_by = $2 WHERE id = $1")
+    sqlx::query("UPDATE account_invitations SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), revoked_by = $2 WHERE id = $1")
         .bind(invitation)
         .bind(by)
         .execute(pool)
@@ -607,7 +607,7 @@ async fn inv9_every_invalid_token_is_byte_identical() {
     .await;
     revoke(&f.pool, revoked_inv, f.owner_id).await;
     let (revoked_stamped, revoked_expired, revoked_email): (bool, bool, String) = sqlx::query_as(
-        "SELECT accepted_at IS NOT NULL, expires_at <= now(), email FROM account_invitations \
+        "SELECT accepted_at IS NOT NULL, expires_at <= strftime('%Y-%m-%dT%H:%M:%fZ','now'), email FROM account_invitations \
          WHERE id = $1",
     )
     .bind(revoked_inv)
@@ -703,7 +703,7 @@ async fn inv9_every_invalid_token_is_byte_identical() {
 ///
 /// **It is parameterized over ALL FIVE causes**, because each is a separate line of that
 /// predicate. The first version exercised only the email mismatch, so deleting `revoked_at IS
-/// NULL` (or `accepted_at IS NULL`, or `expires_at > now()`) from step 1a reopened the oracle
+/// NULL` (or `accepted_at IS NULL`, or `expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')`) from step 1a reopened the oracle
 /// for that cause with the whole suite green — a round-3 blind design-conformance audit
 /// caught it. Every stale-token arm is presented by ITS OWN recipient, so the email filter
 /// cannot answer on its behalf and the arm really does test the line it is named for.
@@ -795,7 +795,7 @@ async fn inv9_no_miss_opens_a_transaction_so_the_404_is_indistinguishable_in_tim
             "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
             "the hash predicate",
         ),
-        ("expired", &expired_user, &expired, "`expires_at > now()`"),
+        ("expired", &expired_user, &expired, "`expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')`"),
         ("already accepted", &used_user, &used, "`accepted_at IS NULL`"),
         ("revoked", &revoked_user, &revoked, "`revoked_at IS NULL`"),
         (
@@ -1480,8 +1480,8 @@ async fn inv17_a_failure_after_the_insert_rolls_the_stamp_and_the_membership_bac
     // survive.
     sqlx::query(
         "CREATE TRIGGER cyto_test_ledger_fault BEFORE INSERT ON account_member_events \
-         FOR EACH ROW WHEN (NEW.account_id = $1::uuid) EXECUTE FUNCTION cyto_test_accept_fault()"
-            .replace("$1::uuid", &format!("'{}'", f.org))
+         FOR EACH ROW WHEN (NEW.account_id = $1) EXECUTE FUNCTION cyto_test_accept_fault()"
+            .replace("$1", &format!("'{}'", f.org))
             .as_str(),
     )
     .execute(&f.pool)

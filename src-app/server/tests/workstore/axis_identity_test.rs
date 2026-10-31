@@ -80,7 +80,7 @@ async fn schema_sites_for(pool: &SqlitePool, token: &str) -> Vec<String> {
     let mut sites = Vec::new();
 
     let tables: Vec<String> = sqlx::query_scalar(
-        "SELECT table_name::text FROM information_schema.tables
+        "SELECT table_name FROM information_schema.tables
           WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
             AND table_name ILIKE '%' || $1 || '%'",
     )
@@ -93,7 +93,7 @@ async fn schema_sites_for(pool: &SqlitePool, token: &str) -> Vec<String> {
     // `(^|_)tok($|_)` — a TOKEN boundary, so `axis_name` / `entry_axis` / `axis` all
     // match while an unrelated word that merely contains the letters does not.
     let columns: Vec<String> = sqlx::query_scalar(
-        "SELECT (table_name || '.' || column_name)::text FROM information_schema.columns
+        "SELECT (table_name || '.' || column_name) FROM information_schema.columns
           WHERE table_schema = 'public'
             AND column_name ~ ('(^|_)' || $1 || '($|_)')",
     )
@@ -107,7 +107,7 @@ async fn schema_sites_for(pool: &SqlitePool, token: &str) -> Vec<String> {
     // It covers primary keys and unique constraints too, since Postgres backs both
     // with an index.
     let indexes: Vec<String> = sqlx::query_scalar(
-        "SELECT indexdef::text FROM pg_indexes
+        "SELECT indexdef FROM pg_indexes
           WHERE schemaname = 'public' AND indexdef ILIKE '%' || $1 || '%'",
     )
     .bind(token)
@@ -118,7 +118,7 @@ async fn schema_sites_for(pool: &SqlitePool, token: &str) -> Vec<String> {
 
     // Constraints that create no index (foreign keys, checks).
     let constraints: Vec<String> = sqlx::query_scalar(
-        "SELECT (c.conname || ' :: ' || pg_get_constraintdef(c.oid))::text
+        "SELECT (c.conname || ' :: ' || pg_get_constraintdef(c.oid))
            FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace
           WHERE n.nspname = 'public'
             AND (c.conname ILIKE '%' || $1 || '%'
@@ -134,11 +134,11 @@ async fn schema_sites_for(pool: &SqlitePool, token: &str) -> Vec<String> {
 }
 
 /// Every base table holding `needle` anywhere in any column, with the row count.
-/// One `to_jsonb(row)::text` scan per table, so a value hidden in a JSONB blob, an
+/// One `to_jsonb(row)` scan per table, so a value hidden in a JSONB blob, an
 /// array or a text column is found the same way a scalar column is.
 async fn tables_containing(pool: &SqlitePool, needle: &str) -> Vec<(String, i64)> {
     let tables: Vec<String> = sqlx::query_scalar(
-        "SELECT table_name::text FROM information_schema.tables
+        "SELECT table_name FROM information_schema.tables
           WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
           ORDER BY table_name",
     )
@@ -155,7 +155,7 @@ async fn tables_containing(pool: &SqlitePool, needle: &str) -> Vec<(String, i64)
     let mut hits = Vec::new();
     for t in tables {
         let n: i64 = sqlx::query_scalar(&format!(
-            "SELECT count(*) FROM public.\"{t}\" x WHERE to_jsonb(x)::text LIKE $1"
+            "SELECT count(*) FROM public.\"{t}\" x WHERE to_jsonb(x) LIKE $1"
         ))
         .bind(format!("%{needle}%"))
         .fetch_one(pool)
@@ -501,7 +501,7 @@ async fn test4_two_artifacts_over_one_axis_relate_only_through_its_content_hash(
     // some other column that a later query could start keying on.
     let columns_holding: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM artifacts
-          WHERE id = $1 AND to_jsonb(artifacts)::text LIKE $2 AND content_hash = $3",
+          WHERE id = $1 AND to_jsonb(artifacts) LIKE $2 AND content_hash = $3",
     )
     .bind(key.id)
     .bind(format!("%{axis}%"))

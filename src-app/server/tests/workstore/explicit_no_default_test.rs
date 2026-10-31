@@ -6,7 +6,7 @@
 //!
 //! An artifact write that omits a producer DECLARATION **fails**. It does not quietly
 //! land as `{}`, which is what the four columns this model replaced all did
-//! (`DEFAULT '{}'::jsonb NOT NULL`) and what left every downstream reader unable to
+//! (`DEFAULT '{}' NOT NULL`) and what left every downstream reader unable to
 //! tell "nothing to declare" from "the producer forgot".
 //!
 //! Asserted at the two layers a write can enter through, because a default
@@ -79,7 +79,7 @@ use crate::common::TestServer;
 /// `(is_nullable, column_default)` for one `artifacts` column.
 async fn column_contract(pool: &SqlitePool, column: &str) -> (String, Option<String>) {
     sqlx::query_as::<_, (String, Option<String>)>(
-        "SELECT is_nullable::text, column_default::text
+        "SELECT is_nullable, column_default
            FROM information_schema.columns
           WHERE table_schema = 'public' AND table_name = 'artifacts' AND column_name = $1",
     )
@@ -95,7 +95,7 @@ async fn column_contract(pool: &SqlitePool, column: &str) -> (String, Option<Str
 /// enumerate the set and build a literal for each member.
 async fn required_columns(pool: &SqlitePool) -> Vec<(String, String)> {
     sqlx::query_as(
-        "SELECT column_name::text, data_type::text FROM information_schema.columns
+        "SELECT column_name, data_type FROM information_schema.columns
           WHERE table_schema = 'public' AND table_name = 'artifacts'
             AND is_nullable = 'NO' AND column_default IS NULL
           ORDER BY column_name",
@@ -219,7 +219,7 @@ async fn test3_every_declaration_column_is_required_with_no_default() {
 
     // DISCOVER the key→column mapping by value. A hand-written map would have matched
     // the manifest's `id` against `artifacts.id` — the row PK, which carries
-    // `gen_random_uuid()` — instead of `output_id`, and the test would have failed for
+    // `randomblob(16)` — instead of `output_id`, and the test would have failed for
     // a reason that has nothing to do with declarations.
     let mut declaration_columns: Vec<String> = Vec::new();
     for key in entry_keys() {
@@ -304,12 +304,12 @@ async fn test3_an_insert_omitting_a_declaration_errors_and_stores_nothing() {
     /// every INSERT below into a 23502 about the wrong column.
     fn literal_for(column: &str, data_type: &str) -> String {
         match data_type {
-            "jsonb" | "json" => "'{\"declared\":true}'::jsonb".to_string(),
+            "jsonb" | "json" => "'{\"declared\":true}'".to_string(),
             "text" | "character varying" => "'x'".to_string(),
-            "uuid" => "gen_random_uuid()".to_string(),
+            "uuid" => "randomblob(16)".to_string(),
             "boolean" => "false".to_string(),
             "bigint" | "integer" | "smallint" | "numeric" => "0".to_string(),
-            "timestamp with time zone" | "timestamp without time zone" => "now()".to_string(),
+            "timestamp with time zone" | "timestamp without time zone" => "strftime('%Y-%m-%dT%H:%M:%fZ','now')".to_string(),
             other => panic!(
                 "required column `{column}` has type `{other}`, which this test does \
                  not know how to supply — fill it in, or the INSERTs below fail for \
@@ -374,7 +374,7 @@ async fn test3_an_insert_omitting_a_declaration_errors_and_stores_nothing() {
     // the only thing that notices is the non-vacuity assertion above plus the schema
     // test's discovery of the declaration columns.
     for (omitted, _) in &required {
-        let err = attempt(&[omitted], "'{\"declared\":true}'::jsonb", "omits_one")
+        let err = attempt(&[omitted], "'{\"declared\":true}'", "omits_one")
             .await
             .expect_err("an INSERT omitting a required column must fail");
         let db = err
@@ -394,7 +394,7 @@ async fn test3_an_insert_omitting_a_declaration_errors_and_stores_nothing() {
     }
 
     // …and omitting ALL of them at once is likewise refused, not half-defaulted.
-    let err = attempt(&required_names, "'{\"declared\":true}'::jsonb", "omits_all")
+    let err = attempt(&required_names, "'{\"declared\":true}'", "omits_all")
         .await
         .expect_err("an INSERT omitting every required column must fail");
     assert_eq!(
@@ -414,7 +414,7 @@ async fn test3_an_insert_omitting_a_declaration_errors_and_stores_nothing() {
     // POSITIVE CONTROL — the BYTE-IDENTICAL INSERT with every required column
     // supplied succeeds. Every refusal above is therefore about the missing column and
     // not about the statement, the literals or the project.
-    attempt(&[], "'{\"declared\":true}'::jsonb", "declares_both")
+    attempt(&[], "'{\"declared\":true}'", "declares_both")
         .await
         .expect("the same INSERT with every required column supplied must succeed");
     assert_eq!(count(&pool, sid).await, 1);
@@ -423,7 +423,7 @@ async fn test3_an_insert_omitting_a_declaration_errors_and_stores_nothing() {
     // "I have nothing to declare" is a statement; not saying anything is not. If this
     // failed, the refusals above would be about emptiness rather than absence and
     // this test would be pinning a rule the design does not state.
-    attempt(&[], "'{}'::jsonb", "explicitly_empty")
+    attempt(&[], "'{}'", "explicitly_empty")
         .await
         .expect("an EXPLICIT empty declaration is a declaration and must be accepted");
     let stored: (Value, Value) = sqlx::query_as(

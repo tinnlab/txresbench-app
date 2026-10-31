@@ -59,7 +59,7 @@ async fn try_insert(
              (id, project_id, run_id, output_id, datatype, object_key, is_multifile,
               content_hash, structure, meta, role, status, stored_bytes)
            VALUES ($1, $2, NULL, $3, 'data/opaque', $4, false,
-                   'sha256:deadbeef', $5, '{}'::jsonb, 'artifact', 'ready', 0)"#,
+                   'sha256:deadbeef', $5, '{}', 'artifact', 'ready', 0)"#,
     )
     .bind(Uuid::new_v4())
     .bind(project_id)

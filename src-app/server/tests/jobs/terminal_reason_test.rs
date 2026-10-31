@@ -56,7 +56,7 @@ async fn insert_running(pool: &SqlitePool, owner: Uuid, name: &str) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO jobs (id, owner_id, job_type, name, status, started_at) \
-         VALUES ($1, $2, 'stub', $3, 'running', now())",
+         VALUES ($1, $2, 'stub', $3, 'running', strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
     )
     .bind(id)
     .bind(owner)
@@ -401,7 +401,7 @@ async fn the_boot_reconcile_cascade_explains_the_jobs_it_fails() {
     let b = create_child(&repo, owner, "stranded-B", &[a]).await.id;
     // RAW terminalize: bypasses `fail`, so the runtime cascade never runs and B is left
     // `blocked` — exactly the post-crash state the boot pass exists to heal.
-    sqlx::query("UPDATE jobs SET status = 'failed', finished_at = now() WHERE id = $1")
+    sqlx::query("UPDATE jobs SET status = 'failed', finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = $1")
         .bind(a)
         .execute(&pool)
         .await

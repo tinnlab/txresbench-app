@@ -174,7 +174,7 @@ async fn promote_source_columns_round_trip() {
     .expect("ensure cara's personal account");
     sqlx::query(
         "INSERT INTO datasets (id, name, owner_id, account_id, datatype, source, source_artifact_id, content_hash)
-         VALUES ($1, $2, $3::uuid, (SELECT id FROM accounts WHERE kind='personal' AND personal_user_id = $3::uuid), $4, 'promote', $5::uuid, $6)",
+         VALUES ($1, $2, $3, (SELECT id FROM accounts WHERE kind='personal' AND personal_user_id = $3), $4, 'promote', $5, $6)",
     )
     .bind(dataset_id)
     .bind("PBMC filtered")

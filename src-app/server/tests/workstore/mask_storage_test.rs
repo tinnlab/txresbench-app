@@ -93,7 +93,7 @@ async fn a_virtual_dataset_owns_exactly_one_mask_that_records_its_source() {
            (dataset_id, output_id, datatype, object_key, is_multifile, content_hash, \
             structure, meta, role, status, stored_bytes, hidden) \
          VALUES ($1, 'mask-2', 'data/opaque', $2, false, $2, \
-                 '{\"encoding\":\"opaque\"}'::jsonb, '{}'::jsonb, 'mask', 'ready', 1, true)",
+                 '{\"encoding\":\"opaque\"}', '{}', 'mask', 'ready', 1, true)",
     )
     .bind(vd)
     .bind(hash)

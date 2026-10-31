@@ -18,7 +18,7 @@
 //!    `artifacts_natural_key` COALESCE(`X'0000...'`) index (the nil-sentinel key
 //!    semantics: a project-scoped and a dataset-scoped row with the same
 //!    `output_id` are DISTINCT keys), plus the app-bound `id` (the sqlite
-//!    chain has no `gen_random_uuid()` - the DEC-12 bind rule);
+//!    chain has no `randomblob(16)` - the DEC-12 bind rule);
 //! 2. the axis-index containment (`json_type(meta, '$.is_axis_index') =
 //!    'true'` - a numeric `1` or string `"true"` does NOT match the PG `@>`
 //!    boolean) and the datatype TEXT-array membership (`json_each`);

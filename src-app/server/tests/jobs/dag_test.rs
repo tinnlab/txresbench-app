@@ -42,7 +42,7 @@ async fn insert_running_root(pool: &SqlitePool, owner: Uuid, name: &str) -> Uuid
     let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO jobs (id, owner_id, job_type, name, status, started_at) \
-         VALUES ($1, $2, 'stub', $3, 'running', now())",
+         VALUES ($1, $2, 'stub', $3, 'running', strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
     )
     .bind(id)
     .bind(owner)
@@ -72,7 +72,7 @@ async fn create_child(repo: &JobRepository, owner: Uuid, name: &str, deps: &[Uui
 /// unblock/cascade scan never runs) — reproduces the post-crash state where a
 /// dependency reached a terminal status but its dependents were left `blocked`.
 async fn raw_set_terminal(pool: &SqlitePool, id: Uuid, status: &str) {
-    sqlx::query("UPDATE jobs SET status = $2, finished_at = now() WHERE id = $1")
+    sqlx::query("UPDATE jobs SET status = $2, finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = $1")
         .bind(id)
         .bind(status)
         .execute(pool)

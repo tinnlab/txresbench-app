@@ -66,7 +66,7 @@ async fn insert_row(
         "INSERT INTO artifacts
              (id, project_id, dataset_id, output_id, datatype, object_key, is_multifile,
               content_hash, structure, meta, role, status, logical_bytes, hidden)
-         VALUES ($1, $2, $3, $4, $5, $6, false, $6, '{}'::jsonb, '{}'::jsonb, $7, $8, $9, $10)",
+         VALUES ($1, $2, $3, $4, $5, $6, false, $6, '{}', '{}', $7, $8, $9, $10)",
     )
     .bind(id)
     .bind(project_id)

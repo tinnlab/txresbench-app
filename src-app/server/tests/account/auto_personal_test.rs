@@ -207,7 +207,7 @@ async fn backstop_is_noop_without_valid_identity() {
     // A PUBLIC route with no bearer — succeeds, creates no account.
     let public = server
         .client
-        .get(server.api_url("/app/setup/status"))
+        .get(server.api_url("/health"))
         .send()
         .await
         .expect("public request");

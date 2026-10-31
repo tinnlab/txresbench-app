@@ -188,7 +188,7 @@ async fn live_invitation(pool: &SqlitePool, account: Uuid, email: &str) -> Optio
     sqlx::query_scalar::<_, Uuid>(
         "SELECT id FROM account_invitations \
          WHERE account_id = $1 AND email = $2 \
-           AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now()",
+           AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')",
     )
     .bind(account)
     .bind(email)
@@ -241,7 +241,7 @@ async fn seed_mints(pool: &SqlitePool, account: Uuid, actor: Uuid, n: i64, _batc
     for _ in 0..n {
         sqlx::query(
             "INSERT INTO account_invitation_mints (account_id, actor_user_id, invitation_id) \
-             VALUES ($1, $2, gen_random_uuid())",
+             VALUES ($1, $2, randomblob(16))",
         )
         .bind(account)
         .bind(actor)
@@ -263,7 +263,7 @@ async fn seed_mints(pool: &SqlitePool, account: Uuid, actor: Uuid, n: i64, _batc
 /// not that the window slides.
 async fn age_out_mints(pool: &SqlitePool, account: Uuid) {
     sqlx::query(
-        "UPDATE account_invitation_mints SET created_at = now() - interval '23 hours' \
+        "UPDATE account_invitation_mints SET created_at = strftime('%Y-%m-%dT%H:%M:%fZ','now','-23 hours') \
          WHERE account_id = $1",
     )
     .bind(account)
@@ -778,7 +778,7 @@ async fn inv16_the_plaintext_token_is_nowhere_at_rest() {
 
     // ── THE ASSERTION: the plaintext appears in NO column of the row. ──
     let row_json: String =
-        sqlx::query_scalar("SELECT to_jsonb(t)::text FROM account_invitations t WHERE id = $1")
+        sqlx::query_scalar("SELECT to_jsonb(t) FROM account_invitations t WHERE id = $1")
             .bind(id)
             .fetch_one(&pool)
             .await
@@ -884,7 +884,7 @@ async fn invitation_list_is_paged_and_reveals_nothing_user_shaped() {
         let id = live_invitation(&pool, org, "e9_expired@cyto.test")
             .await
             .expect("live");
-        sqlx::query("UPDATE account_invitations SET expires_at = now() - interval '1 day' WHERE id = $1")
+        sqlx::query("UPDATE account_invitations SET expires_at = strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 day') WHERE id = $1")
             .bind(id)
             .execute(&pool)
             .await
@@ -1200,7 +1200,7 @@ async fn inv4_a_bare_member_is_403_on_every_invitation_route() {
     // `account::members::manage` grant lives (#139's migration).
     let held: bool = sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM user_groups ug JOIN groups g ON g.id = ug.group_id \
-         WHERE ug.user_id = $1 AND g.id = $2::uuid)",
+         WHERE ug.user_id = $1 AND g.id = $2)",
     )
     .bind(admin_of_org)
     .bind(USERS_GROUP_ID)
@@ -1874,11 +1874,11 @@ async fn resend_and_revoke_lifecycle_and_the_expired_slot() {
     );
 
     // ── DEC-4: an EXPIRED but unrevoked row must not block a re-invite forever ──
-    // The partial unique index cannot mention expiry (`now()` is not IMMUTABLE), so
+    // The partial unique index cannot mention expiry (`strftime('%Y-%m-%dT%H:%M:%fZ','now')` is not IMMUTABLE), so
     // without the supersede step at mint time this next create fails on a unique
     // violation. This is the exact question `membership-rescope.md` §13.3 left unresolved.
     let live2 = live_invitation(&pool, org, email).await.expect("the new one");
-    sqlx::query("UPDATE account_invitations SET expires_at = now() - interval '1 day' WHERE id = $1")
+    sqlx::query("UPDATE account_invitations SET expires_at = strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 day') WHERE id = $1")
         .bind(live2)
         .execute(&pool)
         .await
@@ -1907,7 +1907,7 @@ async fn resend_and_revoke_lifecycle_and_the_expired_slot() {
     //
     // `invitation_is_claimable` is the PURE twin of the SQL in
     // `find_pending_invitation_by_token_hash`, and TEST-3 pins its truth table — but the
-    // twin has no production caller, so a mutation dropping `expires_at > now()` or
+    // twin has no production caller, so a mutation dropping `expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')` or
     // `accepted_at IS NULL` from the SQL left TEST-3 green and nothing else red. A blind
     // tests-quality audit measured exactly that: of the three clauses, only
     // `revoked_at IS NULL` was covered behaviourally. These two arms cover the others.
@@ -1929,7 +1929,7 @@ async fn resend_and_revoke_lifecycle_and_the_expired_slot() {
     );
 
     // (a) EXPIRED ⇒ the token must stop resolving.
-    sqlx::query("UPDATE account_invitations SET expires_at = now() - interval '1 second' WHERE id = $1")
+    sqlx::query("UPDATE account_invitations SET expires_at = strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 second') WHERE id = $1")
         .bind(claim_id)
         .execute(&pool)
         .await
@@ -1946,8 +1946,8 @@ async fn resend_and_revoke_lifecycle_and_the_expired_slot() {
     // (b) ACCEPTED ⇒ likewise (single-use). Restore the expiry first so the ONLY thing
     //     refusing is the acceptance stamp.
     sqlx::query(
-        "UPDATE account_invitations SET expires_at = now() + interval '7 days', \
-         accepted_at = now(), accepted_by = $2 WHERE id = $1",
+        "UPDATE account_invitations SET expires_at = strftime('%Y-%m-%dT%H:%M:%fZ','now','+7 days'), \
+         accepted_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), accepted_by = $2 WHERE id = $1",
     )
     .bind(claim_id)
     .bind(owner)
@@ -2198,7 +2198,7 @@ async fn invrl_a_resend_consumes_mint_budget_not_merely_checks_it() {
 
     // ── the row records what it spent, which is what makes the accounting auditable ──
     let (count, last_by): (i32, Option<Uuid>) = sqlx::query_as(
-        "SELECT resend_count, last_resent_by FROM account_invitations WHERE id = $1::uuid",
+        "SELECT resend_count, last_resent_by FROM account_invitations WHERE id = $1",
     )
     .bind(&inv)
     .fetch_one(&pool)
@@ -2213,7 +2213,7 @@ async fn invrl_a_resend_consumes_mint_budget_not_merely_checks_it() {
     // And the MINT ledger — which is what the ceiling actually reads — records one row per
     // CHARGED mint: the create, plus every resend after the free first one.
     let mints: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM account_invitation_mints WHERE invitation_id = $1::uuid",
+        "SELECT COUNT(*) FROM account_invitation_mints WHERE invitation_id = $1",
     )
     .bind(&inv)
     .fetch_one(&pool)
@@ -2292,7 +2292,7 @@ async fn resend_re_grades_the_role_ceiling_against_the_live_role() {
     // Capture the owner-invitation's token hash so we can prove a refused resend changed
     // nothing — a guard that refuses AFTER writing is not a guard.
     let before: (Vec<u8>, i32) = sqlx::query_as(
-        "SELECT token_sha256, resend_count FROM account_invitations WHERE id = $1::uuid",
+        "SELECT token_sha256, resend_count FROM account_invitations WHERE id = $1",
     )
     .bind(&owner_inv)
     .fetch_one(&pool)
@@ -2314,7 +2314,7 @@ async fn resend_re_grades_the_role_ceiling_against_the_live_role() {
         deny.text
     );
     let after: (Vec<u8>, i32) = sqlx::query_as(
-        "SELECT token_sha256, resend_count FROM account_invitations WHERE id = $1::uuid",
+        "SELECT token_sha256, resend_count FROM account_invitations WHERE id = $1",
     )
     .bind(&owner_inv)
     .fetch_one(&pool)
@@ -2634,7 +2634,7 @@ async fn add_member_in_tx_composes_with_a_caller_owned_transaction() {
 /// **An EXPIRED but unsettled invitation can be revoked** (FIX_ROUND-1, F17).
 ///
 /// Every other statement in the module uses the full pending predicate; `revoke` must not,
-/// and the reason is a ledger reason rather than an access one. With `expires_at > now()`
+/// and the reason is a ledger reason rather than an access one. With `expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')`
 /// in the predicate, an expired offer could never be closed out by a human — a 404 for a
 /// row the admin can plainly see — and it would sit in a third state #148 cannot attribute:
 /// neither human-revoked nor superseded, because the supersede stamp only fires if somebody
@@ -2662,7 +2662,7 @@ async fn an_expired_invitation_can_still_be_revoked_but_an_accepted_one_cannot()
         202
     );
     let expired = live_invitation(&pool, org, "eexp_a@cyto.test").await.expect("live");
-    sqlx::query("UPDATE account_invitations SET expires_at = now() - interval '1 day' WHERE id = $1")
+    sqlx::query("UPDATE account_invitations SET expires_at = strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 day') WHERE id = $1")
         .bind(expired)
         .execute(&pool)
         .await
@@ -2703,7 +2703,7 @@ async fn an_expired_invitation_can_still_be_revoked_but_an_accepted_one_cannot()
     );
     let accepted = live_invitation(&pool, org, "eexp_b@cyto.test").await.expect("live");
     sqlx::query(
-        "UPDATE account_invitations SET accepted_at = now(), accepted_by = $2 WHERE id = $1",
+        "UPDATE account_invitations SET accepted_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), accepted_by = $2 WHERE id = $1",
     )
     .bind(accepted)
     .bind(owner)
@@ -2877,7 +2877,7 @@ async fn the_mint_ledger_prune_runs_scoped_and_never_eats_a_counted_row() {
             let id: Uuid = sqlx::query_scalar(&format!(
                 "INSERT INTO account_invitation_mints \
                      (account_id, actor_user_id, invitation_id, created_at) \
-                 VALUES ($1, $2, gen_random_uuid(), now() - interval '{age}') RETURNING id"
+                 VALUES ($1, $2, randomblob(16), strftime('%Y-%m-%dT%H:%M:%fZ','now','-{age}')) RETURNING id"
             ))
             .bind(account)
             .bind(actor)

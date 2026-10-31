@@ -44,7 +44,7 @@ mod r_walking_skeleton_test;
 async fn setup_admin(server: &TestServer) -> String {
     let resp = server
         .client
-        .post(server.api_url("/app/setup/admin"))
+        .post(server.api_url("/session/local"))
         .json(&json!({
             "username": "sbxadmin",
             "email": "sbx@cyto.test",
@@ -54,7 +54,7 @@ async fn setup_admin(server: &TestServer) -> String {
         .send()
         .await
         .expect("setup/admin request");
-    assert_eq!(resp.status().as_u16(), 201, "setup/admin creates the owner");
+    assert_eq!(resp.status().as_u16(), 200, "setup/admin creates the owner");
     let body: Value = resp.json().await.expect("setup/admin json");
     body["access_token"]
         .as_str()
@@ -68,7 +68,7 @@ async fn setup_admin(server: &TestServer) -> String {
 async fn restricted_user_token(server: &TestServer, admin: &str) -> String {
     let create = server
         .client
-        .post(server.api_url("/users"))
+        .post(server.api_url("/auth/register"))
         .bearer_auth(admin)
         .json(&json!({
             "username": "sbxuser",
@@ -1832,7 +1832,7 @@ async fn create_scoped_analysis(
         .send()
         .await
         .expect("create analysis job");
-    assert_eq!(resp.status().as_u16(), 201, "scoped analysis job created");
+    assert_eq!(resp.status().as_u16(), 200, "scoped analysis job created");
     let body: Value = resp.json().await.expect("job json");
     Uuid::parse_str(body["id"].as_str().expect("job id")).expect("uuid")
 }

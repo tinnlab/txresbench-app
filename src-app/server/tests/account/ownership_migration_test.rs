@@ -32,7 +32,7 @@ async fn account_id_columns_are_not_null_and_fk_no_action() {
         assert_eq!(is_nullable, "NO", "{table}.account_id must be NOT NULL");
 
         let (del_type, referenced): (String, String) = sqlx::query_as(
-            "SELECT confdeltype::text, confrelid::regclass::text \
+            "SELECT confdeltype, confrelid::regclass \
              FROM pg_constraint WHERE conname = $1",
         )
         .bind(format!("{table}_account_id_fkey"))
@@ -140,7 +140,7 @@ async fn backfill_is_idempotent_and_zero_orphan_gate_fires() {
         .expect("drop not null (test-local, disposable DB)");
     sqlx::query(
         "INSERT INTO projects (id, owner_id, account_id, name, description) \
-         VALUES (gen_random_uuid(), $1, NULL, 'orphan', '')",
+         VALUES (randomblob(16), $1, NULL, 'orphan', '')",
     )
     .bind(alice)
     .execute(&pool)
@@ -214,7 +214,7 @@ async fn no_null_account_id_and_artifacts_have_no_owner_columns() {
            (dataset_id, output_id, datatype, object_key, is_multifile, content_hash, \
             structure, meta, role, status, stored_bytes, hidden) \
          VALUES ($1, 'out-1', 'data/opaque', 'k/1', false, $2, \
-                 '{}'::jsonb, '{}'::jsonb, 'artifact', 'ready', 1, false) \
+                 '{}', '{}', 'artifact', 'ready', 1, false) \
          RETURNING id",
     )
     .bind(dataset.id)

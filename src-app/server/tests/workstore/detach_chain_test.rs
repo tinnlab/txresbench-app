@@ -350,7 +350,7 @@ async fn the_database_refuses_an_integrate_dataset_with_no_alignment_edge() {
     // partial on purpose; a version that fired on every row would be caught here.
     sqlx::query(
         "INSERT INTO datasets (id, name, owner_id, account_id, metadata, source) \
-         VALUES ($1, $2, $3, (SELECT id FROM accounts WHERE kind='personal' AND personal_user_id = $3), '{}'::jsonb, 'upload')",
+         VALUES ($1, $2, $3, (SELECT id FROM accounts WHERE kind='personal' AND personal_user_id = $3), '{}', 'upload')",
     )
     .bind(Uuid::new_v4())
     .bind("an ordinary upload")

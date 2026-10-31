@@ -129,27 +129,33 @@ pub async fn create_user_without_projects(
     email: &str,
 ) -> uuid::Uuid {
     let id = create_user(server, admin, username, email).await;
-    let resp = server
-        .client
-        .delete(server.api_url(&format!("/groups/{id}/{USERS_GROUP_ID}/remove")))
-        .bearer_auth(admin)
-        .send()
+    // The `/groups/{id}/{gid}/remove` admin route has no object on the
+    // single-user node; the same state is written directly (the RBAC gate
+    // reads the same `user_groups` row).
+    let pool = crate::account::pool_for(server).await;
+    let users_group: uuid::Uuid = USERS_GROUP_ID.parse().expect("users group id");
+    sqlx::query("DELETE FROM user_groups WHERE user_id = ? AND group_id = ?")
+        .bind(id)
+        .bind(users_group)
+        .execute(&pool)
         .await
-        .expect("remove from group");
-    assert!(resp.status().is_success(), "strip group: {}", resp.status());
+        .expect("strip group");
+    pool.close().await;
     id
 }
 
 /// Create an ORGANIZATION account with `owner` as its `owner` member, returning the
 /// account id — the shared (multi-member) account the A3 flip is exercised against.
 pub async fn make_org_account(pool: &SqlitePool, name: &str, owner: uuid::Uuid) -> uuid::Uuid {
-    let id: uuid::Uuid = sqlx::query_scalar(
-        "INSERT INTO accounts (kind, name) VALUES ('organization', $1) RETURNING id",
-    )
-    .bind(name)
-    .fetch_one(pool)
-    .await
-    .expect("insert org account");
+    // The PG chain's `DEFAULT randomblob(16)` has no SQLite form (DEC-12);
+    // the id is an app-side bind.
+    let id = uuid::Uuid::new_v4();
+    sqlx::query("INSERT INTO accounts (id, kind, name) VALUES ($1, 'organization', $2)")
+        .bind(id)
+        .bind(name)
+        .execute(pool)
+        .await
+        .expect("insert org account");
     add_member(pool, id, owner, "owner").await;
     id
 }
@@ -219,7 +225,7 @@ pub async fn pool_for(server: &TestServer) -> SqlitePool {
 pub async fn setup_admin(server: &TestServer) -> String {
     let resp = server
         .client
-        .post(server.api_url("/app/setup/admin"))
+        .post(server.api_url("/session/local"))
         .json(&json!({
             "username": "admin",
             "email": "admin@cyto.test",
@@ -229,7 +235,7 @@ pub async fn setup_admin(server: &TestServer) -> String {
         .send()
         .await
         .expect("setup/admin");
-    assert_eq!(resp.status().as_u16(), 201, "setup admin");
+    assert_eq!(resp.status().as_u16(), 200, "setup admin");
     token_of(resp.json().await.expect("setup json"))
 }
 
@@ -248,10 +254,14 @@ pub async fn create_user(
     username: &str,
     email: &str,
 ) -> uuid::Uuid {
+    // The multi-user `/users` admin route has no object on the single-user
+    // node; the retained register route creates the same local user (open
+    // registration on a per-test DB) — same fields, same 200 answer, and the
+    // registered user is auto-joined to the Users group exactly as the old
+    // admin create did.
     let resp = server
         .client
-        .post(server.api_url("/users"))
-        .bearer_auth(admin)
+        .post(server.api_url("/auth/register"))
         .json(&json!({
             "username": username,
             "email": email,
@@ -259,10 +269,10 @@ pub async fn create_user(
         }))
         .send()
         .await
-        .expect("create user");
-    assert_eq!(resp.status().as_u16(), 201, "create user {username}");
-    let body: Value = resp.json().await.expect("user json");
-    body["id"]
+        .expect("register user");
+    assert!(resp.status().is_success(), "create user {username}: {}", resp.status());
+    let body: Value = resp.json().await.expect("register json");
+    body["user"]["id"]
         .as_str()
         .expect("user id")
         .parse()
