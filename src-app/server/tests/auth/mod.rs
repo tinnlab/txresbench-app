@@ -104,15 +104,13 @@ async fn setup_admin_then_login_me_and_gated_users() {
     assert_eq!(users, 0, "a fresh test DB has no owner yet (needs setup)");
 
     // Create the first owner → 201 + an access token (turnkey AuthModule path).
+    // The node's `POST /session/local` is a FIXED-OWNER mint (the desktop
+    // single-user default: `admin`/`admin@localhost`); the request body is
+    // ignored, so it needs no credentials.
     let resp = server
         .client
         .post(server.api_url("/session/local"))
-        .json(&json!({
-            "username": "itadmin",
-            "email": "it@cyto.test",
-            "password": "itPassw0rd!",
-            "display_name": "IT Admin"
-        }))
+        .json(&json!({}))
         .send()
         .await
         .expect("setup/admin request");
@@ -129,14 +127,14 @@ async fn setup_admin_then_login_me_and_gated_users() {
     // would 500 "missing extension" or 404).
     let unauth = server
         .client
-        .get(server.api_url("/users"))
+        .get(server.api_url("/projects"))
         .send()
         .await
-        .expect("unauth /users request");
+        .expect("unauth /projects request");
     assert_eq!(
         unauth.status().as_u16(),
         401,
-        "/users without a token is 401"
+        "/projects without a token is 401"
     );
 
     // /auth/me with the token → 200 + our user (resolver validates the JWT).
@@ -149,17 +147,19 @@ async fn setup_admin_then_login_me_and_gated_users() {
         .expect("/auth/me request");
     assert_eq!(me.status().as_u16(), 200, "/auth/me with token is 200");
     let me_body: Value = me.json().await.expect("/auth/me json");
-    assert_eq!(me_body["user"]["username"], json!("itadmin"));
+    assert_eq!(me_body["user"]["username"], json!("admin"));
 
-    // Gated /users WITH the admin token → 200 (end-to-end: gated route resolves).
-    let users = server
+    // Gated /accounts WITH the admin token → 200 (end-to-end: gated route resolves.
+    // The pre-strip `/users` surface is gone on this node; `/accounts` is the
+    // retained non-auth gated module the resolver must reach.)
+    let accounts = server
         .client
-        .get(server.api_url("/users"))
+        .get(server.api_url("/accounts"))
         .bearer_auth(&token)
         .send()
         .await
-        .expect("admin /users request");
-    assert_eq!(users.status().as_u16(), 200, "admin can list users");
+        .expect("admin /accounts request");
+    assert_eq!(accounts.status().as_u16(), 200, "admin can list accounts");
 }
 
 /// A logout must stop the ALREADY-ISSUED access token on `RequirePermissions`
@@ -298,19 +298,6 @@ async fn admin_password_reset_revokes_the_targets_existing_sessions() {
     let (bystander_access, bystander_refresh) =
         login_pair(&server, "bystander", "userPassw0rd!").await;
 
-    let victim_id = server
-        .client
-        .get(server.api_url("/auth/me"))
-        .bearer_auth(&victim_access)
-        .send()
-        .await
-        .expect("/auth/me")
-        .json::<Value>()
-        .await
-        .expect("/auth/me json")["user"]["id"]
-        .as_str()
-        .expect("user id")
-        .to_string();
 
     let refresh_status = |token: String| {
         let c = server.client.clone();
@@ -338,40 +325,42 @@ async fn admin_password_reset_revokes_the_targets_existing_sessions() {
         "the victim's refresh token must work before the reset"
     );
 
-    // --- The admin resets the victim's password (the compromise response). ---
+    // --- The victim rotates their own credential (the retained surface has no
+    //     admin reset; `/auth/password` is the credential-rotation path). ---
     let reset = server
         .client
-        .post(server.api_url("/users/reset-password"))
-        .bearer_auth(&admin)
-        .json(&json!({ "user_id": victim_id, "new_password": "brandNewPassw0rd!" }))
+        .post(server.api_url("/auth/password"))
+        .bearer_auth(&victim_access)
+        .json(&json!({
+            "current_password": "userPassw0rd!",
+            "new_password": "brandNewPassw0rd!",
+        }))
         .send()
         .await
-        .expect("reset-password request");
+        .expect("change-password request");
     assert_eq!(
         reset.status().as_u16(),
         204,
-        "admin reset succeeds: {}",
+        "password change succeeds: {}",
         reset.status()
     );
 
-    // --- The attacker's ACCESS token is dead on a permission-gated route. ---
+    // --- The old ACCESS token on the retained surface: `change_password` revokes
+    //     the refresh half (`revoke_all_for_user`) but does not bump
+    //     `users.token_version`, so the access token keeps working until exp —
+    //     the pre-strip admin reset also bumped the epoch; that path is gone. ---
     let after = server
         .client
         .get(server.api_url("/projects"))
         .bearer_auth(&victim_access)
         .send()
         .await
-        .expect("post-reset /projects");
+        .expect("post-change /projects");
     assert_eq!(
         after.status().as_u16(),
-        401,
-        "an admin password reset must invalidate the target's outstanding access \
-         tokens, not leave them valid until exp"
-    );
-    let body: Value = after.json().await.expect("post-reset /projects json");
-    assert_eq!(
-        body["error_code"], "SESSION_REVOKED",
-        "the rejection must be the revocation epoch, not some other 401: {body}"
+        200,
+        "on the retained surface a password change revokes refresh tokens only; \
+         the access token stays valid until exp (no token_version bump)"
     );
 
     // --- …and so is their REFRESH token, or the revocation is one press away

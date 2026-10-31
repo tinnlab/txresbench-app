@@ -2249,7 +2249,7 @@ impl JobRepository {
             JobMilestone,
             r#"INSERT INTO job_milestones (id, job_id, milestone_id, status, detail)
                VALUES ($1, $2, $3, $4, $5)
-               RETURNING id as "id: Uuid", job_id as "job_id: Uuid", milestone_id as "milestone_id: Uuid", status,
+               RETURNING id as "id: Uuid", job_id as "job_id: Uuid", milestone_id, status,
                          detail as "detail: serde_json::Value",
                          created_at as "created_at: DateTime<Utc>""#,
             id,
@@ -2268,7 +2268,7 @@ impl JobRepository {
     pub async fn list_milestones(&self, job_id: Uuid) -> Result<Vec<JobMilestone>, AppError> {
         sqlx::query_as!(
             JobMilestone,
-            r#"SELECT id as "id: Uuid", job_id as "job_id: Uuid", milestone_id as "milestone_id: Uuid", status,
+            r#"SELECT id as "id: Uuid", job_id as "job_id: Uuid", milestone_id, status,
                       detail as "detail: serde_json::Value",
                       created_at as "created_at: DateTime<Utc>"
                FROM job_milestones WHERE job_id = $1 ORDER BY created_at ASC, id ASC LIMIT 10000"#,

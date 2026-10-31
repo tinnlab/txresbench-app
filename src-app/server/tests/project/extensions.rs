@@ -257,8 +257,8 @@ async fn cleanup_query_is_index_backed() {
     // supports `WHERE project_id = $1` for the cleanup DELETE + deep-copy JOIN +
     // summary aggregate + the project-delete cascade scan.
     let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM pg_indexes \
-         WHERE tablename = 'project_datasets' AND indexdef LIKE '%(project_id%')",
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master \
+         WHERE type = 'index' AND tbl_name = 'project_datasets' AND sql LIKE '%project_id%')",
     )
     .fetch_one(&pool)
     .await

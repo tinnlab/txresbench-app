@@ -852,29 +852,18 @@ async fn a_group_edit_share_grants_sight_and_deactivating_the_group_takes_it_bac
     let (owner, _o) = register_user(&server, "grpowner").await;
     let (member, member_id) = register_user(&server, "grpmember").await;
 
-    let group_id = server
-        .client
-        .post(server.api_url("/groups"))
-        .bearer_auth(&admin)
-        .json(&json!({ "name": "job-vis-group", "description": "", "permissions": [] }))
-        .send()
-        .await
-        .expect("create group")
-        .json::<Value>()
-        .await
-        .expect("group json")["id"]
-        .as_str()
-        .expect("group id")
-        .to_string();
-    let assign = server
-        .client
-        .post(server.api_url("/groups/assign"))
-        .bearer_auth(&admin)
-        .json(&json!({ "user_id": member_id, "group_id": group_id }))
-        .send()
-        .await
-        .expect("assign");
-    assert!(assign.status().is_success(), "assign member to group");
+    let group_id = {
+        let pool = super::pool_for(&server).await;
+        let group_id = crate::common::group_create(&pool, "job-vis-group", vec![]).await;
+        crate::common::group_assign(
+            &pool,
+            uuid::Uuid::parse_str(&member_id).expect("member id is a uuid"),
+            group_id,
+        )
+        .await;
+        // The HTTP `group_id` string the share route expects.
+        group_id.to_string()
+    };
 
     let ds = create_dataset(&server, &owner, "group-shared-ds").await;
     let r = server
@@ -907,15 +896,14 @@ async fn a_group_edit_share_grants_sight_and_deactivating_the_group_takes_it_bac
     );
 
     // Deactivate the group. Same user, same share row, no longer an editor.
-    let deact = server
-        .client
-        .post(server.api_url(&format!("/groups/{group_id}")))
-        .bearer_auth(&admin)
-        .json(&json!({ "is_active": false }))
-        .send()
-        .await
-        .expect("deactivate group");
-    assert!(deact.status().is_success(), "deactivate group: {}", deact.status());
+    {
+        let pool = super::pool_for(&server).await;
+        crate::common::group_deactivate(
+            &pool,
+            uuid::Uuid::parse_str(&group_id).expect("group id is a uuid"),
+        )
+        .await;
+    }
 
     assert_eq!(
         read_reach(&server, &member, &job).await,

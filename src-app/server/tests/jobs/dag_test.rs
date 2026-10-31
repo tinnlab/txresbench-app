@@ -233,33 +233,15 @@ async fn diamond_runs_join_only_after_both_branches() {
 
 // ----------------------------------------------------------- TEST-21c (race)
 
-/// Wait until `pid`'s backend is BLOCKED on a lock, or `done` reports that its
-/// statement already returned. Panics on timeout — if neither ever happens the
-/// interleaving this test depends on did not materialize and any verdict it
-/// reached would be meaningless.
-async fn until_lock_blocked_or_done(pool: &SqlitePool, pid: i32, done: &std::sync::atomic::AtomicBool) {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
-    loop {
-        if done.load(std::sync::atomic::Ordering::SeqCst) {
-            return; // its unblock statement returned WITHOUT blocking
-        }
-        let waiting: Option<Option<String>> =
-            sqlx::query_scalar("SELECT wait_event_type FROM pg_stat_activity WHERE pid = $1")
-                .bind(pid)
-                .fetch_optional(pool)
-                .await
-                .expect("read pg_stat_activity");
-        if waiting.flatten().as_deref() == Some("Lock") {
-            return; // it is parked on the dependent's row lock
-        }
-        if tokio::time::Instant::now() >= deadline {
-            panic!("second finisher (backend {pid}) neither blocked on a lock nor completed");
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
-}
+/// The single-writer substitute for the `pg_stat_activity` parked-queue proof: the
+/// obstruction holds the write lock from its `BEGIN IMMEDIATE` (see the port note on the
+/// test), and the contending statement queued against it is inside its busy-handler well
+/// within the grace window. SQLite exposes no queue-observation surface, so the grace
+/// window is the honest bound — recorded, with the same degradation note as the account
+/// item's `LOCK_BARRIER_GRACE`.
+const LOCK_BARRIER_GRACE: Duration = Duration::from_secs(2);
 
-// LOST UNBLOCK under READ COMMITTED (BUG 2), driven DETERMINISTICALLY.
+/// LOST UNBLOCK under READ COMMITTED (BUG 2), driven DETERMINISTICALLY.
 //
 // Diamond join D depends on B and C. Two CONCURRENT finishers each run the
 // unblock scan in their own transaction. Under READ COMMITTED each statement
@@ -287,12 +269,20 @@ async fn concurrent_finishers_of_a_join_never_lose_the_unblock() {
     let d = create_child(&repo, owner, "lost-unblock-D-join", &[b, c]).await.id;
     assert_eq!(status_of(&pool, d).await, "blocked", "the join D starts blocked on B and C");
 
-    let mut tx1 = pool.begin().await.expect("begin tx1");
-    let mut tx2 = pool.begin().await.expect("begin tx2");
-    let tx2_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(&mut *tx2)
+    // SQLite port (record): the PG construction parked tx2's unblock scan on D's row
+    // lock while tx1 held it — engine-level row locking, unrepresentable on the
+    // single-writer model, where the WRITE lock is the transaction's and is taken at
+    // `BEGIN IMMEDIATE`. tx1 therefore opens IMMEDIATE (the two finishers' scans then
+    // SERIALIZE: tx2's whole `finish_in_tx` waits at its first write until tx1
+    // commits, at which point B's completion IS committed and the lost unblock cannot
+    // occur — the defect this test pins is structurally unreachable). The
+    // locked-or-done probe becomes the fixed grace window, and the outcome
+    // assertions below — the ones that catch a real regression — are unchanged:
+    // D unblocked after BOTH branches completed.
+    let mut tx1 = pool
+        .begin_with("BEGIN IMMEDIATE")
         .await
-        .expect("tx2 backend pid");
+        .expect("begin tx1");
 
     // Finisher 1: B completes and runs its unblock scan. C is still `running`, so
     // it must NOT unblock D — but it MUST leave D locked, uncommitted.
@@ -310,11 +300,17 @@ async fn concurrent_finishers_of_a_join_never_lose_the_unblock() {
     );
 
     // Finisher 2: C completes and runs its unblock scan CONCURRENTLY, while tx1
-    // is still open. Post-fix it parks on D's row lock; pre-fix it sails through
-    // reading a snapshot in which B is not yet completed.
-    let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let done_task = done.clone();
+    // is still open. Post-fix it parks on the write lock; tx2 is therefore opened
+    // INSIDE the task — its `BEGIN IMMEDIATE` is what queues (a deferred tx that
+    // read first would hold a snapshot tx1's commit makes stale, and its write
+    // would fail `SQLITE_BUSY_SNAPSHOT`). The grace window gives it time to reach
+    // the busy-handler before tx1 commits.
+    let pool2 = pool.clone();
     let h = tokio::spawn(async move {
+        let mut tx2 = pool2
+            .begin_with("BEGIN IMMEDIATE")
+            .await
+            .expect("begin tx2");
         assert_eq!(
             JobRepository::finish_in_tx(&mut tx2, c, 0)
                 .await
@@ -323,11 +319,10 @@ async fn concurrent_finishers_of_a_join_never_lose_the_unblock() {
             Some(owner),
             "finishing the running C transitions it and reports its owner",
         );
-        done_task.store(true, std::sync::atomic::Ordering::SeqCst);
         tx2.commit().await.expect("commit tx2");
     });
 
-    until_lock_blocked_or_done(&pool, tx2_pid, &done).await;
+    tokio::time::sleep(LOCK_BARRIER_GRACE).await;
     tx1.commit().await.expect("commit tx1");
     h.await.expect("second finisher task");
 

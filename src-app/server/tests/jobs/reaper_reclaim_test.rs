@@ -19,7 +19,7 @@ async fn insert_running(pool: &SqlitePool, owner: Uuid, worker: &str, age_secs: 
     let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO jobs (id, owner_id, job_type, name, status, started_at, claimed_by, claim_heartbeat) \
-         VALUES ($1, $2, 'stub', 'r', 'running', strftime('%Y-%m-%dT%H:%M:%fZ','now'), $3, strftime('%Y-%m-%dT%H:%M:%fZ','now') - make_interval(secs => $4::double precision))",
+         VALUES ($1, $2, 'stub', 'r', 'running', strftime('%Y-%m-%dT%H:%M:%fZ','now'), $3, strftime('%Y-%m-%dT%H:%M:%fZ','now', printf('-%d seconds', $4)))",
     )
     .bind(id)
     .bind(owner)

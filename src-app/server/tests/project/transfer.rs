@@ -69,10 +69,10 @@ async fn transfer_accept_swaps_ownership_and_repoints_shares() {
 async fn transfer_decline_leaves_ownership() {
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
-    let old_id = create_user(&server, &admin, "o2", "o2@x.test").await;
-    let old = login(&server, "o2").await;
-    create_user(&server, &admin, "n2", "n2@x.test").await;
-    let new = login(&server, "n2").await;
+    let old_id = create_user(&server, &admin, "on2", "o2@x.test").await;
+    let old = login(&server, "on2").await;
+    create_user(&server, &admin, "nn2", "n2@x.test").await;
+    let new = login(&server, "nn2").await;
     let project = create_project(&server, &old, "Keep").await;
     let sid = project["id"].as_str().unwrap().to_string();
     let tid = transfer(&server, &old, &sid, "n2@x.test").await.json::<Value>().await.unwrap()["id"].as_str().unwrap().to_string();
@@ -87,11 +87,11 @@ async fn transfer_decline_leaves_ownership() {
 async fn transfer_disabled_returns_409_and_non_owner_403() {
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
-    create_user(&server, &admin, "o3", "o3@x.test").await;
-    let owner = login(&server, "o3").await;
-    create_user(&server, &admin, "n3", "n3@x.test").await;
-    create_user(&server, &admin, "x3", "x3@x.test").await;
-    let outsider = login(&server, "x3").await;
+    create_user(&server, &admin, "on3", "o3@x.test").await;
+    let owner = login(&server, "on3").await;
+    create_user(&server, &admin, "nn3", "n3@x.test").await;
+    create_user(&server, &admin, "xn3", "x3@x.test").await;
+    let outsider = login(&server, "xn3").await;
     let project = create_project(&server, &owner, "Gated").await;
     let sid = project["id"].as_str().unwrap().to_string();
 

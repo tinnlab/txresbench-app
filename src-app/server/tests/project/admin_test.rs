@@ -34,15 +34,16 @@ fn row<'a>(list: &'a Value, name: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("row {name} not in list"))
 }
 
-async fn deactivate(server: &TestServer, admin: &str, user_id: &str) {
-    let resp = server
-        .client
-        .post(server.api_url(&format!("/users/{user_id}/toggle-active")))
-        .bearer_auth(admin)
-        .send()
+async fn deactivate(server: &TestServer, _admin: &str, user_id: &str) {
+    // The `/users/{id}/toggle-active` route is stripped on this node; the
+    // retained seam is the SDK user repository (`set_active`).
+    let pool = sqlx::SqlitePool::connect(server.database_url())
         .await
-        .expect("toggle-active");
-    assert!(resp.status().is_success(), "deactivate: {}", resp.status());
+        .expect("connect deactivate pool");
+    ziee_auth::user::UserRepository::new(pool.clone())
+        .set_active(uuid::Uuid::parse_str(user_id).expect("user id is a uuid"), false)
+        .await
+        .expect("deactivate user");
 }
 
 async fn owner_project_ids(server: &TestServer, token: &str) -> Vec<String> {
@@ -220,8 +221,8 @@ fn uuid_zero() -> &'static str {
 async fn admin_reaches_foreign_project_and_404s_absent() {
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
-    create_user(&server, &admin, "u1", "u1@x.test").await;
-    let u1 = login(&server, "u1").await;
+    create_user(&server, &admin, "user1", "u1@x.test").await;
+    let u1 = login(&server, "user1").await;
     let project = create_project(&server, &u1, "Foreign project").await;
     let sid = project["id"].as_str().unwrap();
 

@@ -201,11 +201,15 @@ async fn claim_fair_share_and_folded_caps_hold() {
         "exclude_batch skips the batch class"
     );
 
-    // Per-tenant cap: c at 2 running -> c_extra not claimable with per=2.
+    // Per-tenant cap: c at 2 running -> c_extra not claimable with per=2. The
+    // other queued row (a_batch) is blocked the same way: a is brought to its
+    // own cap of 2 first, so the claim lands on a candidate that MUST be
+    // refused per-owner — the assertion is not trivially empty.
     let c = user(&pool, "claim_c").await;
     job(&pool, c, "running", "c-run-1").await;
     job(&pool, c, "running", "c-run-2").await;
     job(&pool, c, "queued", "c-extra").await;
+    job(&pool, a, "running", "a-run-2").await;
     assert_eq!(
         claim(&pool, false, 50, 2).await,
         None,
@@ -216,6 +220,11 @@ async fn claim_fair_share_and_folded_caps_hold() {
     // two claimer tasks, each 3 attempts. busy_timeout 5000 ms makes the
     // contended `BEGIN IMMEDIATE` WAIT; no task may see SQLITE_BUSY, and the
     // total claimed never exceeds the cap.
+    //
+    // The first leg left running rows on the same file, and the global cap
+    // sub-select counts the WHOLE table — so the concurrent leg starts from a
+    // clean jobs table (the property under test is the claim mechanism, not
+    // the first leg's fixture).
     let busy_pool = SqlitePoolOptions::new()
         .max_connections(2)
         .connect_with(
@@ -226,9 +235,14 @@ async fn claim_fair_share_and_folded_caps_hold() {
         )
         .await
         .expect("busy pool");
+    sqlx::query("DELETE FROM jobs")
+        .execute(&busy_pool)
+        .await
+        .expect("clear jobs");
     let o = user(&busy_pool, "conc_owner").await;
+    let mut conc_ids: Vec<Uuid> = Vec::new();
     for i in 0..6 {
-        job(&busy_pool, o, "queued", &format!("conc-{i}")).await;
+        conc_ids.push(job(&busy_pool, o, "queued", &format!("conc-{i}")).await);
     }
     let mut handles = Vec::new();
     for wid in 0..2 {
@@ -261,10 +275,14 @@ async fn claim_fair_share_and_folded_caps_hold() {
     for h in handles {
         total += h.await.expect("claimer task");
     }
-    let running: i64 = sqlx::query_scalar("SELECT count(*) FROM jobs WHERE status = 'running'")
-        .fetch_one(&busy_pool)
-        .await
-        .expect("count");
+    let running: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM jobs WHERE status = 'running' \
+         AND id IN (SELECT unhex(j.value) FROM json_each($1) AS j)",
+    )
+    .bind(uuid_json(&conc_ids))
+    .fetch_one(&busy_pool)
+    .await
+    .expect("count");
     assert_eq!(running, 2, "the global cap is never overshot");
     assert_eq!(total, 2, "claims past the cap return None, never an error");
 }
@@ -697,10 +715,11 @@ async fn json_membership_and_scope_arms_grade_like_any() {
     .await
     .expect("project");
     sqlx::query(
-        "INSERT INTO project_shares (project_id, recipient_id, permission_level, status) \
-         VALUES (?, ?, 'editor', 'accepted')",
+        "INSERT INTO project_shares (id, project_id, owner_id, recipient_id, permission_level, status) \
+         VALUES (randomblob(16), ?, ?, ?, 'editor', 'accepted')",
     )
     .bind(project)
+    .bind(owner)
     .bind(editor)
     .execute(&pool)
     .await

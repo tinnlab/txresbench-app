@@ -240,7 +240,7 @@ async fn gc_manifest_threading_and_sweep() {
     // junction cascades, but the owner keeps the dataset). So the dataset row is
     // still present here (the real cascade only fires on an actual project-row DELETE).
     let remaining: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM datasets WHERE id = $1")
-        .bind(&ds)
+        .bind(uuid::Uuid::parse_str(&ds).expect("dataset id is a uuid"))
         .fetch_one(&pool)
         .await
         .unwrap();

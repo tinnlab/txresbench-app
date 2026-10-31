@@ -11,6 +11,7 @@
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use sqlx::SqlitePool;
 use uuid::Uuid;
@@ -51,13 +52,18 @@ async fn two_concurrent_claimers_both_make_progress() {
     }
 
     // TWO independent claim loops (two "worker processes"), each with its OWN
-    // worker id, racing on the same pool.
+    // worker id, racing on the same pool. A barrier releases both at once: the
+    // property is that neither is SHUT OUT, and without it one task can be
+    // scheduled late (a loaded box) and observe an already-empty queue.
+    let start = Arc::new(tokio::sync::Barrier::new(2));
     let by_a: Arc<Mutex<Vec<Uuid>>> = Arc::new(Mutex::new(Vec::new()));
     let by_b: Arc<Mutex<Vec<Uuid>>> = Arc::new(Mutex::new(Vec::new()));
     let mut handles = Vec::new();
     for (wid, sink) in [("worker-A", by_a.clone()), ("worker-B", by_b.clone())] {
         let pool = pool.clone();
+        let start = start.clone();
         handles.push(tokio::spawn(async move {
+            start.wait().await;
             let repo = JobRepository::new(pool);
             loop {
                 // A tiny yield between claims so both loops genuinely interleave
@@ -70,6 +76,13 @@ async fn two_concurrent_claimers_both_make_progress() {
                     Some(job) => {
                         sink.lock().unwrap().push(job.id);
                         tokio::task::yield_now().await;
+                        // SQLite single-writer pacing: the claim loop above re-acquires
+                        // the write lock in <1 ms, while the CONTENDED pool's
+                        // busy_timeout retry sleeps 1..100 ms — an unslept loop would
+                        // starve the other worker out of every lock and shut it off the
+                        // whole queue. The pause is what makes "neither worker is shut
+                        // out" observable on a single-writer store.
+                        tokio::time::sleep(Duration::from_millis(15)).await;
                     }
                     None => break,
                 }

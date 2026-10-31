@@ -112,33 +112,18 @@ async fn register_user(server: &TestServer, username: &str) -> (String, String) 
 
 /// A user that LACKS `jobs::use`: register (gets the Users group + jobs::use),
 /// then have the admin remove them from the Users group so no group grants it.
-async fn restricted_user(server: &TestServer, admin_token: &str, username: &str) -> String {
+/// The `/groups` HTTP surface is stripped on this node, so the removal goes
+/// through the SDK user repository over the per-test DB pool.
+async fn restricted_user(server: &TestServer, _admin_token: &str, username: &str) -> String {
     let (token, user_id) = register_user(server, username).await;
-    let groups: Value = server
-        .client
-        .get(server.api_url("/groups"))
-        .bearer_auth(admin_token)
-        .send()
+    let pool = sqlx::SqlitePool::connect(server.database_url())
         .await
-        .expect("/groups")
-        .json()
-        .await
-        .expect("/groups json");
-    let users_group_id = groups["groups"]
-        .as_array()
-        .expect("groups array")
-        .iter()
-        .find(|g| g["name"] == "Users")
-        .and_then(|g| g["id"].as_str())
-        .expect("Users group present");
-    let removed = server
-        .client
-        .delete(server.api_url(&format!("/groups/{user_id}/{users_group_id}/remove")))
-        .bearer_auth(admin_token)
-        .send()
-        .await
-        .expect("remove-from-group");
-    assert_eq!(removed.status().as_u16(), 204, "admin removes user from Users group");
+        .expect("connect restricted-user pool");
+    crate::common::group_remove_from_users(
+        &pool,
+        Uuid::parse_str(&user_id).expect("user id is a uuid"),
+    )
+    .await;
     token
 }
 
@@ -151,7 +136,7 @@ async fn create_job(server: &TestServer, token: &str, name: &str, steps: i64) ->
         .send()
         .await
         .expect("create job");
-    assert_eq!(resp.status().as_u16(), 200, "job created");
+    assert_eq!(resp.status().as_u16(), 201, "job created");
     let body: Value = resp.json().await.expect("job json");
     assert_eq!(body["status"], json!("queued"), "new job is queued");
     body["id"].as_str().expect("job id").to_string()
@@ -572,7 +557,7 @@ async fn users_group_grants_jobs_use() {
         .send()
         .await
         .expect("create");
-    assert_eq!(resp.status().as_u16(), 200, "the grant migration gave Users jobs::use");
+    assert_eq!(resp.status().as_u16(), 201, "the grant migration gave Users jobs::use");
 }
 
 // ----------------------------------------------------------------- TEST-19 (A9)
@@ -1424,7 +1409,7 @@ async fn create_project(server: &TestServer, token: &str, name: &str) -> Uuid {
         .send()
         .await
         .expect("create project");
-    assert_eq!(resp.status().as_u16(), 200, "create project {name}");
+    assert_eq!(resp.status().as_u16(), 201, "create project {name}");
     let body: Value = resp.json().await.expect("project json");
     Uuid::parse_str(body["id"].as_str().expect("project id")).unwrap()
 }
@@ -1467,10 +1452,15 @@ async fn test317_migration_backfill_idempotent_and_preserves_scope() {
 
     // Re-create the PRE-migration scope columns (the two the migration dropped) so
     // the backfill statement — which reads them — can run against seeded rows.
-    sqlx::query("ALTER TABLE jobs ADD COLUMN project_id uuid, ADD COLUMN dataset_id uuid")
+    // (Two statements: SQLite permits one ADD COLUMN per ALTER TABLE.)
+    sqlx::query("ALTER TABLE jobs ADD COLUMN project_id uuid")
         .execute(&pool)
         .await
-        .expect("re-add pre-migration scope columns");
+        .expect("re-add project_id");
+    sqlx::query("ALTER TABLE jobs ADD COLUMN dataset_id uuid")
+        .execute(&pool)
+        .await
+        .expect("re-add dataset_id");
 
     let project = Uuid::new_v4();
     let dataset = Uuid::new_v4();

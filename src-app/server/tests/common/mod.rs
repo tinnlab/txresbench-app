@@ -391,3 +391,54 @@ impl TestServer {
         self.inner.data_dir()
     }
 }
+
+// ── the group seam ────────────────────────────────────────────────────────
+//
+// The `/groups` HTTP surface is stripped on this node (e38a55d), so group
+// operations that tests used to drive over the wire go through the SDK user
+// repositories instead — the same retained seam the account tests use. All of
+// them run over the per-test DB pool (`pool_for` in each module).
+pub async fn group_create(
+    pool: &sqlx::SqlitePool,
+    name: &str,
+    permissions: Vec<String>,
+) -> uuid::Uuid {
+    let groups = ziee_auth::user::GroupRepository::new(pool.clone());
+    let group = groups
+        .create(name, Some(String::new()), permissions)
+        .await
+        .expect("create group");
+    group.id
+}
+
+pub async fn group_assign(pool: &sqlx::SqlitePool, user_id: uuid::Uuid, group_id: uuid::Uuid) {
+    let users = ziee_auth::user::UserRepository::new(pool.clone());
+    users
+        .assign_to_group(user_id, group_id, None)
+        .await
+        .expect("assign member to group");
+}
+
+pub async fn group_deactivate(pool: &sqlx::SqlitePool, group_id: uuid::Uuid) {
+    let groups = ziee_auth::user::GroupRepository::new(pool.clone());
+    groups
+        .update(group_id, None, None, None, Some(false))
+        .await
+        .expect("deactivate group");
+}
+
+/// Remove a user from the seeded `Users` group (the group every registered user
+/// joins) — the repo substitute for `DELETE /groups/{user}/{group}/remove`.
+pub async fn group_remove_from_users(pool: &sqlx::SqlitePool, user_id: uuid::Uuid) {
+    let groups = ziee_auth::user::GroupRepository::new(pool.clone());
+    let users_group = groups
+        .get_by_name("Users")
+        .await
+        .expect("look up the Users group")
+        .expect("the seeded Users group exists");
+    let users = ziee_auth::user::UserRepository::new(pool.clone());
+    users
+        .remove_from_group(user_id, users_group.id)
+        .await
+        .expect("remove from the Users group");
+}

@@ -8,8 +8,6 @@ use serde_json::{json, Value};
 
 use crate::common::TestServer;
 
-const USERS_GROUP_ID: &str = "79668b78-16ff-4d3f-80e6-afdbb3236dc9";
-
 // ------------------------------- helpers -------------------------------
 
 /// First-run setup → the admin owner + their access token.
@@ -55,7 +53,7 @@ async fn create_user(server: &TestServer, admin: &str, username: &str, email: &s
         .expect("create user");
     assert!(resp.status().is_success(), "create user {username}: {}", resp.status());
     let body: Value = resp.json().await.expect("user json");
-    body["id"].as_str().expect("user id").to_string()
+    body["user"]["id"].as_str().expect("user id").to_string()
 }
 
 /// Log in → an access token.
@@ -72,7 +70,8 @@ async fn login(server: &TestServer, username: &str) -> String {
 }
 
 /// Create a user then STRIP them from the Users group → they no longer hold
-/// `projects::use` (for the A9 deny path).
+/// `projects::use` (for the A9 deny path). The `/groups` HTTP surface is
+/// stripped on this node, so the removal goes through the SDK user repository.
 async fn create_user_without_projects(
     server: &TestServer,
     admin: &str,
@@ -80,14 +79,14 @@ async fn create_user_without_projects(
     email: &str,
 ) -> String {
     let id = create_user(server, admin, username, email).await;
-    let resp = server
-        .client
-        .delete(server.api_url(&format!("/groups/{id}/{USERS_GROUP_ID}/remove")))
-        .bearer_auth(admin)
-        .send()
+    let pool = sqlx::SqlitePool::connect(server.database_url())
         .await
-        .expect("remove from group");
-    assert!(resp.status().is_success(), "strip group: {}", resp.status());
+        .expect("connect strip pool");
+    crate::common::group_remove_from_users(
+        &pool,
+        uuid::Uuid::parse_str(&id).expect("user id is a uuid"),
+    )
+    .await;
     id
 }
 
@@ -100,7 +99,7 @@ async fn create_project(server: &TestServer, token: &str, name: &str) -> Value {
         .send()
         .await
         .expect("create project");
-    assert_eq!(resp.status().as_u16(), 200, "create project {name}");
+    assert_eq!(resp.status().as_u16(), 201, "create project {name}");
     resp.json().await.expect("project json")
 }
 
@@ -113,7 +112,7 @@ async fn create_dataset(server: &TestServer, token: &str, name: &str) -> String 
         .send()
         .await
         .expect("create dataset");
-    assert_eq!(resp.status().as_u16(), 200);
+    assert_eq!(resp.status().as_u16(), 201);
     let body: Value = resp.json().await.expect("dataset json");
     body["id"].as_str().expect("dataset id").to_string()
 }

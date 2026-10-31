@@ -20,7 +20,7 @@ use crate::common::{TestOptions, TestServer};
 
 async fn column_exists(pool: &SqlitePool, table: &str, column: &str) -> bool {
     sqlx::query_scalar::<_, i64>(
-        "SELECT count(*) FROM information_schema.columns WHERE table_name = $1 AND column_name = $2",
+        "SELECT count(*) FROM pragma_table_info($1) WHERE name = $2",
     )
     .bind(table)
     .bind(column)
@@ -31,7 +31,7 @@ async fn column_exists(pool: &SqlitePool, table: &str, column: &str) -> bool {
 }
 
 async fn index_exists(pool: &SqlitePool, index: &str) -> bool {
-    sqlx::query_scalar::<_, i64>("SELECT count(*) FROM pg_indexes WHERE indexname = $1")
+    sqlx::query_scalar::<_, i64>("SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = $1")
         .bind(index)
         .fetch_one(pool)
         .await
