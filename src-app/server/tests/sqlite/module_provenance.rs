@@ -1001,12 +1001,14 @@ async fn verification_terminal_filter_window_and_reset() {
         "one row per run — the DISTINCT ON equivalent"
     );
 
+    // One leftover pending row (the fixture's deliberately-pending first row; vnew
+    // was stamped terminal) — the reopen sweep resets exactly it.
     let n = sqlx::query(RESET_PENDING)
         .execute(&pool)
         .await
         .expect("reset")
         .rows_affected();
-    assert_eq!(n, 0, "no pending row remains (vnew was stamped terminal)");
+    assert_eq!(n, 1, "the one leftover pending row is swept");
 }
 
 /// TEST-29 leg 5 — the graph facade's `code_blob_lens`: text-array ANY →
@@ -1052,6 +1054,36 @@ async fn scope_lookups_and_artifact_decode() {
     dataset(&pool, ds1, owner).await;
     dataset(&pool, ds2, owner).await;
     let f = Uuid::new_v4();
+    // dataset_files.file_id → files(id) (FK): the file and its version chain must
+    // exist before the link rows.
+    let ver = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO file_versions (id, file_id, version, is_head, blob_version_id, \
+         file_size, created_by) VALUES (?,?,?,?,?,?,?)",
+    )
+    .bind(ver)
+    .bind(f)
+    .bind(1i64)
+    .bind(true)
+    .bind(Uuid::new_v4())
+    .bind(10i64)
+    .bind("test")
+    .execute(&pool)
+    .await
+    .expect("file version fixture");
+    sqlx::query(
+        "INSERT INTO files (id, user_id, filename, file_size, checksum, current_version_id) \
+         VALUES (?,?,?,?,?,?)",
+    )
+    .bind(f)
+    .bind(owner)
+    .bind("f.csv")
+    .bind(10i64)
+    .bind(Option::<String>::None)
+    .bind(ver)
+    .execute(&pool)
+    .await
+    .expect("file fixture");
     for ds in [ds1, ds2] {
         sqlx::query("INSERT INTO dataset_files (dataset_id, file_id) VALUES (?,?)")
             .bind(ds)

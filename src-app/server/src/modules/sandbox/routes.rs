@@ -108,7 +108,12 @@ async fn update_settings(
     let current = repo.get().await.map_err(|e| e.to_api_error())?;
     let merged = SandboxSettingsRepository::merge(&current, &body);
     merged.validate().map_err(|e| e.to_api_error())?;
-    let row = repo.update(&body, auth.user.id).await.map_err(|e| e.to_api_error())?;
+    repo.update(&body, auth.user.id).await.map_err(|e| e.to_api_error())?;
+    // Re-read (not the UPDATE's RETURNING row): the sqlite driver returns the
+    // bound value of a NULL written through the CASE "clear" expression as an
+    // empty string, while the row itself is NULL (a GET right after shows null).
+    // The response must never lie about a clear.
+    let row = repo.get().await.map_err(|e| e.to_api_error())?;
     settings_cache::invalidate(row.clone());
     // Realtime cross-device sync is wired at merge (DEC-4) — no-op seam today.
     super::emit_settings_changed();

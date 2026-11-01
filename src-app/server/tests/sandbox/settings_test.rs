@@ -109,7 +109,10 @@ async fn arbitrary_env_id_accepted_no_allowlist() {
     let clear = put_settings(&server, &token, json!({ "default_env_id": "" })).await;
     assert_eq!(clear.status().as_u16(), 200);
     let cleared: Value = clear.json().await.expect("put json");
-    assert!(cleared["default_env_id"].is_null(), "empty clears to auto-detect");
+    assert!(
+        cleared["default_env_id"].is_null(),
+        "empty clears to auto-detect: {cleared}"
+    );
 }
 
 // TEST-4 [acceptance][INV-4][ITEM-7]: the registry BASE is READ-ONLY — surfaced on

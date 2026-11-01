@@ -458,6 +458,7 @@ async fn natural_key_upsert_and_app_bound_id() {
     let p = Uuid::new_v4();
     project(&pool, p, owner).await;
     let d = Uuid::new_v4();
+    dataset(&pool, d, "d", "upload", serde_json::json!({}), owner).await;
     let r = Uuid::new_v4();
     let id1 = Uuid::new_v4();
     let id2 = Uuid::new_v4();
@@ -623,7 +624,7 @@ async fn membership_narrowing_arms_and_json_type_exactness() {
     let r_bothnull = Uuid::new_v4();
     let r_alnull = Uuid::new_v4();
     let r_manull = Uuid::new_v4();
-    for (id, structure) in [
+    for (i, (id, structure)) in [
         (
             r_array,
             serde_json::json!({"memberships": [{"aligned_to": "rows"}, {"aligned_to": "cells"}]}),
@@ -643,14 +644,17 @@ async fn membership_narrowing_arms_and_json_type_exactness() {
             r_manull,
             serde_json::json!({"memberships": null, "aligned_to": "rows"}),
         ),
-    ] {
+    ]
+    .into_iter()
+    .enumerate()
+    {
         artifact(
             &pool,
             id,
             Some(p),
             None,
             None,
-            "o",
+            &format!("o{i}"),
             "m",
             Some("k"),
             structure,
@@ -759,7 +763,7 @@ async fn reach_cte_walks_both_edges_and_terminates() {
         .await;
     }
     // gathered rows (object_key NULL) with the producers' hyphenated uuid refs
-    for (id, gathered) in [
+    for (i, (id, gathered)) in [
         (
             g1,
             serde_json::json!({"gathered_from": {
@@ -787,14 +791,17 @@ async fn reach_cte_walks_both_edges_and_terminates() {
             g_nullref,
             serde_json::json!({"gathered_from": {"alignment_artifact_id": null, "sources": []}}),
         ),
-    ] {
+    ]
+    .into_iter()
+    .enumerate()
+    {
         artifact(
             &pool,
             id,
             Some(p),
             None,
             None,
-            "g",
+            &format!("g{i}"),
             "m",
             None,
             gathered,
@@ -857,7 +864,7 @@ async fn detach_signature_produced_and_unresolvable_stamp() {
     let sig_no_seg = Uuid::new_v4();
     let sig_no_arr = Uuid::new_v4();
     let sig_segnull = Uuid::new_v4();
-    for (id, structure, meta) in [
+    for (i, (id, structure, meta)) in [
         (
             sig_yes,
             serde_json::json!({"extents": {"segments": ["a"]}}),
@@ -878,14 +885,17 @@ async fn detach_signature_produced_and_unresolvable_stamp() {
             serde_json::json!({"extents": {"segments": null}}),
             serde_json::json!({"sources": []}),
         ),
-    ] {
+    ]
+    .into_iter()
+    .enumerate()
+    {
         artifact(
             &pool,
             id,
             Some(p),
             None,
             None,
-            "o",
+            &format!("o{i}"),
             "m",
             Some("k"),
             structure,
@@ -946,7 +956,7 @@ async fn detach_signature_produced_and_unresolvable_stamp() {
         None,
         Some(d),
         None,
-        "col",
+        "col2",
         "m",
         None,
         serde_json::json!({"kind": "table", "gathered_from": {"sources": []}}),

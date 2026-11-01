@@ -1832,7 +1832,7 @@ async fn create_scoped_analysis(
         .send()
         .await
         .expect("create analysis job");
-    assert_eq!(resp.status().as_u16(), 200, "scoped analysis job created");
+    assert_eq!(resp.status().as_u16(), 201, "scoped analysis job created");
     let body: Value = resp.json().await.expect("job json");
     Uuid::parse_str(body["id"].as_str().expect("job id")).expect("uuid")
 }

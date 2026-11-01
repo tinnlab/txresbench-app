@@ -150,7 +150,7 @@ async fn the_app_boots_with_the_predicate_limits_migration_removed() {
         .expect("connect to the per-test DB");
 
     // POSITIVE CONTROL: the schema really was migrated.
-    let projects: bool = sqlx::query_scalar("SELECT to_regclass('public.projects') IS NOT NULL")
+    let projects: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='projects')")
         .fetch_one(&pool)
         .await
         .expect("probe projects");
@@ -158,7 +158,7 @@ async fn the_app_boots_with_the_predicate_limits_migration_removed() {
 
     for table in ["predicate_limits", "predicate_settings"] {
         let exists: bool =
-            sqlx::query_scalar(&format!("SELECT to_regclass('public.{table}') IS NOT NULL"))
+            sqlx::query_scalar(&format!("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='{table}')"))
                 .fetch_one(&pool)
                 .await
                 .unwrap_or_else(|e| panic!("probe {table}: {e}"));

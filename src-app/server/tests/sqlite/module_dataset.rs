@@ -636,7 +636,7 @@ async fn list_mine_search_and_account_membership() {
     assert!(got.contains(&a) && got.contains(&b) && got.contains(&c));
     assert!(!got.contains(&foreign), "foreign dataset never listed");
 
-    // paging
+    // paging — three owned rows, so offset 2 returns exactly the third.
     let page2 = sqlx::query(LIST_MINE_ITEMS)
         .bind(owner)
         .bind(Option::<String>::None)
@@ -646,7 +646,7 @@ async fn list_mine_search_and_account_membership() {
         .fetch_all(&pool)
         .await
         .expect("page 2");
-    assert_eq!(page2.len(), 2);
+    assert_eq!(page2.len(), 1);
 
     // H-1: an org-account dataset disappears once the owner is removed
     let org = Uuid::new_v4();

@@ -6,8 +6,6 @@ use serde_json::{json, Value};
 
 use crate::common::TestServer;
 
-const USERS_GROUP_ID: &str = "79668b78-16ff-4d3f-80e6-afdbb3236dc9";
-
 async fn setup_admin(server: &TestServer) -> String {
     let r = server.client.post(server.api_url("/session/local"))
         .json(&json!({"username":"adm","email":"adm@x.test","password":"admPassw0rd!"})).send().await.unwrap();
@@ -18,7 +16,7 @@ async fn setup_admin(server: &TestServer) -> String {
 async fn user(server: &TestServer, admin: &str, name: &str) -> (String, String) {
     let cr = server.client.post(server.api_url("/auth/register")).bearer_auth(admin)
         .json(&json!({"username":name,"email":format!("{name}@x.test"),"password":"userPassw0rd!"})).send().await.unwrap();
-    let id = cr.json::<Value>().await.unwrap()["id"].as_str().unwrap().to_string();
+    let id = cr.json::<Value>().await.unwrap()["user"]["id"].as_str().unwrap().to_string();
     let lr = server.client.post(server.api_url("/auth/login"))
         .json(&json!({"username":name,"password":"userPassw0rd!"})).send().await.unwrap();
     let token = lr.json::<Value>().await.unwrap()["access_token"].as_str().unwrap().to_string();
@@ -109,8 +107,17 @@ async fn deny_and_kinds() {
     assert!(names.contains(&"project_transfer_invite"));
 
     // A user stripped of the Users group lacks notifications::read → 403 (A9).
+    // The `/groups` HTTP surface is stripped on this node; the removal goes
+    // through the SDK user repository.
     let (id, _t) = user(&server, &admin, "nogrant").await;
-    server.client.delete(server.api_url(&format!("/groups/{id}/{USERS_GROUP_ID}/remove"))).bearer_auth(&admin).send().await.unwrap();
+    let pool = sqlx::SqlitePool::connect(server.database_url())
+        .await
+        .expect("connect strip pool");
+    crate::common::group_remove_from_users(
+        &pool,
+        uuid::Uuid::parse_str(&id).expect("user id is a uuid"),
+    )
+    .await;
     let ng = server.client.post(server.api_url("/auth/login")).json(&json!({"username":"nogrant","password":"userPassw0rd!"})).send().await.unwrap();
     let ngt = ng.json::<Value>().await.unwrap()["access_token"].as_str().unwrap().to_string();
     let deny = server.client.get(server.api_url("/notifications")).bearer_auth(&ngt).send().await.unwrap();

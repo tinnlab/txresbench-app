@@ -25,10 +25,6 @@ use cytoanalyst::modules::workstore::object_store::LocalFsStore;
 
 use crate::common::TestServer;
 
-// The seeded Users group id (holds `projects::use`); a restricted user is stripped
-// from it (mirrors the e2e `_helpers.createRestrictedUser`).
-const USERS_GROUP_ID: &str = "79668b78-16ff-4d3f-80e6-afdbb3236dc9";
-
 // --------------------------- shared helpers ---------------------------
 
 async fn setup_admin(server: &TestServer) -> String {
@@ -81,7 +77,7 @@ async fn create_member_token(server: &TestServer, admin: &str, username: &str) -
         .expect("create user");
     assert!(r.status().is_success(), "create member: {}", r.status());
     let created: Value = r.json().await.expect("user json");
-    let uid = Uuid::parse_str(created["id"].as_str().expect("user id")).unwrap();
+    let uid = Uuid::parse_str(created["user"]["id"].as_str().expect("user id")).unwrap();
     let token = login(server, username, "memberPassw0rd!").await;
     (uid, token)
 }
@@ -99,15 +95,11 @@ async fn login(server: &TestServer, username: &str, password: &str) -> String {
 }
 
 /// Strip a user from the Users group so they lack `projects::use` (the deny case).
-async fn strip_users_group(server: &TestServer, admin: &str, user_id: Uuid) {
-    let r = server
-        .client
-        .delete(server.api_url(&format!("/groups/{user_id}/{USERS_GROUP_ID}/remove")))
-        .bearer_auth(admin)
-        .send()
-        .await
-        .expect("remove from group");
-    assert!(r.status().is_success(), "strip group: {}", r.status());
+/// The `/groups` HTTP surface is stripped on this node; the removal goes through
+/// the SDK user repository over the per-test DB pool.
+async fn strip_users_group(server: &TestServer, _admin: &str, user_id: Uuid) {
+    let pool = pool_for(server).await;
+    crate::common::group_remove_from_users(&pool, user_id).await;
 }
 
 async fn pool_for(server: &TestServer) -> SqlitePool {

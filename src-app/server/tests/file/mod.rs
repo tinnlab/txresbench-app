@@ -96,7 +96,7 @@ async fn user_with_token(
     let id = Uuid::parse_str(
         resp.json::<Value>()
             .await
-            .expect("user json")["id"]
+            .expect("user json")["user"]["id"]
             .as_str()
             .expect("user id"),
     )

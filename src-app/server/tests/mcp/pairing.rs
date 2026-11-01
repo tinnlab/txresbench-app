@@ -105,7 +105,8 @@ async fn pair_exchange_rejects_expired_code() {
     let id = Uuid::new_v4();
     let user_uuid = Uuid::parse_str(&user_id).expect("user id is a uuid");
     sqlx::query(
-        "INSERT INTO mcp_pairing_codes (id, code, user_id, expires_at) VALUES ($1, $2, $3, NOW() - INTERVAL '1 minute')",
+        "INSERT INTO mcp_pairing_codes (id, code, user_id, expires_at) \
+         VALUES ($1, $2, $3, strftime('%Y-%m-%dT%H:%M:%fZ','now','-1 minute'))",
     )
     .bind(id)
     .bind(&code)
