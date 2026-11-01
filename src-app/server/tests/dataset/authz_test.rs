@@ -17,11 +17,6 @@ use uuid::Uuid;
 use super::{create_user, login, setup_admin};
 use crate::common::TestServer;
 
-/// The seeded Users group id (holds `projects::use`). Stripping a user from it
-/// leaves them with no capability to reach the dataset surface. Mirrors the
-/// `project` tests' `create_user_without_projects` helper.
-const USERS_GROUP_ID: &str = "79668b78-16ff-4d3f-80e6-afdbb3236dc9";
-
 /// Create a user then REMOVE them from the Users group → they no longer hold
 /// `projects::use` (the capability gate on every dataset endpoint).
 async fn create_user_without_projects(
@@ -31,18 +26,16 @@ async fn create_user_without_projects(
     email: &str,
 ) -> String {
     let id = create_user(server, admin, username, email).await;
-    let resp = server
-        .client
-        .delete(server.api_url(&format!("/groups/{id}/{USERS_GROUP_ID}/remove")))
-        .bearer_auth(admin)
-        .send()
+    // The `/groups` HTTP surface is stripped on this node; the removal goes
+    // through the SDK user repository over a pool on the per-test DB.
+    let pool = sqlx::SqlitePool::connect(server.database_url())
         .await
-        .expect("remove from Users group");
-    assert!(
-        resp.status().is_success(),
-        "strip Users group: {}",
-        resp.status()
-    );
+        .expect("connect strip pool");
+    crate::common::group_remove_from_users(
+        &pool,
+        uuid::Uuid::parse_str(&id).expect("user id is a uuid"),
+    )
+    .await;
     id
 }
 

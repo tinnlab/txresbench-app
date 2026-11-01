@@ -47,8 +47,8 @@ async fn folder_dataset_ids(server: &TestServer, token: &str, folder: &str) -> V
 async fn folder_crud_membership_and_scope() {
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
-    create_user(&server, &admin, "fo", "fo@x.test").await;
-    let fo = login(&server, "fo").await;
+    create_user(&server, &admin, "fld", "fo@x.test").await;
+    let fo = login(&server, "fld").await;
     create_user(&server, &admin, "other", "other@x.test").await;
     let other = login(&server, "other").await;
 
@@ -187,8 +187,8 @@ async fn folder_crud_membership_and_scope() {
 async fn folder_create_emits_sync() {
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
-    create_user(&server, &admin, "sy", "sy@x.test").await;
-    let sy = login(&server, "sy").await;
+    create_user(&server, &admin, "user_sy", "sy@x.test").await;
+    let sy = login(&server, "user_sy").await;
 
     let mut stream = server
         .client

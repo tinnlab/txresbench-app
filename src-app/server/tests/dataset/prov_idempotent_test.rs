@@ -85,7 +85,7 @@ async fn re_ingesting_same_manifest_does_not_duplicate() {
 
     // The provenance run node's used-edge set is untouched by re-ingest.
     let edges: i64 = sqlx::query_scalar(
-        "SELECT jsonb_array_length(inputs_json) FROM provenance_run_repro WHERE run_id = $1")
+        "SELECT json_array_length(inputs_json) FROM provenance_run_repro WHERE run_id = $1")
         .bind(run).fetch_one(&pool).await.unwrap();
     assert_eq!(
         edges, 1,

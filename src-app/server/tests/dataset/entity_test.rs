@@ -159,6 +159,7 @@ async fn promote_source_columns_round_trip() {
     let admin = setup_admin(&server).await;
     let cid = create_user(&server, &admin, "cara", "cara@x.test").await;
     let cara = login(&server, "cara").await;
+    let cid_uuid = uuid::Uuid::parse_str(&cid).expect("cara id is a uuid");
 
     let dataset_id = uuid::Uuid::new_v4();
     let artifact_id = uuid::Uuid::new_v4();
@@ -168,7 +169,7 @@ async fn promote_source_columns_round_trip() {
     // stamp it — the same value the repository's `create_promoted` would stamp.
     cytoanalyst::modules::account::scope::ensure_personal_account_for(
         &pool,
-        cid.parse().expect("cara id is a uuid"),
+        cid_uuid,
     )
     .await
     .expect("ensure cara's personal account");
@@ -178,7 +179,7 @@ async fn promote_source_columns_round_trip() {
     )
     .bind(dataset_id)
     .bind("PBMC filtered")
-    .bind(&cid)
+    .bind(cid_uuid)
     .bind("single-cell/expression")
     .bind(artifact_id)
     .bind("sha256:deadbeef")

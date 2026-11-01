@@ -51,7 +51,7 @@ pub async fn create_user(server: &TestServer, admin: &str, username: &str, email
         .expect("create user");
     assert!(resp.status().is_success(), "create user {username}: {}", resp.status());
     let body: Value = resp.json().await.expect("user json");
-    body["id"].as_str().expect("user id").to_string()
+    body["user"]["id"].as_str().expect("user id").to_string()
 }
 
 /// Log in → an access token.
@@ -77,7 +77,7 @@ pub async fn create_dataset(server: &TestServer, token: &str, name: &str) -> Str
         .send()
         .await
         .expect("create dataset");
-    assert_eq!(resp.status().as_u16(), 200, "create dataset {name}");
+    assert_eq!(resp.status().as_u16(), 201, "create dataset {name}");
     let body: Value = resp.json().await.expect("dataset json");
     body["id"].as_str().expect("dataset id").to_string()
 }

@@ -687,23 +687,33 @@ async fn add_supporting_at_cap_422() {
     let owner = admin_user_id(&pool).await;
 
     // Seed 50 supporting files (the DEC-12 cap) directly: a batch of `files` rows +
-    // their `dataset_files` supporting links.
-    sqlx::query(
-        "WITH new_files AS (
-             INSERT INTO files (id, user_id, filename, file_size, current_version_id, created_by)
-             SELECT randomblob(16), $1, 'seed-' || g || '.csv', 10, randomblob(16), 'user'
-             FROM generate_series(1, 50) g
-             RETURNING id
-         )
-         INSERT INTO dataset_files (dataset_id, file_id, ordinal, role, kind)
-         SELECT $2, id, 100 + (row_number() OVER ()), 'supporting', 'annotation_table'
-         FROM new_files",
-    )
-    .bind(owner)
-    .bind(ds_uuid)
-    .execute(&pool)
-    .await
-    .expect("seed supporting files to the cap");
+    // their `dataset_files` supporting links. SQLite port: the PG data-modifying CTE
+    // (`WITH … INSERT … RETURNING` + `generate_series`) has no SQLite form, so the
+    // seed is a plain loop instead.
+    for i in 0..50i64 {
+        let file_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO files (id, user_id, filename, file_size, current_version_id, created_by) \
+             VALUES (?, ?, ?, 10, ?, 'user')",
+        )
+        .bind(file_id)
+        .bind(owner)
+        .bind(format!("seed-{i}.csv"))
+        .bind(Uuid::new_v4())
+        .execute(&pool)
+        .await
+        .expect("seed file");
+        sqlx::query(
+            "INSERT INTO dataset_files (dataset_id, file_id, ordinal, role, kind) \
+             VALUES (?, ?, ?, 'supporting', 'annotation_table')",
+        )
+        .bind(ds_uuid)
+        .bind(file_id)
+        .bind(100 + i)
+        .execute(&pool)
+        .await
+        .expect("seed dataset_files link");
+    }
 
     // The 51st supporting add is rejected at the cap.
     let resp = post_supporting(

@@ -263,30 +263,18 @@ async fn dataset_audience_resolves_owner_user_share_and_group_share() {
         .await
         .expect("dataset owner");
 
-    // A group containing exactly one of the three non-owners.
-    let group_id = server
-        .client
-        .post(server.api_url("/groups"))
-        .bearer_auth(&admin)
-        .json(&json!({ "name": "audience-group", "description": "", "permissions": [] }))
-        .send()
+    // A group containing exactly one of the three non-owners. The `/groups`
+    // HTTP surface is stripped on this node; create/assign go through the SDK
+    // repos over the pool the test already holds.
+    let group_id = crate::common::group_create(&pool, "audience-group", vec![])
         .await
-        .expect("create group")
-        .json::<serde_json::Value>()
-        .await
-        .expect("group json")["id"]
-        .as_str()
-        .expect("group id")
         .to_string();
-    let assign = server
-        .client
-        .post(server.api_url("/groups/assign"))
-        .bearer_auth(&admin)
-        .json(&json!({ "user_id": grouped_id, "group_id": group_id }))
-        .send()
-        .await
-        .expect("assign");
-    assert!(assign.status().is_success(), "assign to group");
+    crate::common::group_assign(
+        &pool,
+        Uuid::parse_str(&grouped_id).expect("grouped id is a uuid"),
+        Uuid::parse_str(&group_id).expect("group id is a uuid"),
+    )
+    .await;
 
     for body in [
         json!({ "principal_type": "user", "principal_id": direct_id, "role": "view" }),
