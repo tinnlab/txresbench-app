@@ -7,7 +7,8 @@
 //!
 //! Dual-driver (sqlite-store DEC-1): the postgres leg provisions a cluster DB
 //! on the shared `:54321` (the historical behavior — `include_str!` of the PG
-//! migration, untouched); the sqlite leg provisions a fresh FILE under
+//! migration from the retained `migrations-pg/` chain, the driver's own file
+//! since ITEM-26); the sqlite leg provisions a fresh FILE under
 //! `TMPDIR` (a directory per test) and applies the crate's sqlite
 //! `NOTIFICATION_MIGRATOR`, and drops it by unlinking the file + `-wal`/`-shm`
 //! sidecars. The first value of `(DbPool, String)` is the pool; the second is
@@ -60,7 +61,7 @@ pub async fn fresh_db() -> (DbPool, String) {
         .expect("connect test db");
 
     pool.execute(include_str!(
-        "../../migrations/202607140190_notification_schema.sql"
+        "../../migrations-pg/202607140190_notification_schema.sql"
     ))
     .await
     .expect("crate migration applies standalone on a bare DB");

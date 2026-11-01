@@ -667,7 +667,7 @@ async fn rust_and_database_folds_agree_over_every_admissible_character() {
 /// DEC-8/DEC-9 port of the same version-numbered migration).
 #[cfg(not(feature = "sqlite-backend"))]
 const MIGRATION: &str =
-    include_str!("../migrations/202609090010_users_email_lowercase_invariant.sql");
+    include_str!("../migrations-pg/202609090010_users_email_lowercase_invariant.sql");
 #[cfg(feature = "sqlite-backend")]
 const MIGRATION: &str =
     include_str!("../migrations/202609090010_users_email_lowercase_invariant.sql");

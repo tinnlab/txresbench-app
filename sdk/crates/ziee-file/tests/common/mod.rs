@@ -5,8 +5,9 @@
 //! drops the DB on teardown.
 //!
 //! Dual-driver: the postgres leg provisions a cluster DB on the shared
-//! `:54321` (the historical behavior — `include_str!` of the PG migration,
-//! untouched); the sqlite leg provisions a fresh FILE under `TMPDIR` (a
+//! `:54321` (the historical behavior — `include_str!` of the PG migration from
+//! the retained `migrations-pg/` chain, the driver's own file since ITEM-26);
+//! the sqlite leg provisions a fresh FILE under `TMPDIR` (a
 //! directory per test) and applies the crate's sqlite `FILE_MIGRATOR`, and
 //! drops it by unlinking the file + `-wal`/`-shm` sidecars. The first value of
 //! `(DbPool, String)` is the pool; the second is the opaque "database identity"
@@ -53,7 +54,7 @@ pub async fn fresh_db() -> (DbPool, String) {
         .expect("connect test db");
 
     pool.execute(include_str!(
-        "../../migrations/202607140125_file_schema.sql"
+        "../../migrations-pg/202607140125_file_schema.sql"
     ))
     .await
     .expect("crate migration applies standalone on a bare DB");

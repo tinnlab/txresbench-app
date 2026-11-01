@@ -2352,17 +2352,32 @@ async fn a_column_declared_wider_than_its_sources_is_converted_on_read() {
     );
 
     // Widen the DECLARATION only. The source stores are untouched and still hold one byte
-    // per element.
-    sqlx::query(
-        "UPDATE artifacts SET structure = json_set(
-             json_set(structure, '$.data_type', json_quote('uint16')),
-             '$.columns[0].dtype', json_quote('uint16'))
-         WHERE id = $1",
-    )
-    .bind(g)
-    .execute(&pool)
-    .await
-    .expect("widen the declaration");
+    // per element. The widened column is addressed BY NAME — `columns[]` is a declared
+    // collection (the positional-declaration lint), and the creator builds every column in
+    // this structure from the one member constant, so the name is the stable key.
+    let mut structure: serde_json::Value =
+        sqlx::query_scalar::<_, serde_json::Value>(
+            "SELECT structure FROM artifacts WHERE id = $1",
+        )
+        .bind(g)
+        .fetch_one(&pool)
+        .await
+        .expect("read the declaration");
+    structure["data_type"] = json!("uint16");
+    for column in structure["columns"]
+        .as_array_mut()
+        .expect("declared columns")
+    {
+        if column["name"] == cytoanalyst::modules::workstore::virtual_dataset::SOURCE_MEMBER {
+            column["dtype"] = json!("uint16");
+        }
+    }
+    sqlx::query("UPDATE artifacts SET structure = $1 WHERE id = $2")
+        .bind(structure)
+        .bind(g)
+        .execute(&pool)
+        .await
+        .expect("widen the declaration");
 
     let decl: serde_json::Value = reqwest::Client::new()
         .get(server.api_url(&format!("/artifacts/{g}/data/values/zarr.json")))
