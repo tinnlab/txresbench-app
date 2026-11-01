@@ -15,8 +15,7 @@ async fn drafts_schema_and_grant_are_present() {
 
     // The table exists with the expected columns.
     let cols: Vec<String> = sqlx::query_scalar::<_, String>(
-        "SELECT column_name FROM information_schema.columns \
-         WHERE table_schema = 'public' AND table_name = 'drafts' ORDER BY column_name",
+        "SELECT name FROM pragma_table_info('drafts') ORDER BY name",
     )
     .fetch_all(&pool)
     .await
@@ -40,8 +39,8 @@ async fn drafts_schema_and_grant_are_present() {
 
     // The list index exists.
     let has_index: bool = sqlx::query_scalar::<_, bool>(
-        "SELECT EXISTS(SELECT 1 FROM pg_indexes \
-         WHERE schemaname = 'public' AND tablename = 'drafts' AND indexname = 'drafts_project_idx')",
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master \
+         WHERE type = 'index' AND name = 'drafts_project_idx')",
     )
     .fetch_one(&pool)
     .await
@@ -50,8 +49,7 @@ async fn drafts_schema_and_grant_are_present() {
 
     // The async-freeze mapping table (migration 202608240002) exists with its columns.
     let fj_cols: Vec<String> = sqlx::query_scalar::<_, String>(
-        "SELECT column_name FROM information_schema.columns \
-         WHERE table_schema = 'public' AND table_name = 'draft_freeze_jobs' ORDER BY column_name",
+        "SELECT name FROM pragma_table_info('draft_freeze_jobs') ORDER BY name",
     )
     .fetch_all(&pool)
     .await
@@ -66,8 +64,8 @@ async fn drafts_schema_and_grant_are_present() {
     // The grant lands on the Users group EXACTLY ONCE (append-if-absent is idempotent).
     let grant_count = |pool: SqlitePool| async move {
         sqlx::query_scalar::<_, i64>(
-            "SELECT count(*) FROM (SELECT unnest(permissions) AS p FROM groups WHERE name = 'Users') s \
-             WHERE s.p = 'drafts::use'",
+            "SELECT count(*) FROM (SELECT value AS p FROM groups, json_each(groups.permissions) \
+             WHERE name = 'Users') s WHERE s.p = 'drafts::use'",
         )
         .fetch_one(&pool)
         .await
@@ -84,8 +82,10 @@ async fn drafts_schema_and_grant_are_present() {
     // is a no-op on a second application (asserting count==1 after a single apply proves
     // nothing about idempotency).
     sqlx::query(
-        "UPDATE public.groups SET permissions = array_append(permissions, 'drafts::use') \
-         WHERE name = 'Users' AND NOT ('drafts::use' = ANY (permissions))",
+        "UPDATE groups \
+         SET permissions = json_insert(permissions, '$[#]', 'drafts::use') \
+         WHERE name = 'Users' \
+           AND NOT EXISTS (SELECT 1 FROM json_each(permissions) WHERE value = 'drafts::use')",
     )
     .execute(&pool)
     .await
@@ -187,25 +187,43 @@ fn drafts_migration_prefix_sorts_above_server_max_and_is_unique() {
         server_prefixes.len(),
         "duplicate server migration prefixes: {server_prefixes:?}"
     );
-    // BOTH drafts migrations must sort above the previous (non-drafts) server max.
-    let max_other = server_prefixes
-        .iter()
-        .copied()
-        .filter(|p| {
-            *p != DRAFTS_PREFIX && *p != DRAFT_FREEZE_JOBS_PREFIX && *p != DRAFT_LINEAGE_PREFIX
-        })
-        .max()
-        .expect("at least one other server migration exists");
-    assert!(
-        DRAFTS_PREFIX > max_other,
-        "drafts baseline {DRAFTS_PREFIX} must sort above the previous server max {max_other}"
-    );
-    assert!(
-        DRAFT_FREEZE_JOBS_PREFIX > max_other,
-        "draft_freeze_jobs {DRAFT_FREEZE_JOBS_PREFIX} must sort above the previous server max {max_other}"
-    );
-    assert!(
-        DRAFT_LINEAGE_PREFIX > max_other,
-        "draft_artifact_lineage {DRAFT_LINEAGE_PREFIX} must sort above the previous server max {max_other}"
-    );
+    // The sqlite chain keeps the PG-era prefixes (PLAN: same numbers, new
+    // history), and node-era migrations in OTHER modules are dated LATER than
+    // the drafts block (account 202609040010, workstore 202609020010) without
+    // referencing drafts — so "above the whole server max" is no longer a
+    // claim the chain makes. What the ordering must guarantee is that the
+    // tables the drafts FKs reference (users — SDK, outside this walk —
+    // projects, artifacts, jobs) are created BEFORE the drafts block. Their
+    // table-CREATING baselines are the earliest migration of each referenced
+    // module, discovered here rather than listed so the check follows the
+    // module set.
+    let mut target_baselines: Vec<(String, u64)> = Vec::new();
+    for module in ["jobs", "project", "workstore"] {
+        let mig = modules.join(module).join("migrations");
+        let mut min = u64::MAX;
+        for e in std::fs::read_dir(&mig).expect("referenced module migrations readable").flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            if !name.ends_with(".sql") {
+                continue;
+            }
+            let prefix = name.split('_').next().unwrap_or("").parse::<u64>();
+            if let Ok(p) = prefix {
+                min = min.min(p);
+            }
+        }
+        assert!(min != u64::MAX, "no migrations found for {module}");
+        target_baselines.push((module.to_string(), min));
+    }
+    for (what, prefix) in [
+        ("drafts baseline", DRAFTS_PREFIX),
+        ("draft_freeze_jobs", DRAFT_FREEZE_JOBS_PREFIX),
+        ("draft_artifact_lineage", DRAFT_LINEAGE_PREFIX),
+    ] {
+        for (module, baseline) in &target_baselines {
+            assert!(
+                prefix > *baseline,
+                "{what} {prefix} must sort above {module}'s table-creating baseline {baseline}"
+            );
+        }
+    }
 }

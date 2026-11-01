@@ -18,10 +18,6 @@ use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
 
 use crate::common::TestServer;
 
-/// The seeded Users group id (holds `provenance::read`/`export` via the grant
-/// migration). Stripping a user from it removes those perms (A9 deny path).
-const USERS_GROUP_ID: &str = "79668b78-16ff-4d3f-80e6-afdbb3236dc9";
-
 // ------------------------------- auth helpers -------------------------------
 
 /// First-run setup → the admin owner + their access token (holds the `*`
@@ -68,7 +64,7 @@ async fn create_user(server: &TestServer, admin: &str, username: &str, email: &s
         .expect("create user");
     assert!(resp.status().is_success(), "create user {username}: {}", resp.status());
     let body: Value = resp.json().await.expect("user json");
-    body["id"].as_str().expect("user id").to_string()
+    body["user"]["id"].as_str().expect("user id").to_string()
 }
 
 /// Log in → an access token.
@@ -93,14 +89,14 @@ async fn create_user_without_provenance(
     email: &str,
 ) -> String {
     let id = create_user(server, admin, username, email).await;
-    let resp = server
-        .client
-        .delete(server.api_url(&format!("/groups/{id}/{USERS_GROUP_ID}/remove")))
-        .bearer_auth(admin)
-        .send()
-        .await
-        .expect("remove from group");
-    assert!(resp.status().is_success(), "strip group: {}", resp.status());
+    // The `/groups` HTTP surface is stripped on this node; the removal goes
+    // through the SDK user repository over the per-test DB pool.
+    let pool = pool_for(server).await;
+    crate::common::group_remove_from_users(
+        &pool,
+        Uuid::parse_str(&id).expect("user id is a uuid"),
+    )
+    .await;
     login(server, username).await
 }
 
@@ -116,7 +112,7 @@ async fn create_project(server: &TestServer, token: &str, name: &str) -> Uuid {
         .send()
         .await
         .expect("create project");
-    assert_eq!(resp.status().as_u16(), 200, "create project {name}");
+    assert_eq!(resp.status().as_u16(), 201, "create project {name}");
     let body: Value = resp.json().await.expect("project json");
     Uuid::parse_str(body["id"].as_str().expect("project id")).unwrap()
 }
@@ -268,7 +264,7 @@ async fn record_selection(
         .send()
         .await
         .expect("record selection");
-    assert_eq!(resp.status().as_u16(), 200, "record selection is 201");
+    assert_eq!(resp.status().as_u16(), 201, "record selection is 201");
     resp.json().await.expect("run node json")
 }
 

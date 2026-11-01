@@ -24,8 +24,6 @@ mod opaque_kind_test;
 mod ownership_test;
 mod sync_emit_test;
 
-const USERS_GROUP_ID: &str = "79668b78-16ff-4d3f-80e6-afdbb3236dc9";
-
 // ------------------------------- helpers -------------------------------
 
 /// First-run setup → the admin owner + their access token.
@@ -71,7 +69,7 @@ pub async fn create_user(server: &TestServer, admin: &str, username: &str, email
         .expect("create user");
     assert!(resp.status().is_success(), "create user {username}: {}", resp.status());
     let body: Value = resp.json().await.expect("user json");
-    body["id"].as_str().expect("user id").to_string()
+    body["user"]["id"].as_str().expect("user id").to_string()
 }
 
 /// Log in → an access token.
@@ -96,14 +94,16 @@ pub async fn create_user_without_drafts(
     email: &str,
 ) -> String {
     let id = create_user(server, admin, username, email).await;
-    let resp = server
-        .client
-        .delete(server.api_url(&format!("/groups/{id}/{USERS_GROUP_ID}/remove")))
-        .bearer_auth(admin)
-        .send()
+    // The `/groups` HTTP surface is stripped on this node; the removal goes
+    // through the SDK user repository over a pool on the per-test DB.
+    let pool = sqlx::SqlitePool::connect(server.database_url())
         .await
-        .expect("remove from group");
-    assert!(resp.status().is_success(), "strip group: {}", resp.status());
+        .expect("connect strip pool");
+    crate::common::group_remove_from_users(
+        &pool,
+        uuid::Uuid::parse_str(&id).expect("user id is a uuid"),
+    )
+    .await;
     id
 }
 
@@ -116,7 +116,7 @@ pub async fn create_project(server: &TestServer, token: &str, name: &str) -> Str
         .send()
         .await
         .expect("create project");
-    assert_eq!(resp.status().as_u16(), 200, "create project {name}");
+    assert_eq!(resp.status().as_u16(), 201, "create project {name}");
     let body: Value = resp.json().await.expect("project json");
     body["id"].as_str().expect("project id").to_string()
 }
@@ -274,6 +274,6 @@ pub async fn create_draft(
         .send()
         .await
         .expect("create draft");
-    assert_eq!(resp.status().as_u16(), 200, "create draft {kind}");
+    assert_eq!(resp.status().as_u16(), 201, "create draft {kind}");
     resp.json().await.expect("draft json")
 }
