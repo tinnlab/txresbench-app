@@ -576,7 +576,11 @@ async fn axis_index_containment_and_datatype_membership() {
         Some(d),
         None,
         "plain",
-        "metadata-column",
+        // A non-index datatype — deliberately NOT a domain datatype id, so the
+        // domain-scan's shrink-only test-literal tier has nothing to pin here
+        // (the axis-candidate allow-list is `metadata-column-index`; the
+        // discriminator is only that this row's datatype is NOT in it).
+        "data/opaque",
         Some("k"),
         serde_json::json!({"axis": "rows"}),
         serde_json::json!({}),

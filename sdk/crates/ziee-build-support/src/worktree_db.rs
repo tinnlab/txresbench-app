@@ -163,6 +163,33 @@ pub fn is_sqlite_url(url: &str) -> bool {
     url.starts_with("sqlite:")
 }
 
+/// True when a sqlite URL names THIS worktree's resolved per-worktree build
+/// file — the URL the build script rewrites the committed sentinel to and then
+/// hands the test harness at runtime via `cargo:rustc-env` (the sqlite
+/// counterpart of the PG leg's `ziee_build_<key>` URL matching the
+/// `LOCAL_BUILD_CLUSTER` arm of [`should_auto_isolate`]: the resolved form of
+/// the sentinel is the sentinel's own resolution, not an operator override).
+///
+/// The match is exact on BOTH name and directory: under
+/// `<worktree>/target/sqlx-build/` and stem `*_<key>`. A genuine override that
+/// names a file anywhere else (OR this worktree's default `cytoanalyst_build`
+/// file without the key) is honored byte-for-byte.
+pub fn sqlite_url_is_this_worktree_build_file(url: &str, manifest_dir: &str) -> bool {
+    if !is_sqlite_url(url) {
+        return false;
+    }
+    let path = sqlite_url_to_path(url);
+    let root = std::path::PathBuf::from(worktree_root(manifest_dir));
+    let expected_dir = root.join("target").join("sqlx-build");
+    let in_expected_dir = path.parent().map(|p| p == expected_dir).unwrap_or(false);
+    let key = worktree_key(manifest_dir);
+    let keyed_stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .is_some_and(|stem| stem.ends_with(&format!("_{key}")));
+    in_expected_dir && keyed_stem
+}
+
 /// The per-worktree sqlite build-DB file: `<worktree-root>/target/sqlx-build/
 /// <db_name>.sqlite`. `manifest_dir` is `CARGO_MANIFEST_DIR`; the root is
 /// derived by the same [`worktree_root`] strip as `worktree_key`, so the

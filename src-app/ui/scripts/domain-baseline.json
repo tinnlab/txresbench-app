@@ -1278,6 +1278,13 @@
     }
   },
   "prose": {
+    "desktop/tauri/src/commands.rs": {
+      "finding": "FALSE-POSITIVE",
+      "note": "ITEM-24's doc comment on the pool-type seam: \"`sqlite-backend` features (PROV-sqlite-store-2's desktop half)\" — the RUST CARGO feature flag the desktop build selects, not genomic features. Same disposition as the standing software-feature-flag admissions.",
+      "tokens": {
+        "features": 1
+      }
+    },
     "desktop/tauri/src/lib.rs": {
       "finding": "FALSE-POSITIVE",
       "note": "`window_features` — the WebView/`window.open` API parameter. The ONLY domain-shaped token in the entire desktop tree (6 files, 0 code hits).",
@@ -1287,8 +1294,9 @@
     },
     "server/build_helper/mod.rs": {
       "finding": "GENERIC",
-      "note": "\"the feature self-disables at runtime\" — a SOFTWARE feature.",
+      "note": "\"the feature self-disables at runtime\" — a SOFTWARE feature; plus the sqlite build helper's \"No embedding and no build panic\" remark — \"embedding\" also SOFTWARE meaning.",
       "tokens": {
+        "embedding": 1,
         "feature": 1
       }
     },
@@ -1299,13 +1307,14 @@
     },
     "server/src/modules/dataset/repository.rs": {
       "finding": "DOC-EXAMPLE",
-      "note": "domain ILLUSTRATIONS in doc comments on a domain-agnostic repository (\"the harvested obs/var summary\", \"a single-cell …\" as the paging example).",
+      "note": "domain ILLUSTRATIONS in doc comments on a domain-agnostic repository (\"the harvested obs/var summary\", \"a single-cell …\" as the paging example); `ident` = the port's sqlx row-mapping comment (`<ident: Type>` macro syntax).",
       "tokens": {
         "10x": 2,
         "cell": 3,
         "features": 1,
         "genes": 1,
         "h5ad": 1,
+        "ident": 1,
         "mtx": 2,
         "obs": 1
       }
@@ -1400,10 +1409,12 @@
     "server/src/modules/jobs/repository.rs": {
       "tokens": {
         "cell": 1,
-        "feature": 1,
         "h5ad": 1,
-        "sample": 1
-      }
+        "sample": 1,
+        "ident": 1
+      },
+      "finding": "GENERIC",
+      "note": "the port's comment on the sqlx row-mapping override (`<ident: Type>` macro syntax). Rust/sqlx meaning."
     },
     "server/src/modules/jobs/routes.rs": {
       "tokens": {
@@ -1447,11 +1458,6 @@
       "note": "The S1 changelog: the 20-of-57 baked view actions were `all single-cell / CITE-seq / scATAC vocabulary` and are no longer in the binary. Naming what LEFT is the point of the note.",
       "tokens": {
         "cell": 1
-      }
-    },
-    "server/src/modules/mcp/pairing.rs": {
-      "tokens": {
-        "feature": 2
       }
     },
     "server/src/modules/project/core/extension/registry.rs": {
@@ -2548,6 +2554,34 @@
       },
       "finding": "GENERIC",
       "note": "a software feature (this admin-settings feature, INV-1 prose), not a genomic feature. Omitted by the workstore-settings merge; added here."
+    },
+    "server/src/modules/account/repository.rs": {
+      "tokens": {
+        "ident": 1
+      },
+      "finding": "GENERIC",
+      "note": "the port's comment on the sqlx row-mapping override (`<ident: Type>` macro syntax). Rust/sqlx meaning."
+    },
+    "server/src/modules/project/repository.rs": {
+      "tokens": {
+        "ident": 2
+      },
+      "finding": "GENERIC",
+      "note": "the port's comments on the sqlx row-mapping override (`<ident: Type>` macro syntax). Rust/sqlx meaning."
+    },
+    "server/src/modules/provenance/repository.rs": {
+      "tokens": {
+        "ident": 1
+      },
+      "finding": "GENERIC",
+      "note": "the port's comment on the sqlx row-mapping override (`<ident: Type>` macro syntax). Rust/sqlx meaning."
+    },
+    "server/src/modules/workstore/migration_repo.rs": {
+      "tokens": {
+        "feature": 1
+      },
+      "finding": "GENERIC",
+      "note": "\"feature\" as a software capability in the ported-chain comment."
     }
   },
   "literals": {
@@ -7211,13 +7245,13 @@
       }
     },
     "server/tests/features/resolution_precedence_test.rs": {
+      "feature": {
+        "count": 8,
+        "finding": "FALSE-POSITIVE",
+        "note": "Runtime feature-flags admin subsystem (issue 40). The word here is a software product flag, not a genomic feature; the module name, table, permission and routes are the mandated public surface of that subsystem. (count 7 -> 8: the sqlite port inserts its per-account rows with an explicit randomblob(16) id, spelling the feature_flags table one more time.)"
+      },
       "features": {
         "count": 1,
-        "finding": "FALSE-POSITIVE",
-        "note": "Runtime feature-flags admin subsystem (issue 40). The word here is a software product flag, not a genomic feature; the module name, table, permission and routes are the mandated public surface of that subsystem."
-      },
-      "feature": {
-        "count": 7,
         "finding": "FALSE-POSITIVE",
         "note": "Runtime feature-flags admin subsystem (issue 40). The word here is a software product flag, not a genomic feature; the module name, table, permission and routes are the mandated public surface of that subsystem."
       }
@@ -7322,6 +7356,37 @@
         "count": 1,
         "finding": "R4-TESTS-RS",
         "note": "the suite's `mod features;` registration of the runtime feature-flags subsystem (software product flag, not a genomic feature). Visible to the scan only after the strip removed the file's own `#[cfg(feature = \"saas\")]` lines that carried it under the WS-R9 file-context rule."
+      }
+    },
+    "server/tests/sqlite/apply_chain.rs": {
+      "feature": {
+        "count": 2,
+        "finding": "R4-TESTS-RS",
+        "note": "sqlite leg: the ported chain's migration DDL text (feature_flags schema the chain applies). Content, not an assertion on an id."
+      },
+      "features": {
+        "count": 2,
+        "finding": "R4-TESTS-RS",
+        "note": "sqlite leg: the ported chain's migration DDL text (feature_flags schema the chain applies). Content, not an assertion on an id."
+      }
+    },
+    "server/tests/sqlite/module_dataset.rs": {
+      "h5ad": {
+        "count": 2,
+        "finding": "R4-TESTS-RS",
+        "note": "sqlite leg module test: the h5ad-format fixture file names the test stages and reads."
+      }
+    },
+    "server/tests/sqlite/module_workstore.rs": {
+      "cells": {
+        "count": 1,
+        "finding": "R4-TESTS-RS",
+        "note": "sqlite leg module test: the axis/membership JSON fixture the gather semantics operate on."
+      },
+      "genes": {
+        "count": 2,
+        "finding": "R4-TESTS-RS",
+        "note": "sqlite leg module test: the axis/membership JSON fixture the gather semantics operate on."
       }
     }
   },
@@ -9161,6 +9226,42 @@
       "tokens": {
         "features": 4
       }
+    },
+    "server/tests/jobs/reaper_single_runner_test.rs": {
+      "tokens": {
+        "obs": 1
+      },
+      "finding": "R4-TESTS-RS",
+      "note": "a substring match inside the reaper comment's \"observable/observed\" wording (sqlite re-point)."
+    },
+    "server/tests/sqlite/apply_chain.rs": {
+      "tokens": {
+        "feature": 6,
+        "features": 2
+      },
+      "finding": "R4-TESTS-RS",
+      "note": "the ported chain's migration DDL text run verbatim (feature_flags schema)."
+    },
+    "server/tests/sqlite/chain_account_project.rs": {
+      "tokens": {
+        "feature": 1
+      },
+      "finding": "R4-TESTS-RS",
+      "note": "the ported chain's migration DDL text run verbatim (feature_flags schema)."
+    },
+    "server/tests/sqlite/chain_workstore.rs": {
+      "tokens": {
+        "feature": 1
+      },
+      "finding": "R4-TESTS-RS",
+      "note": "the ported chain's migration DDL text run verbatim (feature_flags schema)."
+    },
+    "server/tests/sqlite/module_workstore.rs": {
+      "tokens": {
+        "genes": 1
+      },
+      "finding": "R4-TESTS-RS",
+      "note": "the axis/membership JSON fixture the gather semantics operate on."
     }
   },
   "testLiterals": {
@@ -10255,6 +10356,11 @@
         "count": 2,
         "finding": "R4-TESTS-FIXTURE",
         "note": "server/tests/** fixture DATA (.json) — a producer-shaped alignment manifest declaring the SHIPPED `dataset-alignment` datatype id its consuming test filters on. Mirrors producer output; recorded, not renamed."
+      },
+      "report/qc": {
+        "count": 1,
+        "finding": "R4-TESTS-FIXTURE",
+        "note": "server/tests/** fixture DATA (.json) — the reference emitter's run-environment output (report/qc) its manifest declares, added when the stage1 fixtures were regenerated to match the emitter. Mirrors producer output; recorded, not renamed."
       }
     },
     "server/tests/fixtures/stage1_alignment_absence/manifest.json": {
@@ -10262,6 +10368,11 @@
         "count": 2,
         "finding": "R4-TESTS-FIXTURE",
         "note": "server/tests/** fixture DATA (.json) — a producer-shaped alignment manifest declaring the SHIPPED `dataset-alignment` datatype id its consuming test filters on. Mirrors producer output; recorded, not renamed."
+      },
+      "report/qc": {
+        "count": 1,
+        "finding": "R4-TESTS-FIXTURE",
+        "note": "server/tests/** fixture DATA (.json) — the reference emitter's run-environment output (report/qc) its manifest declares, added when the stage1 fixtures were regenerated to match the emitter. Mirrors producer output; recorded, not renamed."
       }
     },
     "server/tests/fixtures/stage1_alignment_reversed/manifest.json": {
@@ -10269,6 +10380,11 @@
         "count": 2,
         "finding": "R4-TESTS-FIXTURE",
         "note": "server/tests/** fixture DATA (.json) — a producer-shaped alignment manifest declaring the SHIPPED `dataset-alignment` datatype id its consuming test filters on. Mirrors producer output; recorded, not renamed."
+      },
+      "report/qc": {
+        "count": 1,
+        "finding": "R4-TESTS-FIXTURE",
+        "note": "server/tests/** fixture DATA (.json) — the reference emitter's run-environment output (report/qc) its manifest declares, added when the stage1 fixtures were regenerated to match the emitter. Mirrors producer output; recorded, not renamed."
       }
     },
     "server/tests/geneset/freeze_test.rs": {

@@ -638,7 +638,16 @@ const MIN_TEST_PROSE_HITS: usize = 433;
 /// constant was merely STALE, anchored at ⅔-free 307 at an earlier measurement. RE-ANCHORED to
 /// the measured 318; shrink-only from there. (The JS twin's tree-wide TEST ceiling reads 521
 /// in the same tree; the other 203 are frontend.)
-const TEST_LITERAL_HITS_CEILING: usize = 318;
+///
+/// ── ITEM-25 (sqlite-store) RE-ANCHORED **318 → 321**, fully accounted ──────────────────────
+/// The stage1 reference fixtures were regenerated to match their (base-unchanged) emitter,
+/// which also emits a `run-environment` output whose `datatype` is `report/qc` — +1 literal
+/// hit in EACH of the three fixture manifests (ledgered under `R4-TESTS-FIXTURE`, the
+/// producer-shaped-fixture finding, in the same commit). No new test LOGIC hardcodes a
+/// datatype id; the one test literal this port would have added (the sqlite module_workstore
+/// axis-candidate arm) was rewritten to a NON-domain datatype instead. Ledger again equals
+/// measurement (321 = 318 + 3); shrink-only from here.
+const TEST_LITERAL_HITS_CEILING: usize = 321;
 
 /// A baseline key in the TEST tier. The Rust twin only walks SERVER roots (it always
 /// has — `ui/**` is the JS twin's half), so server-side this is exactly "under
@@ -3813,7 +3822,9 @@ async fn the_project_admin_wire_shape_no_longer_carries_the_dec_m_fields() {
         .send()
         .await
         .expect("setup/admin");
-    assert_eq!(setup.status().as_u16(), 201);
+    // The node's owner mint (POST /session/local) is a fixed-owner route that
+    // answers 200 — the posted body is ignored, never a fresh 201 owner.
+    assert_eq!(setup.status().as_u16(), 200);
     let body: Value = setup.json().await.expect("setup json");
     let admin = body["access_token"]
         .as_str()

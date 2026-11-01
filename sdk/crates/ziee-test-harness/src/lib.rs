@@ -206,7 +206,20 @@ fn admin_database_url() -> String {
 /// single-worktree template names.
 fn worktree_suffix(manifest_dir: &Path) -> String {
     let explicit = env::var("DATABASE_URL").ok();
-    if worktree_db::should_auto_isolate(&explicit) {
+    // The build script rewrites the committed sqlite sentinel to the
+    // PER-WORKTREE build file and hands it to the harness at runtime via
+    // `cargo:rustc-env` — that resolved URL is the sentinel's own resolution,
+    // not an operator override, and must isolate exactly like it does (the
+    // PG leg's rewritten `ziee_build_<key>` URL is the same case, matched by
+    // `should_auto_isolate`'s `LOCAL_BUILD_CLUSTER` arm).
+    let isolating = worktree_db::should_auto_isolate(&explicit)
+        || explicit.as_deref().is_some_and(|u| {
+            worktree_db::sqlite_url_is_this_worktree_build_file(
+                u,
+                &manifest_dir.to_string_lossy(),
+            )
+        });
+    if isolating {
         format!(
             "_{}",
             worktree_db::worktree_key(&manifest_dir.to_string_lossy())
@@ -527,7 +540,15 @@ fn sqlite_test_db_path<A: HarnessApp>(
         &worktree_suffix(manifest_dir),
         &test_id.replace('-', ""),
     );
-    (std::env::temp_dir().join(&name), name)
+    let path = std::env::temp_dir().join(&name);
+    // `database_name` is the FILE STEM — the same contract the Postgres leg
+    // has (a NAME, never a filename-with-extension): `the_harness_exposes_…`
+    // asserts `Path::new(database_url).file_stem() == database_name`.
+    let stem = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or(name);
+    (path, stem)
 }
 
 /// The once-per-process sqlite template build; separate from `TEST_TEMPLATE`
