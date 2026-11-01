@@ -1,7 +1,11 @@
-# CytoAnalyst dev config (per-machine).
+# TxResBench dev config (per-machine).
 #
 # Copy to `config/dev.yaml` and set `jwt.secret` to `openssl rand -base64 48`.
 # The server refuses to boot on a weak/placeholder secret (see src/config.rs).
+#
+# No database cluster and no docker compose: the store is ONE embedded SQLite
+# file (see `database:` below) — created on first boot, migrated by the server,
+# deleted to reset. The only thing to copy is this file + the JWT secret.
 #
 # Ports are chosen distinct from ziee (app #1) so both apps can run side-by-side:
 #   - HTTP server       :3100    (ziee dev uses :3000)

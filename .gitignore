@@ -21,7 +21,9 @@ src-app/server/config/web.yaml
 config/live.yaml
 src-app/server/config/live.yaml
 
-# Embedded-Postgres runtime tree + app data (per-machine)
+# Local app data tree (per-machine). The engine is one embedded SQLite file in
+# the app data dir (CYTO_APP_DATA_DIR, or the desktop's ~/.txresbench); the
+# framework's dev tree below is kept for the same reason — never commit either.
 /cytoanalyst-data/
 *.log
 

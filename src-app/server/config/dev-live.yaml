@@ -1,7 +1,9 @@
-# CytoAnalyst dev config (per-machine).
+# TxResBench live-run config (per-machine).
 #
 # Copy to `config/dev.yaml` and set `jwt.secret` to `openssl rand -base64 48`.
 # The server refuses to boot on a weak/placeholder secret (see src/config.rs).
+# The store is ONE embedded SQLite file (`database:` below) — no cluster, no
+# docker compose.
 #
 # Ports are chosen distinct from ziee (app #1) so both apps can run side-by-side:
 #   - HTTP server       :3180    (ziee dev uses :3000)

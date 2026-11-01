@@ -1,16 +1,11 @@
-# CytoAnalyst E2E backend config (COMMITTED — test-only jwt secret, no real creds).
+# TxResBench E2E backend config (COMMITTED — test-only jwt secret, no real creds).
 #
 # Boots the backend on the SQLite store: one local file, no server process, no
 # cluster to provision. Each e2e run points the backend at its own file (the
 # e2e recipe sets CYTO_APP_DATA_DIR / CYTO_DATABASE_URL, or lets the default
 # `<app-data-dir>/txresbench.db` apply under the harness temp dir); the backend
 # migrates a fresh file on boot, which is the clean first-run-setup each run
-# needs. The DB file lives outside the repo (INV-5).
-# SQLite database — the app's embedded store: one local file, no server process,
-# no network access. Default location <app-data-dir>/txresbench.db; `path` (a
-# plain filesystem path) or `url` (a `sqlite://` URL, wins over `path`) relocate
-# it, and the CYTO_DATABASE_URL env var wins over both. Pool defaults: 10 / 1 /
-# 5 s / 5000 ms.
+# needs. The DB file lives outside the repo.
 database:
   path: null
 server:

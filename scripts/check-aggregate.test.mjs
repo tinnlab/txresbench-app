@@ -954,17 +954,31 @@ const REACHABLE_FROM_CHECK = [
  *                for the reviewer, verified as nothing more than that.
  *
  * ─── TABLE ───
- * check                      c9bdcd8be56f9318ca84de8228e9f0b608e1794b404f687fe8892b4cdef36b6d  a9bc4c1c
- * check-coercion             d571dea18bc7b32d4eb1ac6cb0955af4d8e4679a9faa32ef3b54299c00e9b644  a9bc4c1c
- * check-domain               bbb462d17850d2f630f4b1e3f267e008b02d540d33c62d18370c6ca1f40c2ab4  a9bc4c1c
- * check-guards               4493b447a2313152dccd2f9811d97f5fa92470f47d9dac6dfbb8cb783175edc7  cce0282e THIS-CHANGE
- * check-invariants           aaec696e5ff37f56457c59c3a3954911cd93d4a85cea490d922ac57218a430fc  051c09a1 0bc9063e THIS-CHANGE
- * check-packages             45e578d674049dae499fe67dd307d5719f0ff0f63f5bc50752d1640bf067af4f  a9bc4c1c
- * check-processor-versions   d7d82a9fbe447e08f37859c898b36acc32d57cd3d300e7651c99d9b045282567  a9bc4c1c THIS-CHANGE
- * check-py                   192a9f75fb6f4c8e5744fc53d1b7818e6c6536b876922943e22d850808eb0bb1  a9bc4c1c
- * check-r-regime             5be5c88f59cd1247c8bfe08c12d47675006f30a7c82da0040d62cf1165a0ab9d  a9bc4c1c
- * __directives__             9920e51a9625a1ab3e7cbfaff6b490420f35a5cca6918e0a28e1ec4151da88ba  a9bc4c1c
+ * check                      c9bdcd8be56f9318ca84de8228e9f0b608e1794b404f687fe8892b4cdef36b6d  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
+ * check-coercion             d571dea18bc7b32d4eb1ac6cb0955af4d8e4679a9faa32ef3b54299c00e9b644  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
+ * check-domain               bbb462d17850d2f630f4b1e3f267e008b02d540d33c62d18370c6ca1f40c2ab4  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
+ * check-guards               4493b447a2313152dccd2f9811d97f5fa92470f47d9dac6dfbb8cb783175edc7  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
+ * check-invariants           aaec696e5ff37f56457c59c3a3954911cd93d4a85cea490d922ac57218a430fc  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
+ * check-packages             45e578d674049dae499fe67dd307d5719f0ff0f63f5bc50752d1640bf067af4f  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
+ * check-processor-versions   d7d82a9fbe447e08f37859c898b36acc32d57cd3d300e7651c99d9b045282567  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
+ * check-py                   192a9f75fb6f4c8e5744fc53d1b7818e6c6536b876922943e22d850808eb0bb1  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
+ * check-r-regime             5be5c88f59cd1247c8bfe08c12d47675006f30a7c82da0040d62cf1165a0ab9d  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
+ * __directives__             9920e51a9625a1ab3e7cbfaff6b490420f35a5cca6918e0a28e1ec4151da88ba  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
  * ─── END TABLE ───
+ *
+ * ── APP-REPO RE-ANCHOR (ITEM-27, citations only) ─────────────────────────────────────────
+ * The cited commits above were original upsteam-cytoanalyst shas (a9bc4c1c, cce0282e,
+ * 051c09a1, 0bc9063e) that moved these recipe bodies in the UPSTREAM repo. The app repo
+ * squashed that history at its baseline copy `8020d71` ("baseline: unchanged copy of
+ * cytoanalyst") — no upstream sha exists here, so TEST-16's existence check reddened on
+ * every row. The PIN VALUES did not move (TEST-10/TEST-21 still hold: the bytes of every
+ * pinned recipe are unchanged since the baseline; the only later justfile commit —
+ * e38a55d, the strip — touched NO pinned recipe body). The citations are therefore
+ * re-pointed at `8020d71`, the commit that moved EVERY pinned recipe body into this
+ * repository, marked THIS-CHANGE because no earlier commit in this repo can carry the
+ * value. The upstream provenance of the values (a9bc4c1c, 051c09a1/0bc9063e, cce0282e)
+ * stays in the prose below, readable for a reviewer who wants the historical story; the
+ * machine checks above now hold in this repo.
  *
  * ── WHY THE TWO MOVED ROWS SAY WHAT THEY SAY (the part a reviewer judges) ────────────────
  *
