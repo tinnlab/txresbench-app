@@ -30,9 +30,9 @@ async fn insert_gathered(
     let hash = format!("sha256:{}", "d".repeat(64));
     sqlx::query(
         "INSERT INTO artifacts \
-           (dataset_id, output_id, datatype, object_key, is_multifile, content_hash, \
+           (id, dataset_id, output_id, datatype, object_key, is_multifile, content_hash, \
             structure, meta, role, status, stored_bytes) \
-         VALUES ($1, $2, 'data/opaque', NULL, false, $3, $4, '{}', 'artifact', \
+         VALUES (randomblob(16), $1, $2, 'data/opaque', NULL, false, $3, $4, '{}', 'artifact', \
                  'ready', 0)",
     )
     .bind(dataset_id)

@@ -369,8 +369,8 @@ async fn a_warm_resolution_is_refused_once_a_source_changes_underneath_it() {
     // re-import under the same artifact id. The gathered row's own status is untouched, so
     // the status gate cannot catch this; only the walk can.
     sqlx::query(
-        "UPDATE artifacts SET structure = jsonb_set(structure, '{key_sequence_digest}', \
-         '\"sha256:the-source-was-re-imported\"') WHERE id = $1",
+        "UPDATE artifacts SET structure = json_set(structure, '$.key_sequence_digest', \
+         json_quote('sha256:the-source-was-re-imported')) WHERE id = $1",
     )
     .bind(src_a)
     .execute(&pool)
@@ -1263,13 +1263,19 @@ async fn a_gathered_artifact_publishes_an_axis_with_no_bytes_at_all() {
     let (g, _, _) = producer_scene(&repo, &store, project, None).await;
 
     // Make the fused column the dataset's axis index, as a virtual dataset's key column is.
-    sqlx::query("UPDATE artifacts SET meta = $1, structure = structure || $2 WHERE id = $3")
-        .bind(json!({ "is_axis_index": true }))
-        .bind(json!({ "key_sequence_digest": "sha256:virtual-axis" }))
-        .bind(g)
-        .execute(&pool)
-        .await
-        .expect("mark as axis index");
+    // SQLite port: `structure || $2` is the PG jsonb-merge operator; `json_set` is the
+    // SQLite form (a naked `||` would concatenate TEXT and produce malformed JSON).
+    sqlx::query(
+        "UPDATE artifacts SET meta = $1, \
+            structure = json_set(structure, '$.key_sequence_digest', json_quote($2)) \
+         WHERE id = $3",
+    )
+    .bind(json!({ "is_axis_index": true }))
+    .bind("sha256:virtual-axis")
+    .bind(g)
+    .execute(&pool)
+    .await
+    .expect("mark as axis index");
 
     let catalog: serde_json::Value = reqwest::Client::new()
         .get(server.api_url(&format!("/projects/{project}/catalog")))
@@ -1318,7 +1324,7 @@ async fn a_dtype_the_gather_cannot_size_is_refused_by_name() {
     let store = server_store(&server);
     let (g, _, _) = producer_scene(&repo, &store, project, None).await;
 
-    sqlx::query("UPDATE artifacts SET structure = jsonb_set(structure, '{data_type}', '\"complex64\"') WHERE id = $1")
+    sqlx::query("UPDATE artifacts SET structure = json_set(structure, '$.data_type', json_quote('complex64')) WHERE id = $1")
         .bind(g)
         .execute(&pool)
         .await
@@ -1737,8 +1743,8 @@ async fn a_source_declaring_aligned_to_rather_than_a_key_digest_still_gathers() 
     for id in [src_a, src_b] {
         sqlx::query(
             "UPDATE artifacts SET structure =
-                 (structure - 'key_sequence_digest')
-                 || jsonb_build_object('aligned_to', structure->'key_sequence_digest')
+                 json_set(json_remove(structure, '$.key_sequence_digest'),
+                          '$.aligned_to', json_extract(structure, '$.key_sequence_digest'))
              WHERE id = $1",
         )
         .bind(id)
@@ -1931,9 +1937,9 @@ async fn a_malformed_alignment_declaration_answers_4xx_naming_the_artifact_not_5
     .await
     .expect("alignment row");
     sqlx::query(
-        "UPDATE artifacts SET structure = jsonb_set(structure, '{aux}',
-             (SELECT jsonb_agg(e) FROM jsonb_array_elements(structure->'aux') e
-              WHERE e->>'role' <> 'alignment_segment_order')) WHERE id = $1",
+        "UPDATE artifacts SET structure = json_set(structure, '$.aux',
+             (SELECT json_group_array(e.value) FROM json_each(structure, '$.aux') e
+              WHERE json_extract(e.value, '$.role') <> 'alignment_segment_order')) WHERE id = $1",
     )
     .bind(align)
     .execute(&pool)
@@ -2046,7 +2052,7 @@ async fn a_recipe_naming_a_column_the_alignment_does_not_fuse_is_refused_by_name
 
     sqlx::query(
         "UPDATE artifacts SET structure =
-             jsonb_set(structure, '{gathered_from,alignment_column}', '\"values\"')
+             json_set(structure, '$.gathered_from.alignment_column', json_quote('values'))
          WHERE id = $1",
     )
     .bind(g)
@@ -2348,9 +2354,9 @@ async fn a_column_declared_wider_than_its_sources_is_converted_on_read() {
     // Widen the DECLARATION only. The source stores are untouched and still hold one byte
     // per element.
     sqlx::query(
-        "UPDATE artifacts SET structure = jsonb_set(
-             jsonb_set(structure, '{data_type}', '\"uint16\"'),
-             '{columns,0,dtype}', '\"uint16\"')
+        "UPDATE artifacts SET structure = json_set(
+             json_set(structure, '$.data_type', json_quote('uint16')),
+             '$.columns[0].dtype', json_quote('uint16'))
          WHERE id = $1",
     )
     .bind(g)
@@ -3332,8 +3338,8 @@ async fn a_cycle_is_refused_by_name_rather_than_walked_forever() {
     .await;
     // Close the loop out of band — the one thing immutability is supposed to forbid.
     sqlx::query(
-        "UPDATE artifacts SET structure = jsonb_set(structure, \
-         '{gathered_from,sources,0,artifact_id}', to_jsonb($2)) WHERE id = $1",
+        "UPDATE artifacts SET structure = json_set(structure, \
+         '$.gathered_from.sources[0].artifact_id', json_quote($2)) WHERE id = $1",
     )
     .bind(a)
     .bind(b.to_string())
@@ -3387,8 +3393,8 @@ async fn the_digest_precheck_of_a_chain_lands_on_the_leaf_not_the_intermediate()
     // nothing. A walk checking intermediates would have to say something about this string;
     // a walk checking leaves must ignore it entirely.
     sqlx::query(
-        "UPDATE artifacts SET structure = jsonb_set(structure, '{aligned_to}', \
-         '\"sha256:an-intermediate-does-not-carry-an-identity\"') WHERE id = $1",
+        "UPDATE artifacts SET structure = json_set(structure, '$.aligned_to', \
+         json_quote('sha256:an-intermediate-does-not-carry-an-identity')) WHERE id = $1",
     )
     .bind(inner)
     .execute(&pool)

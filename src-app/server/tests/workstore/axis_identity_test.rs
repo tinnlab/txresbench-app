@@ -76,13 +76,38 @@ use crate::common::TestServer;
 ///
 /// Parameterized rather than hard-coded so the positive control below runs *this*
 /// function, not a hand-written echo of it.
+/// `(^|_)tok($|_)` — a TOKEN boundary, so `axis_name` / `entry_axis` / `axis` all
+/// match while an unrelated word that merely contains the letters does not.
+/// SQLite has no regexp operator by default, so the boundary is evaluated in
+/// Rust on the per-table column census (the `pragma_*` table-valued functions
+/// take one table at a time).
+fn at_token_boundary(name: &str, token: &str) -> bool {
+    name == token
+        || name.starts_with(&format!("{token}_"))
+        || name.ends_with(&format!("_{token}"))
+        || name.contains(&format!("_{token}_"))
+}
+
+/// All base tables, from SQLite's own catalog (`sqlite_master` is the schema's
+/// catalog; `information_schema` / `pg_catalog` have no SQLite form).
+async fn base_tables(pool: &SqlitePool) -> Vec<String> {
+    sqlx::query_scalar(
+        "SELECT name FROM sqlite_master
+          WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+          ORDER BY name",
+    )
+    .fetch_all(pool)
+    .await
+    .expect("list base tables")
+}
+
 async fn schema_sites_for(pool: &SqlitePool, token: &str) -> Vec<String> {
     let mut sites = Vec::new();
+    let all_tables = base_tables(pool).await;
 
     let tables: Vec<String> = sqlx::query_scalar(
-        "SELECT table_name FROM information_schema.tables
-          WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
-            AND table_name ILIKE '%' || $1 || '%'",
+        "SELECT name FROM sqlite_master
+          WHERE type = 'table' AND name LIKE '%' || $1 || '%'",
     )
     .bind(token)
     .fetch_all(pool)
@@ -90,25 +115,28 @@ async fn schema_sites_for(pool: &SqlitePool, token: &str) -> Vec<String> {
     .expect("table census");
     sites.extend(tables.into_iter().map(|t| format!("table {t}")));
 
-    // `(^|_)tok($|_)` — a TOKEN boundary, so `axis_name` / `entry_axis` / `axis` all
-    // match while an unrelated word that merely contains the letters does not.
-    let columns: Vec<String> = sqlx::query_scalar(
-        "SELECT (table_name || '.' || column_name) FROM information_schema.columns
-          WHERE table_schema = 'public'
-            AND column_name ~ ('(^|_)' || $1 || '($|_)')",
-    )
-    .bind(token)
-    .fetch_all(pool)
-    .await
-    .expect("column census");
-    sites.extend(columns.into_iter().map(|c| format!("column {c}")));
+    // One pragma scan per table, token boundary in Rust: SQLite's catalog has
+    // no cross-table column view and no regexp operator.
+    for t in &all_tables {
+        let cols: Vec<String> = sqlx::query_scalar("SELECT name FROM pragma_table_info($1)")
+            .bind(t)
+            .fetch_all(pool)
+            .await
+            .expect("column census");
+        for c in cols {
+            if at_token_boundary(&c, token) {
+                sites.push(format!("column {t}.{c}"));
+            }
+        }
+    }
 
     // Index DEFINITIONS, not just names: this is where "keyed on" actually lives.
-    // It covers primary keys and unique constraints too, since Postgres backs both
-    // with an index.
+    // It covers primary keys and unique constraints too (SQLite backs both with
+    // an index; the autoindex for a PK has NULL `sql` and is matched by name).
     let indexes: Vec<String> = sqlx::query_scalar(
-        "SELECT indexdef FROM pg_indexes
-          WHERE schemaname = 'public' AND indexdef ILIKE '%' || $1 || '%'",
+        "SELECT name || ' :: ' || COALESCE(sql, '') FROM sqlite_master
+          WHERE type = 'index' AND (sql LIKE '%' || $1 || '%'
+                                    OR name LIKE '%' || $1 || '%')",
     )
     .bind(token)
     .fetch_all(pool)
@@ -116,13 +144,12 @@ async fn schema_sites_for(pool: &SqlitePool, token: &str) -> Vec<String> {
     .expect("index census");
     sites.extend(indexes.into_iter().map(|d| format!("index {d}")));
 
-    // Constraints that create no index (foreign keys, checks).
+    // Constraints that create no index (foreign keys, checks) — in SQLite they
+    // live in the CREATE TABLE text, so the table DDL is the constraint census.
     let constraints: Vec<String> = sqlx::query_scalar(
-        "SELECT (c.conname || ' :: ' || pg_get_constraintdef(c.oid))
-           FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace
-          WHERE n.nspname = 'public'
-            AND (c.conname ILIKE '%' || $1 || '%'
-                 OR pg_get_constraintdef(c.oid) ILIKE '%' || $1 || '%')",
+        "SELECT name || ' :: ' || sql FROM sqlite_master
+          WHERE type = 'table' AND (sql LIKE '%' || $1 || '%'
+                                    OR name LIKE '%' || $1 || '%')",
     )
     .bind(token)
     .fetch_all(pool)
@@ -137,14 +164,7 @@ async fn schema_sites_for(pool: &SqlitePool, token: &str) -> Vec<String> {
 /// One `to_jsonb(row)` scan per table, so a value hidden in a JSONB blob, an
 /// array or a text column is found the same way a scalar column is.
 async fn tables_containing(pool: &SqlitePool, needle: &str) -> Vec<(String, i64)> {
-    let tables: Vec<String> = sqlx::query_scalar(
-        "SELECT table_name FROM information_schema.tables
-          WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
-          ORDER BY table_name",
-    )
-    .fetch_all(pool)
-    .await
-    .expect("list base tables");
+    let tables = base_tables(pool).await;
     assert!(
         tables.len() > 10,
         "the base-table list collapsed to {} tables — a value census over nothing \
@@ -154,13 +174,43 @@ async fn tables_containing(pool: &SqlitePool, needle: &str) -> Vec<(String, i64)
 
     let mut hits = Vec::new();
     for t in tables {
-        let n: i64 = sqlx::query_scalar(&format!(
-            "SELECT count(*) FROM public.\"{t}\" x WHERE to_jsonb(x) LIKE $1"
-        ))
-        .bind(format!("%{needle}%"))
-        .fetch_one(pool)
-        .await
-        .unwrap_or_else(|e| panic!("value census over `{t}`: {e}"));
+        let cols: Vec<(String, String)> =
+            sqlx::query_as("SELECT name, type FROM pragma_table_info($1)")
+                .bind(&t)
+                .fetch_all(pool)
+                .await
+                .unwrap_or_else(|e| panic!("schema census over `{t}`: {e}"));
+        // A value hidden in a JSONB/blob/array column is found the same way a
+        // text column is: TEXT columns (incl. the JSON1 ones, stored as TEXT)
+        // match the needle as text; uuid BLOBs match as lowercased hex (the
+        // needle's hyphens stripped, since `hex()` renders none).
+        let mut conds = Vec::new();
+        let mut binds: Vec<String> = Vec::new();
+        for (c, ty) in &cols {
+            if ty.eq_ignore_ascii_case("BLOB") {
+                conds.push(format!("lower(hex(\"{c}\")) LIKE ?"));
+                binds.push(format!("%{}%", needle.replace('-', "").to_lowercase()));
+            } else {
+                conds.push(format!("CAST(\"{c}\" AS TEXT) LIKE ?"));
+                binds.push(format!("%{needle}%"));
+            }
+        }
+        if conds.is_empty() {
+            continue;
+        }
+        let n: i64 = {
+            let sql = format!(
+                "SELECT count(*) FROM \"{t}\" x WHERE {}",
+                conds.join(" OR ")
+            );
+            let mut q = sqlx::query_scalar::<_, i64>(&sql);
+            for b in &binds {
+                q = q.bind(b);
+            }
+            q.fetch_one(pool)
+                .await
+                .unwrap_or_else(|e| panic!("value census over `{t}`: {e}"))
+        };
         if n > 0 {
             hits.push((t, n));
         }
@@ -501,7 +551,9 @@ async fn test4_two_artifacts_over_one_axis_relate_only_through_its_content_hash(
     // some other column that a later query could start keying on.
     let columns_holding: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM artifacts
-          WHERE id = $1 AND to_jsonb(artifacts) LIKE $2 AND content_hash = $3",
+          WHERE id = $1 AND content_hash = $3
+            AND (output_id LIKE $2 OR datatype LIKE $2 OR content_hash LIKE $2 OR
+                 role LIKE $2 OR structure LIKE $2 OR meta LIKE $2)",
     )
     .bind(key.id)
     .bind(format!("%{axis}%"))

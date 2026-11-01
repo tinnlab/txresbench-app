@@ -46,8 +46,7 @@ const DROPPED_COLUMNS: [&str; 4] = ["shape", "params", "covered_axes", "storage_
 
 async fn artifact_columns(pool: &SqlitePool) -> Vec<String> {
     sqlx::query_scalar::<_, String>(
-        "SELECT column_name FROM information_schema.columns
-         WHERE table_schema = 'public' AND table_name = 'artifacts'",
+        "SELECT name FROM pragma_table_info('artifacts')",
     )
     .fetch_all(pool)
     .await

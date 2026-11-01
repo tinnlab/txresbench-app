@@ -79,9 +79,9 @@ use crate::common::TestServer;
 /// `(is_nullable, column_default)` for one `artifacts` column.
 async fn column_contract(pool: &SqlitePool, column: &str) -> (String, Option<String>) {
     sqlx::query_as::<_, (String, Option<String>)>(
-        "SELECT is_nullable, column_default
-           FROM information_schema.columns
-          WHERE table_schema = 'public' AND table_name = 'artifacts' AND column_name = $1",
+        "SELECT CASE WHEN \"notnull\" = 1 THEN 'NO' ELSE 'YES' END AS is_nullable,
+                dflt_value AS column_default
+           FROM pragma_table_info('artifacts') WHERE name = $1",
     )
     .bind(column)
     .fetch_optional(pool)
@@ -95,10 +95,9 @@ async fn column_contract(pool: &SqlitePool, column: &str) -> (String, Option<Str
 /// enumerate the set and build a literal for each member.
 async fn required_columns(pool: &SqlitePool) -> Vec<(String, String)> {
     sqlx::query_as(
-        "SELECT column_name, data_type FROM information_schema.columns
-          WHERE table_schema = 'public' AND table_name = 'artifacts'
-            AND is_nullable = 'NO' AND column_default IS NULL
-          ORDER BY column_name",
+        "SELECT name, type FROM pragma_table_info('artifacts')
+          WHERE \"notnull\" = 1 AND dflt_value IS NULL
+          ORDER BY name",
     )
     .fetch_all(pool)
     .await
@@ -123,6 +122,21 @@ fn complete_entry() -> Value {
         "structure": { "encoding": "opaque", "media_type": "application/octet-stream" },
         "meta": { "title": "a fully declared output" }
     })
+}
+
+/// The manifest keys whose value is a JSON object — those columns must be given a
+/// JSON literal. Derived from the fixture, and required because SQLite stores the
+/// "jsonb" columns as plain TEXT: the declared type says nothing about the value's
+/// syntax, so this is the only driver-independent way to tell a JSON-valued
+/// column from a text scalar.
+fn json_declaration_keys() -> Vec<String> {
+    complete_entry()
+        .as_object()
+        .expect("entry object")
+        .iter()
+        .filter(|(_, v)| v.is_object())
+        .map(|(k, _)| k.clone())
+        .collect()
 }
 
 /// The keys of [`complete_entry`], derived from the fixture rather than listed.
@@ -207,14 +221,29 @@ async fn test3_every_declaration_column_is_required_with_no_default() {
          cannot see nullability either"
     );
 
-    // Ingest the complete fixture and read the whole stored row back as an object.
+    // Ingest the complete fixture and read the stored row back as an object.
+    // SQLite port: `row_to_json` has no SQLite form (and BLOB columns cannot
+    // be jsonified at all), so the declaration columns are projected
+    // explicitly. They are the only members the discovery below can match —
+    // the row PK (`id`, randomblob) and the server-minted columns (`status`,
+    // `content_hash`, …) never equal a declaration value, which is exactly
+    // what the `row_to_json` version kept them out of the match for.
     let (_run, res) = ingest_entry(&server, &pool, &store, sid, complete_entry()).await;
     let rows = res.expect("the complete fixture must ingest");
-    let stored: Value = sqlx::query_scalar("SELECT row_to_json(a) FROM artifacts a WHERE id = $1")
-        .bind(rows[0].id)
-        .fetch_one(&pool)
-        .await
-        .expect("read the stored row");
+    let stored: Value = sqlx::query_scalar(
+        "SELECT json_object(
+            'output_id', output_id,
+            'datatype', datatype,
+            'object_key', object_key,
+            'role', role,
+            'structure', json(structure),
+            'meta', json(meta))
+         FROM artifacts WHERE id = $1",
+    )
+    .bind(rows[0].id)
+    .fetch_one(&pool)
+    .await
+    .expect("read the stored row");
     let stored = stored.as_object().expect("row object");
 
     // DISCOVER the key→column mapping by value. A hand-written map would have matched
@@ -303,13 +332,14 @@ async fn test3_an_insert_omitting_a_declaration_errors_and_stores_nothing() {
     /// being skipped: a required column this helper cannot fill would silently turn
     /// every INSERT below into a 23502 about the wrong column.
     fn literal_for(column: &str, data_type: &str) -> String {
-        match data_type {
+        match data_type.to_ascii_lowercase().as_str() {
             "jsonb" | "json" => "'{\"declared\":true}'".to_string(),
             "text" | "character varying" => "'x'".to_string(),
             "uuid" => "randomblob(16)".to_string(),
+            "blob" => "randomblob(16)".to_string(),
             "boolean" => "false".to_string(),
-            "bigint" | "integer" | "smallint" | "numeric" => "0".to_string(),
-            "timestamp with time zone" | "timestamp without time zone" => "strftime('%Y-%m-%dT%H:%M:%fZ','now')".to_string(),
+            "bigint" | "integer" | "smallint" | "numeric" | "real" | "float" | "double" | "double precision" => "0".to_string(),
+            "timestamp with time zone" | "timestamp without time zone" | "timestamp" | "datetime" => "strftime('%Y-%m-%dT%H:%M:%fZ','now')".to_string(),
             other => panic!(
                 "required column `{column}` has type `{other}`, which this test does \
                  not know how to supply — fill it in, or the INSERTs below fail for \
@@ -321,9 +351,11 @@ async fn test3_an_insert_omitting_a_declaration_errors_and_stores_nothing() {
     // One INSERT supplying every required column EXCEPT `omit`, with every JSONB
     // column given the literal `jsonb`, scoped to this project so the row count below
     // is exact.
+    let json_declaration_keys = json_declaration_keys();
     let attempt = |omit: &[&str], jsonb: &str, output_id: &str| {
         let pool = pool.clone();
         let required = required.clone();
+        let json_declaration_keys = json_declaration_keys.clone();
         let omit: Vec<String> = omit.iter().map(|s| s.to_string()).collect();
         let jsonb = jsonb.to_string();
         let output_id = output_id.to_string();
@@ -351,7 +383,7 @@ async fn test3_an_insert_omitting_a_declaration_errors_and_stores_nothing() {
                 cols.push(column.clone());
                 vals.push(if column == "output_id" {
                     format!("'{output_id}'")
-                } else if data_type == "jsonb" || data_type == "json" {
+                } else if json_declaration_keys.contains(column) {
                     jsonb.clone()
                 } else {
                     literal_for(column, data_type)
@@ -382,8 +414,8 @@ async fn test3_an_insert_omitting_a_declaration_errors_and_stores_nothing() {
             .unwrap_or_else(|| panic!("expected a database error, got {err:?}"));
         assert_eq!(
             db.code().as_deref(),
-            Some("23502"),
-            "omitting `{omitted}` must be a NOT-NULL violation (23502); got {db:?}"
+            Some("1299"),
+            "omitting `{omitted}` must be a NOT-NULL violation (SQLITE_CONSTRAINT_NOTNULL=1299); got {db:?}"
         );
         assert!(
             db.message().contains(omitted),
@@ -399,7 +431,7 @@ async fn test3_an_insert_omitting_a_declaration_errors_and_stores_nothing() {
         .expect_err("an INSERT omitting every required column must fail");
     assert_eq!(
         err.as_database_error().and_then(|d| d.code()).as_deref(),
-        Some("23502")
+        Some("1299")
     );
 
     // THE POINT: nothing landed. Not a row with `{}`, not a row with NULL, not a row
