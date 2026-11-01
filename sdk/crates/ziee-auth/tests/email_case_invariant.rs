@@ -386,7 +386,7 @@ async fn no_unique_index_on_users_is_a_functional_index_over_a_reserved_name() {
     for r in &rows {
         let name = r.get::<String, _>("name");
         let def = r.get::<String, _>("def");
-        // The sqlite port (migrations-sqlite/202609090010) enforces the
+        // The sqlite port (migrations/202609090010 — ITEM-26 layout) enforces the
         // case-invariant with ONE functional unique index — `lower(email)`,
         // named `users_email_lower_uniq` and DOCUMENTED as the accepted port
         // difference (SQLite cannot attach a table CHECK). It is the ONLY
@@ -436,7 +436,7 @@ async fn no_unique_index_on_users_is_a_functional_index_over_a_reserved_name() {
     {
         // The sqlite chain enforces the case-invariant with the guard
         // triggers + the `lower(email)` unique index (see
-        // migrations-sqlite/202609090010); the property asserted is the same
+        // migrations/202609090010); the property asserted is the same
         // "comes from the invariant object, not a reserved-name index".
         let guards: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' \
@@ -670,12 +670,12 @@ const MIGRATION: &str =
     include_str!("../migrations/202609090010_users_email_lowercase_invariant.sql");
 #[cfg(feature = "sqlite-backend")]
 const MIGRATION: &str =
-    include_str!("../migrations-sqlite/202609090010_users_email_lowercase_invariant.sql");
+    include_str!("../migrations/202609090010_users_email_lowercase_invariant.sql");
 
 /// Put the database back into its pre-migration shape so the migration can be
 /// re-run against data planted afterwards. Postgres: dropping the CHECK is the
 /// whole of it. SQLite: dropping the invariant's unique index + the two guard
-/// triggers (the port's CHECK-equivalents — see migrations-sqlite).
+/// triggers (the port's CHECK-equivalents — see migrations/).
 #[cfg(not(feature = "sqlite-backend"))]
 async fn undo_the_invariant(pool: &DbPool) {
     pool.execute("ALTER TABLE public.users DROP CONSTRAINT users_email_is_lowercase")

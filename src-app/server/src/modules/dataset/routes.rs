@@ -375,8 +375,8 @@ pub fn dataset_routes() -> ApiRouter {
             post_with(add_supporting_file, add_supporting_file_docs),
         )
         // Read the per-request limits from the settings cache, then bound the body
-        // with them. `from_fn` sees the app-root `Extension(PgPool)` because that
-        // layer is applied OUTSIDE this sub-router.
+        // with them. `from_fn` sees the app-root `Extension(SqlitePool)` because
+        // that layer is applied OUTSIDE this sub-router.
         .layer(axum::middleware::from_fn(
             |req: axum::extract::Request, next: axum::middleware::Next| async move {
                 let limits = match req.extensions().get::<sqlx::SqlitePool>() {

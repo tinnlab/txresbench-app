@@ -1,33 +1,30 @@
--- account module — the ACCOUNT-SCOPED member-management capability (#139, epic #138).
+-- account module — the ACCOUNT-SCOPED member-management capability (#139,
+-- epic #138) — SQLite dialect port (ITEM-10, sqlite-store) of
+-- `src/modules/account/migrations/202609040001_account_members_manage.sql`.
 --
--- Adds `account::members::manage` to the default `Users` group, turning account
--- self-service membership management ON by default. Revoking it here turns it OFF
--- deployment-wide: it is the operator kill switch named in #139.
+-- Adds `account::members::manage` to the default `Users` group, turning
+-- account self-service membership management ON by default. Revoking it here
+-- turns it OFF deployment-wide: it is the operator kill switch named in
+-- #139.
 --
--- WHY A NEW KEY, and not a grant of the existing `account::manage`:
--- granting `account::manage` to Users would in ONE step (a) open `POST /api/accounts`
--- to every user with an attacker-chosen `owner_id`, (b) universally satisfy the
--- permission factor on the three `/api/admin/accounts/*` member-CRUD routes, reducing
--- them to single-factor defence, and (c) make the FE's `admin.account.*` actions
--- (permissioned on `Permissions.AccountManage`, `surfaces.ai: true`) visible and
--- MCP-invocable for everyone. `account::manage` therefore keeps its "(admin-only)"
--- contract and stays granted to NO group.
+-- WHY A NEW KEY, not a grant of the existing `account::manage`, and why the
+-- grant is not authority: see the Postgres file — `account::manage` keeps
+-- its "(admin-only)" contract; authority is the caller's
+-- `account_members.role` in the target account, resolved per-request by
+-- `AccountScope<Min>` and refused with a 404 for a non-member
+-- (`account_scope_test.rs` INV-3 pins it).
 --
--- THE GRANT IS NOT AUTHORITY. Holding this key lets a principal reach an
--- account-scoped route; it does not tell the server WHICH account. Authority is the
--- caller's `account_members.role` in the TARGET account, resolved per-request by
--- `AccountScope<Min>` (`modules/account/member_scope.rs`) and refused with a 404 for a
--- non-member. So this blanket Users-group grant confers nothing on its own — that is
--- the property `account_scope_test.rs` INV-3 pins.
+-- SQLite port note (ITEM-10, DEC-8): the `array_append` + `NOT (p = ANY
+-- (permissions))` grant is the JSON1 form — `json_insert(permissions,
+-- '$[#]', p)` guarded by a `json_each` membership check (the
+-- `groups.permissions` text[] is JSON-array text; the ITEM-8/9 grant
+-- idiom). Idempotent exactly as the Postgres file.
 --
 -- Ordering: prefix 202609040001 sorts above the app's current global max
--- (202609020020, sandbox) and far above the ziee-auth schema+seed, so `groups` and the
--- `Users` row exist when this applies. Migrations on this tree are PER-MODULE
--- (`modules/<mod>/migrations/`); there is no top-level `src-app/server/migrations`.
+-- (202609020020, sandbox) and far above the ziee-auth schema+seed, so
+-- `groups` and the `Users` row exist when this applies.
 
--- Idempotent, matching the `account::read` grant in 202608040012_account_baseline.sql:
--- append only when absent, so a re-run is a no-op and cannot duplicate the entry.
-UPDATE public.groups
-SET permissions = array_append(permissions, 'account::members::manage')
-WHERE name = 'Users'
-  AND NOT ('account::members::manage' = ANY (permissions));
+UPDATE groups
+   SET permissions = json_insert(permissions, '$[#]', 'account::members::manage')
+ WHERE name = 'Users'
+   AND NOT EXISTS (SELECT 1 FROM json_each(permissions) WHERE value = 'account::members::manage');

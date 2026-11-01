@@ -33,16 +33,18 @@ pub use user::hook::{
 /// merged set reproduces ziee's exact `_sqlx_migrations` history — deployed DBs
 /// are unaffected.
 ///
-/// Dual-driver: the SQLite leg embeds `./migrations-sqlite` — the DEC-8/DEC-9
-/// port of the same chain (same version numbers, SQLite dialect). The
+/// Dual-driver: the SQLite leg embeds `./migrations` — the DEC-8/DEC-9 port
+/// of the same chain (same version numbers, SQLite dialect), which is the
+/// FORK's canonical chain (ITEM-26 renamed `migrations-sqlite/` to
+/// `migrations/`); ziee's postgres leg embeds `./migrations-pg`. The
 /// selection is a compile-time property of the `sqlite-backend` feature and
-/// AGREEES with `build.rs`'s scheme selection by construction: a
+/// AGREES with `build.rs`'s scheme selection by construction: a
 /// `sqlite-backend` build verifies its `query!` sets against a sqlite
 /// `DATABASE_URL` (which is how the build script provisions the build DB).
 #[cfg(not(feature = "sqlite-backend"))]
-pub static AUTH_MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
+pub static AUTH_MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations-pg");
 #[cfg(feature = "sqlite-backend")]
-pub static AUTH_MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations-sqlite");
+pub static AUTH_MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
 /// In-crate unit-test support (never built into the lib proper).
 ///

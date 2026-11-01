@@ -1,28 +1,25 @@
 //! CytoAnalyst build script.
 //!
 //! 1. Composes `migrations-merged/` (SDK `compose_merged_migrations_from`) for
-//!    the runtime `sqlx::migrate!`. The merged set is DRIVER-SELECTED: the
-//!    `DATABASE_URL` scheme picks the chain — the staged SQLite port under
-//!    `migrations-sqlite/` under the committed `sqlite:` sentinel (the flipped
-//!    state since ITEM-12) or the module-owned postgres chains under a
-//!    `postgres:` operator override (ITEM-6, DEC-2/DEC-9). The merged dir
-//!    always holds exactly ONE chain.
-//! 2. Provisions a per-worktree BUILD DATABASE for that same driver (`sqlx::`
-//!    macros verify SQL at compile time): a build FILE under
-//!    `target/sqlx-build/` for sqlite (the flipped default), the shared local
-//!    build cluster (`127.0.0.1:54321`, `src-app/docker-compose.yaml`) for a
-//!    postgres override — see `ziee_build_support::provision_build_db`, which
-//!    dispatches on the same scheme rule. `cargo:rustc-env=DATABASE_URL` then
-//!    holds the resolved URL (scoped to THIS crate) — SDK gap G4, resolved by
-//!    `provision_build_db`. Beneath it: the build-time processor-manifest /
-//!    env-pin gates, the sandbox-rootfs embed (fail-soft), and the
-//!    `rootfs_version` freshness single-sourcing (lib + build script
-//!    path-include).
+//!    the runtime `sqlx::migrate!`. The source is UNCONDITIONAL (ITEM-26: the
+//!    driver-selection branch is gone — there is one chain): the module-owned
+//!    SQLite migrations under `src/modules/<m>/migrations/` (globbed through
+//!    the `src/modules` root) plus the three schema-bound SDK crates'
+//!    `migrations/` dirs, passed explicitly.
+//! 2. Provisions a per-worktree BUILD DATABASE (`sqlx::` macros verify SQL at
+//!    compile time): the build FILE under `target/sqlx-build/` derived from
+//!    the committed `sqlite:` sentinel (see `ziee_build_support::
+//!    provision_build_db`; that helper keeps its postgres leg for the SDK's
+//!    own standalone builds, but THIS crate's compose is sqlite-only).
+//!    `cargo:rustc-env=DATABASE_URL` then holds the resolved URL (scoped to
+//!    THIS crate) — SDK gap G4, resolved by `provision_build_db`. Beneath it:
+//!    the build-time processor-manifest / env-pin gates, the sandbox-rootfs
+//!    embed (fail-soft), and the `rootfs_version` freshness single-sourcing
+//!    (lib + build script path-include).
 //!
 //! The build DB is the per-worktree file `cytoanalyst_build_<key>.sqlite` the
 //! one-call `provision_build_db` derives from the committed sqlite sentinel
-//! (wiped + re-migrated on every build; the postgres leg does the equivalent
-//! on `:54321` for an operator override, reusing the cluster when it is up).
+//! (wiped + re-migrated on every build).
 
 use std::path::PathBuf;
 
@@ -41,27 +38,18 @@ fn main() {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let merged = manifest.join("migrations-merged");
 
-    // Driver-selected composition (ITEM-6): the `DATABASE_URL` scheme picks
-    // which chain feeds both the build DB and the runtime `sqlx::migrate!` —
-    // the module-owned postgres chains today, the staged `migrations-sqlite/`
-    // chain under a `sqlite:` URL. The SAME scheme rule the SDK's provisioner
-    // dispatches on, so compose and provision can never disagree.
-    let chain = build_helper::migration_chain::MigrationChain::from_env();
-    println!(
-        "build.rs: migration source chain → {} (DATABASE_URL scheme)",
-        chain.label()
-    );
-    // The chain selection's own input — a driver switch (ITEM-12's flip or an
-    // operator override) must re-run the compose even if another build.rs
-    // change would happen to re-fire it anyway.
-    println!("cargo:rerun-if-env-changed=DATABASE_URL");
-    // Watch the merge sources the composer cannot see itself (staging root,
-    // not-yet-existing SDK staging dirs); the composer emits the rest.
-    for watch in chain.watch_paths(&manifest) {
-        println!("cargo:rerun-if-changed={}", watch.display());
-    }
-    let (module_roots, explicit_migration_dirs) = chain.compose_args(&manifest);
-    compose_merged_migrations_from(&merged, &module_roots, &explicit_migration_dirs);
+    // Single-chain composition (ITEM-26): the ONE sqlite migration set is the
+    // module-owned `src/modules/*/migrations/` dirs (globbed by the composer)
+    // plus the three schema-bound SDK crates' `migrations/` dirs (explicit —
+    // their names are the crates the app schema-binds; ziee-onboarding/seed
+    // are not bound). There is no driver branch: the PG chains were deleted
+    // with the engine swap and the merged dir always holds the sqlite chain.
+    let module_roots = vec![manifest.join("src/modules")];
+    let sdk_migration_dirs: Vec<PathBuf> = ["ziee-auth", "ziee-file", "ziee-notification"]
+        .iter()
+        .map(|c| manifest.join("../../sdk/crates").join(c).join("migrations"))
+        .collect();
+    compose_merged_migrations_from(&merged, &module_roots, &sdk_migration_dirs);
 
     // BUILD-TIME processor-manifest syntax gate (ITEM-8/DEC-5, INV-5): parse +
     // `deny_unknown_fields`-lint EVERY `src-app/packages/*/manifest.yaml` against
@@ -120,10 +108,11 @@ fn main() {
     }
 
     // Provision + migrate the per-worktree build DB and set DATABASE_URL so the
-    // sqlx query macros verify at compile time. Driver selected by the scheme
-    // (committed sqlite sentinel → the per-worktree file under
-    // `target/sqlx-build/`; a postgres override → the `:54321` build cluster,
-    // which must then be up: `cd src-app && docker compose up -d`).
+    // sqlx query macros verify at compile time. The committed `.cargo/config.toml`
+    // sentinel is a `sqlite:` URL, so the SQLite leg of `provision_build_db`
+    // derives the per-worktree file under `target/sqlx-build/` (the SDK helper
+    // keeps its postgres leg for the SDK's own standalone builds; this crate's
+    // chain is sqlite and a postgres-leg run here would fail loudly at apply).
     provision_build_db(&merged);
 
     // Docker-build + embed the analysis rootfs (fail-soft: stub on any failure,

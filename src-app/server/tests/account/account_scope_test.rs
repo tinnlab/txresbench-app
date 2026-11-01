@@ -541,7 +541,7 @@ async fn migration_grants_the_new_key_to_users_exactly_once() {
     // below is about the shipped file.
     let migration = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/migrations-sqlite/account/202609040001_account_members_manage.sql"
+        "/src/modules/account/migrations/202609040001_account_members_manage.sql"
     ))
     .expect("read the migration file");
     assert!(

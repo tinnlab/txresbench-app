@@ -68,13 +68,14 @@ ziee-framework = { path = "../../sdk/crates/ziee-framework", default-features = 
 ziee-control-mcp = { path = "../../sdk/crates/ziee-control-mcp", default-features = false, features = ["sqlite-backend"] }
 # Auth: the default schema-bound auth module + its mountable routes bundle
 # (`module` implies `routes`) + the identity abstractions. `sqlite-backend`
-# selects the cfg-gated sqlite query sets + migrations-sqlite chain (ITEM-14).
+# selects the cfg-gated sqlite query sets + the sqlite `migrations/` chain
+# (ITEM-14; ITEM-26 moved the chain into the canonical name).
 ziee-auth = { path = "../../sdk/crates/ziee-auth", default-features = false, features = ["module", "sqlite-backend"] }
 ziee-identity = { path = "../../sdk/crates/ziee-identity" }
 # Notification inbox: the SDK notification feature promoted to a self-registering
 # module (generic `payload` schema + per-module kind registry + pluggable sync
 # emitter). PROPOSED SDK contribution — see SDK_GAPS. `sqlite-backend` selects the
-# cfg-gated sqlite query sets + the migrations-sqlite chain (ITEM-16) and — with
+# cfg-gated sqlite query sets + the sqlite `migrations/` chain (ITEM-16) and — with
 # `embedded-pg` gone from the server graph — completes TEST-1(a)'s build-graph
 # prune: no `postgresql_embedded` downloader is linked by any edge anymore.
 ziee-notification = { path = "../../sdk/crates/ziee-notification", default-features = false, features = ["module", "sqlite-backend"] }
@@ -83,8 +84,8 @@ ziee-health = { path = "../../sdk/crates/ziee-health" }
 # File STORE: the generic, domain-agnostic multi-derivative blob store + its
 # mountable `file_routes` HTTP surface (`routes` feature default-on). Backs the
 # dataset upload path (INPUT uploads only — see docs/DATA_STORAGE_REDESIGN.md).
-# `sqlite-backend` selects the cfg-gated sqlite query sets + the
-# migrations-sqlite chain (ITEM-15).
+# `sqlite-backend` selects the cfg-gated sqlite query sets + the sqlite
+# `migrations/` chain (ITEM-15/ITEM-26).
 ziee-file = { path = "../../sdk/crates/ziee-file", default-features = false, features = ["routes", "sqlite-backend"] }
 
 # --- Third-party (versions matched to the SDK crates so the single Cargo.lock
@@ -223,8 +224,8 @@ optional = true
 [dev-dependencies]
 # SDK integration-test harness (app-neutral `HarnessApp` seam) — per-worktree
 # template DBs cloned per test + a spawned-server-per-test. CytoAnalyst impls
-# `HarnessApp` once in `tests/common`. Needs a reachable Postgres (DATABASE_URL
-# or the shared cluster default 127.0.0.1:54321).
+# `HarnessApp` once in `tests/common`. The sqlite leg serves per-test FILE DBs
+# (the app's store; the harness keeps its postgres leg for ziee's own suites).
 ziee-test-harness = { path = "../../sdk/crates/ziee-test-harness", features = ["sync-probe"] }
 # TEST-14 (the SQLite chain-apply harness): composes the ported chain through
 # the REAL SDK composer `build.rs` uses (via the `#[path]`-included
@@ -241,6 +242,10 @@ reqwest = { version = "0.12", features = ["json", "multipart", "stream"] }
 # DB-layer assertions in integration tests (e.g. the boot-crash-safety reset):
 # a test connects its own pool to `TestServer::database_url()`.
 sqlx = { version = "0.8.6", features = ["postgres", "sqlite", "runtime-tokio-rustls", "uuid", "chrono"] }
+# TEST-33 (ITEM-26): the final-layout pin's PG-dialect construct grep runs
+# over the migration SQL with a few static patterns. `regex` 1.x is already a
+# transitive lock member (no new package enters `Cargo.lock`).
+regex = "1"
 # TEST-8: the `sqlite3_libversion*` probe that pins the bundled SQLite version
 # floor at test time. The `bundled` feature here is the SAME feature sqlx's
 # `sqlite` feature enables on the shared libsqlite3-sys, so no second build of

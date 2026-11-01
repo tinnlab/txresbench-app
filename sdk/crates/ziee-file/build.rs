@@ -25,10 +25,12 @@
 //! The migrations applied here are EXACTLY the migrations this crate ships (the
 //! base `files`/`file_versions` schema, globbed into the app's merged chain) —
 //! but which chain is the driver's property: the `DATABASE_URL` SCHEME selects
-//! both the provisioner leg AND this directory (`migrations` for postgres,
-//! `migrations-sqlite` for sqlite), through the same `is_sqlite_url` rule the
-//! provisioner's `BuildDbLeg` dispatch uses, so the migration directory can
-//! never disagree with the dialect the leg applies. The library side
+//! both the provisioner leg AND this directory (`migrations-pg` for postgres,
+//! `migrations` for sqlite — ITEM-26: the sqlite chain took the canonical
+//! name, the retained postgres chain the `-pg` suffix), through the same
+//! `is_sqlite_url` rule the provisioner's `BuildDbLeg` dispatch uses, so the
+//! migration directory can never disagree with the dialect the leg applies.
+//! The library side
 //! (`FILE_MIGRATOR` in `lib.rs`) selects the same pair via the
 //! `sqlite-backend` cargo feature; a build where the two disagree (a `sqlite:`
 //! build URL with the PG query set, or vice versa) fails LOUDLY at macro
@@ -42,9 +44,9 @@ fn main() {
         .map(|u| ziee_build_support::worktree_db::is_sqlite_url(&u))
         .unwrap_or(false);
     let migrations = if sqlite_leg {
-        PathBuf::from(&manifest_dir).join("migrations-sqlite")
-    } else {
         PathBuf::from(&manifest_dir).join("migrations")
+    } else {
+        PathBuf::from(&manifest_dir).join("migrations-pg")
     };
 
     // One-call provision: pick the leg from the DATABASE_URL scheme, derive the

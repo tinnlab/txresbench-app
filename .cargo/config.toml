@@ -7,10 +7,14 @@
 # MARKER — see `ziee_build_support::worktree_db`: the relative path is never
 # opened as-is; a `sqlite:` URL equal to this sentinel makes every build script
 # auto-isolate into a per-worktree file under `<worktree>/target/sqlx-build/`
-# (the `cytoanalyst_build_<key>.sqlite` wipe + re-migrate per build). An
-# operator override with any OTHER `sqlite:` (or `postgres:`) URL is honored
-# byte-for-byte; a `postgres:` value re-selects the SDK's PG build-DB leg,
-# which stays supported for ziee and for the transition window.
+# (the `cytoanalyst_build_<key>.sqlite` wipe + re-migrate per build).
+#
+# The app's migration chain is SQLITE-ONLY since ITEM-26 (the postgres chains
+# are deleted; the SDK fork keeps its postgres leg at `migrations-pg/` for its
+# own standalone builds, but THIS workspace applies the sqlite chain). A
+# `postgres:` operator override would therefore make the build-DB provisioner
+# apply SQLite DDL to the postgres cluster and fail LOUDLY at migration apply —
+# there is no postgres runtime in this app.
 #
 # The sqlx compile-time `query!` verification reads this value through
 # `build.rs`'s `cargo:rustc-env=DATABASE_URL`, so the macros verify against

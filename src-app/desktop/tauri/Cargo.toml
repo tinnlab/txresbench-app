@@ -24,7 +24,7 @@ cytoanalyst = { path = "../../server" }
 ziee-desktop-harness = { path = "../../../sdk/desktop/harness", default-features = false, features = ["sqlite-backend"] }
 ziee-core = { path = "../../../sdk/crates/ziee-core", default-features = false, features = ["sqlite-backend"] }
 # `module` implies `routes`; `sqlite-backend` selects the cfg-gated sqlite
-# query sets + the migrations-sqlite chain (ITEM-14).
+# query sets + the sqlite `migrations/` chain (ITEM-14/ITEM-26).
 ziee-auth = { path = "../../../sdk/crates/ziee-auth", default-features = false, features = ["module", "sqlite-backend"] }
 
 # Versions match the harness so the single Cargo.lock unifies onto one Tauri.

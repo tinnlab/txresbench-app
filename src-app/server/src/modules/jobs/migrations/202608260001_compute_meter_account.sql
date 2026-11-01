@@ -1,4 +1,6 @@
--- compute_meter — T5 account-keying (epic compute-storage, T5 / PROV-compute-metering-1).
+-- compute_meter — T5 account-keying (epic compute-storage, T5 / PROV-compute-metering-1)
+-- SQLite dialect port (ITEM-8) of
+-- `src/modules/jobs/migrations/202608260001_compute_meter_account.sql`.
 --
 -- T2/T3 shipped the raw per-job compute signal keyed by job_id + project_id. T5 turns it into
 -- the ACCOUNT-keyed, exactly-once raw ledger that billing's usage-rollup (B1) folds. B1 binds
@@ -18,11 +20,13 @@
 -- is a metering LEDGER that must OUTLIVE the account it accounts for — an ON DELETE cascade
 -- would erase the very rows B1's rollup needs (DEC-3, mirroring the shipped no-FK rationale).
 --
--- Prefix 202608260001: above the true server migration max (202608240003 = drafts) per the
--- migration rule (sort above the max, NOT above the meter block) — DEC-7 / BASE.md.
-ALTER TABLE compute_meter ADD COLUMN account_id     UUID;
+-- SQLite port notes (DEC-8 type map): UUID -> BLOB, TIMESTAMPTZ -> TEXT
+-- RFC3339 UTC, TEXT -> TEXT, no `public.` prefix.
+ALTER TABLE compute_meter ADD COLUMN account_id BLOB;
+
 ALTER TABLE compute_meter ADD COLUMN resource_class TEXT;
-ALTER TABLE compute_meter ADD COLUMN finished_at    TIMESTAMPTZ;
+
+ALTER TABLE compute_meter ADD COLUMN finished_at TEXT;
 
 -- The (account_id, finished_at) index B1's per-account, time-windowed fold filters on
 -- (design §8 verbatim; coding-guidelines §4 index-every-WHERE). DESC to match the sibling

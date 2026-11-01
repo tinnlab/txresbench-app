@@ -1,111 +1,151 @@
--- account module — the invitation MINT LEDGER (#145, FIX_ROUND-2).
+-- account module — the invitation MINT LEDGER (#145, FIX_ROUND-2) —
+-- SQLite dialect port (ITEM-10, sqlite-store) of
+-- `src/modules/account/migrations/202609040003_account_invitation_mints.sql`.
 --
--- WHY A SECOND TABLE, WHEN FIX_ROUND-1 DELIBERATELY AVOIDED ONE.
+-- WHY a separate ledger (a per-row counter cannot express two windows, and a
+-- monotone counter cannot decay — the two failures the Postgres file
+-- documents with evidence) and WHY the prune must stay scoped to the acting
+-- account: see the Postgres file — the motivation is not reproduced here.
+-- The limiter = rate-limit substrate only; nothing but the ceiling reads it
+-- and rows older than the longest window are pruned opportunistically at
+-- mint time. `account_invitations.resend_count` / `last_resent_at` /
+-- `last_resent_by` remain as the invitation's own audit columns and are NO
+-- LONGER read by the limiter (the 0002-file comment supersession is
+-- recorded in 0002's own header note).
 --
--- The create/resend ceilings (INV-RL) need to answer "how many invitation tokens has this
--- actor, and this account, brought into existence in the last hour / day". FIX_ROUND-1
--- tried to answer that from the invitation rows themselves — a create contributed its
--- `created_at`, a resend contributed a cumulative `resend_count` gated by a single
--- `last_resent_at`. A blind correctness audit then established, empirically, that the
--- per-row shape cannot express a windowed count and fails in BOTH directions:
+-- SQLite port notes (ITEM-10, DEC-8): uuid -> BLOB (id, account_id,
+-- actor_user_id, invitation_id — the two audit ids carry NO FK, the
+-- Postgres reasoning verbatim); `timestamptz DEFAULT now()` -> TEXT RFC3339
+-- UTC with the `strftime` default; `CREATE TABLE IF NOT EXISTS` kept; the
+-- PK + account FK inline with the Postgres constraint names
+-- (SQLite has no ALTER … ADD CONSTRAINT).
 --
---   * **Evadable.** `last_resent_by` is overwritten on every resend, so two admins
---     alternating resends of ONE invitation each see the other's id in that column and are
---     charged nothing, forever. The per-actor ceiling was not a ceiling.
---   * **A tenant-wide lockout.** `resend_count` is monotone, so once a single row's count
---     reached the ACCOUNT cap, one resend of that one row refused every create and every
---     resend for the WHOLE account for the rest of the window — re-armable once per window,
---     indefinitely, by one actor pacing themselves. "Over-counting fails closed" was true
---     of the resender and false of everyone else in the tenant.
---
--- Neither is fixable by a cleverer predicate: a per-row counter cannot represent two
--- windows, and a monotone counter cannot decay. A row per MINT can, exactly — one row per
--- token brought into existence, counted by `created_at`, with no approximation, no
--- ratchet, and nothing to overwrite.
---
--- THIS IS NOT AN AUDIT TRAIL, and the distinction is why it may be pruned. #148's
--- `account_member_events` is the audit ledger; `account_invitations.resend_count` /
--- `last_resent_at` / `last_resent_by` remain as the invitation's own audit columns and are
--- NOT read by the limiter any more. This table is rate-limit substrate only: nothing but
--- the ceiling reads it, and rows older than the longest window are meaningless. It is
--- therefore pruned opportunistically at mint time, the `mcp_pairing_codes` posture, so
--- there is no sweeper whose absence could matter.
---
--- **The prune is SCOPED to the acting account** (`AccountRepository::record_invitation_mint`
--- carries the full argument). An unscoped, platform-wide DELETE inside a per-tenant
--- transaction was verified, against a real cluster, to block one tenant's mint on another's
--- and to DEADLOCK two tenants outright — because the same statement has several reachable
--- plans with different row-visit orders, chosen from platform-wide statistics. Do not
--- "simplify" the `account_id = $1` predicate away.
---
--- SUPERSEDES A COMMENT IN 202609040002. That file's `resend_count` block still describes
--- those three columns as what a resend SPENDS and points at an over-counting limiter; as of
--- this migration they are audit-only and the limiter reads this table instead. The 0002
--- file cannot be edited — `database.rs` records that sqlx re-verifies migration checksums at
--- boot — so the correction lives here.
+-- Construct deltas:
+--   * the DROP INDEXes: `DROP INDEX IF EXISTS <name>` with no schema
+--     qualifier (SQLite); an index is database-wide unique by name — the
+--     `IF EXISTS` matches the Postgres file's `IF EXISTS`;
+--   * the `email !~ '[[:cntrl:]]'` CHECK (defence in depth for the SMTP
+--     header-injection guard, added here to the STORAGE layer — the
+--     Postgres reasoning) has NO SQLite regexp: the port is the ASCII
+--     printable-print `email NOT GLOB '*[^ -~]*'` — POSIX `[[:cntrl:]]`
+--     covers 0x00–0x1F + 0x7F; the GLOB class scans every byte and refuses
+--     a NON-ASCII byte too. Deliberate narrowing, same stance as DEC-11's
+--     ASCII-only case folding: the guard's job is refusing header-
+--     injection control characters, and the surrounding CHECKs already
+--     force a normalized (ASCII) address; a Unicode mailbox is recorded as
+--     out of scope here (the same upgrade path DEC-11 names).
+--   * the constraint is added by the same REBUILD procedure the Postgres
+--     file's `DROP CONSTRAINT IF EXISTS` + `ADD CONSTRAINT` requires
+--     (SQLite has neither): the table is recreated with the CHECK INLINE
+--     (named `account_invitations_email_no_control_check`, the Postgres
+--     name) and the three surviving indexes are recreated; the three
+--     FIX_ROUND-1 limiter indexes (dropped below) are the ones NOT
+--     recreated. Safe: the table has no inbound FKs, no triggers, no seed
+--     rows, and nothing inserts into it before this file's position.
 
-CREATE TABLE IF NOT EXISTS public.account_invitation_mints (
-    id            uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+CREATE TABLE IF NOT EXISTS account_invitation_mints (
+    id            BLOB        NOT NULL,
 
-    -- CASCADE with the account, like the invitations themselves: a mint record for a
-    -- deleted tenant bounds nothing.
-    account_id    uuid        NOT NULL REFERENCES public.accounts(id) ON DELETE CASCADE,
+    -- CASCADE with the account, like the invitations themselves: a mint
+    -- record for a deleted tenant bounds nothing.
+    account_id    BLOB        NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
 
-    -- Who minted. **NULL means platform staff**, who are exempt from the ceiling
-    -- (`ActorCeiling::PlatformStaff` — rate-limiting the operator repairing an account is
-    -- the wrong trade). Recording the mint anyway keeps the row count honest, and the
-    -- ACCOUNT window filters `actor_user_id IS NOT NULL` so a staff operator's incident
-    -- work can never exhaust a tenant's own budget — which is exactly the asymmetry the
-    -- per-row design introduced and could not express its way out of.
+    -- Who minted. **NULL means platform staff**, exempt from the ceiling;
+    -- the ACCOUNT window filters `actor_user_id IS NOT NULL` so a staff
+    -- operator's incident work can never exhaust a tenant's own budget (the
+    -- Postgres asymmetric-window reasoning).
     --
-    -- No FK, for the same reason as `account_invitations.invited_by`: this must survive
-    -- its actor, and it is not a live reference.
-    actor_user_id uuid,
+    -- No FK, for the same reason as `account_invitations.invited_by`: this
+    -- must survive its actor, and it is not a live reference.
+    actor_user_id BLOB,
 
-    -- Which invitation the token was minted for. No FK: the mint record is about the ACT,
-    -- and pruning this table must never be blocked by, nor cascade into, the invitation
-    -- ledger. (An invitation is never deleted, so this is belt and braces.)
-    invitation_id uuid        NOT NULL,
+    -- Which invitation the token was minted for. No FK: the mint record is
+    -- about the ACT, and pruning must never be blocked by, nor cascade into,
+    -- the invitation ledger.
+    invitation_id BLOB        NOT NULL,
 
-    created_at    timestamptz NOT NULL DEFAULT now()
+    created_at    TEXT        NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    CONSTRAINT account_invitation_mints_pkey PRIMARY KEY (id),
+    CONSTRAINT account_invitation_mints_account_id_fkey FOREIGN KEY (account_id) REFERENCES accounts (id) ON DELETE CASCADE
 );
 
--- The two windows the ceiling reads, and the scoped prune. Both lead with their key and
--- then `created_at`, which is the only column either predicate ranges over.
+-- The two windows the ceiling reads, and the scoped prune. Both lead with
+-- their key and then `created_at`, the only column either predicate ranges
+-- over. NOTE: there is deliberately no bare `(created_at)` index (the
+-- Postgres reasoning — the scoped-prune row-visit order).
 CREATE INDEX IF NOT EXISTS idx_account_invitation_mints_actor
-    ON public.account_invitation_mints (actor_user_id, created_at DESC);
+    ON account_invitation_mints (actor_user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_account_invitation_mints_account
-    ON public.account_invitation_mints (account_id, created_at DESC);
--- NOTE there is deliberately no bare `(created_at)` index. The prune is
--- `WHERE account_id = $1 AND created_at <= …`, which `idx_…_account` already serves; a
--- second, unscoped index on `created_at` alone would only offer the planner a
--- platform-ordered path over a per-tenant delete — which is one of the row-visit orders
--- that produced the verified cross-tenant deadlock before the predicate was scoped.
+    ON account_invitation_mints (account_id, created_at DESC);
 
 -- ── cleanup of indexes this branch created for a limiter it then replaced ──
---
--- 202609040002 added three indexes to serve the FIX_ROUND-1 limiter, which counted
--- `account_invitations` rows by `created_at`/`last_resent_at`. That limiter is gone; no
--- query in the tree reads those columns for ordering or filtering any more, so the indexes
--- are pure write amplification on the hottest table invitations own. Dropped here rather
--- than left as litter. If #148's audit read wants an inviter-ordered index it should add
--- the one it actually needs, with its own query to justify it.
-DROP INDEX IF EXISTS public.idx_account_invitations_resender;
-DROP INDEX IF EXISTS public.idx_account_invitations_account_resent;
-DROP INDEX IF EXISTS public.idx_account_invitations_inviter_created;
+
+DROP INDEX IF EXISTS idx_account_invitations_resender;
+DROP INDEX IF EXISTS idx_account_invitations_account_resent;
+DROP INDEX IF EXISTS idx_account_invitations_inviter_created;
 
 -- ── defence in depth for the SMTP header-injection guard ──
---
--- `validate_invitation_email` refuses control characters at the write path. Its sibling
--- `normalize_email` — the shorter name, the one re-exported for #146's comparison — does
--- NOT, deliberately: the READER must accept whatever registration already stored. A blind
--- security audit pointed out that the split therefore leaves the injection guard with
--- nothing behind it, and that a future writer reaching for the obvious name would store
--- `a@b.com\r\nBcc: …` with the database's blessing. The address is stored verbatim and is
--- exactly what #143's mailer will place in an RFC 5322 header, so the guard belongs at the
--- storage layer too. `~` on a constant pattern is IMMUTABLE, so this is CHECK-expressible.
-ALTER TABLE public.account_invitations
-    DROP CONSTRAINT IF EXISTS account_invitations_email_no_control_check;
-ALTER TABLE public.account_invitations
-    ADD CONSTRAINT account_invitations_email_no_control_check
-    CHECK (email !~ '[[:cntrl:]]');
+-- (see the header note for the CHECK-port mechanics)
+
+CREATE TABLE account_invitations_rebuild (
+    id            BLOB        NOT NULL,
+    account_id    BLOB        NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+    email         TEXT        NOT NULL,
+    role          TEXT        NOT NULL,
+    token_sha256  BLOB        NOT NULL,
+    invited_by    BLOB,
+    created_at    TEXT        NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    expires_at    TEXT        NOT NULL,
+    accepted_at   TEXT,
+    accepted_by   BLOB,
+    revoked_at    TEXT,
+    revoked_by    BLOB,
+    resend_count   INTEGER     NOT NULL DEFAULT 0,
+    last_resent_at TEXT,
+    last_resent_by BLOB,
+    CONSTRAINT account_invitations_pkey PRIMARY KEY (id),
+    CONSTRAINT account_invitations_role_check
+        CHECK (role IN ('owner','admin','member')),
+    CONSTRAINT account_invitations_accepted_pair_check
+        CHECK ((accepted_at IS NULL) = (accepted_by IS NULL)),
+    CONSTRAINT account_invitations_token_len_check
+        CHECK (length(token_sha256) = 32),
+    -- The storage-layer guard: the address is stored verbatim and is exactly
+    -- what the mailer will place in an RFC 5322 header, so the write-path
+    -- validator's `~`-pattern guard belongs here too.
+    CONSTRAINT account_invitations_email_no_control_check
+        CHECK (email NOT GLOB '*[^ -~]*'),
+    CONSTRAINT account_invitations_email_normalized_check
+        CHECK (email = lower(trim(email))),
+    CONSTRAINT account_invitations_email_nonempty_check
+        CHECK (email <> ''),
+    CONSTRAINT account_invitations_email_len_check
+        CHECK (length(email) <= 254),
+    CONSTRAINT account_invitations_resend_count_check
+        CHECK (resend_count >= 0)
+);
+
+INSERT INTO account_invitations_rebuild (id, account_id, email, role, token_sha256,
+    invited_by, created_at, expires_at, accepted_at, accepted_by, revoked_at,
+    revoked_by, resend_count, last_resent_at, last_resent_by)
+SELECT id, account_id, email, role, token_sha256,
+    invited_by, created_at, expires_at, accepted_at, accepted_by, revoked_at,
+    revoked_by, resend_count, last_resent_at, last_resent_by
+FROM account_invitations;
+
+DROP TABLE account_invitations;
+
+ALTER TABLE account_invitations_rebuild RENAME TO account_invitations;
+
+-- Three survivors recreated (the dropped limiter indexes are NOT). The
+-- email-normalized + other CHECKs moved with the rebuild.
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_account_invitations_live
+    ON account_invitations (account_id, email)
+    WHERE accepted_at IS NULL AND revoked_at IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_account_invitations_token_sha256
+    ON account_invitations (token_sha256);
+
+CREATE INDEX IF NOT EXISTS idx_account_invitations_account_created
+    ON account_invitations (account_id, created_at DESC);

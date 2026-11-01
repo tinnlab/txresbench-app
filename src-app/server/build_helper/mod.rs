@@ -12,10 +12,3 @@ pub mod sandbox_rootfs;
 // `packages/*/manifest.yaml` (mirrors the hub-seed panic contract) — a
 // separate-repo processor contribution must fail at compile time, not boot.
 pub mod processor_manifest;
-
-// The migration-source selection by driver (ITEM-6): pure path logic that
-// picks which chain `compose_merged_migrations_from` merges — the module-owned
-// postgres chains today, the staged `migrations-sqlite/` chain under a
-// `sqlite:` DATABASE_URL. No embedding and no build panic of its own (the
-// composer's collision/read guards own the failure modes).
-pub mod migration_chain;

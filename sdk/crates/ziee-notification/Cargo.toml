@@ -83,9 +83,10 @@ routes = [
 module = ["routes", "ziee-auth/routes"]
 # Dual-driver selection (sqlite-store DEC-1 / DEC-21). OFF (default) = the PG
 # variant: `DbPool` is `PgPool`, the query sets + `NOTIFICATION_MIGRATOR` are
-# the Postgres chain, and ziee's behavior is byte-identical to the pre-seam
+# the Postgres chain (`migrations-pg/` — ITEM-26 renamed the PG chain out of
+# the canonical name), and ziee's behavior is byte-identical to the pre-seam
 # build. ON = the SQLite variant (`DbPool` = `SqlitePool`, cfg-gated sqlite
-# query sets + `migrations-sqlite`). The switch is a COMPILE-TIME feature,
+# query sets + the `migrations/` chain). The switch is a COMPILE-TIME feature,
 # never a runtime config toggle; the app builds the SDK with it on.
 #
 # The `ziee-framework` + `ziee-auth` edges below are declared WITHOUT default

@@ -87,8 +87,8 @@ async fn test31_the_membership_index_migration_applies_and_is_documented_as_gone
     // database. On the Postgres chain the load-bearing property is that the migration APPLIES:
     // without the `-- no-transaction` directive `CREATE INDEX CONCURRENTLY` aborts at BOOT,
     // and nothing at compile time sees that. The SQLite port of the migration is
-    // comments-only (see `migrations-sqlite/workstore/202608280001_artifact_membership_index.sql`):
-    // a GIN expression index has no SQLite form, so the staged file documents the divergence
+    // comments-only (see `src/modules/workstore/migrations/202608280001_artifact_membership_index.sql`):
+    // a GIN expression index has no SQLite form, so the ported file documents the divergence
     // and the runtime containment behaviour is pinned by `test30_on_axis_returns_exactly_the_
     // artifacts_declaring_that_axis` below.
     let server = TestServer::spawn().await;

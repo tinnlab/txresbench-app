@@ -1,7 +1,10 @@
 -- #56 (a #54 follow-up slice), jobs module — promote the hardcoded SCHEDULER timing
 -- tunables onto the existing `job_settings` singleton so an admin can VIEW + CHANGE them
--- without a code release. These were the `ReaperLimits` struct fields + two inline tick
--- literals in scheduler.rs, with no admin surface:
+-- without a code release — SQLite dialect port (ITEM-8) of
+-- `src/modules/jobs/migrations/202608290070_jobs_scheduler_reaper_knobs.sql`.
+--
+-- These were the `ReaperLimits` struct fields + two inline tick literals in
+-- scheduler.rs, with no admin surface:
 --   heartbeat_secs        ← scheduler.rs ReaperLimits.heartbeat        (10s worker HB cadence)
 --   reaper_tick_secs      ← scheduler.rs ReaperLimits.reaper_tick      (15s reaper sweep cadence)
 --   stale_threshold_secs  ← scheduler.rs ReaperLimits.stale_threshold  (45s reclaim threshold)
@@ -21,48 +24,55 @@
 -- (a still-live worker heartbeats every heartbeat_secs, so ≥3 missed beats cannot elapse while
 -- it is alive) — see DECISIONS.md DEC-3 / INV-4.
 --
--- jobs is a NON-saas module compiled in both profiles; a migration cannot be cfg-gated, so this
--- plain .sql applies in both builds (as 202608290030 does).
+-- SQLite port notes (ITEM-8, DEC-8 type map): `bigint`/`integer` -> INTEGER,
+-- no `public.` prefix. Construct deltas (same rationale as the sibling
+-- 202608290030 port): seven plain ADD COLUMNs; the `DROP CONSTRAINT IF
+-- EXISTS` re-ADD idiom dropped (nothing to replace on SQLite); single-column
+-- bounds INLINE on their ADD COLUMN (Postgres constraint names recorded in
+-- the comments); the ONE cross-field predicate
+-- (`stale_threshold_secs >= 3 * heartbeat_secs`) enforced as a row-level
+-- trigger pair raising with the Postgres constraint name.
+ALTER TABLE job_settings
+    ADD COLUMN heartbeat_secs INTEGER NOT NULL DEFAULT 10
+        CHECK (heartbeat_secs BETWEEN 1 AND 60);
+ALTER TABLE job_settings
+    ADD COLUMN reaper_tick_secs INTEGER NOT NULL DEFAULT 15
+        CHECK (reaper_tick_secs BETWEEN 1 AND 300);
+ALTER TABLE job_settings
+    ADD COLUMN stale_threshold_secs INTEGER NOT NULL DEFAULT 45;
+ALTER TABLE job_settings
+    ADD COLUMN max_reclaims INTEGER NOT NULL DEFAULT 5
+        CHECK (max_reclaims BETWEEN 1 AND 100);
+ALTER TABLE job_settings
+    ADD COLUMN reclaim_batch INTEGER NOT NULL DEFAULT 100
+        CHECK (reclaim_batch BETWEEN 1 AND 10000);
+ALTER TABLE job_settings
+    ADD COLUMN dispatch_tick_ms INTEGER NOT NULL DEFAULT 500
+        CHECK (dispatch_tick_ms BETWEEN 50 AND 60000);
+ALTER TABLE job_settings
+    ADD COLUMN metric_tick_secs INTEGER NOT NULL DEFAULT 1
+        CHECK (metric_tick_secs BETWEEN 1 AND 60);
 
-ALTER TABLE public.job_settings
-    ADD COLUMN IF NOT EXISTS heartbeat_secs       bigint  NOT NULL DEFAULT 10,
-    ADD COLUMN IF NOT EXISTS reaper_tick_secs     bigint  NOT NULL DEFAULT 15,
-    ADD COLUMN IF NOT EXISTS stale_threshold_secs bigint  NOT NULL DEFAULT 45,
-    ADD COLUMN IF NOT EXISTS max_reclaims         integer NOT NULL DEFAULT 5,
-    ADD COLUMN IF NOT EXISTS reclaim_batch        bigint  NOT NULL DEFAULT 100,
-    ADD COLUMN IF NOT EXISTS dispatch_tick_ms     bigint  NOT NULL DEFAULT 500,
-    ADD COLUMN IF NOT EXISTS metric_tick_secs     bigint  NOT NULL DEFAULT 1;
+-- Postgres constraint name: `job_settings_stale_threshold_bounds`.
+-- The cross-field correctness guardrail: a still-live worker heartbeats every
+-- `heartbeat_secs`, so a stale threshold below 3× that can reclaim its live
+-- rows. The `3` multiple MUST stay in sync with
+-- `settings::STALE_HEARTBEAT_MULTIPLE` (the Rust validator + read-path clamp
+-- use that const; these triggers are the DB twin of it). Row-level (checks
+-- every INSERT and any UPDATE, so a heartbeating change cannot invalidate
+-- the relationship).
+CREATE TRIGGER job_settings_stale_threshold_bounds_insert
+BEFORE INSERT ON job_settings
+WHEN NOT (NEW.stale_threshold_secs BETWEEN 5 AND 3600
+          AND NEW.stale_threshold_secs >= 3 * NEW.heartbeat_secs)
+BEGIN
+    SELECT RAISE(ABORT, 'CHECK constraint failed: job_settings_stale_threshold_bounds');
+END;
 
-ALTER TABLE public.job_settings
-    -- Worker heartbeat cadence: 1..=60 s.
-    DROP CONSTRAINT IF EXISTS job_settings_heartbeat_bounds,
-    ADD  CONSTRAINT job_settings_heartbeat_bounds
-         CHECK (heartbeat_secs BETWEEN 1 AND 60),
-    -- Reaper sweep cadence: 1..=300 s (kept responsive).
-    DROP CONSTRAINT IF EXISTS job_settings_reaper_tick_bounds,
-    ADD  CONSTRAINT job_settings_reaper_tick_bounds
-         CHECK (reaper_tick_secs BETWEEN 1 AND 300),
-    -- Stale-reclaim threshold: 5..=3600 s AND a generous multiple of the heartbeat, so the
-    -- reaper never reclaims a still-live worker's rows (the one correctness guardrail, INV-4).
-    -- The `3` multiple below MUST stay in sync with `settings::STALE_HEARTBEAT_MULTIPLE`
-    -- (the Rust validator + read-path clamp use that const; this is the DB twin of it).
-    DROP CONSTRAINT IF EXISTS job_settings_stale_threshold_bounds,
-    ADD  CONSTRAINT job_settings_stale_threshold_bounds
-         CHECK (stale_threshold_secs BETWEEN 5 AND 3600
-                AND stale_threshold_secs >= 3 * heartbeat_secs),
-    -- Poison-job discard-at-max: 1..=100 reclaims before a row is failed, not re-queued.
-    DROP CONSTRAINT IF EXISTS job_settings_max_reclaims_bounds,
-    ADD  CONSTRAINT job_settings_max_reclaims_bounds
-         CHECK (max_reclaims BETWEEN 1 AND 100),
-    -- Bounded reclaim/discard batch per sweep: 1..=10000 (never an unbounded UPDATE, §4).
-    DROP CONSTRAINT IF EXISTS job_settings_reclaim_batch_bounds,
-    ADD  CONSTRAINT job_settings_reclaim_batch_bounds
-         CHECK (reclaim_batch BETWEEN 1 AND 10000),
-    -- Dispatch (claim) loop cadence: 50..=60000 ms; the 50 ms floor stops a busy-spin on the DB.
-    DROP CONSTRAINT IF EXISTS job_settings_dispatch_tick_bounds,
-    ADD  CONSTRAINT job_settings_dispatch_tick_bounds
-         CHECK (dispatch_tick_ms BETWEEN 50 AND 60000),
-    -- CPU/RSS metric sampling cadence: 1..=60 s.
-    DROP CONSTRAINT IF EXISTS job_settings_metric_tick_bounds,
-    ADD  CONSTRAINT job_settings_metric_tick_bounds
-         CHECK (metric_tick_secs BETWEEN 1 AND 60);
+CREATE TRIGGER job_settings_stale_threshold_bounds_update
+BEFORE UPDATE ON job_settings
+WHEN NOT (NEW.stale_threshold_secs BETWEEN 5 AND 3600
+          AND NEW.stale_threshold_secs >= 3 * NEW.heartbeat_secs)
+BEGIN
+    SELECT RAISE(ABORT, 'CHECK constraint failed: job_settings_stale_threshold_bounds');
+END;

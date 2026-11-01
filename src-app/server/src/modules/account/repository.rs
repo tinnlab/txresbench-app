@@ -4342,23 +4342,20 @@ mod tests {
     /// comparison below is against it.
     #[test]
     fn mint_retention_dominates_the_longest_rate_limit_window() {
-        // Everything is expressed in microseconds so the comparison is exact and, more
-        // importantly, DST-invariant. `PgInterval`'s `days` field is calendar-sensitive:
-        // at `TimeZone='America/New_York'`, `now() - interval '2 days'` spans 47 hours
-        // across spring-forward and 49 across fall-back. A horizon that changes length
-        // twice a year is not a horizon, so `days` and `months` must both be zero here.
+        // Everything is expressed in MICROSECONDS so the comparison is exact and, more
+        // importantly, DST-invariant. The pre-SQLite consts were `PgInterval` values whose
+        // `days`/`months` fields were calendar-sensitive — at `TimeZone='America/New_York'`,
+        // `now() - interval '2 days'` spanned 47 hours across spring-forward and 49 across
+        // fall-back — so this test used to have to assert the calendar fields were zero.
+        // ITEM-17's sqlite port retyped the consts to plain `i64` microseconds (there is no
+        // interval type on the sqlite store), and with the split gone the DST-invariance is
+        // BY CONSTRUCTION; what remains to pin is that the windows are positive.
         for (name, iv) in [
             ("RATE_WINDOW_HOUR", RATE_WINDOW_HOUR),
             ("RATE_WINDOW_DAY", RATE_WINDOW_DAY),
             ("MINT_RETENTION", MINT_RETENTION),
         ] {
-            assert_eq!(iv.months, 0, "{name}: months are calendar-dependent");
-            assert_eq!(
-                iv.days, 0,
-                "{name}: PgInterval `days` is calendar-dependent too — it spans 47 or 49 \
-                 hours across a DST boundary. Express these in microseconds"
-            );
-            assert!(iv.microseconds > 0, "{name}: a non-positive window is meaningless");
+            assert!(iv > 0, "{name}: a non-positive window is meaningless");
         }
 
         // ABSOLUTE values, not just ordering. A blind audit showed that ordering plus
@@ -4378,37 +4375,37 @@ mod tests {
         // thing this suite can have. So these absolute pins are the only guard for the day
         // window in either direction, and for the hour window in the shrinking direction.
         assert_eq!(
-            RATE_WINDOW_HOUR.microseconds, 3_600_000_000,
+            RATE_WINDOW_HOUR, 3_600_000_000,
             "RATE_WINDOW_HOUR must be exactly one hour"
         );
         assert_eq!(
-            RATE_WINDOW_DAY.microseconds, 86_400_000_000,
+            RATE_WINDOW_DAY, 86_400_000_000,
             "RATE_WINDOW_DAY must be exactly twenty-four hours — the refusal message says \
              the word `day` and `InvitationLimits`' fields say `per_..._per_day`"
         );
         assert_eq!(
-            MINT_RETENTION.microseconds, 172_800_000_000,
+            MINT_RETENTION, 172_800_000_000,
             "MINT_RETENTION must be exactly forty-eight hours"
         );
 
         assert!(
-            RATE_WINDOW_DAY.microseconds > RATE_WINDOW_HOUR.microseconds,
+            RATE_WINDOW_DAY > RATE_WINDOW_HOUR,
             "the day window must be longer than the hour window, or one of the two \
              ceilings can never fire"
         );
         assert!(
-            MINT_RETENTION.microseconds > RATE_WINDOW_DAY.microseconds,
+            MINT_RETENTION > RATE_WINDOW_DAY,
             "the retention horizon ({} µs) must be STRICTLY greater than the longest \
              rate-limit window ({} µs). Equal would make the prune and the window race at \
              the boundary; shorter would let the prune delete rows the ceiling was still \
              counting, silently converting the per-day ceiling into a shorter one",
-            MINT_RETENTION.microseconds,
-            RATE_WINDOW_DAY.microseconds
+            MINT_RETENTION,
+            RATE_WINDOW_DAY
         );
         // And with real headroom rather than by a microsecond, so a future tweak to either
         // has to be deliberate rather than accidentally fatal.
         assert!(
-            MINT_RETENTION.microseconds >= 2 * RATE_WINDOW_DAY.microseconds,
+            MINT_RETENTION >= 2 * RATE_WINDOW_DAY,
             "keep at least a full extra window of headroom"
         );
     }

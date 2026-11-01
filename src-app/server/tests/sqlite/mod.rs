@@ -9,6 +9,7 @@ pub mod chain_account_project;
 pub mod chain_dataset_drafts_prov;
 pub mod chain_jobs;
 pub mod chain_workstore;
+pub mod final_layout;
 pub mod module_account;
 pub mod module_dataset;
 pub mod module_jobs;

@@ -65,14 +65,16 @@ pub use permissions::NotificationsRead;
 /// verification. The original filename + version are preserved so the merged
 /// `_sqlx_migrations` history is unchanged.
 ///
-/// Dual-driver: the SQLite leg embeds `./migrations-sqlite` — the DEC-8/DEC-9
-/// port of the same chain (same version number, SQLite dialect: uuid BLOB,
-/// payload TEXT JSON, RFC3339 UTC timestamps). The selection is a compile-time
+/// Dual-driver: the SQLite leg embeds `./migrations` — the DEC-8/DEC-9 port
+/// of the same chain (same version number, SQLite dialect: uuid BLOB,
+/// payload TEXT JSON, RFC3339 UTC timestamps), which is the FORK's canonical
+/// chain (ITEM-26 renamed `migrations-sqlite/` to `migrations/`); ziee's
+/// postgres leg embeds `./migrations-pg`. The selection is a compile-time
 /// property of the `sqlite-backend` feature and AGREES with `build.rs`'s
 /// scheme selection by construction: a `sqlite-backend` build verifies its
 /// `query!` sets against a sqlite `DATABASE_URL` (which is how the build
 /// script provisions the build DB).
 #[cfg(not(feature = "sqlite-backend"))]
-pub static NOTIFICATION_MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
+pub static NOTIFICATION_MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations-pg");
 #[cfg(feature = "sqlite-backend")]
-pub static NOTIFICATION_MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations-sqlite");
+pub static NOTIFICATION_MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");

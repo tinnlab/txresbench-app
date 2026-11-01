@@ -4,12 +4,13 @@
 //! The port is verified against real SQLite (the sqlx-bundled 3.46 engine)
 //! without a full compiled tree, exactly as DEC-19 prescribes: this test
 //! composes the ported chain through the REAL SDK composer
-//! (`ziee_build_support::compose_merged_migrations_from`) with the REAL
-//! driver-selected source lists (`build_helper/migration_chain.rs` is
-//! `#[path]`-included — the same module `build.rs` compiles, so the harness
-//! and the build can never disagree about which dirs form the chain), then
-//! applies it with `sqlx::migrate::Migrator` — the same apply engine the
-//! runtime uses at boot.
+//! (`ziee_build_support::compose_merged_migrations_from`) with the SAME source
+//! lists `build.rs` uses (the module-owned `src/modules/*/migrations/` root
+//! plus the three schema-bound SDK crates' `migrations/` dirs — ITEM-26
+//! collapsed the driver selection, so the lists are now UNCONDITIONAL and the
+//! harness hardcodes exactly what the build script passes, keeping the two
+//! from ever disagreeing), then applies it with `sqlx::migrate::Migrator` —
+//! the same apply engine the runtime uses at boot.
 //!
 //! What each chain item adds here: the group's file set applies from scratch
 //! (zero errors), every file has a unique numeric prefix, the group's table
@@ -27,7 +28,9 @@
 //! group part 4: `dataset` (4), `drafts` (3), `provenance` (2) — the shared
 //! harness now pins the FULL 57-file chain (the complete SQLite chain that
 //! ITEM-12 flips to); the dataset/drafts/provenance-specific row semantics
-//! live in `chain_dataset_drafts_prov.rs` (TEST-18).
+//! live in `chain_dataset_drafts_prov.rs` (TEST-18). ITEM-26 then moved every
+//! file into its FINAL dir (the module dirs / the SDK crates' `migrations/`)
+//! and deleted the staging tree + the PG chains.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -36,20 +39,12 @@ use sqlx::migrate::Migrator;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePool, SqlitePoolOptions};
 use sqlx::Row;
 
-// The app's build-script module that selects the chain by driver. Included
-// verbatim (same pattern as ITEM-6's probe) so this harness drives the REAL
-// selection logic rather than a copy of its path lists.
-#[path = "../../build_helper/migration_chain.rs"]
-mod migration_chain;
-
-use migration_chain::MigrationChain;
-
 /// The SDK chain groups ITEM-7 ports: (crate dir name, expected `.sql` count).
 const SDK_CHAIN_GROUPS: &[(&str, usize)] =
     &[("ziee-auth", 5), ("ziee-file", 1), ("ziee-notification", 1)];
 
 /// The app chain module groups ITEM-8 + ITEM-9 + ITEM-10 + ITEM-11 ports:
-/// (staged module dir name, expected `.sql` count).
+/// (module dir name, expected `.sql` count).
 const APP_CHAIN_GROUPS: &[(&str, usize)] = &[
     ("jobs", 6),
     ("sandbox", 3),
@@ -236,65 +231,21 @@ fn manifest_dir() -> PathBuf {
     PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("cargo sets CARGO_MANIFEST_DIR"))
 }
 
-/// Compose the ported SQLite chain the way `build.rs` does under a `sqlite://`
-/// `DATABASE_URL`: driver-selected source lists → real SDK composer. Returns
-/// the merged dir.
+/// Compose the SQLite chain the way `build.rs` does (ITEM-26: the driver
+/// selection is gone): module-owned `src/modules/*/migrations/` glob root +
+/// the three schema-bound SDK crates' `migrations/` dirs → real SDK composer.
+/// Returns the merged dir.
 pub(crate) fn compose_sqlite_chain(scratch: &Path) -> PathBuf {
-    let chain = migration_chain::for_build_db_url(Some(
-        "sqlite://target/sqlx-build/compose_scratch.sqlite",
-    ));
-    assert_eq!(chain, MigrationChain::Sqlite);
-    let (module_roots, explicit_dirs) = chain.compose_args(&manifest_dir());
-    // DEC-9: the staged chain lives OUTSIDE src/modules; the sqlite leg never
-    // globs module dirs (the composer's `app_module_roots` are GLOBBED for
-    // `*/migrations`), so the args must be roots=empty + explicit staged dirs.
-    assert!(
-        module_roots.is_empty(),
-        "sqlite leg must pass no glob root (DEC-9 staging)"
-    );
+    let manifest = manifest_dir();
+    let module_roots = vec![manifest.join("src/modules")];
+    let sdk_dirs: Vec<PathBuf> = ["ziee-auth", "ziee-file", "ziee-notification"]
+        .iter()
+        .map(|c| manifest.join("../../sdk/crates").join(c).join("migrations"))
+        .collect();
 
     let merged = scratch.join("migrations-merged");
-    ziee_build_support::compose_merged_migrations_from(&merged, &module_roots, &explicit_dirs);
+    ziee_build_support::compose_merged_migrations_from(&merged, &module_roots, &sdk_dirs);
     merged
-}
-
-/// Test stand-ins for the module tables the ported chain references but
-/// whose OWN ported chains land in later items: `accounts` (ITEM-10, the
-/// feature_flags FK parent) + `projects` (ITEM-10 — the workstore
-/// baseline's and provenance's FK parent). The PG chain resolves both
-/// because the REAL chains sort earlier by version; the staged chain at
-/// ITEM-9/10/11 cannot, and ITEM-8's harness established the pattern (the
-/// inline `accounts` stub). `CREATE TABLE IF NOT EXISTS` makes every stub a
-/// no-op once the real chain lands, and the minimal column sets are exactly
-/// what the migration statements bind (the stub shapes are a
-/// superset-narrowing claim: if a real column is needed they grow, never
-/// silently).
-///
-/// ITEM-10 (account + project): the real chains use STRICT `CREATE TABLE`
-/// (the Postgres contract — a pre-existing stub would make them fail
-/// loudly), so the `accounts`/`projects` stubs are created ONLY while
-/// their staged dirs are absent; the real chains replace them at their own
-/// positions in the composed chain without touching this function's
-/// callers (ITEM-8's feature_flags leg and ITEM-9's artifact legs are the
-/// callers). ITEM-11 (dataset) ported the real `datasets` chain, so the
-/// last stub's leg is GONE — `datasets` has been real since 202608030002
-/// (the workstore 040001 UPDATE and the ITEM-10 013 backfill bind it
-/// directly; the ITEM-10-era stub is the two-phase test's own device,
-/// created explicitly there).
-pub(crate) async fn ensure_late_parent_stubs(pool: &SqlitePool) {
-    let staging = manifest_dir().join("migrations-sqlite");
-    if !staging.join("account").is_dir() {
-        sqlx::query("CREATE TABLE IF NOT EXISTS accounts (id BLOB PRIMARY KEY)")
-            .execute(pool)
-            .await
-            .expect("accounts stub (ITEM-10's table)");
-    }
-    if !staging.join("project").is_dir() {
-        sqlx::query("CREATE TABLE IF NOT EXISTS projects (id BLOB PRIMARY KEY)")
-            .execute(pool)
-            .await
-            .expect("projects stub (ITEM-10's table)");
-    }
 }
 
 /// Apply `merged` to a scratch SQLite FILE (create-if-missing, WAL,
@@ -311,10 +262,6 @@ pub(crate) async fn apply_chain(merged: &Path, db_path: &Path) -> (SqlitePool, M
         .connect_with(options)
         .await
         .expect("connect scratch sqlite");
-    // The chain walks the cross-module surfaces (the workstore 040001 UPDATE
-    // and the workstore baseline FKs / feature_flags FK) whose parents land
-    // at ITEM-10/11 — stand the stubs in BEFORE the migrator runs.
-    ensure_late_parent_stubs(&pool).await;
     let migrator = Migrator::new(merged).await.expect("load merged migrator");
     migrator
         .run(&pool)
@@ -361,25 +308,6 @@ pub(crate) async fn applied_version_count(pool: &SqlitePool) -> i64 {
         .get::<i64, _>(0)
 }
 
-/// The dispatch rule shared with `build.rs` — a `sqlite:` URL selects the
-/// ported chain; unset/postgres stays on the module-owned chains (the pre-flip
-/// behavior). PINNED here because compose and provision must never disagree.
-#[test]
-fn driver_dispatch_selects_the_port_for_sqlite_urls() {
-    assert_eq!(
-        migration_chain::for_build_db_url(Some("sqlite://target/sqlx-build/x.sqlite")),
-        MigrationChain::Sqlite
-    );
-    assert_eq!(
-        migration_chain::for_build_db_url(Some("postgresql://u:p@127.0.0.1:54321/postgres")),
-        MigrationChain::Postgres
-    );
-    assert_eq!(
-        migration_chain::for_build_db_url(None),
-        MigrationChain::Postgres
-    );
-}
-
 /// TEST-14 (ITEM-7 + ITEM-8/9/10/11 groups): the ported chain (SDK 7 + app
 /// ITEM-8 groups 13 + ITEM-9 workstore 19 + ITEM-10 account 8 + project 1
 /// + ITEM-11 dataset 4 + drafts 3 + provenance 2) composes to exactly its
@@ -392,7 +320,7 @@ async fn ported_chain_applies_from_scratch_and_reapplies_as_noop() {
     let merged = compose_sqlite_chain(scratch.path());
 
     // The composed set is exactly the fifty-seven ported files — the FULL
-    // SQLite chain (nothing is staged any more; ITEM-12 flips to it).
+    // SQLite chain (the final, post-ITEM-26 layout).
     assert_eq!(merged_sql_files(&merged), CHAIN_FILES);
 
     // Every file has a unique numeric prefix (the merge-gate C2 namespace
@@ -409,27 +337,27 @@ async fn ported_chain_applies_from_scratch_and_reapplies_as_noop() {
         "version prefixes must be unique: {prefixes:?}"
     );
 
-    // Each group ships its expected file count in its own staged dir.
+    // Each group ships its expected file count in its own migration dir.
     for (crate_name, count) in SDK_CHAIN_GROUPS {
         let dir = manifest_dir()
             .join("../../sdk/crates")
             .join(crate_name)
-            .join("migrations-sqlite");
+            .join("migrations");
         let n = std::fs::read_dir(&dir)
-            .unwrap_or_else(|e| panic!("missing staged dir {dir:?}: {e}"))
+            .unwrap_or_else(|e| panic!("missing migration dir {dir:?}: {e}"))
             .flatten()
             .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("sql"))
             .count();
-        assert_eq!(n, *count, "{crate_name} staged file count");
+        assert_eq!(n, *count, "{crate_name} migration file count");
     }
     for (module, count) in APP_CHAIN_GROUPS {
-        let dir = manifest_dir().join("migrations-sqlite").join(module);
+        let dir = manifest_dir().join("src/modules").join(module).join("migrations");
         let n = std::fs::read_dir(&dir)
-            .unwrap_or_else(|e| panic!("missing staged dir {dir:?}: {e}"))
+            .unwrap_or_else(|e| panic!("missing migration dir {dir:?}: {e}"))
             .flatten()
             .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("sql"))
             .count();
-        assert_eq!(n, *count, "{module} staged file count");
+        assert_eq!(n, *count, "{module} migration file count");
     }
 
     // Apply from scratch.
@@ -651,12 +579,10 @@ async fn email_invariant_refuses_case_collisions_in_legacy_data() {
     // above every app file), so the six pre-applied files plus the
     // fifty app files (ITEM-8's 13 + ITEM-9's 19 + ITEM-10's 9 +
     // ITEM-11's 9) are applied and only the invariant file itself is not:
-    // 56 of 57. ITEM-10/11 replaced the accounts/projects stubs and the
-    // `datasets` stub with the REAL chains (the 040001 UPDATE and the
-    // account backfill walk the real `datasets`), and the account backfill
-    // runs against the two legacy users ('Bob'/'BOB' each gain a personal
-    // account — pre-existing users are exactly the backfill's case).
-    ensure_late_parent_stubs(&pool).await;
+    // 56 of 57. Every parent table the mid-chain migrations reference
+    // (`accounts`, `projects`, `datasets`) is REAL — the full chain is applied
+    // below — so no test-side stubs stand in any more (ITEM-26 deleted the
+    // staged chain and with it the stub machinery).
     let full_migrator = Migrator::new(merged.as_path())
         .await
         .expect("full migrator");

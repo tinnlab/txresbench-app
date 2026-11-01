@@ -32,10 +32,12 @@ use sqlx::Row;
 
 use super::apply_chain::{apply_chain, compose_sqlite_chain, Scratch};
 
-/// The workstore staged dir relative to the server manifest, for the
-/// pgcrypto-absence trace.
+/// The workstore migration dir relative to the server manifest, for the
+/// pgcrypto-absence trace (ITEM-26's final layout — the module dir, not the
+/// deleted staging tree).
 fn workstore_staged_dir() -> std::path::PathBuf {
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("migrations-sqlite/workstore")
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("src/modules/workstore/migrations")
 }
 
 /// The declared column list of a table, in the chain's order (PRAGMA

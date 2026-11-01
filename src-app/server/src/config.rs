@@ -134,50 +134,26 @@ pub fn resolve_database_target(config: &ServerConfig, default_db_dir: &std::path
     })
 }
 
-/// The hard boot refusal for a config that still selects the legacy
-/// embedded-Postgres leg (`postgresql.use_embedded: true`) after the driver
-/// flip. `None` ⇒ the config's driver selection is legal.
+/// The hard boot refusal for a config that still carries a `postgresql:` block
+/// (ITEM-26: the compat parse is DROPPED — every block is refused, loudly,
+/// not just `use_embedded: true`). `None` ⇒ no block ⇒ legal.
 ///
 /// Deliberate (DEC-17 / PROV-sqlite-store-7): the app ships no Postgres engine
-/// anymore, the block is dead configuration, and an operator who set it had a
-/// PG data dir the app cannot migrate (DEC-3) — ignoring the block silently
-/// would boot on a different store than they configured.
-pub fn postgres_transition_refusal(config: &ServerConfig) -> Option<String> {
-    let pg = config.postgresql.as_ref()?;
-    if !pg.use_embedded {
-        return None;
-    }
+/// anymore; the block is dead configuration and an operator who set it had a
+/// PG data dir the app cannot migrate (DEC-3). The ITEM-12 transition window
+/// accepted `use_embedded: false` with a boot warning; it is over — the boot
+/// error names the key and the replacement, and the transition message is
+/// gone (a block is never merely "loud but accepted").
+pub fn postgresql_block_refusal(config: &ServerConfig) -> Option<String> {
+    config.postgresql.as_ref()?;
     Some(
-        "postgresql.use_embedded is no longer supported: this build runs on the embedded \
-         SQLite store (a single local file, no server process, no network). Remove the \
-         `postgresql:` block from the config; the `database:` block configures the store \
-         and defaults to <app-data-dir>/txresbench.db. Existing Postgres data cannot be \
-         migrated — delete its data directory and let the app boot fresh."
+        "config still carries a `postgresql:` block: this build runs on the embedded SQLite \
+         store (a single local file, no server process, no network). Remove the block; the \
+         `database:` block configures the store and defaults to \
+         <app-data-dir>/txresbench.db. Existing Postgres data cannot be migrated — delete \
+         its data directory and let the app boot fresh."
             .to_string(),
     )
-}
-
-/// The one-time transition LOG (DEC-17) for a config that still carries a
-/// `postgresql:` block in the accepted-but-loud leg (`use_embedded: false` —
-/// an external PG the app no longer talks to; the `true` leg is the hard
-/// refusal above, which fires first and stops the boot). `None` ⇒ no
-/// `postgresql:` block at all, the shipped post-flip shape.
-///
-/// The block is dead configuration: the store actually in use is the
-/// `database:` one, and the operator hears about the stale block at boot
-/// instead of discovering it later. The message is emitted by
-/// `database::initialize_database` (every entrypoint's single boot
-/// chokepoint), which is what makes it a ONE-TIME message — a boot logs it
-/// once, not per request.
-pub fn postgres_transition_warning(config: &ServerConfig) -> Option<String> {
-    let pg = config.postgresql.as_ref()?;
-    Some(format!(
-        "config still carries a `postgresql:` block (use_embedded: {}): this build runs on the \
-         embedded SQLite store and ignores it — the `database:` block configures the store \
-         (default <app-data-dir>/txresbench.db). Remove the `postgresql:` block to silence \
-         this message",
-        pg.use_embedded
-    ))
 }
 
 #[cfg(test)]
@@ -216,10 +192,11 @@ mod tests {
     }
 }
 
-/// TEST-13 (sqlite-store ITEM-5): the app-side `database:` config surface —
-/// block parse (url wins over path; defaults for pool), the `CYTO_DATABASE_URL`
-/// override precedence, the default app-data-dir target, and the boot refusal
-/// message for a config that still sets `postgresql.use_embedded: true`.
+/// TEST-13 (sqlite-store ITEM-5 + ITEM-26): the app-side `database:` config
+/// surface — block parse (url wins over path; defaults for pool), the
+/// `CYTO_DATABASE_URL` override precedence, the default app-data-dir target,
+/// and the boot refusal message for a config that still carries ANY
+/// `postgresql:` block (ITEM-26 dropped the accepted-with-warning leg).
 #[cfg(test)]
 mod database_target_tests {
     use super::*;
@@ -232,11 +209,23 @@ mod database_target_tests {
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     /// An app-shaped config (the extra `secrets:`/`memory:` keys the SDK ignores)
-    /// with the runner's `database:` block (empty = no block).
+    /// with the runner's `database:` block (empty = no block). Post-flip shape:
+    /// NO `postgresql:` block (ITEM-12/ITEM-26).
     fn app_yaml(database_block: &str) -> String {
         format!(
-            "postgresql:\n  use_embedded: true\n  embedded:\n    version: '18.3.0'\n    port: 54341\n    bind_address: 127.0.0.1\n    username: postgres\n    password: pw\n    database: postgres\n    timezone: UTC\n    log_timezone: UTC\n    logging:\n      collector: false\n      directory: log\n      filename: pg.log\n      statement: none\n{database}\nserver:\n  host: 127.0.0.1\n  port: 3100\n  api_prefix: /api\nlogging:\n  level: info\n  format: pretty\njwt:\n  secret: '{SECRET}'\n  issuer: app\n  audience: app-api\n  access_token_expiry_hours: 24\nsecrets:\n  storage_key: null\n",
+            "{database}server:\n  host: 127.0.0.1\n  port: 3100\n  api_prefix: /api\nlogging:\n  level: info\n  format: pretty\njwt:\n  secret: '{SECRET}'\n  issuer: app\n  audience: app-api\n  access_token_expiry_hours: 24\nsecrets:\n  storage_key: null\n",
             database = database_block,
+            SECRET = STRONG_SECRET
+        )
+    }
+
+    /// The REFUSAL shape: an app-shaped config that still carries a
+    /// `postgresql:` block (embedded leg by default; pass `use_embedded=false`
+    /// for the external-PG variant). ITEM-26 refuses both.
+    fn app_yaml_with_postgresql(use_embedded: bool) -> String {
+        format!(
+            "postgresql:\n  use_embedded: {use_embedded}\n  embedded:\n    version: '18.3.0'\n    port: 54341\n    bind_address: 127.0.0.1\n    username: postgres\n    password: pw\n    database: postgres\n    timezone: UTC\n    log_timezone: UTC\n    logging:\n      collector: false\n      directory: log\n      filename: pg.log\n      statement: none\ndatabase:\n  path: /data/app.db\nserver:\n  host: 127.0.0.1\n  port: 3100\n  api_prefix: /api\nlogging:\n  level: info\n  format: pretty\njwt:\n  secret: '{SECRET}'\n  issuer: app\n  audience: app-api\n  access_token_expiry_hours: 24\n",
+            use_embedded = use_embedded,
             SECRET = STRONG_SECRET
         )
     }
@@ -320,37 +309,39 @@ mod database_target_tests {
     }
 
     #[test]
-    fn embedded_postgres_block_is_refused_with_a_migration_message() {
-        let yaml = app_yaml("");
-        let cfg: ServerConfig = serde_norway::from_str(&yaml).expect("app config parses");
-        let msg = postgres_transition_refusal(&cfg).expect("embedded PG is refused");
-        assert!(msg.contains("no longer supported"), "got: {msg}");
-        assert!(
-            msg.contains("SQLite"),
-            "the message names the new engine: {msg}"
-        );
-        assert!(
-            msg.contains("postgresql"),
-            "the message names the offending key: {msg}"
-        );
+    fn any_postgresql_block_is_refused_with_a_loud_message() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        // Both the embedded leg and the external-PG leg are refused: the
+        // ITEM-12 accepted-with-warning transition is over (ITEM-26).
+        for use_embedded in [true, false] {
+            let yaml = app_yaml_with_postgresql(use_embedded);
+            let cfg: ServerConfig = serde_norway::from_str(&yaml).expect("app config parses");
+            let msg = postgresql_block_refusal(&cfg)
+                .unwrap_or_else(|| panic!("use_embedded={use_embedded}: a postgresql block is refused"));
+            assert!(msg.contains("postgresql"), "names the offending key: {msg}");
+            assert!(
+                msg.contains("SQLite"),
+                "the message names the new engine: {msg}"
+            );
+            assert!(
+                msg.contains("database"),
+                "the message names the replacement block: {msg}"
+            );
+        }
     }
 
     #[test]
-    fn external_or_absent_postgresql_is_not_refused() {
+    fn an_absent_postgresql_block_is_legal() {
         let _guard = ENV_LOCK.lock().unwrap();
-        // use_embedded: false (external PG) is the accepted-with-warning leg.
-        let yaml = app_yaml("").replace("use_embedded: true", "use_embedded: false");
-        let cfg: ServerConfig = serde_norway::from_str(&yaml).expect("app config parses");
-        assert!(postgres_transition_refusal(&cfg).is_none());
-
-        // No postgresql block at all (the sqlite-shaped config) is legal.
+        // No postgresql block at all (the sqlite-shaped config) is legal — the
+        // refusal returns None and the app boots on the `database:` store.
         let sqlite_yaml = format!(
             "database:\n  path: /data/app.db\nserver:\n  host: 127.0.0.1\n  port: 3100\n  api_prefix: /api\njwt:\n  secret: '{STRONG_SECRET}'\n  issuer: app\n  audience: app-api\n  access_token_expiry_hours: 24\n"
         );
         let cfg: ServerConfig =
             serde_norway::from_str(&sqlite_yaml).expect("sqlite app config parses");
         assert!(cfg.postgresql.is_none());
-        assert!(postgres_transition_refusal(&cfg).is_none());
+        assert!(postgresql_block_refusal(&cfg).is_none());
     }
 
     #[test]
@@ -366,44 +357,11 @@ mod database_target_tests {
         assert_eq!(resolved, "/var/lib/txr/app.db");
     }
 
-    #[test]
-    fn external_postgresql_block_yields_the_transition_warning() {
-        let yaml = app_yaml("").replace("use_embedded: true", "use_embedded: false");
-        let cfg: ServerConfig = serde_norway::from_str(&yaml).expect("app config parses");
-        assert!(
-            postgres_transition_refusal(&cfg).is_none(),
-            "external PG is not refused — it is the accepted-with-warning leg"
-        );
-        let msg = postgres_transition_warning(&cfg).expect("the block is loud at boot");
-        assert!(
-            msg.contains("postgresql"),
-            "the message names the stale block: {msg}"
-        );
-        assert!(
-            msg.contains("SQLite"),
-            "the message names the engine in use: {msg}"
-        );
-        assert!(
-            msg.contains("database"),
-            "the message names the replacement block: {msg}"
-        );
-    }
-
-    #[test]
-    fn absent_postgresql_block_has_no_transition_warning() {
-        let sqlite_yaml = format!(
-            "database:\n  path: /data/app.db\nserver:\n  host: 127.0.0.1\n  port: 3100\n  api_prefix: /api\njwt:\n  secret: '{STRONG_SECRET}'\n  issuer: app\n  audience: app-api\n  access_token_expiry_hours: 24\n"
-        );
-        let cfg: ServerConfig =
-            serde_norway::from_str(&sqlite_yaml).expect("sqlite app config parses");
-        assert!(cfg.postgresql.is_none());
-        assert!(postgres_transition_warning(&cfg).is_none());
-    }
-
     /// The three actually-shipped configs parse through the app's loader in
     /// their post-flip shape: `database:` present (example values null, pool
     /// defaults), NO `postgresql:` block — ITEM-12's flip dropped it
-    /// (PROV-sqlite-store-7, DEC-17).
+    /// (PROV-sqlite-store-7, DEC-17), and ITEM-26 makes a lurking one a hard
+    /// refusal rather than a warning.
     #[test]
     fn shipped_configs_parse_sqlite_shaped_after_the_flip() {
         for rel in [

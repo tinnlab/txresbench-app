@@ -20,8 +20,8 @@
 --
 -- DEFAULT 0 + an optional `ver` claim keeps already-issued tokens working
 -- (absent claim => 0 => matches), so deploying this forces zero logouts.
---
--- SQLite port notes: no `IF NOT EXISTS` (a migration runs exactly once — the
--- `_sqlx_migrations` history is what makes a re-run a no-op); the Postgres
--- `COMMENT ON COLUMN` is this block instead.
-ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0;
+
+COMMENT ON COLUMN users.token_version IS
+    'Access-token revocation epoch. Stamped on access tokens as the `ver` claim; bumped by logout (transactionally, together with revoking the user''s refresh tokens). A request whose `ver` != this value is rejected 401 SESSION_REVOKED. No index: only ever read by the users PK.';

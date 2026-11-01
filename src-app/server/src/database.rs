@@ -27,10 +27,10 @@ use sqlx::SqlitePool;
 use ziee_core::ServerConfig;
 use ziee_framework::embedded_db;
 
-/// The merged migration set composed by build.rs (driver-selected: the staged
-/// `migrations-sqlite/` chain under a `sqlite:` `DATABASE_URL` — the committed
-/// state since the ITEM-12 flip), version-sorted. `LazyLock` so the framework
-/// receives a `&'static Migrator`.
+/// The merged migration set composed by build.rs (the module-owned SQLite
+/// chains in `src/modules/<m>/migrations/` + the SDK crates' `migrations/` —
+/// the final, unconditional layout since ITEM-26), version-sorted.
+/// `LazyLock` so the framework receives a `&'static Migrator`.
 ///
 /// ## AN APPLIED MIGRATION FILE IS IMMUTABLE — INCLUDING ITS COMMENTS
 ///
@@ -93,20 +93,12 @@ static MERGED_MIGRATOR: std::sync::LazyLock<sqlx::migrate::Migrator> =
 pub async fn initialize_database(
     config: &ServerConfig,
 ) -> Result<Arc<SqlitePool>, Box<dyn std::error::Error + Send + Sync>> {
-    // The DEC-17 transition contract, loud at boot: a config that still selects
-    // the legacy embedded-Postgres leg is refused (message pinned by TEST-13)...
-    if let Some(msg) = crate::config::postgres_transition_refusal(config) {
+    // The ITEM-26 postgresql-block contract, loud at boot: a config that still
+    // carries a `postgresql:` block is refused (message pinned by TEST-13).
+    // There is no accepted-with-warning leg any more — the transition window
+    // closed and the block is dead configuration.
+    if let Some(msg) = crate::config::postgresql_block_refusal(config) {
         return Err(msg.into());
-    }
-    // ...and a config that merely CARRIES a `postgresql:` block (external PG,
-    // `use_embedded: false` — the accepted-with-warning leg) is logged ONCE at
-    // boot: the block is dead, the `database:` store is the one in use, and the
-    // operator hears about the stale block from the boot log, not from a
-    // surprise when the store differs from what they configured (DEC-17). This
-    // is the only chokepoint every entrypoint funnels through, so the message is
-    // per-boot, never per-request.
-    if let Some(msg) = crate::config::postgres_transition_warning(config) {
-        tracing::warn!(target: "cytoanalyst::database", "{msg}");
     }
     let target =
         crate::config::resolve_database_target(config, &crate::modules::rootfs::data_root());

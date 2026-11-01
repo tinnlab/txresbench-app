@@ -1296,7 +1296,6 @@
       "finding": "GENERIC",
       "note": "\"the feature self-disables at runtime\" — a SOFTWARE feature; plus the sqlite build helper's \"No embedding and no build panic\" remark — \"embedding\" also SOFTWARE meaning.",
       "tokens": {
-        "embedding": 1,
         "feature": 1
       }
     },
@@ -2526,11 +2525,11 @@
     },
     "server/src/modules/features/migrations/202608280002_features_baseline.sql": {
       "tokens": {
-        "features": 5,
+        "features": 7,
         "feature": 3
       },
       "finding": "GENERIC",
-      "note": "Runtime feature-flags admin subsystem (issue 40). The word here is a software product flag, not a genomic feature; the module name, table, permission and routes are the mandated public surface of that subsystem."
+      "note": "Runtime feature-flags admin subsystem (issue 40). The word here is a software product flag, not a genomic feature; the module name, table, permission and routes are the mandated public surface of that subsystem. ITEM-26: the SQLite port of the migration (now living in this same path) carries the same vocabulary plus two more comment `features` mentions in its port notes (7 total, measured by this guard's own tokenizer)."
     },
     "ui/src/core/actions/builtin/featureFlagActions.ts": {
       "tokens": {
@@ -2582,6 +2581,13 @@
       },
       "finding": "GENERIC",
       "note": "\"feature\" as a software capability in the ported-chain comment."
+    },
+    "server/src/modules/workstore/migrations/202608290090_infra_config.sql": {
+      "tokens": {
+        "feature": 1
+      },
+      "finding": "GENERIC",
+      "note": "Workstore infra-config migration, SQLite port note: 'the secret feature itself stays DORMANT' — the D02 product flag (OWNER-DECISIONS D02), not a genomic feature; the word sits in the port's provenance comment."
     }
   },
   "literals": {
@@ -7388,6 +7394,13 @@
         "finding": "R4-TESTS-RS",
         "note": "sqlite leg module test: the axis/membership JSON fixture the gather semantics operate on."
       }
+    },
+    "server/tests/sqlite/final_layout.rs": {
+      "features": {
+        "count": 1,
+        "finding": "R4-TESTS-RS",
+        "note": "TEST-33 final_layout: the module list enumerates the feature-flags migration module by name (the MIGRATION_MODULES constant); the word names the module, and the file path itself carries it."
+      }
     }
   },
   "testProse": {
@@ -9236,7 +9249,7 @@
     },
     "server/tests/sqlite/apply_chain.rs": {
       "tokens": {
-        "feature": 6,
+        "feature": 3,
         "features": 2
       },
       "finding": "R4-TESTS-RS",

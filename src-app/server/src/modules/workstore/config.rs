@@ -887,16 +887,11 @@ mod tests {
         let data = std::env::temp_dir().join(format!("cyto-cfgroot-{}", uuid::Uuid::new_v4()));
         let _guard = crate::modules::rootfs::scoped_data_root(&data);
 
+        // SQLite-shaped config (ITEM-26): no `postgresql:` block; the DB target
+        // defaults to `<app-data-dir>/txresbench.db` under the scoped data
+        // root, which is exactly what `catalog_identity` resolves at runtime.
         let server_cfg: ServerConfig = serde_norway::from_str(
             r#"
-postgresql:
-  use_embedded: false
-  external:
-    host: "db.internal"
-    port: 5432
-    username: "app"
-    password: "pw"
-    database: "cytoanalyst"
 server:
   host: "127.0.0.1"
   port: 3100
