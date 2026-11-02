@@ -961,6 +961,21 @@ export interface BytesPresenceReport {
 export type Cardinality = 'one' | 'optional' | 'many'
 
 /**
+ * The benchmark container-image reference the catalogue carries as DATA (the
+ *  runtime `EnvRef` is built from `method-env-images.json` — a different
+ *  artifact; see the PLAN's env note). The image string carries no scheme and is
+ *  never fetched by this module.
+ */
+export interface CatalogueEnv {
+  /** The benchmark container contract version (e.g. "2.0"). */
+  contract: string
+  /** The gate's image digest. */
+  digest: string
+  /** `ghcr.io/tinnlab/txresbench-<method-id>:<method-version>`. */
+  image: string
+}
+
+/**
  * Self-service password change for the authenticated user. Requires
  *  the current password as proof. Only valid for local-password
  *  accounts (`password_hash IS NOT NULL`).
@@ -1091,6 +1106,19 @@ export interface ConverterRef {
 
 /** Where a converter runs (DEC-6). */
 export type ConverterRun = 'host' | 'sandbox'
+
+/** Whether a method's inputs include patient covariates beyond the markers. */
+export type CovariateMode = 'none' | 'optional' | 'required'
+
+/**
+ * Per-patient coverage aggregate (no per-patient payload in the response —
+ *  coverage facts only).
+ */
+export interface Coverage {
+  eligible: number
+  fraction: number
+  total: number
+}
 
 export interface CreateAuthProviderRequest {
   config: unknown
@@ -2036,6 +2064,51 @@ export interface DraftableSpec {
   kind: string
 }
 
+/**
+ * The eligibility request body — a tagged union carrying exactly one of the two
+ *  request kinds (`{"preview": …}` or `{"inventory": …}`).
+ */
+export type EligibilityRequest = { preview: PreviewEligibilityRequest } | { inventory: InventoryEligibilityRequest }
+
+/** The eligibility response — per-method verdicts plus the screen-B totals. */
+export interface EligibilityResponse {
+  methods: MethodEligibility[]
+  total_cannot: number
+  total_fit: number
+  total_some: number
+}
+
+/**
+ * The three-method eligibility verdict vocabulary (the board's "Can run / Can
+ *  run for some patients / Cannot run").
+ */
+export type EligibilityStatus = 'can_run' | 'can_run_some' | 'cannot_run'
+
+/**
+ * The estimate request: which methods, on how many patients, on how many CPUs,
+ *  running `at_a_time` lanes.
+ */
+export interface EstimateRequest {
+  /** Defaults to [`DEFAULT_ESTIMATE_AT_A_TIME`] when omitted. */
+  at_a_time?: number
+  /** Defaults to [`DEFAULT_ESTIMATE_CPUS`] when omitted. */
+  cpus?: number
+  method_ids: string[]
+  patients: number
+}
+
+/**
+ * The estimate response: per-method seconds, the plain sum, and the
+ *  longest-processing-time schedule total over the `at_a_time` lanes (the
+ *  bottom-bar "about X minutes in total on this computer").
+ */
+export interface EstimateResponse {
+  at_a_time: number
+  methods: MethodEstimate[]
+  schedule_seconds: number
+  total_seconds: number
+}
+
 /** `POST /provenance/export` — build a reproducibility bundle. */
 export interface ExportRequest {
   project_id: string
@@ -2163,6 +2236,26 @@ export interface FileListResponse {
   total: number
 }
 
+/**
+ * The file's outcome-column facts — the availability of the four outcome
+ *  column kinds the validator resolves (`responder`/`response_day` for the
+ *  response task, `pfs_*`/`os_*` event + time for the survival task). The
+ *  engine needs them to emit the three outcome-availability verdicts
+ *  (`RESPONSE_LABEL_MISSING`, `SURVIVAL_OUTCOME_MISSING`,
+ *  `TASK_INCOMPATIBLE` — PROV-MC-5's grown vocabulary); they are facts the
+ *  validator knows and puts on the inventory it posts.
+ */
+export interface FileOutcomes {
+  /** The file carries a survival event column (`pfs_event`/`os_event`). */
+  has_event: boolean
+  /** The file carries a `responder` column (per patient). */
+  has_responder: boolean
+  /** The file carries a `response_day` column (per patient). */
+  has_response_day: boolean
+  /** The file carries a survival time column (`pfs_days`/`os_days`). */
+  has_survival_day: boolean
+}
+
 /** One immutable version of a file. */
 export interface FileVersion {
   /** Storage key for this version's bytes (= `id`, or the restored target). */
@@ -2285,6 +2378,12 @@ export interface FrontendActionEntry {
   stateful?: boolean
 }
 
+/** The method's wrapper gate record (methods/gates/<id>.json). */
+export interface Gate {
+  pass: boolean
+  report_name: string
+}
+
 /** The provenance graph for a project (or a target's backward closure). */
 export interface GraphDto {
   readiness: ReadinessDto
@@ -2358,6 +2457,57 @@ export type InputRequirements = {
   allow_archive?: boolean
   members: string[]
   requires: 'manifest'
+}
+
+/** One covariate column of the file inventory. */
+export interface InventoryCovariate {
+  display_name: string
+  /** The file column key (the validator's stable key). */
+  key: string
+  standard_ids: StandardId[]
+  unit_family: UnitFamily
+}
+
+/**
+ * The file-inventory body (screens C/N/E — the consumer that holds the file
+ *  posts it).
+ */
+export interface InventoryEligibilityRequest {
+  baseline_max_day: number
+  covariates: InventoryCovariate[]
+  decision_day: number
+  markers: InventoryMarker[]
+  /**
+   * The outcome-column facts of the file, when the consumer knows them
+   *  (absence skips the outcome-availability checks — a request without them
+   *  is not misclassified by the engine).
+   */
+  outcomes?: FileOutcomes
+  patients: number
+}
+
+/** One marker column of the file inventory. */
+export interface InventoryMarker {
+  display_name: string
+  /**
+   * The column has a `__detected`/`__lod` companion (data.py's companion
+   *  semantics — companions never rank or match).
+   */
+  has_detection_companion: boolean
+  /** The column is a detection call (present/absent, not a measured value). */
+  is_detection_call: boolean
+  /** The file column key (the validator's stable key). */
+  key: string
+  n_patients_with_baseline: number
+  n_patients_with_ontreatment: number
+  n_patients_with_value: number
+  /**
+   * Per-patient draw counts; OMITTED when the validator does not carry them
+   *  (coverage then falls back to the patient-level counts above).
+   */
+  per_patient?: PatientDrawCounts[]
+  standard_ids: StandardId[]
+  unit_family: UnitFamily
 }
 
 /**
@@ -2882,6 +3032,37 @@ export interface LoginRequest {
   username: string
 }
 
+/** One of the 7 board marker groups (screen B checkbox row). */
+export interface MarkerGroup {
+  display_name: string
+  id: string
+}
+
+/**
+ * The marker-input shape of a method: `any` (marker-agnostic; `count` 0 =
+ *  unbounded), `single` (1 marker), `panel` (N named markers from a fixed list),
+ *  `multi` (N markers, no fixed list).
+ */
+export type MarkerKind = 'any' | 'single' | 'panel' | 'multi'
+
+/**
+ * The marker identifier system of a vocabulary marker (the registry's systems;
+ *  the matching engine also knows the `other`-system fallback as an open string).
+ */
+export type MarkerSystem = 'LOINC' | 'HGNC' | 'UNIPROT' | 'HMDB' | 'MIRBASE' | 'OTHER'
+
+/**
+ * The marker-vocabulary response (the join-offer + the B-screen group-panel
+ *  vocabulary; the checkbox set is built from `groups`).
+ */
+export interface MarkerVocabularyResponse {
+  groups: MarkerGroup[]
+  markers: VocabularyMarker[]
+}
+
+/** The `required_markers` match mode (the data.py port's `match:` field). */
+export type MatchMode = 'all' | 'min_fraction'
+
 /**
  * The singleton MCP settings row — the six promoted knobs (agent caps + tool
  *  caps + pairing-TTL). All fields are `bigint`/`i64` (DEC-5), converted to
@@ -2937,6 +3118,144 @@ export interface MeResponse {
 export interface MembersQuery {
   page?: number
   per_page?: number
+}
+
+/**
+ * One method's full fact set — the `methods[]` entry of the committed catalogue
+ *  and the `GET /api/methods/{id}` payload (PROV-MC-3's MethodDetail is exactly
+ *  this entry).
+ */
+export interface Method {
+  description: string
+  citations: number
+  container: boolean
+  covariates: CovariateMode
+  embeds_training_data: boolean
+  env: CatalogueEnv
+  fitted: boolean
+  frozen_model: boolean
+  gate: Gate
+  group: MethodGroup
+  group_label: string
+  /** The stable package slug (identity of the method in the app). */
+  id: string
+  journal: string
+  language: string
+  licence: string
+  marker_groups_required: string[]
+  markers: MethodMarkers
+  min_draws: number
+  needs_baseline: boolean
+  needs_detection_call: boolean
+  own_outputs: string[]
+  paper_doi: string
+  params: any
+  performance?: Performance
+  references: string[]
+  required_markers?: RequiredMarkers
+  runnable: boolean
+  saves_model: boolean
+  software: Software
+  spec_status: string
+  tasks: string[]
+  timing: Timing
+  uses_history: UsesHistory
+  version: string
+  year: number
+}
+
+/** One method's eligibility verdict. */
+export interface MethodEligibility {
+  coverage: Coverage
+  estimate_quality: TimingQuality
+  estimated_seconds: number
+  id: string
+  min_draws: MinDraws
+  missing_groups: MissingGroup[]
+  missing_markers: MissingMarker[]
+  reasons: Reason[]
+  status: EligibilityStatus
+}
+
+/** One method's estimate. */
+export interface MethodEstimate {
+  estimate_quality: TimingQuality
+  estimated_seconds: number
+  id: string
+}
+
+/** The four benchmark method groups (the group chips on the list screen). */
+export type MethodGroup = 'response-call' | 'response-probability' | 'static-risk' | 'dynamic-risk'
+
+/**
+ * The optional list filters. Every field is typed so an unparseable value is
+ *  a framework 400, never a silently-ignored filter (all four are optional —
+ *  their absence is the full list).
+ */
+export interface MethodListQuery {
+  /** Filter to frozen-model entries. */
+  frozen?: boolean
+  /**
+   * Filter to one method group (`response-call | response-probability |
+   *  static-risk | dynamic-risk`).
+   */
+  group?: MethodGroup
+  /** Case-insensitive substring on the method id. */
+  q?: string
+  /**
+   * Filter to runnable / non-runnable entries. (The shipped catalogue is the
+   *  runnable set — DEC-2 — so this is a contract future for the fixture
+   *  world and for consumers that must reason about both.)
+   */
+  runnable?: boolean
+}
+
+/**
+ * The `GET /api/methods` response — the full (unpaged) runnable set, bounded at
+ *  roughly 400 rows; the list screen filters client-side (DEC-11).
+ */
+export interface MethodListResponse {
+  methods: MethodSummary[]
+  total: number
+}
+
+/** A method's marker-input summary (`markers{kind,count}`). */
+export interface MethodMarkers {
+  count: number
+  kind: MarkerKind
+}
+
+/**
+ * The list-row projection — the full PROV-MC-1 fact set minus the
+ *  detail-only fields (description/software/licence/references/params and the
+ *  internal-ish gate/env/fitted/saves_model/own_outputs facts). Named explicitly
+ *  so a consumer binds the exact row vocabulary (the E-row performance text and
+ *  the models-dialog warning bind named fields here).
+ */
+export interface MethodSummary {
+  container: boolean
+  covariates: CovariateMode
+  embeds_training_data: boolean
+  frozen_model: boolean
+  group: MethodGroup
+  group_label: string
+  id: string
+  journal: string
+  language: string
+  marker_groups_required: string[]
+  markers: MethodMarkers
+  min_draws: number
+  needs_baseline: boolean
+  needs_detection_call: boolean
+  paper_doi: string
+  performance?: Performance
+  required_markers?: RequiredMarkers
+  runnable: boolean
+  spec_status: string
+  tasks: string[]
+  timing: Timing
+  uses_history: UsesHistory
+  year: number
 }
 
 /**
@@ -3111,6 +3430,33 @@ export interface MilestoneFrame {
   status: string
 }
 
+/**
+ * The minimum-draws verdict for a method (the board's "needs N draws; M of K
+ *  have them").
+ */
+export interface MinDraws {
+  met: number
+  required: number
+  unmet_patients: number
+}
+
+/** A board group a method needs and the file/preview does not provide. */
+export interface MissingGroup {
+  display_name: string
+  group_id: string
+}
+
+/**
+ * A required marker the inventory lacks (listed with its group for the B-screen
+ *  reason list and the per-marker decision-day reasons).
+ */
+export interface MissingMarker {
+  display_name: string
+  group_id?: string
+  id: string
+  id_system: string
+}
+
 /** A row of `notifications`. */
 export interface Notification {
   title: string
@@ -3280,6 +3626,26 @@ export interface PairStartResponse {
   mcp_url: string
 }
 
+/** One patient's marker coverage (baseline + on-treatment draw counts). */
+export interface PatientDrawCounts {
+  baseline_draws: number
+  ontreatment_draws: number
+  patient_key: string
+}
+
+/**
+ * Method-level performance aggregates (medians over the benchmark's primary
+ *  units on other cohorts — the model/card fact; no per-patient or per-dataset
+ *  content, INV-6).
+ */
+export interface Performance {
+  /** Present when the benchmark evaluated the AUC call rule for the method. */
+  auc_rule_median?: number
+  c_index_median: number
+  n_datasets: number
+  n_units: number
+}
+
 export interface PermissionDetail {
   description: string
   name: string
@@ -3299,6 +3665,25 @@ export interface PermissionErrorDetails {
 
 /** `pong.status` — CONTRACT.md's `"processing"|"unknown"`. */
 export type PongStatus = 'processing' | 'unknown'
+
+/**
+ * Screen B's preview body: which marker groups the user picked, and the
+ *  draw-schedule answers (before-treatment values, draws during treatment, last
+ *  draw day).
+ */
+export interface PreviewEligibilityRequest {
+  /**
+   * `always` | `sometimes` (whether the treating clinician always has a
+   *  before-treatment sample).
+   */
+  before_treatment: string
+  /** The number of on-treatment draws the user will record (1|2|4). */
+  draws_during_treatment: number
+  /** The last draw day the schedule reaches (28|42|56|84). */
+  last_draw_day: number
+  /** group id → checked. Absent groups count as unchecked. */
+  marker_groups: any
+}
 
 /** Preview query params */
 export interface PreviewQuery {
@@ -3649,6 +4034,27 @@ export interface ReadinessDto {
 }
 
 /**
+ * One structured reason of a method verdict — code + per-code params (the
+ *  display strings are built from these by the consumer; the params keys are
+ *  per-code and rendered by the consumer's copy).
+ */
+export interface Reason {
+  code: ReasonCode
+  /** The board group the reason belongs to, when the reason is group-scoped. */
+  group_id?: string
+  params?: any
+}
+
+/**
+ * The eligibility reason-code vocabulary — the FIXED, structured set of 12
+ *  codes a method verdict can carry. Display text is the consumer's; a renderer
+ *  switches on the code, so the set is closed and documented here (PROV-MC-5's
+ *  acceptance: every emitted code is one of these — consumers can never meet an
+ *  undocumented code).
+ */
+export type ReasonCode = 'REQUIRED_MARKER_MISSING' | 'MARKER_GROUP_MISSING' | 'DETECTION_CALL_MISSING' | 'MIN_DRAWS_UNMET' | 'COVARIATE_MISSING' | 'COVARIATE_REQUIRED_UNMET' | 'UNIT_MISMATCH' | 'DECISION_DAY_UNMET' | 'NOT_RUNNABLE' | 'TASK_INCOMPATIBLE' | 'RESPONSE_LABEL_MISSING' | 'SURVIVAL_OUTCOME_MISSING'
+
+/**
  * `POST /provenance/actions` — the generic interaction chokepoint, and the
  *  route a caller uses when the action type is not `selection.*`. Dispatchable
  *  types are whatever `action_registry::catalog()` marks so: the `selection.*`
@@ -3698,6 +4104,30 @@ export interface RegisterRequest {
 /** Rename-dataset request body. */
 export interface RenameDatasetRequest {
   name: string
+}
+
+/**
+ * One required standard-id marker of a method (`required_markers.markers[]`).
+ *  `id_system` is the raw registry spelling (matches the RULE, case-insensitively,
+ *  in the engine port).
+ */
+export interface RequiredMarker {
+  id: string
+  id_system: string
+  name: string
+}
+
+/**
+ * A method's required-marker rule (the port of data.py's `required_marker_match`
+ *  input): the fixed marker list + the `all | min_fraction` mode + the source
+ *  citation the curated rule came from.
+ */
+export interface RequiredMarkers {
+  list_source: string
+  markers: RequiredMarker[]
+  /** The JSON field is `match` — a Rust keyword, hence the rename. */
+  match: MatchMode
+  min_fraction: number
 }
 
 /**
@@ -4066,12 +4496,24 @@ export interface SniffResult {
   filename: string
 }
 
+/** A method's software declaration (`software{language, packages}`). */
+export interface Software {
+  language: string
+  packages: any
+}
+
 /**
  * Sparse-matrix orientation (which axis is contiguous), i.e. which one-axis slice is
  *  the cheap one. CSC = a COLUMN is contiguous, so a column slice is the hot path;
  *  CSR = a ROW is. A datatype declares whichever matches how its readers slice.
  */
 export type SparseOrientation = 'csc' | 'csr'
+
+/** A standard identifier of a file marker column (`(system, id)`). */
+export interface StandardId {
+  id: string
+  system: string
+}
 
 /**
  * A datatype's storage declaration.
@@ -4175,6 +4617,22 @@ export interface TextRectsResponse {
   rects: HighlightRect[]
 }
 
+/**
+ * A method's per-fold time estimate fact (median of the benchmark's `status==ok`
+ *  per-fold seconds, or the language fallback with `quality: estimate`).
+ */
+export interface Timing {
+  base_seconds_per_fold: number
+  benchmarked_units: number
+  quality: TimingQuality
+}
+
+/**
+ * Timing fact quality: `measured` from the benchmark's stored per-fold seconds,
+ *  `estimate` from the language-based fallback default.
+ */
+export type TimingQuality = 'measured' | 'estimate'
+
 /** JWT token pair (access + refresh) */
 export interface TokenPair {
   access_token: string
@@ -4182,6 +4640,13 @@ export interface TokenPair {
   refresh_token: string
   token_type: string
 }
+
+/**
+ * The unit family a marker's values are measured in — the unit-compatibility
+ *  vocabulary of the eligibility engine (a file column in one family never
+ *  satisfies a method needing another).
+ */
+export type UnitFamily = 'concentration_mass' | 'concentration_molar' | 'count' | 'percent' | 'ratio' | 'detection' | 'none'
 
 /** Unread-count response. */
 export interface UnreadCount {
@@ -4380,6 +4845,13 @@ export interface User {
 }
 
 /**
+ * How much measurement history a method consumes. The manifest vocabulary is
+ *  `landmark | full` (the plan's `none` never occurs in the registry — DRIFT-1
+ *  ITEM-1); `full` renders as "uses all available history".
+ */
+export type UsesHistory = 'landmark' | 'full'
+
+/**
  * A verification record (the re-run trust view). `status` ∈
  *  `pending | reproduced | inconclusive | diverged | error`.
  */
@@ -4478,6 +4950,24 @@ export interface ViewerRef {
    *  contributes its own alongside these).
    */
   view_kind_id: string
+}
+
+/**
+ * One vocabulary marker — the `markers[]` entry of the catalogue and the
+ *  vocabulary surface for the upload screen's marker-join offer.
+ */
+export interface VocabularyMarker {
+  aliases: string[]
+  canonical_unit: string
+  display_name: string
+  /** Board-group ids this marker belongs to (curated `marker-groups.tsv`). */
+  groups: string[]
+  /** The marker id within `system` (e.g. a LOINC code or an HGNC symbol). */
+  id: string
+  /** How many runnable methods reference this marker. */
+  n_methods: number
+  system: MarkerSystem
+  unit_family: UnitFamily
 }
 
 /**
@@ -4649,6 +5139,11 @@ export type ApiEndpointParameters = {
   'Mcp.pairExchange': PairExchangeRequest
   'Mcp.pairStart': void
   'Mcp.updateSettings': UpdateMcpSettings
+  'MethodCatalogue.detail': { method_id: string }
+  'MethodCatalogue.eligibility': EligibilityRequest
+  'MethodCatalogue.estimate': EstimateRequest
+  'MethodCatalogue.list': { frozen?: boolean; group?: MethodGroup; q?: string; runnable?: boolean }
+  'MethodCatalogue.markers': void
   'Notification.delete': { id: string }
   'Notification.get': { id: string }
   'Notification.kinds': void
@@ -4824,6 +5319,11 @@ export type ApiEndpointResponses = {
   'Mcp.pairExchange': PairExchangeResponse
   'Mcp.pairStart': PairStartResponse
   'Mcp.updateSettings': McpSettings
+  'MethodCatalogue.detail': Method
+  'MethodCatalogue.eligibility': EligibilityResponse
+  'MethodCatalogue.estimate': EstimateResponse
+  'MethodCatalogue.list': MethodListResponse
+  'MethodCatalogue.markers': MarkerVocabularyResponse
   'Notification.delete': void
   'Notification.get': Notification
   'Notification.kinds': NotificationKindDescriptor[]

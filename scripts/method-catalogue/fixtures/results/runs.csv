@@ -1,0 +1,7 @@
+dataset,unit,modality,primary,landmark,fold,method,status,seconds,method_version,image_id,package_version,markers,rows,error,marker_specific,required_markers
+FX001_synthetic,FX001_synthetic/plasma-cfdna-methylation,plasma cfDNA methylation,True,42.0,0,fx-baseline-cox,ok,60.0,1.2.0,sha256:1111111111111111111111111111111111111111111111111111111111111111,0.2.0,EYA4_cfDNA_methylation,60.0,,,
+FX001_synthetic,FX001_synthetic/plasma-cfdna-methylation,plasma cfDNA methylation,True,42.0,1,fx-baseline-cox,ok,64.0,1.2.0,sha256:1111111111111111111111111111111111111111111111111111111111111111,0.2.0,EYA4_cfDNA_methylation,60.0,,,
+FX001_synthetic,FX001_synthetic/plasma-cfdna-methylation,plasma cfDNA methylation,True,42.0,2,fx-baseline-cox,error,0.0,1.2.0,,0.2.0,EYA4_cfDNA_methylation,,"TxResBenchError: fixture error row",,
+FX001_synthetic,FX001_synthetic/serum-tumour-marker,serum tumour marker,True,42.0,0,fx-baseline-cox,ok,60.0,1.2.0,sha256:1111111111111111111111111111111111111111111111111111111111111111,0.2.0,CEA_ng_per_mL,25.0,,,
+FX001_synthetic,FX001_synthetic/plasma-cfdna-methylation,plasma cfDNA methylation,True,42.0,0,fx-asm-methylation-panel,ok,240.0,1.0.0,sha256:2222222222222222222222222222222222222222222222222222222222222222,0.2.0,EYA4_cfDNA_methylation,60.0,,,
+FX001_synthetic,FX001_synthetic/plasma-cfdna-methylation,plasma cfDNA methylation,True,42.0,1,fx-asm-methylation-panel,ok,300.0,1.0.0,sha256:2222222222222222222222222222222222222222222222222222222222222222,0.2.0,EYA4_cfDNA_methylation,60.0,,,

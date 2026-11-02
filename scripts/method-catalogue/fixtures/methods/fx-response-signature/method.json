@@ -1,0 +1,45 @@
+{
+ "id": "fx-response-signature",
+ "version": "0.9.0",
+ "group": "response-probability",
+ "language": "Python",
+ "markers": "single",
+ "covariates": "required",
+ "min_draws": 1,
+ "saves_model": true,
+ "uses_history": "landmark",
+ "fitted": true,
+ "own_outputs": [
+  "risk",
+  "p_response",
+  "call"
+ ],
+ "params": {
+  "thresholds": [
+   0.4,
+   0.6
+  ]
+ },
+ "software": {
+  "language": "Python 3.11.10",
+  "packages": {
+   "scikit-learn": "1.4.2"
+  }
+ },
+ "licence": "BSD-3-Clause (the synthetic fixture wrapper)",
+ "references": [
+  "10.5555/fx-response-signature.2026"
+ ],
+ "description": "A synthetic fixture logistic signature that predicts response probability from the serum CEA trajectory; the fitted signature embeds the training rows.",
+ "required_markers": {
+  "markers": [
+   {
+    "name": "serum carcinoembryonic antigen (CEA)",
+    "id_system": "LOINC",
+    "id": "2039-6"
+   }
+  ],
+  "match": "all",
+  "list_source": "Synthetic fixture signature (FX001_synthetic)"
+ }
+}

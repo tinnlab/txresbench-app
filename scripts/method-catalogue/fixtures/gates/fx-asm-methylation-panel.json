@@ -1,0 +1,7 @@
+{
+ "pass": true,
+ "report": "gates/fx-asm-methylation-panel.report.md",
+ "package_version": "0.2.0",
+ "image_digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+ "failed_checks": []
+}

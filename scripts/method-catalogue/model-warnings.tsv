@@ -1,0 +1,7 @@
+# Curated model-warning mapping: method id -> embeds_training_data (true/false).
+# A `true` row means the method's saved model keeps the training data inside the model
+# file (the L-dialog warning fact; the UI renders the board copy, the app never invents
+# a warning). Absent rows default to false. The owner's warn list lands here at the
+# first real generation; until then the real registry ships all-false.
+method_id	embeds_training_data
+fx-response-signature	true

@@ -1,0 +1,48 @@
+# Curated marker-classification mapping for the TxResBench method catalogue.
+# One row (system,id) -> marker group + unit family + canonical unit.
+#   system        : LOINC | HGNC | UNIPROT | HMDB | MIRBASE | OTHER
+#   id            : the standard id exactly as declared (matched case-insensitively)
+#   group         : one of the seven board groups (ctdna, counts, ldh, tumour-markers,
+#                   inflammation, methylation-sequencing, other)
+#   unit_family   : concentration_mass | concentration_molar | count | percent |
+#                   ratio | detection | none
+#   canonical_unit: the family's canonical unit string ("" when unknown/unitless)
+# A (system,id) with no row maps to group "other" and a name-derived unit family.
+# This is the hand-confirmed v1 mapping (OWNER-3: owner review at first real generation);
+# generate a review proposal with `--propose-groups`.
+system	id	group	unit_family	canonical_unit
+# ---- fixture markers (synthetic registry) ----
+HGNC	EYA4	methylation-sequencing	percent	%
+HGNC	GRIA4	methylation-sequencing	percent	%
+# ---- tumour markers ----
+LOINC	2039-6	tumour-markers	concentration_mass	ng/mL
+LOINC	2857-1	tumour-markers	concentration_mass	ng/mL
+LOINC	10334-1	tumour-markers	count	U/mL
+LOINC	24108-3	tumour-markers	count	U/mL
+LOINC	1992-7	tumour-markers	concentration_mass	pg/mL
+LOINC	1839-1	tumour-markers	concentration_mass	ng/mL
+# ---- LDH ----
+LOINC	14804-9	ldh	none	U/L
+LOINC	2532-0	ldh	none	U/L
+# ---- inflammation / cytokines ----
+LOINC	1988-4	inflammation	concentration_mass	mg/L
+LOINC	1988-5	inflammation	concentration_mass	mg/L
+LOINC	1988-7	inflammation	concentration_mass	mg/L
+# ---- blood counts ----
+LOINC	24467-3	counts	count	cells/mm3
+LOINC	10872-0	counts	percent	%
+LOINC	6690-2	counts	count	10^9/L
+LOINC	26474-7	counts	count	10^9/L
+LOINC	26515-7	counts	count	10^9/L
+OTHER	NLR	counts	ratio	none
+# ---- ctDNA detection / status calls ----
+OTHER	ctDNA_status	ctdna	detection	none
+OTHER	ctDNA_mutation_positive	ctdna	detection	none
+OTHER	ctDNA_detectability_tngs	ctdna	detection	none
+# ---- methylation / sequencing scores ----
+OTHER	CSM	methylation-sequencing	none	none
+OTHER	TMS	methylation-sequencing	none	none
+OTHER	methylation_ctDNA	methylation-sequencing	percent	%
+OTHER	ichorCNA_TF	ctdna	ratio	none
+OTHER	cfTL_max_maf	ctdna	percent	%
+OTHER	vaf_mean	ctdna	percent	%

@@ -187,6 +187,13 @@ base64 = "0.22"
 # extensions to MIME strings and parses no array/table format, so it is outside
 # `scripts/check-no-format-crates.sh`'s denylist.
 mime_guess = "2.0"
+# `method_catalogue` (ITEM-3): the matching engine is a faithful port of the
+# benchmark runner's standard-id regexes (`dev/code/benchmark/runner/data.py`
+# lines 131-160 — the plan's rule is "copy the regexes"), so the regex engine
+# itself is the only honest carrier of the port. `regex` 1.x is already a lock
+# member (it was this crate's TEST-33 dev-dep; moved, not added) — no new
+# package enters `Cargo.lock`, and it is outside every guard's denylist.
+regex = "1"
 
 # --- the ONE decode allowance (INV-1 as amended, DEC-23) ----------------------
 # `flate2` inflates the gzip member of the writer's chunk chain, in
@@ -242,10 +249,6 @@ reqwest = { version = "0.12", features = ["json", "multipart", "stream"] }
 # DB-layer assertions in integration tests (e.g. the boot-crash-safety reset):
 # a test connects its own pool to `TestServer::database_url()`.
 sqlx = { version = "0.8.6", features = ["postgres", "sqlite", "runtime-tokio-rustls", "uuid", "chrono"] }
-# TEST-33 (ITEM-26): the final-layout pin's PG-dialect construct grep runs
-# over the migration SQL with a few static patterns. `regex` 1.x is already a
-# transitive lock member (no new package enters `Cargo.lock`).
-regex = "1"
 # TEST-8: the `sqlite3_libversion*` probe that pins the bundled SQLite version
 # floor at test time. The `bundled` feature here is the SAME feature sqlx's
 # `sqlite` feature enables on the shared libsqlite3-sys, so no second build of

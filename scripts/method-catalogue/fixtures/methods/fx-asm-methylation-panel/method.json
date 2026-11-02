@@ -1,0 +1,50 @@
+{
+ "id": "fx-asm-methylation-panel",
+ "version": "1.0.0",
+ "group": "response-call",
+ "language": "Python",
+ "markers": 2,
+ "covariates": "none",
+ "min_draws": 2,
+ "saves_model": false,
+ "uses_history": "landmark",
+ "fitted": false,
+ "own_outputs": [
+  "risk",
+  "call"
+ ],
+ "params": {
+  "positivity_cutoffs": [
+   0.8
+  ],
+  "call_cutoff": 0.0
+ },
+ "software": {
+  "language": "Python 3.11.10",
+  "packages": {
+   "numpy": "2.1.3",
+   "pandas": "2.2.3"
+  }
+ },
+ "licence": "n/a (a rule: the synthetic fixture wrapper has no published code)",
+ "references": [
+  "10.5555/fx-asm-methylation-panel.2026"
+ ],
+ "description": "A synthetic fixture rule over the two-marker cfDNA methylation panel (EYA4, GRIA4). It writes the quantity it thresholds as risk and a 0/1 call; it saves no model. A fixture method, not a research method.",
+ "required_markers": {
+  "markers": [
+   {
+    "name": "EYA4 cfDNA methylation (%)",
+    "id_system": "HGNC",
+    "id": "EYA4"
+   },
+   {
+    "name": "GRIA4 cfDNA methylation (%)",
+    "id_system": "HGNC",
+    "id": "GRIA4"
+   }
+  ],
+  "match": "all",
+  "list_source": "Synthetic fixture panel (FX001_synthetic) with the per-marker cut-offs 0.8% for both markers"
+ }
+}
