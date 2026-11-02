@@ -83,6 +83,20 @@ pub const MODEL_VERIFY_FAILED_CODE: &str = "MODEL_VERIFY_FAILED";
 /// run is refused the same way).
 pub const MODEL_TREE_READ_FAILED_CODE: &str = "MODEL_TREE_READ_FAILED";
 
+/// The verified model's host path cannot be represented as a bwrap argument
+/// (non-UTF-8). Refused before any bind: [`verify_model_tree`] hashes the REAL
+/// directory, so a lossy string would bind a DIFFERENT host path than the one
+/// whose bytes were verified — INV-4's "digest-verified before the bind" would
+/// be mechanically false. Mirrors the base/layer [`ROOTFS_PATH_INVALID`] guard
+/// of the shipped spawn path; the extra-mount host paths keep the shipped
+/// builder's lossy `display()` (server-constructed ASCII staging paths).
+pub const MODEL_PATH_INVALID_CODE: &str = "MODEL_PATH_INVALID";
+
+/// The stacked splice point could not be located in the shipped hardening
+/// prefix — the prefix changed shape in a way the seam probe does not
+/// recognize (internal safety code; a wrong splice is a security bug).
+const SPLICE_ANCHOR_MISSING_CODE: &str = "STACKED_AV_SPLICE_ANCHOR_MISSING";
+
 // ────────────────────────────── compiled constants ────────────────────────────
 
 /// The registry prefix of the per-language BASE rootfs images. Spelled without
@@ -422,6 +436,25 @@ pub(crate) fn build_stacked_bwrap_argv(
             "a stacked base/layer mount path is not valid UTF-8; refusing to build the sandbox",
         ));
     }
+    // The model is the ONLY bind with a verification promise (INV-4: the bytes
+    // are digest-verified BEFORE the bind), so its host path must bind
+    // byte-exactly — a lossy `display()` conversion could point the `--ro-bind`
+    // at a DIFFERENT host dir than the one tree_sha256 hashed. Non-UTF-8 model
+    // paths cannot arrive over the JSON wire (UTF-8), so this guards the
+    // in-process caller.
+    if let Some(model) = model_mount {
+        if model.host_path.to_str().is_none() {
+            return Err(AppError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                MODEL_PATH_INVALID_CODE,
+                format!(
+                    "the model host path {} is not valid UTF-8; the digest-verified bytes \
+                     could not be bound under that exact name",
+                    model.host_path.display()
+                ),
+            ));
+        }
+    }
 
     let mut argv = build_bwrap_argv(
         caps,
@@ -510,26 +543,60 @@ pub(crate) fn build_stacked_bwrap_argv(
     Ok(argv)
 }
 
-/// Index just past the shipped builder's final `/proc`-file mask (the 4th of
-/// the always-emitted `--ro-bind /dev/null /proc/…` triples) — the fixed seam
-/// between the hardening prefix and the FIFO/seccomp/terminator tail.
+/// The shipped builder may emit, immediately after the hardening prefix (with
+/// the stacked builder's `&[]` extra mounts), only these tokens: the optional
+/// progress-FIFO bind (`--bind`), the optional seccomp arg (`--seccomp`), or
+/// the first `--` terminator. Anything else there is a NEW hardening flag or a
+/// moved emission — the splice must refuse rather than sit beside it.
+const POST_HARDENING_TOKENS: &[&str] = &["--bind", "--seccomp", "--"];
+
+/// Index just past the shipped builder's consecutive `/proc`-file mask RUN —
+/// the fixed seam between the hardening prefix and the FIFO/seccomp/terminator
+/// tail. With the stacked builder's `&[]` extra mounts this is exactly the
+/// position where the shipped builder itself would emit its extra mounts
+/// (TEST-02's strongest form, Case A).
 ///
-/// The probe is on the masking flag sequence itself, not on a positional
-/// constant: if the shipped prefix ever changes shape, this function ERRORS
-/// (typed [`ENV_LAYER_ENTRY_INVALID_CODE`]-adjacent internal code) instead of
-/// silently splicing at the wrong offset — a wrong splice is a security bug.
+/// The probe is on the masking flag RUN, not on a positional constant: it
+/// consumes the WHOLE run of `--ro-bind /dev/null /proc/…` triples (then
+/// requires a known post-hardening token), so a shipped-side change that adds
+/// another masked path — or a new flag after the masks — ERRORS with the typed
+/// [`SPLICE_ANCHOR_MISSING_CODE`] instead of splicing at a wrong offset. A
+/// wrong splice is a security bug, never a silent one.
 fn after_proc_mask_block(argv: &[String]) -> Result<usize, AppError> {
-    argv.windows(3)
-        .position(|w| w[0] == "--ro-bind" && w[1] == "/dev/null" && w[2] == "/proc/kmsg")
-        .map(|i| i + 3)
-        .ok_or_else(|| {
-            AppError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "STACKED_AV_SPLICE_ANCHOR_MISSING",
-                "the shipped hardening prefix no longer ends with the /proc-file mask block \
-                 (sandbox.rs change?); refusing to splice the stacked argv at an unknown offset",
-            )
-        })
+    let anchor_missing = |why: &str| {
+        AppError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            SPLICE_ANCHOR_MISSING_CODE,
+            format!(
+                "the shipped hardening prefix changed shape ({why}); refusing to splice the \
+                 stacked argv at an unknown offset"
+            ),
+        )
+    };
+
+    let mut i = 0usize;
+    let mut at: Option<usize> = None;
+    while i + 3 <= argv.len() {
+        let w = &argv[i..i + 3];
+        if w[0] == "--ro-bind" && w[1] == "/dev/null" && w[2].starts_with("/proc/") {
+            at = Some(i + 3);
+            i += 3;
+            continue;
+        }
+        if at.is_some() {
+            break;
+        }
+        i += 1;
+    }
+
+    let at = at.ok_or_else(|| anchor_missing("no /proc-file mask run found"))?;
+    let next = argv.get(at).map(String::as_str).unwrap_or("<end of argv>");
+    if !POST_HARDENING_TOKENS.contains(&next) {
+        return Err(anchor_missing(&format!(
+            "the token after the /proc-file mask run is {next:?}"
+        )));
+    }
+    Ok(at)
 }
 
 // ────────────────────────────── model tree digest ─────────────────────────────
@@ -654,6 +721,7 @@ fn path_bytes(p: &Path) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::modules::sandbox::sandbox::PROGRESS_FIFO_SANDBOX_PATH;
     use crate::modules::sandbox::types::{CgroupMode, PidNsMode, SeccompMode};
     use uuid::Uuid;
 
@@ -705,6 +773,21 @@ mod tests {
         mode: Option<&str>,
         fifo: Option<&str>,
     ) -> Vec<String> {
+        stacked_full(entries, extra_mounts, model, n_cpu, mode, fifo, None)
+    }
+
+    /// Full-parameter stacked builder for the prefix-shape matrix (fifo ×
+    /// seccomp) — every shipped prefix shape must stay byte-identical in the
+    /// shared segment.
+    fn stacked_full(
+        entries: &[&str],
+        extra_mounts: &[ExtraMount],
+        model: Option<&ExtraMount>,
+        n_cpu: u32,
+        mode: Option<&str>,
+        fifo: Option<&str>,
+        seccomp_fd: Option<i32>,
+    ) -> Vec<String> {
         let entries: Vec<String> = entries.iter().map(|s| s.to_string()).collect();
         build_stacked_bwrap_argv(
             &caps(),
@@ -716,7 +799,7 @@ mod tests {
             Path::new("/id/passwd"),
             Path::new("/id/group"),
             Path::new("/id/empty"),
-            None,
+            seccomp_fd,
             &limits(),
             extra_mounts,
             model,
@@ -725,6 +808,82 @@ mod tests {
             mode,
         )
         .expect("stacked argv builds from valid entries")
+    }
+
+    /// The shipped builder with the fixture identity/limits and NO extra mounts
+    /// (the stacked builder consumes them itself) — the prefix/tail source the
+    /// stacked argv is compared against.
+    fn plain_argv(seccomp_fd: Option<i32>, fifo: Option<&str>) -> Vec<String> {
+        build_bwrap_argv(
+            &caps(),
+            &ctx(),
+            Path::new("/mnt/base"),
+            "run.sh",
+            Path::new("/id/passwd"),
+            Path::new("/id/group"),
+            Path::new("/id/empty"),
+            seccomp_fd,
+            &limits(),
+            &[],
+            fifo,
+        )
+    }
+
+    fn model_mount() -> ExtraMount {
+        ExtraMount {
+            host_path: PathBuf::from("/host/model"),
+            sandbox_path: "/ignored".into(), // ignored: dest is fixed at /model
+            mode: MountMode::ReadWrite,      // ignored: model is always RO
+        }
+    }
+
+    fn count(a: &[String], needle: &str) -> usize {
+        a.iter().filter(|s| *s == needle).count()
+    }
+
+    /// Hardening flags the shipped prefix emits at most once each. The stacked
+    /// argv must carry them EXACTLY as often as the shipped argv — a second
+    /// occurrence would be a second, independently-maintained security
+    /// implementation (TEST-02's "no second copy" proof).
+    const LOCKED_HARDENING_FLAGS: &[&str] = &[
+        "--clearenv",
+        "--unshare-user",
+        "--unshare-uts",
+        "--unshare-ipc",
+        "--unshare-cgroup-try",
+        "--unshare-net",
+        "--unshare-pid",
+        "--as-pid-1",
+        "--new-session",
+        "--die-with-parent",
+        "--uid",
+        "--gid",
+        "--proc",
+        "--tmpfs",
+        "--dev",
+        "--chdir",
+    ];
+
+    /// The `--ro-bind <src> /home/analyst/<dotfile>` mask triples of an argv —
+    /// the (source, target) pairs. Derived from each argv rather than re-listed,
+    /// so a dotfile the shipped builder newly masks shows up in BOTH paths.
+    fn mask_triples(a: &[String]) -> Vec<(String, String)> {
+        a.windows(3)
+            .filter(|w| w[0] == "--ro-bind" && w[2].starts_with("/home/analyst/"))
+            .map(|w| (w[1].clone(), w[2].clone()))
+            .collect()
+    }
+
+    /// A fabricated `/proc`-file mask run of `n` triples — the shape the seam
+    /// probe must consume in full.
+    fn mask_run(n: usize) -> Vec<String> {
+        let mut v = Vec::new();
+        for i in 0..n {
+            v.push("--ro-bind".into());
+            v.push("/dev/null".into());
+            v.push(format!("/proc/mask{i}"));
+        }
+        v
     }
 
     fn input_output_mounts() -> Vec<ExtraMount> {
@@ -854,8 +1013,10 @@ mod tests {
 
     /// TEST-02 + the INV-5 design-fidelity proof: the builder REUSES the
     /// shipped hardening prefix — with nothing stacked it is byte-identical to
-    /// `build_bwrap_argv`, and with a real stack the shared prefix + tail are
-    /// byte-identical; no second copy of the security-critical flags exists.
+    /// `build_bwrap_argv`; with a real stack the shared prefix + tail are
+    /// byte-identical for EVERY shipped prefix shape (fifo × seccomp); and no
+    /// single-occurrence hardening flag appears a second time, so a later
+    /// hardening change can never be silently applied to only one argv path.
     #[test]
     fn builder_reuses_shipped_prefix_byte_identically() {
         // Case A — nothing stacked: FULL byte-identity.
@@ -899,19 +1060,7 @@ mod tests {
         // Case B — a real stack: the shipped argv (with NO extra mounts, as the
         // builder consumes them) shares the prefix before the seam and the tail
         // after the splice; only the spliced block differs.
-        let base_no_mounts = build_bwrap_argv(
-            &caps(),
-            &ctx(),
-            Path::new("/mnt/base"),
-            "run.sh",
-            Path::new("/id/passwd"),
-            Path::new("/id/group"),
-            Path::new("/id/empty"),
-            None,
-            &limits(),
-            &[],
-            Some("/host/run/fifo"),
-        );
+        let base_no_mounts = plain_argv(None, Some("/host/run/fifo"));
         let stacked_v = stacked_fifo(
             &["/code"],
             &input_output_mounts(),
@@ -931,6 +1080,248 @@ mod tests {
             base_no_mounts[at..],
             "FIFO/terminator/prlimit tail preserved"
         );
+
+        // Case C — every shipped prefix shape (fifo × seccomp fd): the shared
+        // segment stays byte-identical with a real stack on top, and the
+        // spliced block contains no hardening flag (no second copy).
+        let mm = model_mount();
+        for (fifo, seccomp) in [
+            (None, None),
+            (Some("/host/run/fifo"), None),
+            (None, Some(7)),
+            (Some("/host/run/fifo"), Some(7)),
+        ] {
+            let base = plain_argv(seccomp, fifo);
+            let stacked_v = stacked_full(
+                &["/code", "/opt/venv/lib"],
+                &input_output_mounts(),
+                Some(&mm),
+                4,
+                Some("predict"),
+                fifo,
+                seccomp,
+            );
+            let at = after_proc_mask_block(&base).expect("anchor found");
+            assert_eq!(
+                stacked_v[..at],
+                base[..at],
+                "hardening prefix byte-identical (fifo={fifo:?} seccomp={seccomp:?})"
+            );
+            let tail_at = at + stacked_v.len() - base.len();
+            assert_eq!(
+                stacked_v[tail_at..],
+                base[at..],
+                "tail byte-identical (fifo={fifo:?} seccomp={seccomp:?})"
+            );
+            let block = &stacked_v[at..tail_at];
+            for flag in LOCKED_HARDENING_FLAGS {
+                assert_eq!(
+                    count(&stacked_v, flag),
+                    count(&base, flag),
+                    "{flag}: occurrence count must equal the shipped argv \
+                     (a second copy would be a second security implementation)"
+                );
+                assert!(
+                    !block.contains(&flag.to_string()),
+                    "{flag} must not repeat inside the spliced block"
+                );
+            }
+        }
+    }
+
+    /// ITEM-2 contract pin: the stacked argv satisfies the SAME hardening rules
+    /// the shipped builder's own unit tests pin (sandbox.rs TEST-7/8/9/24 +
+    /// the FIFO test) — network blocked, strict PID-ns with an own `/proc` and
+    /// NO host-`/proc` dev-bind, CA-certs-only `/etc/ssl`, every dotfile masked
+    /// with the empty file, base `/usr`/`/opt` read-only, tmpfs `/tmp`, the
+    /// prlimit tail after the first `--`, seccomp only with an fd, the FIFO
+    /// added exactly once — regardless of what is stacked on top.
+    #[test]
+    fn stacked_argv_preserves_every_shipped_hardening_rule() {
+        let a = stacked(
+            &["/code", "/opt/venv/lib"],
+            &input_output_mounts(),
+            None,
+            2,
+            Some("fit"),
+        );
+
+        // TEST-24 (MEDIUM-1 / HIGH-1 / LOW-1): network, /proc, /etc/ssl.
+        assert!(a.contains(&"--unshare-net".to_string()), "network blocked");
+        assert!(
+            !a.contains(&"--share-net".to_string()),
+            "must NOT --share-net"
+        );
+        assert!(a.contains(&"--unshare-pid".to_string()), "strict pid-ns");
+        assert!(a.contains(&"--proc".to_string()), "own /proc");
+        assert!(
+            !a.windows(3)
+                .any(|w| w[0] == "--dev-bind" && w[1] == "/proc"),
+            "must NEVER --dev-bind the host /proc (secret-exfil vector)"
+        );
+        assert!(a.iter().any(|s| s == "/etc/ssl/certs"), "certs bound");
+        assert!(
+            !a.windows(3)
+                .any(|w| w[0] == "--ro-bind-try" && w[2] == "/etc/ssl"),
+            "no bare /etc/ssl destination bind"
+        );
+
+        // TEST-7/9: identity, base rootfs binds, dotfile masks, terminators,
+        // prlimit + bash tail.
+        let uid = pos(&a, "--uid").expect("uid set");
+        assert_eq!(a[uid + 1], "1001");
+        let gid = pos(&a, "--gid").expect("gid set");
+        assert_eq!(a[gid + 1], "1001");
+        let ub = pos(&a, "/usr").expect("base /usr bound");
+        assert_eq!(a[ub - 2], "--ro-bind", "/usr is read-only");
+        assert_eq!(
+            a[ub - 1],
+            "/mnt/base/usr",
+            "the BASE rootfs /usr, never the host /usr"
+        );
+        let tb = pos(&a, "/tmp").expect("tmpfs present");
+        assert_eq!(a[tb - 1], "--tmpfs");
+        // Dotfile masks: exactly the shipped argv's (source, target) set —
+        // derived from BOTH argv so a newly-added dangerous dotfile is masked
+        // in both paths, never in one.
+        let plain = plain_argv(None, None);
+        let plain_masks = mask_triples(&plain);
+        assert!(!plain_masks.is_empty(), "the shipped prefix masks dotfiles");
+        assert_eq!(mask_triples(&a), plain_masks, "identical dotfile mask set");
+        // Terminators + prlimit after the first `--` (CVE-2024-32462) + bash.
+        let terms: Vec<usize> = a
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| *s == "--")
+            .map(|(i, _)| i)
+            .collect();
+        assert!(terms.len() >= 2, "two -- terminators");
+        let prlimit = pos(&a, "/usr/bin/prlimit").expect("prlimit tail");
+        assert!(terms[0] < prlimit, "first -- precedes prlimit");
+        let bash = pos(&a, "/bin/bash").expect("bash tail");
+        assert_eq!(a[bash + 2], "run.sh");
+
+        // TEST-8: the method mounts map RO→--ro-bind-try, RW→--bind, before `--`.
+        let in_p = pos(&a, "/input").unwrap();
+        assert_eq!(a[in_p - 2], "--ro-bind-try");
+        let out_p = pos(&a, "/output").unwrap();
+        assert_eq!(a[out_p - 2], "--bind");
+        assert!(in_p < terms[0] && out_p < terms[0]);
+
+        // TEST-3 (FIFO): exactly one extra --bind, bound over the tmpfs path,
+        // before the first `--`.
+        let with = stacked_fifo(
+            &["/code"],
+            &input_output_mounts(),
+            None,
+            2,
+            None,
+            Some("/host/fifo"),
+        );
+        let without = stacked_fifo(&["/code"], &input_output_mounts(), None, 2, None, None);
+        assert_eq!(
+            count(&with, "--bind"),
+            count(&without, "--bind") + 1,
+            "exactly one extra --bind for the FIFO"
+        );
+        let fp = pos(&with, PROGRESS_FIFO_SANDBOX_PATH).expect("fifo dest present");
+        assert_eq!(with[fp - 2], "--bind");
+        assert!(
+            fp < pos(&with, "--").unwrap(),
+            "fifo bind precedes the terminator"
+        );
+
+        // Seccomp only when an fd is passed, before the first `--`.
+        let sc = stacked_full(&["/code"], &[], None, 1, None, None, Some(9));
+        let scp = pos(&sc, "--seccomp").expect("--seccomp present with fd");
+        assert_eq!(sc[scp + 1], "9");
+        assert!(
+            scp < pos(&sc, "--").unwrap(),
+            "seccomp is part of the hardening prefix"
+        );
+        assert!(
+            !a.contains(&"--seccomp".to_string()),
+            "no --seccomp without an fd"
+        );
+    }
+
+    /// ITEM-2 audit pin: the seam probe consumes the WHOLE consecutive
+    /// `/proc`-file mask run and REFUSES (typed [`SPLICE_ANCHOR_MISSING_CODE`])
+    /// a prefix whose token after the run is not the FIFO/`--seccomp`/`--`
+    /// trio — a shipped-side hardening change can never be spliced around
+    /// silently.
+    #[test]
+    fn seam_guard_tracks_the_mask_run_and_refuses_shape_changes() {
+        // No mask run at all → typed anchor error.
+        let bare: Vec<String> = vec!["--clearenv".into(), "--unshare-net".into(), "--".into()];
+        let err = after_proc_mask_block(&bare).expect_err("no mask run must be refused");
+        assert_eq!(err.error_code(), SPLICE_ANCHOR_MISSING_CODE);
+
+        // A mask run followed by a NEW hardening flag → refused (the splice
+        // must not sit beside a flag the seam code does not know about).
+        let mut new_flag = mask_run(4);
+        new_flag.push("--unshare-all".into());
+        new_flag.push("--".into());
+        let err = after_proc_mask_block(&new_flag).expect_err("post-mask hardening flag refused");
+        assert_eq!(err.error_code(), SPLICE_ANCHOR_MISSING_CODE);
+
+        // A GROWN mask run (5 paths, the shape a hardening change could add)
+        // still yields the seam AFTER the whole run — never between masks.
+        let mut grown = mask_run(5);
+        grown.push("--".into());
+        assert_eq!(
+            after_proc_mask_block(&grown).expect("grown run accepted"),
+            mask_run(5).len(),
+            "the seam consumes every consecutive mask triple"
+        );
+
+        // The live shipped prefix: seam = end of the 4-mask run, immediately
+        // before the FIFO bind.
+        let real = plain_argv(None, Some("/host/run/fifo"));
+        let at = after_proc_mask_block(&real).expect("live prefix accepted");
+        assert_eq!(real.get(at).map(String::as_str), Some("--bind"));
+        let masks = &real[at - mask_run(4).len()..at];
+        assert!(
+            masks.chunks_exact(3).all(|w| {
+                w[0] == "--ro-bind" && w[1] == "/dev/null" && w[2].starts_with("/proc/")
+            }),
+            "the shipped prefix's 4-mask run sits directly before the seam"
+        );
+    }
+
+    /// ITEM-2 audit pin: a non-UTF-8 model host path refuses BEFORE any bind —
+    /// the bytes tree_sha256 verified must be the bytes the `--ro-bind` mounts
+    /// (INV-4); a lossy string could silently point at a different dir.
+    #[cfg(unix)]
+    #[test]
+    fn model_path_must_be_utf8() {
+        use std::os::unix::ffi::OsStrExt;
+        let bad = PathBuf::from(std::ffi::OsStr::from_bytes(b"/host/mod\xFFel"));
+        let model = ExtraMount {
+            host_path: bad,
+            sandbox_path: "/model".into(),
+            mode: MountMode::ReadOnly,
+        };
+        let err = build_stacked_bwrap_argv(
+            &caps(),
+            &ctx(),
+            Path::new("/mnt/base"),
+            Path::new("/mnt/layer"),
+            &[],
+            "run.sh",
+            Path::new("/p"),
+            Path::new("/g"),
+            Path::new("/m"),
+            None,
+            &limits(),
+            &[],
+            Some(&model),
+            1,
+            None,
+            None,
+        )
+        .expect_err("a non-UTF-8 model path must be refused before any bind");
+        assert_eq!(err.error_code(), MODEL_PATH_INVALID_CODE);
     }
 
     /// TEST-03: the entries validator refuses `..`, relative, empty-component

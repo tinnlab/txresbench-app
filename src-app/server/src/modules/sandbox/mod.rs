@@ -1,10 +1,37 @@
 //! `sandbox` module — bwrap-isolated execution of analysis (R/Python) scripts
-//! against the embedded analysis rootfs.
+//! against an analysis rootfs, and of txr benchmark-method runs in a stacked
+//! base+layer environment.
 //!
 //! Ported from ziee `code_sandbox`, Linux-first + companion-driven: exposed as a
 //! SERVICE (`service::run_analysis`) + a thin authenticated route (NOT a chat
 //! MCP server — DEC-5). Boot probes the host, creates the workspace root, and
 //! records `SandboxAvailability`; the rootfs mounts lazily on first run.
+//!
+//! # Two execution modes, one security core
+//!
+//! Both modes are built by the same hardening core (`sandbox.rs`:
+//! [`build_bwrap_argv`] + `spawn_bwrap_child`); only the argv differs.
+//!
+//! 1. **Processor pipeline** (the shipped cytoanalyst path) — one trimmed
+//!    analysis rootfs per env image, bound read-only; the per-job workspace
+//!    binds at `/home/analyst`; results land in the staging tree.
+//! 2. **Stacked method run** (txr; the [`stack`] submodule) — ONE trimmed
+//!    per-language base rootfs + ONE per-method layer image per run. The
+//!    layer's `layer-manifest.json` entries bind individually, read-only, on
+//!    top of the base (a layer never shadows the base wholesale),
+//!    `/input` read-only, `/output` writable, `/model` read-only after a
+//!    whole-tree sha256 check (fit writes `/model` into the caller's staging
+//!    dir), `SIGBENCH_MODE` fit/predict per contract.md X1, and `--network
+//!    none` is the shipped `--unshare-net`. [`stack::build_stacked_bwrap_argv`]
+//!    REUSES [`sandbox::build_bwrap_argv`] for the byte-identical hardening
+//!    prefix and splices the layer/model/mount/env block at ONE fixed seam —
+//!    right after the shipped `/proc`-file mask run — so a later hardening
+//!    change can never be applied to only one argv path (a wrong splice is a
+//!    typed internal error, never a silent one). Every method runs in its own
+//!    stack (INV-2); the base and layer digests are recorded in the run
+//!    workspace (INV-6). Env fetch/verify/cache/mount and the env-status +
+//!    method-run HTTP surface are the rest of this module's txr extension,
+//!    gated by the existing sandbox permissions (no new permission).
 //!
 //! # Host requirements (operator + dev)
 //!
@@ -28,6 +55,12 @@
 //!    must NOT be masked (an over-mount on any `/proc/...` path — e.g. the NVIDIA
 //!    container toolkit's `/proc/driver/nvidia/params` — locks the tree against an
 //!    unprivileged `mount -t proc`); run with `--security-opt systempaths=unconfined`.
+//! 4. **`oras`** (txr env fetch only) — looked up in `<app_data>/bin` first, then
+//!    `PATH`. Downloading method environments is the ONLY network use the desktop
+//!    app has; a method run itself is `--unshare-net` (no loopback, no egress) and
+//!    the fetched bytes are verified against their pinned sha256 before they are
+//!    mounted. Missing `oras` degrades the txr env status, never a run against the
+//!    host filesystem.
 //!
 //! For a local dev box, `scripts/dev-sandbox-bootstrap.sh` applies 2 + 3 idempotently.
 
@@ -44,10 +77,11 @@ pub mod probes;
 pub mod routes;
 pub mod sandbox;
 pub mod spec;
-// Stacked-layer method sandbox (txr): contract types + pure argv/model/ref
-// rules. No exported fn touches bwrap itself — the run seam (service.rs,
-// ITEM-4) drives the reuse of `sandbox::spawn_bwrap_child` on the argv this
-// module builds (DEC-1: extension of the shipped module, not a replacement).
+// Stacked-layer method sandbox (txr): contract types + the pure argv/model/ref
+// rules + the stacked argv builder — the second execution mode described in the
+// module doc. No exported fn touches bwrap itself; the run seam drives
+// `sandbox::spawn_bwrap_child` on the argv built here (DEC-1: extension of the
+// shipped module, not a replacement).
 pub mod stack;
 #[cfg(target_os = "linux")]
 pub mod streaming;
