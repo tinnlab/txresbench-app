@@ -23,6 +23,7 @@
 pub mod catalogue;
 pub mod eligibility;
 pub mod estimate;
+pub mod routes;
 pub mod types;
 
 use aide::axum::ApiRouter;
@@ -65,7 +66,7 @@ impl AppModule for MethodCatalogueModule {
         // eligibility, estimate) register here from the module's `routes`
         // submodule; the module ships them under the `/api/methods` prefix with
         // the reused `projects::use` permission (no new permission — DEC-10).
-        router
+        router.merge(routes::method_catalogue_routes())
     }
 }
 

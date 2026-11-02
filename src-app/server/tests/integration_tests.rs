@@ -32,6 +32,7 @@ mod health;
 mod sandbox;
 mod jobs;
 mod mcp;
+mod method_catalogue;
 mod model_coverage;
 mod notification;
 mod predicate_removed;

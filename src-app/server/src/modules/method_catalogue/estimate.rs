@@ -29,8 +29,14 @@
 //! the standard 2-approximation of the optimal parallel schedule and is fully
 //! deterministic (pure arithmetic over the embedded facts — the TEST-MC-14
 //! "same input ⇒ same seconds, no wall-clock dependence" property). One lane
-//! (`at_a_time: 1`) is the plain sum; `at_a_time ≥ method count` is a single
-//! wave (the max). NOTE: this packs run TIME only — the two-level schedule
+//! (`at_a_time: 1`) is the plain sum — for that case `schedule_seconds` IS
+//! `total_seconds`, bitwise, not merely the same real number: LPT would
+//! accumulate the sorted-descending values, and a sorted-order sum of the
+//! same f64 values can differ from the request-order sum by 1 ULP (addition
+//! is non-associative; measured on the shipped bases at 151 patients:
+//! 46.40733333333333 vs 46.407333333333334 — DRIFT-1 ITEM-5 #9). `at_a_time ≥
+//! method count` is a single wave (the max). NOTE: this packs run TIME only —
+//! the two-level schedule
 //! (the decision to run the first `at_a_time` methods while the rest wait) is
 //! the execution engine's; the estimate's LPT makespan is the promise the bar
 //! renders (D20: simple sum of estimates + the schedule total).
@@ -165,7 +171,18 @@ pub fn estimate_for(
         .collect();
     let seconds: Vec<f64> = per_method.iter().map(|m| m.estimated_seconds).collect();
     let total_seconds: f64 = seconds.iter().sum();
-    let schedule_seconds = lpt_schedule_seconds(&seconds, req.at_a_time);
+    // One lane is the plain sum — the EXACT `total_seconds` f64, not merely
+    // the same real number: LPT accumulates in sorted-descending order, and a
+    // sorted-order sum of the same values can differ from the request-order
+    // sum by 1 ULP (f64 addition is non-associative; measured on the shipped
+    // bases at 151 patients: 46.40733333333333 vs 46.407333333333334). The
+    // wire promise "at_a_time 1 ⇒ schedule == total" is bitwise, so the
+    // route-level exact assert (TEST-MC-14) stays bitwise (DRIFT-1 ITEM-5 #9).
+    let schedule_seconds = if req.at_a_time == 1 {
+        total_seconds
+    } else {
+        lpt_schedule_seconds(&seconds, req.at_a_time)
+    };
     Ok(EstimateResponse {
         methods: per_method,
         total_seconds,
@@ -342,6 +359,35 @@ mod tests {
         // (patients 150, cpus 2 -> factor 4/2 = 2).
         let r = estimate_for(&cat, &req(&["fx-a", "fx-b", "fx-c"], 150, 2, 2)).unwrap();
         assert_eq!(r.schedule_seconds, 720.0); // [600]|[480,240] -> 720
+    }
+
+    #[test]
+    fn one_lane_schedule_is_bitwise_the_total() {
+        // TEST-MC-14's exactness corner found by ITEM-5's route test: the
+        // shipped bases (8.9 / 11.6 / 25.6 s) at 151 patients sum to a
+        // DIFFERENT f64 in request order (46.40733333333333) than in the LPT's
+        // sorted-descending order (46.407333333333334) — f64 addition is not
+        // associative, so "one lane = the plain sum" has to be implemented,
+        // not trusted to the sum order. The engine returns `total_seconds`
+        // verbatim for at_a_time == 1; pinned here bitwise.
+        let cat = catalogue_with(serde_json::json!([
+            method_json("fx-a", 8.9, "measured", 1),
+            method_json("fx-b", 11.6, "measured", 1),
+            method_json("fx-c", 25.6, "measured", 1)
+        ]));
+        let r = estimate_for(&cat, &req(&["fx-a", "fx-b", "fx-c"], 151, 4, 1)).unwrap();
+        assert_eq!(r.schedule_seconds, r.total_seconds);
+        // The ULP split really exists in these facts (the reason the exact
+        // equality is a deliberate branch, not an accident of order).
+        let vals: Vec<f64> = r.methods.iter().map(|m| m.estimated_seconds).collect();
+        let request_order: f64 = vals.iter().sum();
+        let mut sorted = vals.clone();
+        sorted.sort_by(|a, b| b.total_cmp(a));
+        let sorted_order: f64 = sorted.iter().sum();
+        assert_ne!(request_order, sorted_order, "the split is observable");
+        assert_eq!(request_order, r.total_seconds);
+        assert_eq!(sorted_order, 46.407333333333334_f64);
+        assert_eq!(r.total_seconds, 46.40733333333333_f64);
     }
 
     #[test]

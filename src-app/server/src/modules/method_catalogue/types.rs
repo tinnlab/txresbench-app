@@ -802,9 +802,29 @@ mod tests {
         let _ = schemars::schema_for!(ReasonCode);
     }
 
+    /// TEST-MC-27 (unit half): the reason-code vocabulary is a CLOSED compile-
+    /// time set — exactly the 12 documented codes, each with a distinct wire
+    /// string, so a consumer's per-code renderer can never meet an
+    /// undocumented code and the serde side can never emit duplicates.
     #[test]
-    fn enum_wire_strings_are_the_schema_strings() {
-        let s =
+    fn reason_code_vocabulary_is_closed_and_distinct() {
+        assert_eq!(ReasonCode::ALL.len(), 12, "the 12 documented codes");
+        let mut wires: Vec<&str> = ReasonCode::ALL.iter().map(|c| c.as_str()).collect();
+        wires.sort_unstable();
+        wires.dedup();
+        assert_eq!(wires.len(), 12, "wire strings are distinct");
+        for code in ReasonCode::ALL {
+            // The round-trip: serialize → deserialize must yield the same code
+            // (the serde renames are the wire strings the engine emits).
+            let json = serde_json::to_value(code).expect("serialize");
+            let back: ReasonCode = serde_json::from_value(json.clone()).expect("deserialize");
+            assert_eq!(back, code, "round-trip of {}", code.as_str());
+            assert_eq!(json.as_str().expect("string"), code.as_str());
+        }
+    }
+
+    #[test]
+    fn enum_wire_strings_are_the_schema_strings() {        let s =
             serde_json::to_value(schemars::schema_for!(EligibilityStatus)).expect("serializable");
         let s = format!("{s}");
         assert!(

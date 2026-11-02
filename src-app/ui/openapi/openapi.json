@@ -8625,6 +8625,362 @@
         ]
       }
     },
+    "/api/methods": {
+      "get": {
+        "tags": [
+          "method-catalogue"
+        ],
+        "description": "List the method catalogue rows (unpaged — the bounded runnable set; the list screen filters client-side). Optional `group`/`runnable`/`frozen`/`q` filters; `q` is a case-insensitive substring on the method id.",
+        "operationId": "MethodCatalogue.list",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "frozen",
+            "description": "Filter to frozen-model entries.",
+            "schema": {
+              "description": "Filter to frozen-model entries.",
+              "type": [
+                "boolean",
+                "null"
+              ],
+              "default": null
+            },
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "group",
+            "description": "Filter to one method group (`response-call | response-probability |\n static-risk | dynamic-risk`).",
+            "schema": {
+              "description": "Filter to one method group (`response-call | response-probability |\n static-risk | dynamic-risk`).",
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/MethodGroup"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "description": "Case-insensitive substring on the method id.",
+            "schema": {
+              "description": "Case-insensitive substring on the method id.",
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null
+            },
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "runnable",
+            "description": "Filter to runnable / non-runnable entries. (The shipped catalogue is the\n runnable set — DEC-2 — so this is a contract future for the fixture\n world and for consumers that must reason about both.)",
+            "schema": {
+              "description": "Filter to runnable / non-runnable entries. (The shipped catalogue is the\n runnable set — DEC-2 — so this is a contract future for the fixture\n world and for consumers that must reason about both.)",
+              "type": [
+                "boolean",
+                "null"
+              ],
+              "default": null
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and manage your projects",
+                        "name": "ProjectsUse",
+                        "value": "projects::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: projects::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "The `GET /api/methods` response — the full (unpaged) runnable set, bounded at\n roughly 400 rows; the list screen filters client-side (DEC-11).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MethodListResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "projects::use"
+        ]
+      }
+    },
+    "/api/methods/{method_id}": {
+      "get": {
+        "tags": [
+          "method-catalogue"
+        ],
+        "description": "One method's full fact set (description, software, licence, references, params, timing, performance). Unknown id → 404 METHOD_NOT_FOUND.",
+        "operationId": "MethodCatalogue.detail",
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and manage your projects",
+                        "name": "ProjectsUse",
+                        "value": "projects::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: projects::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "One method's full fact set — the `methods[]` entry of the committed catalogue\n and the `GET /api/methods/{id}` payload (PROV-MC-3's MethodDetail is exactly\n this entry).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Method"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown method id (METHOD_NOT_FOUND)"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "projects::use"
+        ]
+      }
+    },
+    "/api/markers": {
+      "get": {
+        "tags": [
+          "method-catalogue"
+        ],
+        "description": "The marker vocabulary (standard-id markers with aliases, unit families, board groups) and the 7 marker groups — the upload screen's join offer and its group-panel checkbox set.",
+        "operationId": "MethodCatalogue.markers",
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and manage your projects",
+                        "name": "ProjectsUse",
+                        "value": "projects::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: projects::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "The marker-vocabulary response (the join-offer + the B-screen group-panel\n vocabulary; the checkbox set is built from `groups`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarkerVocabularyResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "projects::use"
+        ]
+      }
+    },
+    "/api/methods/eligibility": {
+      "post": {
+        "tags": [
+          "method-catalogue"
+        ],
+        "description": "Per-method eligibility verdicts (can_run / can_run_some / cannot_run) with structured reason codes, missing markers/groups and per-patient coverage aggregates. The body is a tagged union: `preview` (screen-B schedule answers) or `inventory` (the file validator's inventory).",
+        "operationId": "MethodCatalogue.eligibility",
+        "requestBody": {
+          "description": "The eligibility request body — a tagged union carrying exactly one of the two\n request kinds (`{\"preview\": …}` or `{\"inventory\": …}`).",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EligibilityRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and manage your projects",
+                        "name": "ProjectsUse",
+                        "value": "projects::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: projects::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "The eligibility response — per-method verdicts plus the screen-B totals.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EligibilityResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed JSON body"
+          },
+          "422": {
+            "description": "JSON body that does not match the request schema"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "projects::use"
+        ]
+      }
+    },
+    "/api/methods/estimate": {
+      "post": {
+        "tags": [
+          "method-catalogue"
+        ],
+        "description": "Per-method estimated seconds (base per-fold seconds scaled by patients and CPUs — 150 reference patients, 4 reference CPUs), the plain sum, and the greedy longest-processing-time schedule total over `at_a_time` lanes (the run-N-at-a-time bar). Validation order: cpus/at_a_time (0 rejected) first, then method resolution — the first failure wins.",
+        "operationId": "MethodCatalogue.estimate",
+        "requestBody": {
+          "description": "The estimate request: which methods, on how many patients, on how many CPUs,\n running `at_a_time` lanes.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EstimateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and manage your projects",
+                        "name": "ProjectsUse",
+                        "value": "projects::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: projects::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "The estimate response: per-method seconds, the plain sum, and the\n longest-processing-time schedule total over the `at_a_time` lanes (the\n bottom-bar \"about X minutes in total on this computer\").",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstimateResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "UNKNOWN_METHOD / METHOD_NOT_RUNNABLE / INVALID_CPUS / INVALID_AT_A_TIME"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "projects::use"
+        ]
+      }
+    },
     "/api/sandbox/status": {
       "get": {
         "tags": [
@@ -11822,6 +12178,30 @@
           }
         ]
       },
+      "CatalogueEnv": {
+        "description": "The benchmark container-image reference the catalogue carries as DATA (the\n runtime `EnvRef` is built from `method-env-images.json` — a different\n artifact; see the PLAN's env note). The image string carries no scheme and is\n never fetched by this module.",
+        "type": "object",
+        "properties": {
+          "contract": {
+            "description": "The benchmark container contract version (e.g. \"2.0\").",
+            "type": "string"
+          },
+          "digest": {
+            "description": "The gate's image digest.",
+            "type": "string"
+          },
+          "image": {
+            "description": "`ghcr.io/tinnlab/txresbench-<method-id>:<method-version>`.",
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "image",
+          "digest",
+          "contract"
+        ]
+      },
       "ChangePasswordRequest": {
         "description": "Self-service password change for the authenticated user. Requires\n the current password as proof. Only valid for local-password\n accounts (`password_hash IS NOT NULL`).",
         "type": "object",
@@ -12035,6 +12415,40 @@
             "type": "string",
             "const": "sandbox"
           }
+        ]
+      },
+      "CovariateMode": {
+        "description": "Whether a method's inputs include patient covariates beyond the markers.",
+        "type": "string",
+        "enum": [
+          "none",
+          "optional",
+          "required"
+        ]
+      },
+      "Coverage": {
+        "description": "Per-patient coverage aggregate (no per-patient payload in the response —\n coverage facts only).",
+        "type": "object",
+        "properties": {
+          "eligible": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "fraction": {
+            "type": "number",
+            "format": "double"
+          },
+          "total": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "eligible",
+          "total",
+          "fraction"
         ]
       },
       "CreateAuthProviderRequest": {
@@ -13455,6 +13869,141 @@
           "freeze"
         ]
       },
+      "EligibilityRequest": {
+        "description": "The eligibility request body — a tagged union carrying exactly one of the two\n request kinds (`{\"preview\": …}` or `{\"inventory\": …}`).",
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "preview": {
+                "$ref": "#/components/schemas/PreviewEligibilityRequest"
+              }
+            },
+            "required": [
+              "preview"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "inventory": {
+                "$ref": "#/components/schemas/InventoryEligibilityRequest"
+              }
+            },
+            "required": [
+              "inventory"
+            ]
+          }
+        ]
+      },
+      "EligibilityResponse": {
+        "description": "The eligibility response — per-method verdicts plus the screen-B totals.",
+        "type": "object",
+        "properties": {
+          "methods": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MethodEligibility"
+            }
+          },
+          "total_cannot": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "total_fit": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "total_some": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "methods",
+          "total_fit",
+          "total_some",
+          "total_cannot"
+        ]
+      },
+      "EligibilityStatus": {
+        "description": "The three-method eligibility verdict vocabulary (the board's \"Can run / Can\n run for some patients / Cannot run\").",
+        "type": "string",
+        "enum": [
+          "can_run",
+          "can_run_some",
+          "cannot_run"
+        ]
+      },
+      "EstimateRequest": {
+        "description": "The estimate request: which methods, on how many patients, on how many CPUs,\n running `at_a_time` lanes.",
+        "type": "object",
+        "properties": {
+          "at_a_time": {
+            "description": "Defaults to [`DEFAULT_ESTIMATE_AT_A_TIME`] when omitted.",
+            "type": "integer",
+            "format": "uint32",
+            "default": 3,
+            "minimum": 0
+          },
+          "cpus": {
+            "description": "Defaults to [`DEFAULT_ESTIMATE_CPUS`] when omitted.",
+            "type": "integer",
+            "format": "uint32",
+            "default": 4,
+            "minimum": 0
+          },
+          "method_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "patients": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "method_ids",
+          "patients"
+        ]
+      },
+      "EstimateResponse": {
+        "description": "The estimate response: per-method seconds, the plain sum, and the\n longest-processing-time schedule total over the `at_a_time` lanes (the\n bottom-bar \"about X minutes in total on this computer\").",
+        "type": "object",
+        "properties": {
+          "at_a_time": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "methods": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MethodEstimate"
+            }
+          },
+          "schedule_seconds": {
+            "type": "number",
+            "format": "double"
+          },
+          "total_seconds": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "required": [
+          "methods",
+          "total_seconds",
+          "schedule_seconds",
+          "at_a_time"
+        ]
+      },
       "ExportRequest": {
         "description": "`POST /provenance/export` — build a reproducibility bundle.",
         "type": "object",
@@ -13757,6 +14306,35 @@
           "per_page"
         ]
       },
+      "FileOutcomes": {
+        "description": "The file's outcome-column facts — the availability of the four outcome\n column kinds the validator resolves (`responder`/`response_day` for the\n response task, `pfs_*`/`os_*` event + time for the survival task). The\n engine needs them to emit the three outcome-availability verdicts\n (`RESPONSE_LABEL_MISSING`, `SURVIVAL_OUTCOME_MISSING`,\n `TASK_INCOMPATIBLE` — PROV-MC-5's grown vocabulary); they are facts the\n validator knows and puts on the inventory it posts.",
+        "type": "object",
+        "properties": {
+          "has_event": {
+            "description": "The file carries a survival event column (`pfs_event`/`os_event`).",
+            "type": "boolean"
+          },
+          "has_responder": {
+            "description": "The file carries a `responder` column (per patient).",
+            "type": "boolean"
+          },
+          "has_response_day": {
+            "description": "The file carries a `response_day` column (per patient).",
+            "type": "boolean"
+          },
+          "has_survival_day": {
+            "description": "The file carries a survival time column (`pfs_days`/`os_days`).",
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "has_responder",
+          "has_response_day",
+          "has_event",
+          "has_survival_day"
+        ]
+      },
       "FileVersion": {
         "description": "One immutable version of a file.",
         "type": "object",
@@ -13989,6 +14567,23 @@
           "params_schema"
         ]
       },
+      "Gate": {
+        "description": "The method's wrapper gate record (methods/gates/<id>.json).",
+        "type": "object",
+        "properties": {
+          "pass": {
+            "type": "boolean"
+          },
+          "report_name": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "pass",
+          "report_name"
+        ]
+      },
       "GraphDto": {
         "description": "The provenance graph for a project (or a target's backward closure).",
         "type": "object",
@@ -14155,6 +14750,149 @@
               "members"
             ]
           }
+        ]
+      },
+      "InventoryCovariate": {
+        "description": "One covariate column of the file inventory.",
+        "type": "object",
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "key": {
+            "description": "The file column key (the validator's stable key).",
+            "type": "string"
+          },
+          "standard_ids": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StandardId"
+            }
+          },
+          "unit_family": {
+            "$ref": "#/components/schemas/UnitFamily"
+          }
+        },
+        "required": [
+          "key",
+          "display_name",
+          "unit_family",
+          "standard_ids"
+        ]
+      },
+      "InventoryEligibilityRequest": {
+        "description": "The file-inventory body (screens C/N/E — the consumer that holds the file\n posts it).",
+        "type": "object",
+        "properties": {
+          "baseline_max_day": {
+            "type": "number",
+            "format": "double"
+          },
+          "covariates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InventoryCovariate"
+            }
+          },
+          "decision_day": {
+            "type": "number",
+            "format": "double"
+          },
+          "markers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InventoryMarker"
+            }
+          },
+          "outcomes": {
+            "description": "The outcome-column facts of the file, when the consumer knows them\n (absence skips the outcome-availability checks — a request without them\n is not misclassified by the engine).",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FileOutcomes"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "patients": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "patients",
+          "decision_day",
+          "baseline_max_day",
+          "markers",
+          "covariates"
+        ]
+      },
+      "InventoryMarker": {
+        "description": "One marker column of the file inventory.",
+        "type": "object",
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "has_detection_companion": {
+            "description": "The column has a `__detected`/`__lod` companion (data.py's companion\n semantics — companions never rank or match).",
+            "type": "boolean"
+          },
+          "is_detection_call": {
+            "description": "The column is a detection call (present/absent, not a measured value).",
+            "type": "boolean"
+          },
+          "key": {
+            "description": "The file column key (the validator's stable key).",
+            "type": "string"
+          },
+          "n_patients_with_baseline": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "n_patients_with_ontreatment": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "n_patients_with_value": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "per_patient": {
+            "description": "Per-patient draw counts; OMITTED when the validator does not carry them\n (coverage then falls back to the patient-level counts above).",
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/PatientDrawCounts"
+            }
+          },
+          "standard_ids": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StandardId"
+            }
+          },
+          "unit_family": {
+            "$ref": "#/components/schemas/UnitFamily"
+          }
+        },
+        "required": [
+          "key",
+          "display_name",
+          "unit_family",
+          "standard_ids",
+          "is_detection_call",
+          "has_detection_companion",
+          "n_patients_with_value",
+          "n_patients_with_baseline",
+          "n_patients_with_ontreatment"
         ]
       },
       "InvitationSummary": {
@@ -15069,6 +15807,75 @@
           "password"
         ]
       },
+      "MarkerGroup": {
+        "description": "One of the 7 board marker groups (screen B checkbox row).",
+        "type": "object",
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "display_name"
+        ]
+      },
+      "MarkerKind": {
+        "description": "The marker-input shape of a method: `any` (marker-agnostic; `count` 0 =\n unbounded), `single` (1 marker), `panel` (N named markers from a fixed list),\n `multi` (N markers, no fixed list).",
+        "type": "string",
+        "enum": [
+          "any",
+          "single",
+          "panel",
+          "multi"
+        ]
+      },
+      "MarkerSystem": {
+        "description": "The marker identifier system of a vocabulary marker (the registry's systems;\n the matching engine also knows the `other`-system fallback as an open string).",
+        "type": "string",
+        "enum": [
+          "LOINC",
+          "HGNC",
+          "UNIPROT",
+          "HMDB",
+          "MIRBASE",
+          "OTHER"
+        ]
+      },
+      "MarkerVocabularyResponse": {
+        "description": "The marker-vocabulary response (the join-offer + the B-screen group-panel\n vocabulary; the checkbox set is built from `groups`).",
+        "type": "object",
+        "properties": {
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MarkerGroup"
+            }
+          },
+          "markers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VocabularyMarker"
+            }
+          }
+        },
+        "required": [
+          "markers",
+          "groups"
+        ]
+      },
+      "MatchMode": {
+        "description": "The `required_markers` match mode (the data.py port's `match:` field).",
+        "type": "string",
+        "enum": [
+          "all",
+          "min_fraction"
+        ]
+      },
       "McpSettings": {
         "description": "The singleton MCP settings row — the six promoted knobs (agent caps + tool\n caps + pairing-TTL). All fields are `bigint`/`i64` (DEC-5), converted to\n `usize`/`u64`/`Duration` at the read-at-use sites via the accessors below.",
         "type": "object",
@@ -15155,6 +15962,491 @@
             "format": "int64"
           }
         }
+      },
+      "Method": {
+        "description": "One method's full fact set — the `methods[]` entry of the committed catalogue\n and the `GET /api/methods/{id}` payload (PROV-MC-3's MethodDetail is exactly\n this entry).",
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "citations": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "container": {
+            "type": "boolean"
+          },
+          "covariates": {
+            "$ref": "#/components/schemas/CovariateMode"
+          },
+          "embeds_training_data": {
+            "type": "boolean"
+          },
+          "env": {
+            "$ref": "#/components/schemas/CatalogueEnv"
+          },
+          "fitted": {
+            "type": "boolean"
+          },
+          "frozen_model": {
+            "type": "boolean"
+          },
+          "gate": {
+            "$ref": "#/components/schemas/Gate"
+          },
+          "group": {
+            "$ref": "#/components/schemas/MethodGroup"
+          },
+          "group_label": {
+            "type": "string"
+          },
+          "id": {
+            "description": "The stable package slug (identity of the method in the app).",
+            "type": "string"
+          },
+          "journal": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "licence": {
+            "type": "string"
+          },
+          "marker_groups_required": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "markers": {
+            "$ref": "#/components/schemas/MethodMarkers"
+          },
+          "min_draws": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "needs_baseline": {
+            "type": "boolean"
+          },
+          "needs_detection_call": {
+            "type": "boolean"
+          },
+          "own_outputs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "paper_doi": {
+            "type": "string"
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "performance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Performance"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "references": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "required_markers": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RequiredMarkers"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "runnable": {
+            "type": "boolean"
+          },
+          "saves_model": {
+            "type": "boolean"
+          },
+          "software": {
+            "$ref": "#/components/schemas/Software"
+          },
+          "spec_status": {
+            "type": "string"
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "timing": {
+            "$ref": "#/components/schemas/Timing"
+          },
+          "uses_history": {
+            "$ref": "#/components/schemas/UsesHistory"
+          },
+          "version": {
+            "type": "string"
+          },
+          "year": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "group",
+          "group_label",
+          "journal",
+          "year",
+          "citations",
+          "language",
+          "paper_doi",
+          "spec_status",
+          "frozen_model",
+          "container",
+          "runnable",
+          "gate",
+          "env",
+          "markers",
+          "covariates",
+          "min_draws",
+          "needs_baseline",
+          "uses_history",
+          "fitted",
+          "saves_model",
+          "own_outputs",
+          "tasks",
+          "needs_detection_call",
+          "marker_groups_required",
+          "description",
+          "timing",
+          "embeds_training_data",
+          "software",
+          "licence",
+          "references",
+          "params"
+        ]
+      },
+      "MethodEligibility": {
+        "description": "One method's eligibility verdict.",
+        "type": "object",
+        "properties": {
+          "coverage": {
+            "$ref": "#/components/schemas/Coverage"
+          },
+          "estimate_quality": {
+            "$ref": "#/components/schemas/TimingQuality"
+          },
+          "estimated_seconds": {
+            "type": "number",
+            "format": "double"
+          },
+          "id": {
+            "type": "string"
+          },
+          "min_draws": {
+            "$ref": "#/components/schemas/MinDraws"
+          },
+          "missing_groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MissingGroup"
+            }
+          },
+          "missing_markers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MissingMarker"
+            }
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Reason"
+            }
+          },
+          "status": {
+            "$ref": "#/components/schemas/EligibilityStatus"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "reasons",
+          "missing_markers",
+          "missing_groups",
+          "coverage",
+          "min_draws",
+          "estimated_seconds",
+          "estimate_quality"
+        ]
+      },
+      "MethodEstimate": {
+        "description": "One method's estimate.",
+        "type": "object",
+        "properties": {
+          "estimate_quality": {
+            "$ref": "#/components/schemas/TimingQuality"
+          },
+          "estimated_seconds": {
+            "type": "number",
+            "format": "double"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "estimated_seconds",
+          "estimate_quality"
+        ]
+      },
+      "MethodGroup": {
+        "description": "The four benchmark method groups (the group chips on the list screen).",
+        "oneOf": [
+          {
+            "description": "A rule/statistic that calls response vs no response at the decision day.",
+            "type": "string",
+            "const": "response-call"
+          },
+          {
+            "description": "A model of response probability at the decision day.",
+            "type": "string",
+            "const": "response-probability"
+          },
+          {
+            "description": "A risk score from baseline values.",
+            "type": "string",
+            "const": "static-risk"
+          },
+          {
+            "description": "A landmark / joint / dynamic model of risk over time.",
+            "type": "string",
+            "const": "dynamic-risk"
+          }
+        ]
+      },
+      "MethodListQuery": {
+        "description": "The optional list filters. Every field is typed so an unparseable value is\n a framework 400, never a silently-ignored filter (all four are optional —\n their absence is the full list).",
+        "type": "object",
+        "properties": {
+          "frozen": {
+            "description": "Filter to frozen-model entries.",
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "default": null
+          },
+          "group": {
+            "description": "Filter to one method group (`response-call | response-probability |\n static-risk | dynamic-risk`).",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MethodGroup"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "q": {
+            "description": "Case-insensitive substring on the method id.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "runnable": {
+            "description": "Filter to runnable / non-runnable entries. (The shipped catalogue is the\n runnable set — DEC-2 — so this is a contract future for the fixture\n world and for consumers that must reason about both.)",
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "default": null
+          }
+        }
+      },
+      "MethodListResponse": {
+        "description": "The `GET /api/methods` response — the full (unpaged) runnable set, bounded at\n roughly 400 rows; the list screen filters client-side (DEC-11).",
+        "type": "object",
+        "properties": {
+          "methods": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MethodSummary"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "methods",
+          "total"
+        ]
+      },
+      "MethodMarkers": {
+        "description": "A method's marker-input summary (`markers{kind,count}`).",
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "kind": {
+            "$ref": "#/components/schemas/MarkerKind"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "count"
+        ]
+      },
+      "MethodSummary": {
+        "description": "The list-row projection — the full PROV-MC-1 fact set minus the\n detail-only fields (description/software/licence/references/params and the\n internal-ish gate/env/fitted/saves_model/own_outputs facts). Named explicitly\n so a consumer binds the exact row vocabulary (the E-row performance text and\n the models-dialog warning bind named fields here).",
+        "type": "object",
+        "properties": {
+          "container": {
+            "type": "boolean"
+          },
+          "covariates": {
+            "$ref": "#/components/schemas/CovariateMode"
+          },
+          "embeds_training_data": {
+            "type": "boolean"
+          },
+          "frozen_model": {
+            "type": "boolean"
+          },
+          "group": {
+            "$ref": "#/components/schemas/MethodGroup"
+          },
+          "group_label": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "journal": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "marker_groups_required": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "markers": {
+            "$ref": "#/components/schemas/MethodMarkers"
+          },
+          "min_draws": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "needs_baseline": {
+            "type": "boolean"
+          },
+          "needs_detection_call": {
+            "type": "boolean"
+          },
+          "paper_doi": {
+            "type": "string"
+          },
+          "performance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Performance"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "required_markers": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RequiredMarkers"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "runnable": {
+            "type": "boolean"
+          },
+          "spec_status": {
+            "type": "string"
+          },
+          "tasks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "timing": {
+            "$ref": "#/components/schemas/Timing"
+          },
+          "uses_history": {
+            "$ref": "#/components/schemas/UsesHistory"
+          },
+          "year": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "id",
+          "group",
+          "group_label",
+          "year",
+          "language",
+          "journal",
+          "paper_doi",
+          "frozen_model",
+          "runnable",
+          "container",
+          "spec_status",
+          "markers",
+          "covariates",
+          "min_draws",
+          "needs_detection_call",
+          "uses_history",
+          "tasks",
+          "marker_groups_required",
+          "needs_baseline",
+          "embeds_training_data",
+          "timing"
+        ]
       },
       "MethodsNarration": {
         "description": "The DECLARATIVE methods narration for one analysis (S3).\n\n ## Why this exists\n\n `provenance/export/methods.rs` hardcoded ONE processor's analysis id in a\n `*_GENERATOR_ID` constant, that processor's param vocabulary, its input-slot\n spellings, and that processor's own axis noun in prose at nine sites. Since the\n `kind` of EVERY sandbox compute run is the literal `\"compute\"`, any OTHER\n processor — and every other deployment — got `\"Step 'compute' was performed\"`\n forever. methods.md is the OUT-OF-APP trust deliverable, so that is the worst\n place in the tree for a hardcoded processor id.\n\n The narrator still owns the RENDERING (it must, to keep the \"never silently drop\n a term\" guarantee mechanical); a package declares only the NOUNS and which ROLE\n each of its params plays.",
@@ -15350,6 +16642,74 @@
         "required": [
           "id",
           "status"
+        ]
+      },
+      "MinDraws": {
+        "description": "The minimum-draws verdict for a method (the board's \"needs N draws; M of K\n have them\").",
+        "type": "object",
+        "properties": {
+          "met": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "required": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "unmet_patients": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "required",
+          "met",
+          "unmet_patients"
+        ]
+      },
+      "MissingGroup": {
+        "description": "A board group a method needs and the file/preview does not provide.",
+        "type": "object",
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "group_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "group_id",
+          "display_name"
+        ]
+      },
+      "MissingMarker": {
+        "description": "A required marker the inventory lacks (listed with its group for the B-screen\n reason list and the per-marker decision-day reasons).",
+        "type": "object",
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "group_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "id_system": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "id_system",
+          "display_name"
         ]
       },
       "Notification": {
@@ -15627,6 +16987,64 @@
           "mcp_url"
         ]
       },
+      "PatientDrawCounts": {
+        "description": "One patient's marker coverage (baseline + on-treatment draw counts).",
+        "type": "object",
+        "properties": {
+          "baseline_draws": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "ontreatment_draws": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "patient_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "patient_key",
+          "baseline_draws",
+          "ontreatment_draws"
+        ]
+      },
+      "Performance": {
+        "description": "Method-level performance aggregates (medians over the benchmark's primary\n units on other cohorts — the model/card fact; no per-patient or per-dataset\n content, INV-6).",
+        "type": "object",
+        "properties": {
+          "auc_rule_median": {
+            "description": "Present when the benchmark evaluated the AUC call rule for the method.",
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "c_index_median": {
+            "type": "number",
+            "format": "double"
+          },
+          "n_datasets": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "n_units": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "c_index_median",
+          "n_units",
+          "n_datasets"
+        ]
+      },
       "PermissionDetail": {
         "type": "object",
         "properties": {
@@ -15693,6 +17111,40 @@
             "type": "string",
             "const": "unknown"
           }
+        ]
+      },
+      "PreviewEligibilityRequest": {
+        "description": "Screen B's preview body: which marker groups the user picked, and the\n draw-schedule answers (before-treatment values, draws during treatment, last\n draw day).",
+        "type": "object",
+        "properties": {
+          "before_treatment": {
+            "description": "`always` | `sometimes` (whether the treating clinician always has a\n before-treatment sample).",
+            "type": "string"
+          },
+          "draws_during_treatment": {
+            "description": "The number of on-treatment draws the user will record (1|2|4).",
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "last_draw_day": {
+            "description": "The last draw day the schedule reaches (28|42|56|84).",
+            "type": "number",
+            "format": "double"
+          },
+          "marker_groups": {
+            "description": "group id → checked. Absent groups count as unchecked.",
+            "type": "object",
+            "additionalProperties": {
+              "type": "boolean"
+            }
+          }
+        },
+        "required": [
+          "marker_groups",
+          "before_treatment",
+          "draws_during_treatment",
+          "last_draw_day"
         ]
       },
       "PreviewQuery": {
@@ -16440,6 +17892,94 @@
           "ready"
         ]
       },
+      "Reason": {
+        "description": "One structured reason of a method verdict — code + per-code params (the\n display strings are built from these by the consumer; the params keys are\n per-code and rendered by the consumer's copy).",
+        "type": "object",
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ReasonCode"
+          },
+          "group_id": {
+            "description": "The board group the reason belongs to, when the reason is group-scoped.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "code"
+        ]
+      },
+      "ReasonCode": {
+        "description": "The eligibility reason-code vocabulary — the FIXED, structured set of 12\n codes a method verdict can carry. Display text is the consumer's; a renderer\n switches on the code, so the set is closed and documented here (PROV-MC-5's\n acceptance: every emitted code is one of these — consumers can never meet an\n undocumented code).",
+        "oneOf": [
+          {
+            "description": "A required standard-id marker is absent from the inventory.",
+            "type": "string",
+            "const": "REQUIRED_MARKER_MISSING"
+          },
+          {
+            "description": "A required board marker group is unchecked (preview body only).",
+            "type": "string",
+            "const": "MARKER_GROUP_MISSING"
+          },
+          {
+            "description": "The method needs a detection call and the inventory has none.",
+            "type": "string",
+            "const": "DETECTION_CALL_MISSING"
+          },
+          {
+            "description": "Too few patients meet the method's minimum-draws rule.",
+            "type": "string",
+            "const": "MIN_DRAWS_UNMET"
+          },
+          {
+            "description": "A covariate the method needs is absent from the inventory.",
+            "type": "string",
+            "const": "COVARIATE_MISSING"
+          },
+          {
+            "description": "A required covariate is absent (methods with `covariates: required`).",
+            "type": "string",
+            "const": "COVARIATE_REQUIRED_UNMET"
+          },
+          {
+            "description": "A present marker's unit family differs from the method's.",
+            "type": "string",
+            "const": "UNIT_MISMATCH"
+          },
+          {
+            "description": "The last available draw falls after the decision day.",
+            "type": "string",
+            "const": "DECISION_DAY_UNMET"
+          },
+          {
+            "description": "The method carries no runnable env image.",
+            "type": "string",
+            "const": "NOT_RUNNABLE"
+          },
+          {
+            "description": "The method's task needs an outcome column the file lacks.",
+            "type": "string",
+            "const": "TASK_INCOMPATIBLE"
+          },
+          {
+            "description": "A response method without `responder` / `response_day` columns.",
+            "type": "string",
+            "const": "RESPONSE_LABEL_MISSING"
+          },
+          {
+            "description": "A survival method without event / survival-day columns.",
+            "type": "string",
+            "const": "SURVIVAL_OUTCOME_MISSING"
+          }
+        ]
+      },
       "RecordActionRequest": {
         "description": "`POST /provenance/actions` — the generic interaction chokepoint, and the\n route a caller uses when the action type is not `selection.*`. Dispatchable\n types are whatever `action_registry::catalog()` marks so: the `selection.*`\n family plus `subset.filter` (the committed keep-mask the declarative filter\n UI records). `annotate.*`/`group.*` are reserved, not dispatchable.",
         "type": "object",
@@ -16546,6 +18086,61 @@
         },
         "required": [
           "name"
+        ]
+      },
+      "RequiredMarker": {
+        "description": "One required standard-id marker of a method (`required_markers.markers[]`).\n `id_system` is the raw registry spelling (matches the RULE, case-insensitively,\n in the engine port).",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "id_system": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "id_system",
+          "id"
+        ]
+      },
+      "RequiredMarkers": {
+        "description": "A method's required-marker rule (the port of data.py's `required_marker_match`\n input): the fixed marker list + the `all | min_fraction` mode + the source\n citation the curated rule came from.",
+        "type": "object",
+        "properties": {
+          "list_source": {
+            "type": "string"
+          },
+          "markers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RequiredMarker"
+            }
+          },
+          "match": {
+            "description": "The JSON field is `match` — a Rust keyword, hence the rename.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MatchMode"
+              }
+            ]
+          },
+          "min_fraction": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "markers",
+          "match",
+          "min_fraction",
+          "list_source"
         ]
       },
       "ResendInvitationResponse": {
@@ -17255,12 +18850,48 @@
           "filename"
         ]
       },
+      "Software": {
+        "description": "A method's software declaration (`software{language, packages}`).",
+        "type": "object",
+        "properties": {
+          "language": {
+            "type": "string"
+          },
+          "packages": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "language",
+          "packages"
+        ]
+      },
       "SparseOrientation": {
         "description": "Sparse-matrix orientation (which axis is contiguous), i.e. which one-axis slice is\n the cheap one. CSC = a COLUMN is contiguous, so a column slice is the hot path;\n CSR = a ROW is. A datatype declares whichever matches how its readers slice.",
         "type": "string",
         "enum": [
           "csc",
           "csr"
+        ]
+      },
+      "StandardId": {
+        "description": "A standard identifier of a file marker column (`(system, id)`).",
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "system": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "system",
+          "id"
         ]
       },
       "StorageSpec": {
@@ -17559,6 +19190,38 @@
           "rects"
         ]
       },
+      "Timing": {
+        "description": "A method's per-fold time estimate fact (median of the benchmark's `status==ok`\n per-fold seconds, or the language fallback with `quality: estimate`).",
+        "type": "object",
+        "properties": {
+          "base_seconds_per_fold": {
+            "type": "number",
+            "format": "double"
+          },
+          "benchmarked_units": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "quality": {
+            "$ref": "#/components/schemas/TimingQuality"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "base_seconds_per_fold",
+          "benchmarked_units",
+          "quality"
+        ]
+      },
+      "TimingQuality": {
+        "description": "Timing fact quality: `measured` from the benchmark's stored per-fold seconds,\n `estimate` from the language-based fallback default.",
+        "type": "string",
+        "enum": [
+          "measured",
+          "estimate"
+        ]
+      },
       "TokenPair": {
         "description": "JWT token pair (access + refresh)",
         "type": "object",
@@ -17582,6 +19245,19 @@
           "refresh_token",
           "token_type",
           "expires_in"
+        ]
+      },
+      "UnitFamily": {
+        "description": "The unit family a marker's values are measured in — the unit-compatibility\n vocabulary of the eligibility engine (a file column in one family never\n satisfies a method needing another).",
+        "type": "string",
+        "enum": [
+          "concentration_mass",
+          "concentration_molar",
+          "count",
+          "percent",
+          "ratio",
+          "detection",
+          "none"
         ]
       },
       "UnreadCount": {
@@ -18295,6 +19971,14 @@
           "updated_at"
         ]
       },
+      "UsesHistory": {
+        "description": "How much measurement history a method consumes. The manifest vocabulary is\n `landmark | full` (the plan's `none` never occurs in the registry — DRIFT-1\n ITEM-1); `full` renders as \"uses all available history\".",
+        "type": "string",
+        "enum": [
+          "landmark",
+          "full"
+        ]
+      },
       "VerificationDto": {
         "description": "A verification record (the re-run trust view). `status` ∈\n `pending | reproduced | inconclusive | diverged | error`.",
         "type": "object",
@@ -18514,6 +20198,58 @@
         "required": [
           "view_kind_id",
           "family"
+        ]
+      },
+      "VocabularyMarker": {
+        "description": "One vocabulary marker — the `markers[]` entry of the catalogue and the\n vocabulary surface for the upload screen's marker-join offer.",
+        "type": "object",
+        "properties": {
+          "aliases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "canonical_unit": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "groups": {
+            "description": "Board-group ids this marker belongs to (curated `marker-groups.tsv`).",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "id": {
+            "description": "The marker id within `system` (e.g. a LOINC code or an HGNC symbol).",
+            "type": "string"
+          },
+          "n_methods": {
+            "description": "How many runnable methods reference this marker.",
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "system": {
+            "$ref": "#/components/schemas/MarkerSystem"
+          },
+          "unit_family": {
+            "$ref": "#/components/schemas/UnitFamily"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "system",
+          "display_name",
+          "aliases",
+          "groups",
+          "unit_family",
+          "canonical_unit",
+          "n_methods"
         ]
       },
       "WorkstoreSettings": {
