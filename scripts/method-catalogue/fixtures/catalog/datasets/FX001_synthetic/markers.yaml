@@ -1,0 +1,19 @@
+dataset: FX001_synthetic
+date: '2026-01-01'
+limits: 'Synthetic fixture catalogue: three curated markers measured by the synthetic cohort (two standard-id markers plus one assay-derived ratio); no real patient data, no restricted content.'
+markers:
+- id: EYA4_cfDNA_methylation
+  name: EYA4 cfDNA methylation (%)
+  standard_id: gene EYA4 (HGNC EYA4; Eya transcriptional coactivator and phosphatase 4)
+  modality: plasma cfDNA methylation
+  direction: higher on-treatment value, or a rise from baseline = failure
+- id: CEA
+  name: Serum carcinoembryonic antigen (CEA)
+  standard_id: LOINC 2039-6 Carcinoembryonic Ag [Mass/volume] in Serum or Plasma
+  modality: serum tumour marker
+  direction: higher on-treatment value, or a rise from baseline = failure
+- id: NLR_fixture
+  name: Neutrophil-to-lymphocyte ratio (NLR)
+  standard_id: 'derived ratio: absolute neutrophil count / absolute lymphocyte count (no standard id)'
+  modality: blood count ratio
+  direction: higher on-treatment value, or a rise from baseline = failure

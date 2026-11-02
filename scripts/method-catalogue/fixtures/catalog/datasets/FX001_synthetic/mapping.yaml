@@ -1,0 +1,39 @@
+# One row per candidate marker in markers.yaml (same ids, same order). Synthetic fixture: the values are invented.
+dataset: FX001_synthetic
+mapping:
+  - marker: EYA4_cfDNA_methylation
+    standard_id: "gene EYA4 (HGNC EYA4; Eya transcriptional coactivator and phosphatase 4)"
+    dataset_features: ["EYA4_methylation_percent"]
+    rule: single
+    transformation: "none beyond the deposited percent scale"
+    per_sample_only: true
+    modality: "plasma cfDNA methylation"
+    status: mapped
+    reason: "fixture: the cohort measures the methylation percentage of EYA4 at every draw"
+  - marker: CEA
+    standard_id: "LOINC 2039-6 Carcinoembryonic Ag [Mass/volume] in Serum or Plasma (verified)"
+    dataset_features: ["CEA_ng_per_mL"]
+    rule: single
+    transformation: "none (as deposited, ng/mL)"
+    per_sample_only: true
+    modality: "serum tumour marker"
+    status: mapped
+    reason: "fixture: the cohort measures serum CEA at every draw"
+  - marker: GRIA4_cfDNA_methylation
+    standard_id: "gene GRIA4 (HGNC GRIA4; glutamate ionotropic receptor AMPA type subunit 4)"
+    dataset_features: ["GRIA4_methylation_percent"]
+    rule: single
+    transformation: "none beyond the deposited percent scale"
+    per_sample_only: true
+    modality: "plasma cfDNA methylation"
+    status: partly mapped
+    reason: "fixture: the cohort measures GRIA4 methylation at baseline draws only"
+  - marker: NLR_fixture
+    standard_id: "derived ratio: absolute neutrophil count / absolute lymphocyte count (no standard id)"
+    dataset_features: ["NLR_fixture"]
+    rule: single
+    transformation: "none (as deposited, ratio)"
+    per_sample_only: true
+    modality: "blood count ratio"
+    status: mapped
+    reason: "fixture: the cohort measures the derived neutrophil-to-lymphocyte ratio"

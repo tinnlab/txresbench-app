@@ -1,0 +1,7 @@
+{
+ "pass": false,
+ "report": "gates/fx-not-runnable.report.md",
+ "package_version": null,
+ "image_digest": null,
+ "failed_checks": ["marker count check failed"]
+}

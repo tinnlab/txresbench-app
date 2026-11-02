@@ -1,0 +1,31 @@
+{
+ "id": "fx-baseline-cox",
+ "version": "1.2.0",
+ "group": "static-risk",
+ "language": "R",
+ "markers": "any",
+ "covariates": "optional",
+ "min_draws": 2,
+ "saves_model": true,
+ "uses_history": "landmark",
+ "fitted": true,
+ "own_outputs": [
+  "risk",
+  "p_event_H"
+ ],
+ "params": {
+  "reference_patients": 150
+ },
+ "software": {
+  "language": "R 4.3.0",
+  "packages": {
+   "survival": "3.5-7"
+  }
+ },
+ "licence": "MIT (the wrapper is synthetic fixture data, not a method)",
+ "references": [
+  "10.5555/fx-baseline-cox.2026"
+ ],
+ "description": "A synthetic fixture Cox model on baseline marker values up to the baseline window. The research population is fixed at 150 reference subjects; the fixture registry carries no patient records. This description intentionally mentions the study cohort and cites a repository at https://example.invalid/fx-baseline-cox so the generator sanitizers are exercised.",
+ "required_markers": null
+}

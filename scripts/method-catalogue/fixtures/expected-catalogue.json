@@ -1,0 +1,346 @@
+{
+ "generated_from": {
+  "generated_at": "2026-01-01T00:00:00Z",
+  "manifest_commit": "fixture",
+  "methods_commit": "fixture",
+  "registry_name": "fixtures (synthetic)",
+  "results_commit": "fixture"
+ },
+ "groups": [
+  {
+   "display_name": "Tumour DNA in blood (ctDNA)",
+   "id": "ctdna"
+  },
+  {
+   "display_name": "Blood counts (white cells, platelets, haemoglobin)",
+   "id": "counts"
+  },
+  {
+   "display_name": "LDH",
+   "id": "ldh"
+  },
+  {
+   "display_name": "Tumour markers (CEA, CA 19-9, CA-125, PSA)",
+   "id": "tumour-markers"
+  },
+  {
+   "display_name": "Inflammation or cytokines (CRP, IL-6)",
+   "id": "inflammation"
+  },
+  {
+   "display_name": "Methylation or other sequencing",
+   "id": "methylation-sequencing"
+  },
+  {
+   "display_name": "Other markers",
+   "id": "other"
+  }
+ ],
+ "markers": [
+  {
+   "aliases": [
+    "EYA4_cfDNA_methylation",
+    "EYA4_methylation_percent"
+   ],
+   "canonical_unit": "%",
+   "display_name": "EYA4 cfDNA methylation (%)",
+   "groups": [
+    "methylation-sequencing"
+   ],
+   "id": "EYA4",
+   "n_methods": 1,
+   "system": "HGNC",
+   "unit_family": "percent"
+  },
+  {
+   "aliases": [
+    "GRIA4_methylation_percent"
+   ],
+   "canonical_unit": "%",
+   "display_name": "GRIA4_cfDNA_methylation",
+   "groups": [
+    "methylation-sequencing"
+   ],
+   "id": "GRIA4",
+   "n_methods": 1,
+   "system": "HGNC",
+   "unit_family": "percent"
+  },
+  {
+   "aliases": [
+    "CEA",
+    "CEA_ng_per_mL"
+   ],
+   "canonical_unit": "ng/mL",
+   "display_name": "Serum carcinoembryonic antigen (CEA)",
+   "groups": [
+    "tumour-markers"
+   ],
+   "id": "2039-6",
+   "n_methods": 1,
+   "system": "LOINC",
+   "unit_family": "concentration_mass"
+  },
+  {
+   "aliases": [
+    "NLR_fixture"
+   ],
+   "canonical_unit": "",
+   "display_name": "Neutrophil-to-lymphocyte ratio (NLR)",
+   "groups": [
+    "other"
+   ],
+   "id": "NLR_fixture",
+   "n_methods": 0,
+   "system": "OTHER",
+   "unit_family": "ratio"
+  }
+ ],
+ "methods": [
+  {
+   "citations": 2,
+   "container": false,
+   "covariates": "none",
+   "description": "A synthetic fixture rule over the two-marker cfDNA methylation panel (EYA4, GRIA4). It writes the quantity it thresholds as risk and a 0/1 call; it saves no model. A fixture method, not a research method.",
+   "embeds_training_data": false,
+   "env": {
+    "contract": "2.0",
+    "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+    "image": "ghcr.io/tinnlab/txresbench-fx-asm-methylation-panel:1.0.0"
+   },
+   "fitted": false,
+   "frozen_model": false,
+   "gate": {
+    "pass": true,
+    "report_name": "fx-asm-methylation-panel.report.md"
+   },
+   "group": "response-call",
+   "group_label": "Response call",
+   "id": "fx-asm-methylation-panel",
+   "journal": "Synthetic Journal of Fixtures",
+   "language": "Python",
+   "licence": "n/a (a rule: the synthetic fixture wrapper has no published code)",
+   "marker_groups_required": [
+    "methylation-sequencing"
+   ],
+   "markers": {
+    "count": 2,
+    "kind": "panel"
+   },
+   "min_draws": 2,
+   "needs_baseline": true,
+   "needs_detection_call": false,
+   "own_outputs": [
+    "risk",
+    "call"
+   ],
+   "paper_doi": "10.5555/fx-asm-methylation-panel.2026",
+   "params": {
+    "call_cutoff": 0.0,
+    "positivity_cutoffs": [
+     0.8
+    ]
+   },
+   "performance": {
+    "auc_rule_median": 0.59,
+    "c_index_median": 0.61,
+    "n_datasets": 1,
+    "n_units": 1
+   },
+   "references": [
+    "10.5555/fx-asm-methylation-panel.2026"
+   ],
+   "required_markers": {
+    "list_source": "Synthetic fixture panel (FX001_synthetic) with the per-marker cut-offs 0.8% for both markers",
+    "markers": [
+     {
+      "id": "EYA4",
+      "id_system": "HGNC",
+      "name": "EYA4 cfDNA methylation (%)"
+     },
+     {
+      "id": "GRIA4",
+      "id_system": "HGNC",
+      "name": "GRIA4 cfDNA methylation (%)"
+     }
+    ],
+    "match": "all",
+    "min_fraction": 0.0
+   },
+   "runnable": true,
+   "saves_model": false,
+   "software": {
+    "language": "Python 3.11.10",
+    "packages": {
+     "numpy": "2.1.3",
+     "pandas": "2.2.3"
+    }
+   },
+   "spec_status": "verified",
+   "tasks": [
+    "none"
+   ],
+   "timing": {
+    "base_seconds_per_fold": 270.0,
+    "benchmarked_units": 1,
+    "quality": "measured"
+   },
+   "uses_history": "landmark",
+   "version": "1.0.0",
+   "year": 2026
+  },
+  {
+   "citations": 3,
+   "container": false,
+   "covariates": "optional",
+   "description": "A synthetic fixture Cox model on baseline marker values up to the baseline window. The research population is fixed at 150 reference subjects; the fixture registry carries no patient records. This description intentionally mentions the research cohort and cites a repository at so the generator sanitizers are exercised.",
+   "embeds_training_data": false,
+   "env": {
+    "contract": "2.0",
+    "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+    "image": "ghcr.io/tinnlab/txresbench-fx-baseline-cox:1.2.0"
+   },
+   "fitted": true,
+   "frozen_model": true,
+   "gate": {
+    "pass": true,
+    "report_name": "fx-baseline-cox.report.md"
+   },
+   "group": "static-risk",
+   "group_label": "Static risk",
+   "id": "fx-baseline-cox",
+   "journal": "Synthetic Journal of Fixtures",
+   "language": "R",
+   "licence": "MIT (the wrapper is synthetic fixture data, not a method)",
+   "marker_groups_required": [],
+   "markers": {
+    "count": 0,
+    "kind": "any"
+   },
+   "min_draws": 2,
+   "needs_baseline": true,
+   "needs_detection_call": false,
+   "own_outputs": [
+    "risk",
+    "p_event_H"
+   ],
+   "paper_doi": "10.5555/fx-baseline-cox.2026",
+   "params": {
+    "reference_patients": 150
+   },
+   "performance": {
+    "auc_rule_median": 0.65,
+    "c_index_median": 0.725,
+    "n_datasets": 1,
+    "n_units": 2
+   },
+   "references": [
+    "10.5555/fx-baseline-cox.2026"
+   ],
+   "required_markers": null,
+   "runnable": true,
+   "saves_model": true,
+   "software": {
+    "language": "R 4.3.0",
+    "packages": {
+     "survival": "3.5-7"
+    }
+   },
+   "spec_status": "verified",
+   "tasks": [
+    "optional"
+   ],
+   "timing": {
+    "base_seconds_per_fold": 60.0,
+    "benchmarked_units": 2,
+    "quality": "measured"
+   },
+   "uses_history": "landmark",
+   "version": "1.2.0",
+   "year": 2026
+  },
+  {
+   "citations": 1,
+   "container": false,
+   "covariates": "required",
+   "description": "A synthetic fixture logistic signature that predicts response probability from the serum CEA trajectory; the fitted signature embeds the training rows.",
+   "embeds_training_data": true,
+   "env": {
+    "contract": "2.0",
+    "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+    "image": "ghcr.io/tinnlab/txresbench-fx-response-signature:0.9.0"
+   },
+   "fitted": true,
+   "frozen_model": false,
+   "gate": {
+    "pass": true,
+    "report_name": "fx-response-signature.report.md"
+   },
+   "group": "response-probability",
+   "group_label": "Response probability",
+   "id": "fx-response-signature",
+   "journal": "Synthetic Journal of Fixtures",
+   "language": "Python",
+   "licence": "BSD-3-Clause (the synthetic fixture wrapper)",
+   "marker_groups_required": [
+    "tumour-markers"
+   ],
+   "markers": {
+    "count": 1,
+    "kind": "single"
+   },
+   "min_draws": 1,
+   "needs_baseline": false,
+   "needs_detection_call": false,
+   "own_outputs": [
+    "risk",
+    "p_response",
+    "call"
+   ],
+   "paper_doi": "10.5555/fx-response-signature.2026",
+   "params": {
+    "thresholds": [
+     0.4,
+     0.6
+    ]
+   },
+   "performance": null,
+   "references": [
+    "10.5555/fx-response-signature.2026"
+   ],
+   "required_markers": {
+    "list_source": "Synthetic fixture signature (FX001_synthetic)",
+    "markers": [
+     {
+      "id": "2039-6",
+      "id_system": "LOINC",
+      "name": "serum carcinoembryonic antigen (CEA)"
+     }
+    ],
+    "match": "all",
+    "min_fraction": 0.0
+   },
+   "runnable": true,
+   "saves_model": true,
+   "software": {
+    "language": "Python 3.11.10",
+    "packages": {
+     "scikit-learn": "1.4.2"
+    }
+   },
+   "spec_status": "verified",
+   "tasks": [
+    "required"
+   ],
+   "timing": {
+    "base_seconds_per_fold": 120.0,
+    "benchmarked_units": 0,
+    "quality": "estimate"
+   },
+   "uses_history": "landmark",
+   "version": "0.9.0",
+   "year": 2026
+  }
+ ],
+ "schema_version": 1
+}

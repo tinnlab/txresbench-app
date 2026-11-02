@@ -1,0 +1,7 @@
+{
+ "pass": true,
+ "report": "gates/fx-response-signature.report.md",
+ "package_version": "0.2.0",
+ "image_digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+ "failed_checks": []
+}

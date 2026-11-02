@@ -1,0 +1,7 @@
+{
+ "pass": true,
+ "report": "gates/fx-baseline-cox.report.md",
+ "package_version": "0.2.0",
+ "image_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+ "failed_checks": []
+}

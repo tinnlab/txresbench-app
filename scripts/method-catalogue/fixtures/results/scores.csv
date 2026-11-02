@@ -1,0 +1,8 @@
+metric,value,lo,hi,n_patients,n_events,n_folds,n_arena,coverage,excluded,reason,unit,dataset,modality,primary,landmark,outcome,horizon_day,horizon_offset,method,k,marker_specific
+c_index,0.700,0.600,0.800,150,40,5,150,1.0,False,,FX001_synthetic/plasma-cfdna-methylation,FX001_synthetic,plasma cfDNA methylation,True,42.0,death,90.0,48.0,fx-baseline-cox,1,False
+c_index,0.750,0.640,0.860,160,42,5,160,1.0,False,,FX001_synthetic/serum-tumour-marker,FX001_synthetic,serum tumour marker,True,42.0,death,90.0,48.0,fx-baseline-cox,1,False
+auc_rule,0.660,0.560,0.760,150,40,5,150,1.0,False,,FX001_synthetic/plasma-cfdna-methylation,FX001_synthetic,plasma cfDNA methylation,True,42.0,death,90.0,48.0,fx-baseline-cox,1,False
+auc_rule,0.640,0.540,0.740,160,42,5,160,1.0,False,,FX001_synthetic/serum-tumour-marker,FX001_synthetic,serum tumour marker,True,42.0,death,90.0,48.0,fx-baseline-cox,1,False
+c_index,0.580,0.500,0.660,150,40,5,150,1.0,False,,FX001_synthetic/plasma-cfdna-methylation,FX001_synthetic,plasma cfDNA methylation,False,42.0,death,90.0,48.0,fx-baseline-cox,1,False
+c_index,0.610,0.520,0.700,150,40,5,150,1.0,False,,FX001_synthetic/plasma-cfdna-methylation,FX001_synthetic,plasma cfDNA methylation,True,42.0,death,90.0,48.0,fx-asm-methylation-panel,1,False
+auc_rule,0.590,0.500,0.680,150,40,5,150,1.0,False,,FX001_synthetic/plasma-cfdna-methylation,FX001_synthetic,plasma cfDNA methylation,True,42.0,death,90.0,48.0,fx-asm-methylation-panel,1,False
