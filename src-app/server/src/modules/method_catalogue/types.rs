@@ -523,6 +523,26 @@ pub struct InventoryCovariate {
     pub standard_ids: Vec<StandardId>,
 }
 
+/// The file's outcome-column facts — the availability of the four outcome
+/// column kinds the validator resolves (`responder`/`response_day` for the
+/// response task, `pfs_*`/`os_*` event + time for the survival task). The
+/// engine needs them to emit the three outcome-availability verdicts
+/// (`RESPONSE_LABEL_MISSING`, `SURVIVAL_OUTCOME_MISSING`,
+/// `TASK_INCOMPATIBLE` — PROV-MC-5's grown vocabulary); they are facts the
+/// validator knows and puts on the inventory it posts.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FileOutcomes {
+    /// The file carries a `responder` column (per patient).
+    pub has_responder: bool,
+    /// The file carries a `response_day` column (per patient).
+    pub has_response_day: bool,
+    /// The file carries a survival event column (`pfs_event`/`os_event`).
+    pub has_event: bool,
+    /// The file carries a survival time column (`pfs_days`/`os_days`).
+    pub has_survival_day: bool,
+}
+
 /// The file-inventory body (screens C/N/E — the consumer that holds the file
 /// posts it).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -532,6 +552,11 @@ pub struct InventoryEligibilityRequest {
     pub baseline_max_day: f64,
     pub markers: Vec<InventoryMarker>,
     pub covariates: Vec<InventoryCovariate>,
+    /// The outcome-column facts of the file, when the consumer knows them
+    /// (absence skips the outcome-availability checks — a request without them
+    /// is not misclassified by the engine).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcomes: Option<FileOutcomes>,
 }
 
 /// The eligibility request body — a tagged union carrying exactly one of the two

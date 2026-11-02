@@ -14,12 +14,14 @@
 //! - the in-process seam [`catalogue`] (PROV-MC-7): [`catalogue::catalogue`],
 //!   [`catalogue::method`], [`catalogue::env_for`],
 //!   [`catalogue::marker_vocabulary`], plus the matching/estimate engine
-//!   functions (ITEM-3/4);
+//!   functions ([`eligibility`] — the data.py rule port + the eligibility
+//!   engine, ITEM-3; the estimate engine is ITEM-4);
 //! - the typed request/response contract [`types`] (PROV-MC-1..6), which the
 //!   five HTTP endpoints (method list, method detail, marker vocabulary,
 //!   eligibility, estimate) are layered on in this module's `routes` submodule.
 
 pub mod catalogue;
+pub mod eligibility;
 pub mod types;
 
 use aide::axum::ApiRouter;
