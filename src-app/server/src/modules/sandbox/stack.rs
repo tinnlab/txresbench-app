@@ -1,0 +1,1122 @@
+//! `stack` — the stacked-layer method sandbox: contract types + the pure
+//! argv/model/ref rules (PROV-SS-1/SS-2/SS-3).
+//!
+//! A method run is a [`MethodRunRequest`] naming a trimmed per-language BASE
+//! rootfs and one per-method LAYER image. The layer image is a single squashfs
+//! whose root carries `layer-manifest.json` (a JSON array of absolute mount
+//! entries); this module turns that into bwrap argv with the exact order:
+//!
+//! ```text
+//!   hardening prefix (REUSED verbatim from sandbox::build_bwrap_argv — one
+//!     security implementation, never a second copy — INV-5 / TEST-02),
+//!   one --ro-bind-try <layer>/<entry> <entry> per manifest entry, in order,
+//!   the verified read-only /model bind (INV-4; always --ro-bind, never
+//!     --bind — TEST-05),
+//!   the extra mounts (/input RO, /output RW),
+//!   SIGBENCH_MODE + OMP/OPENBLAS/MKL_NUM_THREADS overrides,
+//!   then the shipped FIFO / seccomp / `--` / prlimit / bash tail.
+//! ```
+//!
+//! Everything after the hardening prefix and before the first `--` is spliced
+//! in at the ONE fixed seam: immediately after the shipped builder's final
+//! `/proc`-file mask, so a stacked flag can never shadow a hardening flag and
+//! a later hardening change cannot be applied to only one argv path.
+//!
+//! Contracts on the wire (`EnvRef`, `ModelMount`, [`MethodRunRequest`],
+//! [`MethodRunResult`]) are `serde` + `schemars` so the OpenAPI regen
+//! (PROV-SS-5, ITEM-5) and the TS api-client see the same shapes.
+//!
+//! # Invariants carried by this module
+//!
+//! - INV-1 (network): the run stays `--unshare-net` (the shipped flag is part
+//!   of the reused prefix); the ONLY network surface of the node is the env
+//!   fetch (ITEM-3), never a run.
+//! - INV-3 (container contract): `/input` RO + `/output` RW arrive as extra
+//!   mounts; `SIGBENCH_MODE` is set from [`MethodRunMode`] per X1;
+//!   `--network none` is the sandbox's own `--unshare-net`.
+//! - INV-4 (models read-only + verified): the model bind is emitted as
+//!   `--ro-bind <host_path> /model` with no read-write mode in the builder
+//!   API; [`verify_model_tree`] is the digest gate the run seam calls BEFORE
+//!   the builder (mismatch → `MODEL_VERIFY_FAILED`, no spawn).
+//! - INV-6 (both digests recorded): [`RUN_LAYER_ENV_DIGEST_FILE`] names the
+//!   layer sidecar the run seam writes (ITEM-4), beside the shipped
+//!   `env-digest` base sidecar.
+//! - Data discipline (shipped INV-4 of the module): env ids and method names
+//!   are DATA. The code carries no env-id / method-id literal; the two
+//!   compiled registry PREFIXES (`ghcr.io/…` host shape, no scheme — the
+//!   allowlist-guard convention) and the three structural layer-entry prefixes
+//!   are the only domain-bearing strings here.
+
+use std::path::{Path, PathBuf};
+
+use axum::http::StatusCode;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use ziee_core::AppError;
+
+use super::env_id::is_valid_env_id;
+use super::sandbox::build_bwrap_argv;
+use super::settings::SandboxResourceLimits;
+use super::types::{ExtraMount, HardeningCapabilities, MountMode, SandboxContext};
+
+// ────────────────────────────── typed error codes ─────────────────────────────
+
+/// A caller-supplied OCI reference whose host / repository prefix is outside
+/// the compiled txr registries ([`TXR_BASE_REGISTRY_PREFIX`] /
+/// [`TXR_LAYER_REGISTRY_PREFIX`]), or whose repository component is not a
+/// valid env id (TEST-03 / TEST-14).
+pub const ENV_REF_HOST_UNALLOWED_CODE: &str = "ENV_REF_HOST_UNALLOWED";
+
+/// A `layer-manifest.json` mount entry that is not an absolute `..`-free path
+/// under `/usr/local`, `/opt` or `/code` (DEC-14, TEST-03). Refused before any
+/// bind is built — never a bind of an unvalidated path.
+pub const ENV_LAYER_ENTRY_INVALID_CODE: &str = "ENV_LAYER_ENTRY_INVALID";
+
+/// The reusable model tree's computed sha256 does not equal the digest the
+/// caller declared in [`ModelMount::tree_sha256`] (DEC-7, TEST-04). Raised
+/// before any child spawn.
+pub const MODEL_VERIFY_FAILED_CODE: &str = "MODEL_VERIFY_FAILED";
+
+/// The model tree could not be read while computing its digest (an I/O error,
+/// distinct from a digest MISMATCH — the caller sees the failing path, the
+/// run is refused the same way).
+pub const MODEL_TREE_READ_FAILED_CODE: &str = "MODEL_TREE_READ_FAILED";
+
+// ────────────────────────────── compiled constants ────────────────────────────
+
+/// The registry prefix of the per-language BASE rootfs images. Spelled without
+/// a scheme exactly like the shipped `DEFAULT_REGISTRY`, and the host
+/// (`ghcr.io`) is already on `scripts/network-allowlist.txt` (DEC-11), so the
+/// allowlist guard stays green: no new outbound host enters the source.
+pub const TXR_BASE_REGISTRY_PREFIX: &str = "ghcr.io/tinnlab/txresbench-env";
+
+/// The registry prefix of the per-method LAYER images (PROV-method-env-images-2
+/// pins this namespace; reconciled at PROV-SS-1/SS-2).
+pub const TXR_LAYER_REGISTRY_PREFIX: &str = "ghcr.io/tinnlab/txr-method-env-layers";
+
+/// The structural mount prefixes a layer entry may name (DEC-14). A layer
+/// never binds `/usr` or `/opt` as a whole-dir shadow; entries are the
+/// narrowly-scoped paths a layer is allowed to overlay.
+pub(crate) const ALLOWED_LAYER_ENTRY_PREFIXES: &[&str] = &["/usr/local", "/opt", "/code"];
+
+/// The fixed in-sandbox destination of the verified model bind (PROV-SS-3).
+/// The builder has no read-write model mode: the destination is a constant so
+/// a caller cannot bind a verified model anywhere writable-looking by accident.
+pub const MODEL_SANDBOX_PATH: &str = "/model";
+
+/// The run-scoped layer-digest sidecar, written beside the shipped
+/// `env-digest` (base) by the run seam (ITEM-4); PROV-SS-1/INV-6.
+pub const RUN_LAYER_ENV_DIGEST_FILE: &str = "layer-env-digest";
+
+// ────────────────────────────── request/result types ──────────────────────────
+
+/// Reference to one sandboxed artifact (base rootfs or method layer).
+///
+/// `digest` is the 64-hex sha256 of the artifact's single squashfs layer, taken
+/// from the caller's catalogue record — verification is always against THIS
+/// value, never against a moving tag (DEC-3).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct EnvRef {
+    /// Full OCI reference, e.g. `<prefix>/<env_id>[:<tag>][@sha256:<hex>]`
+    /// (prefixes from [`TXR_BASE_REGISTRY_PREFIX`] /
+    /// [`TXR_LAYER_REGISTRY_PREFIX`]; enforced by [`validate_oci_ref`]).
+    pub oci_ref: String,
+    /// The pinned 64-hex sha256 of the squashfs layer the bytes are verified
+    /// against.
+    pub digest: String,
+    /// Optional tag; resolved only when the reference carries no `@digest`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tag: Option<String>,
+}
+
+/// What one stacked run does (DEC-5). Maps to the container contract's
+/// `SIGBENCH_MODE` (X1): unset = one fit+predict call, `fit` / `predict`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MethodRunMode {
+    /// Single call: fit on the bundle, predict the same patients (X1's unset
+    /// mode).
+    FitPredict,
+    /// `SIGBENCH_MODE=fit`; the derived `/model` is written to
+    /// `model_out_dir`.
+    FitOnly,
+    /// `SIGBENCH_MODE=predict` on an already-trained, verified model bound
+    /// read-only at `/model` (INV-4).
+    ReuseModel,
+}
+
+impl MethodRunMode {
+    /// The `SIGBENCH_MODE` value for this mode, or `None` for [`FitPredict`]
+    /// (X1: unset = single fit+predict call).
+    pub fn sigbench_mode(&self) -> Option<&'static str> {
+        match self {
+            MethodRunMode::FitPredict => None,
+            MethodRunMode::FitOnly => Some("fit"),
+            MethodRunMode::ReuseModel => Some("predict"),
+        }
+    }
+}
+
+/// A saved model dir the reuse run binds READ-ONLY at `/model` after
+/// verification (PROV-SS-3, DEC-7).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ModelMount {
+    /// Host path of the saved model directory (the model store's artifact dir).
+    pub host_path: PathBuf,
+    /// The `tree_sha256` digest recorded at save time; the run seam recomputes
+    /// it and refuses the bind on mismatch.
+    pub tree_sha256: String,
+}
+
+/// One method run in its own stacked sandbox (PROV-SS-1).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MethodRunRequest {
+    /// The trimmed per-language base rootfs (DEC-13: always caller-named).
+    pub base: EnvRef,
+    /// The per-method layer image carrying `/code` + extra mount entries.
+    pub layer: EnvRef,
+    /// Fit+predict / fit-only / reuse-model (DEC-5).
+    pub mode: MethodRunMode,
+    /// Host dir of the contract-shaped input bundle (bound RO at `/input`).
+    pub bundle_dir: PathBuf,
+    /// Host dir where `/output` is written (under the staging tree — DEC-6).
+    pub outputs_dir: PathBuf,
+    /// Verified model for a reuse run; `None` in fit modes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<ModelMount>,
+    /// Host dir the fit's `/model` is written to (under the staging tree —
+    /// DEC-6); required for `FitOnly`/`FitPredict`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_out_dir: Option<PathBuf>,
+    /// Per-run CPU cap: `OMP/OPENBLAS/MKL_NUM_THREADS` are set to this value
+    /// (after the prefix's `1` defaults — last-wins, TEST-05).
+    pub n_cpu: u32,
+    /// Optional wall-clock timeout override (seconds); the run seam clamps it
+    /// to the admin cap exactly like `clamp_timeout`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_secs: Option<u64>,
+}
+
+/// Outcome of one stacked run (PROV-SS-1). `exit_code` etc. mirror the shipped
+/// `SandboxRunResult`; the digests + model facts are the method-run extras
+/// (INV-6).
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+pub struct MethodRunResult {
+    pub exit_code: i32,
+    pub stdout: String,
+    pub stderr: String,
+    pub stdout_truncated: bool,
+    pub stderr_truncated: bool,
+    pub timed_out: bool,
+    pub duration_ms: u64,
+    /// The base rootfs digest recorded in the run workspace.
+    pub base_env_digest: String,
+    /// The method-layer digest recorded in the run workspace.
+    pub layer_env_digest: String,
+    /// The model digest check ran and passed (`ReuseModel` only).
+    pub model_verified: bool,
+    /// `tree_sha256` of the fit's `/model` (a trained-model dir), when a
+    /// `model_out_dir` was given.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_out_digest: Option<String>,
+}
+
+// ────────────────────────────── OCI reference grammar ─────────────────────────
+
+/// Parsed, validated OCI reference (result of [`validate_oci_ref`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OciRefParts {
+    /// The matched compiled registry prefix (no scheme).
+    pub registry_base: String,
+    /// The env-id repository component (single `is_valid_env_id` component).
+    pub repo: String,
+    /// The `:tag` suffix, when present.
+    pub tag: Option<String>,
+    /// The `@sha256:` digest INNER component (64-hex, prefix stripped).
+    pub digest: Option<String>,
+}
+
+/// Whether `s` is a 64-char lowercase hex string — the pinned-digest shape
+/// used across the node (`EnvRef::digest`, OCI `sha256:` refs).
+pub fn is_sha256_hex(s: &str) -> bool {
+    s.len() == 64
+        && s.bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+/// Whether `tag` matches the OCI distribution tag grammar
+/// (`[A-Za-z0-9_][A-Za-z0-9._-]{0,127}`).
+pub fn is_valid_oci_tag(tag: &str) -> bool {
+    !tag.is_empty()
+        && tag.len() <= 128
+        && tag.bytes().enumerate().all(|(i, b)| {
+            b.is_ascii_alphanumeric() || b == b'_' || (i > 0 && (b == b'.' || b == b'-'))
+        })
+}
+
+/// Validate + parse an OCI reference against the compiled txr registries.
+///
+/// Accepted shape: `<prefix>/<env_id>[:<tag>][@sha256:<64hex>]` where `<prefix>`
+/// is [`TXR_BASE_REGISTRY_PREFIX`] or [`TXR_LAYER_REGISTRY_PREFIX`] and
+/// `<env_id>` is one `is_valid_env_id` component. Every other host, prefix,
+/// nested repo path, malformed tag/digest or empty component is refused with
+/// [`ENV_REF_HOST_UNALLOWED_CODE`] (TEST-03/TEST-14) — this is a RELEASE-TIME
+/// boundary: the pinned digests are verified by the caller, but a ref outside
+/// the compiled namespace must never even be parsed for a pull.
+pub fn validate_oci_ref(oci_ref: &str) -> Result<OciRefParts, AppError> {
+    let refused = |why: &str| {
+        Err(AppError::new(
+            StatusCode::BAD_REQUEST,
+            ENV_REF_HOST_UNALLOWED_CODE,
+            format!("OCI reference {oci_ref:?} is refused: {why}"),
+        ))
+    };
+
+    let mut name = oci_ref;
+    let mut digest = None;
+    if let Some((n, d)) = name.rsplit_once('@') {
+        digest = Some(normalize_digest_part(d)?);
+        name = n;
+    }
+    let mut tag: Option<String> = None;
+    if let Some((n, t)) = name.rsplit_once(':') {
+        if !t.contains('/') {
+            // A port on an unallowed host would contain a '/' after the host
+            // part; documented hosts carry none, and the prefix match below
+            // refuses them regardless.
+            tag = Some(t.to_string());
+            name = n;
+        }
+    }
+    if let Some(t) = tag.as_deref() {
+        if !is_valid_oci_tag(t) {
+            return refused("the tag does not match the OCI tag grammar");
+        }
+    }
+
+    for prefix in [TXR_BASE_REGISTRY_PREFIX, TXR_LAYER_REGISTRY_PREFIX] {
+        let Some(rest) = name.strip_prefix(prefix).and_then(|r| r.strip_prefix('/')) else {
+            continue;
+        };
+        if rest.contains('/') {
+            return refused("nested repository paths are not part of the txr env registries");
+        }
+        if !is_valid_env_id(rest) {
+            return refused("the repository component is not a valid env id");
+        }
+        return Ok(OciRefParts {
+            registry_base: prefix.to_string(),
+            repo: rest.to_string(),
+            tag,
+            digest,
+        });
+    }
+    refused("host/prefix not in the compiled txr registries")
+}
+
+fn normalize_digest_part(d: &str) -> Result<String, AppError> {
+    let hex = d.strip_prefix("sha256:").unwrap_or("");
+    if !is_sha256_hex(hex) {
+        return Err(AppError::new(
+            StatusCode::BAD_REQUEST,
+            ENV_REF_HOST_UNALLOWED_CODE,
+            format!("the reference digest {d:?} is not sha256:<64 lowercase hex>"),
+        ));
+    }
+    Ok(hex.to_string())
+}
+
+// ────────────────────────────── layer entry grammar ───────────────────────────
+
+/// Validate ONE `layer-manifest.json` mount entry (DEC-14, TEST-03):
+/// absolute, no empty / `.` / `..` components, and under `/usr/local`, `/opt`
+/// or `/code`. Refused with [`ENV_LAYER_ENTRY_INVALID_CODE`] — an unvalidated
+/// path must never reach a bind (a `..`-laden entry would let the bind source
+/// escape the layer dir).
+pub fn validate_layer_entry(entry: &str) -> Result<(), AppError> {
+    let invalid = |why: &str| {
+        Err(AppError::new(
+            StatusCode::BAD_REQUEST,
+            ENV_LAYER_ENTRY_INVALID_CODE,
+            format!("layer mount entry {entry:?} is refused: {why}"),
+        ))
+    };
+    if !entry.starts_with('/') {
+        return invalid("an entry must be an absolute path");
+    }
+    for comp in entry[1..].split('/') {
+        if comp.is_empty() || comp == "." || comp == ".." {
+            return invalid("components must be non-empty and free of . / ..");
+        }
+    }
+    let in_prefix = ALLOWED_LAYER_ENTRY_PREFIXES.iter().any(|p| {
+        entry == *p
+            || entry
+                .strip_prefix(p)
+                .is_some_and(|rest| rest.starts_with('/'))
+    });
+    if !in_prefix {
+        return invalid("an entry must be under /usr/local, /opt or /code");
+    }
+    Ok(())
+}
+
+/// Validate the whole entry list (same refusal as [`validate_layer_entry`],
+/// stopped at the first offender).
+pub fn validate_layer_entries(entries: &[String]) -> Result<(), AppError> {
+    for e in entries {
+        validate_layer_entry(e)?;
+    }
+    Ok(())
+}
+
+// ────────────────────────────── the stacked argv ─────────────────────────────
+
+/// Build the bwrap argv of a stacked method run (PROV-SS-2).
+///
+/// The hardening prefix is the SHIPPED builder's output, called with the same
+/// caps/ctx/base-dir/identity/limits and NO extra mounts (the method mounts are
+/// spliced in AFTER the prefix but BEFORE the tail); the splice happens at the
+/// one fixed seam (right after the shipped `/proc`-file mask block) so:
+///
+/// - every hardening flag stays byte-identical to a plain run (TEST-02),
+/// - layers / model / mounts / env can never shadow a hardening flag,
+/// - the pinned order is `hardening, layers, model, mounts, env` — all before
+///   the first `--` terminator (TEST-01).
+///
+/// `layer_entries` are validated here (typed refusal, [`ENV_LAYER_ENTRY_INVALID_CODE`]),
+/// exactly like TEST-15's "nothing bound, typed error" contract.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn build_stacked_bwrap_argv(
+    caps: &HardeningCapabilities,
+    ctx: &SandboxContext,
+    base_dir: &Path,
+    layer_dir: &Path,
+    layer_entries: &[String],
+    user_cmd: &str,
+    passwd_path: &Path,
+    group_path: &Path,
+    mask_path: &Path,
+    seccomp_fd: Option<i32>,
+    limits: &SandboxResourceLimits,
+    extra_mounts: &[ExtraMount],
+    model_mount: Option<&ExtraMount>,
+    n_cpu: u32,
+    progress_fifo_src: Option<&str>,
+    sigbench_mode: Option<&str>,
+) -> Result<Vec<String>, AppError> {
+    // Refuse BEFORE any flag is emitted: a bind built from an unvalidated entry
+    // is a path-escape vector, never a `--ro-bind-try` that happens to work.
+    validate_layer_entries(layer_entries)?;
+
+    // Mirror spawn_bwrap_child's non-UTF8 refusal (a dropped path would make
+    // `<base>/usr` == `/usr` and bind the HOST /usr — see sandbox.rs).
+    if base_dir.to_str().is_none() || layer_dir.to_str().is_none() {
+        return Err(AppError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "ROOTFS_PATH_INVALID",
+            "a stacked base/layer mount path is not valid UTF-8; refusing to build the sandbox",
+        ));
+    }
+
+    let mut argv = build_bwrap_argv(
+        caps,
+        ctx,
+        base_dir,
+        user_cmd,
+        passwd_path,
+        group_path,
+        mask_path,
+        seccomp_fd,
+        limits,
+        &[],
+        progress_fifo_src,
+    );
+
+    let at = after_proc_mask_block(&argv)?;
+
+    let mut block: Vec<String> = Vec::with_capacity(
+        layer_entries.len() * 3
+            + extra_mounts.len() * 3
+            + 3
+            + usize::from(model_mount.is_some()) * 3
+            + usize::from(sigbench_mode.is_some()) * 3,
+    );
+
+    // Layers, in manifest order. `--ro-bind-try`: an entry the layer does not
+    // actually carry MUST NOT be an error here — the base content showing
+    // through is the safe direction (a missing entry never shadows the base).
+    for entry in layer_entries {
+        block.push("--ro-bind-try".into());
+        let rel = entry.strip_prefix('/').unwrap_or(entry);
+        block.push(format!("{}/{}", layer_dir.display(), rel));
+        block.push(entry.clone());
+    }
+
+    // Model: ALWAYS read-only at the fixed /model dest. The mount's own
+    // mode/sandbox_path fields are deliberately ignored — the builder API has
+    // no read-write model mode (TEST-05); verification happened BEFORE this
+    // call (verify_model_tree, MODEL_VERIFY_FAILED).
+    if let Some(model) = model_mount {
+        block.push("--ro-bind".into());
+        block.push(model.host_path.display().to_string());
+        block.push(MODEL_SANDBOX_PATH.into());
+    }
+
+    // Method /input (RO) + /output (RW), same mapping as the shipped builder
+    // (ReadOnly → --ro-bind-try, ReadWrite → --bind) — deliberately mirrored
+    // here, not passed through: the mounts must come AFTER the layers/model in
+    // argv order (TEST-01) so a layer can never overlay the run's own dirs.
+    for m in extra_mounts {
+        let host = m.host_path.display().to_string();
+        match m.mode {
+            MountMode::ReadOnly => {
+                block.push("--ro-bind-try".into());
+                block.push(host);
+                block.push(m.sandbox_path.clone());
+            }
+            MountMode::ReadWrite => {
+                block.push("--bind".into());
+                block.push(host);
+                block.push(m.sandbox_path.clone());
+            }
+        }
+    }
+
+    if let Some(mode) = sigbench_mode {
+        block.push("--setenv".into());
+        block.push("SIGBENCH_MODE".into());
+        block.push(mode.to_string());
+    }
+    // Thread overrides AFTER the prefix's `1` defaults (last-wins, TEST-05).
+    // `n_cpu <= 1` emits nothing (the prefix default is `1`), which keeps the
+    // builder byte-identical to the shipped argv when nothing is stacked
+    // (TEST-02). A `0` would be OpenMP's "auto" — clamp to 1.
+    let threads = n_cpu.max(1);
+    if threads > 1 {
+        let t = threads.to_string();
+        for var in ["OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"] {
+            block.push("--setenv".into());
+            block.push(var.into());
+            block.push(t.clone());
+        }
+    }
+
+    argv.splice(at..at, block);
+    Ok(argv)
+}
+
+/// Index just past the shipped builder's final `/proc`-file mask (the 4th of
+/// the always-emitted `--ro-bind /dev/null /proc/…` triples) — the fixed seam
+/// between the hardening prefix and the FIFO/seccomp/terminator tail.
+///
+/// The probe is on the masking flag sequence itself, not on a positional
+/// constant: if the shipped prefix ever changes shape, this function ERRORS
+/// (typed [`ENV_LAYER_ENTRY_INVALID_CODE`]-adjacent internal code) instead of
+/// silently splicing at the wrong offset — a wrong splice is a security bug.
+fn after_proc_mask_block(argv: &[String]) -> Result<usize, AppError> {
+    argv.windows(3)
+        .position(|w| w[0] == "--ro-bind" && w[1] == "/dev/null" && w[2] == "/proc/kmsg")
+        .map(|i| i + 3)
+        .ok_or_else(|| {
+            AppError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "STACKED_AV_SPLICE_ANCHOR_MISSING",
+                "the shipped hardening prefix no longer ends with the /proc-file mask block \
+                 (sandbox.rs change?); refusing to splice the stacked argv at an unknown offset",
+            )
+        })
+}
+
+// ────────────────────────────── model tree digest ─────────────────────────────
+
+/// Deterministic directory-tree digest (DEC-7, PROV-SS-3): sha256 over the
+/// stream of, for every REGULAR file under `dir` sorted by relative path
+/// (bytes, `/` separators; subdirs recursed in sorted order),
+/// `<relpath>\0` + the lowercase hex sha256 of the file bytes + `\n`.
+///
+/// Only regular files participate: symlinks, sockets, fifos and devices are
+/// skipped (a symlink's target resolves inside the sandbox anyway, and the
+/// model-store writes plain files). Deterministic on the same tree — the
+/// digest is portable between the model-store's save and the reuse run's
+/// verification on the same machine.
+pub fn tree_sha256(dir: &Path) -> Result<String, AppError> {
+    let mut files: Vec<(Vec<u8>, PathBuf)> = Vec::new();
+    collect_regular_files(dir, dir, &mut files)?;
+    files.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let mut stream = Sha256::new();
+    for (rel, path) in &files {
+        stream.update(rel);
+        stream.update([0u8]);
+        let bytes = std::fs::read(path).map_err(|e| {
+            AppError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                MODEL_TREE_READ_FAILED_CODE,
+                format!("read {}: {e}", path.display()),
+            )
+        })?;
+        stream.update(hex::encode(Sha256::digest(&bytes)).as_bytes());
+        stream.update([b'\n']);
+    }
+    Ok(hex::encode(stream.finalize()))
+}
+
+/// The PG-style verification gate (TEST-04): recompute the tree digest and
+/// refuse with [`MODEL_VERIFY_FAILED_CODE`] unless it equals the digest the
+/// caller declared. Called by the run seam BEFORE the argv is built — a
+/// mismatch never reaches bwrap.
+pub fn verify_model_tree(dir: &Path, expected: &str) -> Result<(), AppError> {
+    let actual = tree_sha256(dir)?;
+    if actual != expected {
+        return Err(AppError::new(
+            StatusCode::BAD_REQUEST,
+            MODEL_VERIFY_FAILED_CODE,
+            format!(
+                "model tree digest mismatch for {}: expected {}, computed {}",
+                dir.display(),
+                expected,
+                actual
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn collect_regular_files(
+    root: &Path,
+    dir: &Path,
+    out: &mut Vec<(Vec<u8>, PathBuf)>,
+) -> Result<(), AppError> {
+    let mut entries: Vec<_> = std::fs::read_dir(dir)
+        .map_err(|e| tree_read_err("list", dir, e))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| tree_read_err("list", dir, e))?;
+    // Sorted directory order keeps the traversal deterministic independent of
+    // the filesystem's readdir order.
+    entries.sort_by_key(|e| e.file_name());
+    for entry in entries {
+        let path = entry.path();
+        let ft = entry
+            .file_type()
+            .map_err(|e| tree_read_err("stat", dir, e))?;
+        if ft.is_symlink() {
+            continue;
+        }
+        if ft.is_dir() {
+            collect_regular_files(root, &path, out)?;
+        } else if ft.is_file() {
+            let rel = path.strip_prefix(root).map_err(|e| {
+                AppError::new(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    MODEL_TREE_READ_FAILED_CODE,
+                    format!("relative path of {}: {e}", path.display()),
+                )
+            })?;
+            out.push((path_bytes(rel), path));
+        }
+    }
+    Ok(())
+}
+
+fn tree_read_err(what: &str, dir: &Path, e: std::io::Error) -> AppError {
+    AppError::new(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        MODEL_TREE_READ_FAILED_CODE,
+        format!("{what} {}: {e}", dir.display()),
+    )
+}
+
+/// Relative path as raw bytes with `/` separators (the digest stream's path
+/// form; bytes on Unix, lossy on other targets).
+fn path_bytes(p: &Path) -> Vec<u8> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        p.as_os_str().as_bytes().to_vec()
+    }
+    #[cfg(not(unix))]
+    {
+        p.to_string_lossy().into_owned().into_bytes()
+    }
+}
+
+// ────────────────────────────── Unit tests ────────────────────────────────────
+
+// Lifecycle ids: stack TEST-01..TEST-05 (TESTS.md). Tests BELOW the shipped
+// `sandbox.rs` naming discipline: pure argv assertions + the tree digest on a
+// temp fixture (no bwrap, no network, no host tools).
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::modules::sandbox::types::{CgroupMode, PidNsMode, SeccompMode};
+    use uuid::Uuid;
+
+    fn caps() -> HardeningCapabilities {
+        HardeningCapabilities {
+            bwrap_path: PathBuf::from("/usr/bin/bwrap"),
+            pid_namespace: PidNsMode::Strict,
+            cgroup: CgroupMode::None,
+            seccomp: SeccompMode::NotLinked,
+        }
+    }
+
+    fn ctx() -> SandboxContext {
+        SandboxContext {
+            job_id: Uuid::nil(),
+            workspace: PathBuf::from("/data/sandboxes/job"),
+        }
+    }
+
+    fn limits() -> SandboxResourceLimits {
+        SandboxResourceLimits::defaults()
+    }
+
+    fn pos(a: &[String], needle: &str) -> Option<usize> {
+        a.iter().position(|s| s == needle)
+    }
+
+    /// LAST occurrence — the prefix always sets the thread vars to `1`, so the
+    /// override under test is the trailing one (last-wins).
+    fn rpos(a: &[String], needle: &str) -> Option<usize> {
+        a.iter().rposition(|s| s == needle)
+    }
+
+    fn stacked(
+        entries: &[&str],
+        extra_mounts: &[ExtraMount],
+        model: Option<&ExtraMount>,
+        n_cpu: u32,
+        mode: Option<&str>,
+    ) -> Vec<String> {
+        stacked_fifo(entries, extra_mounts, model, n_cpu, mode, None)
+    }
+
+    fn stacked_fifo(
+        entries: &[&str],
+        extra_mounts: &[ExtraMount],
+        model: Option<&ExtraMount>,
+        n_cpu: u32,
+        mode: Option<&str>,
+        fifo: Option<&str>,
+    ) -> Vec<String> {
+        let entries: Vec<String> = entries.iter().map(|s| s.to_string()).collect();
+        build_stacked_bwrap_argv(
+            &caps(),
+            &ctx(),
+            Path::new("/mnt/base"),
+            Path::new("/mnt/layer"),
+            &entries,
+            "run.sh",
+            Path::new("/id/passwd"),
+            Path::new("/id/group"),
+            Path::new("/id/empty"),
+            None,
+            &limits(),
+            extra_mounts,
+            model,
+            n_cpu,
+            fifo,
+            mode,
+        )
+        .expect("stacked argv builds from valid entries")
+    }
+
+    fn input_output_mounts() -> Vec<ExtraMount> {
+        vec![
+            ExtraMount {
+                host_path: PathBuf::from("/host/input"),
+                sandbox_path: "/input".into(),
+                mode: MountMode::ReadOnly,
+            },
+            ExtraMount {
+                host_path: PathBuf::from("/host/output"),
+                sandbox_path: "/output".into(),
+                mode: MountMode::ReadWrite,
+            },
+        ]
+    }
+
+    /// TEST-01: hardening prefix shape + the pinned splice order:
+    /// hardening, layers, model, mounts, env — all before the first `--`.
+    #[test]
+    fn argv_pins_hardening_then_layers_then_model_then_mounts_then_env() {
+        let model = ExtraMount {
+            host_path: PathBuf::from("/host/model"),
+            sandbox_path: "/somewhere-else".into(), // ignored: dest is fixed
+            mode: MountMode::ReadWrite,             // ignored: model is always RO
+        };
+        let a = stacked(
+            &["/code", "/opt/venv/lib/site-packages"],
+            &input_output_mounts(),
+            Some(&model),
+            4,
+            Some("fit"),
+        );
+
+        // Hardening prefix: shipped shape.
+        assert_eq!(a[0], "--clearenv", "clearenv must be first");
+        assert!(a.contains(&"--unshare-user".to_string()));
+        let uid = pos(&a, "--uid").unwrap();
+        assert_eq!(a[uid + 1], "1001");
+        assert!(
+            a.contains(&"--unshare-net".to_string()),
+            "no network (INV-1)"
+        );
+        assert!(!a.contains(&"--share-net".to_string()));
+        assert!(a.contains(&"--unshare-pid".to_string()), "strict pid-ns");
+        assert!(a.contains(&"--proc".to_string()));
+        assert!(
+            a.contains(&"/etc/ssl/certs".to_string()),
+            "certs-only /etc/ssl"
+        );
+        // Dotfile masks present (spot check).
+        let dot = pos(&a, "/home/analyst/.gitconfig").expect("dotfile masked");
+        assert_eq!(a[dot - 1], "/id/empty");
+        // Two `--` terminators + prlimit + bash tail.
+        let terms: Vec<usize> = a
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| *s == "--")
+            .map(|(i, _)| i)
+            .collect();
+        assert!(
+            terms.len() >= 2,
+            "two -- terminators (before prlimit, before bash)"
+        );
+        let prlimit = pos(&a, "/usr/bin/prlimit").unwrap();
+        assert!(
+            terms[0] < prlimit,
+            "first -- precedes prlimit (CVE-2024-32462)"
+        );
+        let bash = pos(&a, "/bin/bash").unwrap();
+        assert_eq!(a[bash + 1], "-lc");
+        assert_eq!(a[bash + 2], "run.sh");
+
+        // Layer binds, in manifest order.
+        let c = pos(&a, "/code").expect("/code entry bound");
+        assert_eq!(a[c - 2], "--ro-bind-try");
+        assert_eq!(a[c - 1], "/mnt/layer/code");
+        let p = pos(&a, "/opt/venv/lib/site-packages").expect("second entry bound");
+        assert_eq!(a[p - 2], "--ro-bind-try");
+        assert_eq!(a[p - 1], "/mnt/layer/opt/venv/lib/site-packages");
+        assert!(c < p, "layer entries keep manifest order");
+
+        // Model: always --ro-bind at the fixed /model dest, mode/sandbox_path ignored.
+        let m = pos(&a, MODEL_SANDBOX_PATH).expect("model bound at /model");
+        assert_eq!(a[m - 2], "--ro-bind", "model is NEVER --bind (TEST-05)");
+        assert_eq!(a[m - 1], "/host/model");
+        assert!(
+            !a.iter().any(|s| s == "/somewhere-else"),
+            "model dest is fixed, not the mount's own"
+        );
+
+        // Extra mounts after the model.
+        let in_p = pos(&a, "/input").unwrap();
+        assert_eq!(a[in_p - 2], "--ro-bind-try");
+        assert_eq!(a[in_p - 1], "/host/input");
+        let out_p = pos(&a, "/output").unwrap();
+        assert_eq!(a[out_p - 2], "--bind");
+        assert_eq!(a[out_p - 1], "/host/output");
+        assert!(m < in_p && in_p < out_p, "model before mounts");
+
+        // Env after the mounts; SIGBENCH_MODE + n_cpu overrides. `rposition`
+        // picks the LAST occurrence — the prefix's own `1` defaults precede.
+        let env_p = pos(&a, "SIGBENCH_MODE").expect("mode env present");
+        assert_eq!(a[env_p + 1], "fit");
+        assert!(out_p < env_p, "env setenvs after the mounts");
+        let omp = rpos(&a, "OMP_NUM_THREADS").expect("thread override present");
+        assert_eq!(a[omp + 1], "4");
+        let mkl = rpos(&a, "MKL_NUM_THREADS").expect("MKL override present");
+        assert_eq!(a[mkl + 1], "4");
+        // Last-wins: the override comes AFTER the prefix's "1" default.
+        let default_pos = a
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| *s == "1")
+            .map(|(i, _)| i)
+            .max()
+            .unwrap();
+        assert!(
+            default_pos < omp,
+            "n_cpu override after the prefix 1-defaults"
+        );
+
+        // Everything before the first `--`.
+        let first_term = pos(&a, "--").unwrap();
+        assert!(c < first_term && m < first_term && in_p < first_term && env_p < first_term);
+    }
+
+    /// TEST-02 + the INV-5 design-fidelity proof: the builder REUSES the
+    /// shipped hardening prefix — with nothing stacked it is byte-identical to
+    /// `build_bwrap_argv`, and with a real stack the shared prefix + tail are
+    /// byte-identical; no second copy of the security-critical flags exists.
+    #[test]
+    fn builder_reuses_shipped_prefix_byte_identically() {
+        // Case A — nothing stacked: FULL byte-identity.
+        let plain = build_bwrap_argv(
+            &caps(),
+            &ctx(),
+            Path::new("/mnt/base"),
+            "run.sh",
+            Path::new("/id/passwd"),
+            Path::new("/id/group"),
+            Path::new("/id/empty"),
+            None,
+            &limits(),
+            &input_output_mounts(),
+            Some("/host/run/fifo"),
+        );
+        let stacked_v = build_stacked_bwrap_argv(
+            &caps(),
+            &ctx(),
+            Path::new("/mnt/base"),
+            Path::new("/mnt/layer"),
+            &[],
+            "run.sh",
+            Path::new("/id/passwd"),
+            Path::new("/id/group"),
+            Path::new("/id/empty"),
+            None,
+            &limits(),
+            &input_output_mounts(),
+            None,
+            1,
+            Some("/host/run/fifo"),
+            None,
+        )
+        .expect("empty stack builds");
+        assert_eq!(
+            stacked_v, plain,
+            "a stack with nothing stacked must equal the shipped argv"
+        );
+
+        // Case B — a real stack: the shipped argv (with NO extra mounts, as the
+        // builder consumes them) shares the prefix before the seam and the tail
+        // after the splice; only the spliced block differs.
+        let base_no_mounts = build_bwrap_argv(
+            &caps(),
+            &ctx(),
+            Path::new("/mnt/base"),
+            "run.sh",
+            Path::new("/id/passwd"),
+            Path::new("/id/group"),
+            Path::new("/id/empty"),
+            None,
+            &limits(),
+            &[],
+            Some("/host/run/fifo"),
+        );
+        let stacked_v = stacked_fifo(
+            &["/code"],
+            &input_output_mounts(),
+            None,
+            4,
+            Some("fit"),
+            Some("/host/run/fifo"),
+        );
+        let at = after_proc_mask_block(&base_no_mounts).expect("anchor found");
+        assert_eq!(
+            stacked_v[..at],
+            base_no_mounts[..at],
+            "hardening prefix byte-identical to the shipped builder"
+        );
+        assert_eq!(
+            stacked_v[at + stacked_v.len() - base_no_mounts.len()..],
+            base_no_mounts[at..],
+            "FIFO/terminator/prlimit tail preserved"
+        );
+    }
+
+    /// TEST-03: the entries validator refuses `..`, relative, empty-component
+    /// and outside-prefix entries; `validate_oci_ref` accepts only the compiled
+    /// txr registries with a single valid-env-id repo component.
+    #[test]
+    fn layer_entry_and_oci_ref_validation() {
+        // Layer entries: only valid shapes pass.
+        for ok in [
+            "/code",
+            "/usr/local",
+            "/usr/local/bin",
+            "/opt",
+            "/opt/venv/x",
+        ] {
+            assert!(validate_layer_entry(ok).is_ok(), "{ok} must be accepted");
+        }
+        for bad in [
+            "code",          // relative
+            "../code",       // ..
+            "/usr/../code",  // ..
+            "/usr/local/..", // ..
+            "/code/",        // empty trailing component
+            "/usr/local/",   // empty trailing component
+            "/usr",          // outside the allowed prefixes
+            "/usr/lib/x",    // outside (a full /usr overlay would shadow the base)
+            "/etc/passwd",   // outside
+            "/code//x",      // empty component
+            "/code/./x",     // "." component
+        ] {
+            let err = validate_layer_entry(bad).expect_err(&format!("{bad} must be refused"));
+            assert_eq!(err.error_code(), ENV_LAYER_ENTRY_INVALID_CODE, "{bad}");
+        }
+        validate_layer_entries(&["/code".into(), "/usr/local".into()])
+            .expect("the list validator accepts a valid list");
+
+        // OCI refs: the two compiled prefixes + valid env id + tag/digest pass.
+        let ok_refs = [
+            "ghcr.io/tinnlab/txresbench-env/base-r:latest",
+            "ghcr.io/tinnlab/txr-method-env-layers/cox-delta:1.0.0",
+            "ghcr.io/tinnlab/txresbench-env/base-py@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        ];
+        for r in ok_refs {
+            let parts = validate_oci_ref(r).unwrap_or_else(|e| panic!("{r} must be accepted: {e}"));
+            assert!(parts.repo == "base-r" || parts.repo == "cox-delta" || parts.repo == "base-py");
+            assert!(
+                parts.registry_base == TXR_BASE_REGISTRY_PREFIX
+                    || parts.registry_base == TXR_LAYER_REGISTRY_PREFIX
+            );
+        }
+        let p = validate_oci_ref("ghcr.io/tinnlab/txr-method-env-layers/cox-delta:1.0.0").unwrap();
+        assert_eq!(p.repo, "cox-delta");
+        assert_eq!(p.tag.as_deref(), Some("1.0.0"));
+        assert_eq!(p.digest, None);
+        let p = validate_oci_ref("ghcr.io/tinnlab/txresbench-env/base-py@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef").unwrap();
+        assert_eq!(
+            p.digest.as_deref(),
+            Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+        );
+
+        // Every other shape is refused ENV_REF_HOST_UNALLOWED.
+        for bad in [
+            "quay.io/tinnlab/txresbench-env/base-r",   // other host
+            "ghcr.io/other-org/txresbench-env/base-r", // other org
+            "ghcr.io/tinnlab/other-prefix/base-r",     // other prefix
+            "ghcr.io/tinnlab/txresbench-env/base-r/x", // nested repo path
+            "ghcr.io/tinnlab/txresbench-env/Base-R",   // invalid env id (uppercase)
+            "ghcr.io/tinnlab/txresbench-env/base-r:tag/nested", // path-laden tag
+            "ghcr.io/tinnlab/txresbench-env/base-r:has space", // malformed tag
+            "ghcr.io/tinnlab/txresbench-env/base-r@md5:123", // non-sha256 digest
+            "ghcr.io/tinnlab/txresbench-env",          // no repo component
+            "http://ghcr.io/tinnlab/txresbench-env/base-r", // scheme-laden
+        ] {
+            let err = validate_oci_ref(bad).expect_err(&format!("{bad} must be refused"));
+            assert_eq!(err.error_code(), ENV_REF_HOST_UNALLOWED_CODE, "{bad}");
+        }
+        assert!(
+            is_valid_oci_tag("1.0.0") && is_valid_oci_tag("latest") && is_valid_oci_tag("x_y.9")
+        );
+        assert!(
+            !is_valid_oci_tag("") && !is_valid_oci_tag("has space") && !is_valid_oci_tag("a:b")
+        );
+        assert!(is_sha256_hex(
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+        ));
+        assert!(!is_sha256_hex("") && !is_sha256_hex("ABC"));
+    }
+
+    /// TEST-05: mode → SIGBENCH_MODE mapping, thread override last-wins, and
+    /// the builder refuses unvalidated entries with a typed error (nothing bound).
+    #[test]
+    fn mode_mapping_threads_and_refusal_contract() {
+        assert_eq!(MethodRunMode::FitPredict.sigbench_mode(), None);
+        assert_eq!(MethodRunMode::FitOnly.sigbench_mode(), Some("fit"));
+        assert_eq!(MethodRunMode::ReuseModel.sigbench_mode(), Some("predict"));
+
+        // n_cpu 1 → no override (the prefix default `1` is already correct);
+        // n_cpu 0 → clamped to 1 (OMP's `0` means "auto" — a runaway risk).
+        let a1 = stacked(&[], &[], None, 1, None);
+        let a0 = stacked(&[], &[], None, 0, None);
+        assert_eq!(a1, a0);
+        let omp1 = rpos(&a1, "OMP_NUM_THREADS").expect("prefix default present");
+        assert_eq!(
+            a1[omp1 + 1],
+            "1",
+            "n_cpu 1 leaves the prefix's 1 default (no override)"
+        );
+
+        // Override present only when n_cpu > 1 (and it is the LAST occurrence).
+        let a4 = stacked(&[], &[], None, 4, None);
+        let omp = rpos(&a4, "OMP_NUM_THREADS").expect("override for n_cpu 4");
+        assert_eq!(a4[omp + 1], "4");
+
+        // The builder refuses an unvalidated entry (nothing is emitted).
+        let bad: Vec<String> = vec!["/usr".into()];
+        let err = build_stacked_bwrap_argv(
+            &caps(),
+            &ctx(),
+            Path::new("/mnt/base"),
+            Path::new("/mnt/layer"),
+            &bad,
+            "run.sh",
+            Path::new("/p"),
+            Path::new("/g"),
+            Path::new("/m"),
+            None,
+            &limits(),
+            &[],
+            None,
+            1,
+            None,
+            None,
+        )
+        .expect_err("unvalidated entry must be refused");
+        assert_eq!(err.error_code(), ENV_LAYER_ENTRY_INVALID_CODE);
+    }
+
+    /// PROV-SS-3 unit half (determinism + tamper sensitivity; the RO-bind-in-a-
+    /// run half is TEST-04, integration): two calls agree, file order is
+    /// sorted, symlinks do not participate, and a tampered file changes the digest.
+    #[test]
+    fn tree_sha256_is_deterministic_order_sensitive_and_skips_symlinks() {
+        let dir = std::env::temp_dir().join(format!("stack-tree-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        std::fs::write(dir.join("b.txt"), b"bb").unwrap();
+        std::fs::write(dir.join("a.txt"), b"aa").unwrap();
+        std::fs::write(dir.join("sub/c.txt"), b"cc").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink("a.txt", dir.join("link.txt")).unwrap();
+
+        let d1 = tree_sha256(&dir).unwrap();
+        let d2 = tree_sha256(&dir).unwrap();
+        assert_eq!(d1, d2, "deterministic across calls");
+        assert_eq!(d1.len(), 64);
+        // Order matters (digest differs from a differently-ordered tree): the
+        // stream is sorted by relpath, so swapping the file CONTENT between
+        // two files must change the digest even though the set is identical.
+        std::fs::write(dir.join("b.txt"), b"aa").unwrap();
+        std::fs::write(dir.join("a.txt"), b"bb").unwrap();
+        let d_swapped = tree_sha256(&dir).unwrap();
+        assert_ne!(
+            d1, d_swapped,
+            "sorted-by-name stream keeps content↔name pairing"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// verify_model_tree: a tampered dir is refused MODEL_VERIFY_FAILED; the
+    /// pristine dir passes; the I/O failure path is typed separately.
+    #[test]
+    fn verify_model_tree_refuses_tamper() {
+        let dir = std::env::temp_dir().join(format!("stack-model-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("model.json"), b"{}").unwrap();
+        let good = tree_sha256(&dir).unwrap();
+        verify_model_tree(&dir, &good).expect("matching digest passes");
+
+        std::fs::write(dir.join("model.json"), b"{ tampered }").unwrap();
+        let err = verify_model_tree(&dir, &good).expect_err("tamper must be refused");
+        assert_eq!(err.error_code(), MODEL_VERIFY_FAILED_CODE);
+
+        let missing = dir.join("does-not-exist");
+        let err2 = verify_model_tree(&missing, &good).expect_err("missing dir must be refused");
+        assert_eq!(err2.error_code(), MODEL_TREE_READ_FAILED_CODE);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

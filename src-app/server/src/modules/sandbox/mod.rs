@@ -44,6 +44,11 @@ pub mod probes;
 pub mod routes;
 pub mod sandbox;
 pub mod spec;
+// Stacked-layer method sandbox (txr): contract types + pure argv/model/ref
+// rules. No exported fn touches bwrap itself — the run seam (service.rs,
+// ITEM-4) drives the reuse of `sandbox::spawn_bwrap_child` on the argv this
+// module builds (DEC-1: extension of the shipped module, not a replacement).
+pub mod stack;
 #[cfg(target_os = "linux")]
 pub mod streaming;
 pub mod service;
