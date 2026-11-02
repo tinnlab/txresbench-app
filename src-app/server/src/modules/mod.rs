@@ -20,6 +20,9 @@ pub mod features;
 pub mod file;
 pub mod health;
 pub mod mcp;
+// TxResBench: the app-owned method catalogue (embedded facts + eligibility /
+// estimate engines + typed surfaces). DB-free, stateless, boot-validated embed.
+pub mod method_catalogue;
 pub mod rootfs;
 pub mod sandbox;
 // NOTE (artifact-model ITEM-13): the `tiledb_serve` module — the native in-process
