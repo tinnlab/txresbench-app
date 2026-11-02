@@ -55,7 +55,7 @@
 
 use reqwest::multipart::{Form, Part};
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use super::account::{add_member, make_org_account, move_dataset_to_account, pool_for, setup_admin};
@@ -82,7 +82,7 @@ async fn user_with_token(
 ) -> (Uuid, String) {
     let resp = server
         .client
-        .post(server.api_url("/users"))
+        .post(server.api_url("/auth/register"))
         .bearer_auth(admin)
         .json(&json!({
             "username": username,
@@ -96,7 +96,7 @@ async fn user_with_token(
     let id = Uuid::parse_str(
         resp.json::<Value>()
             .await
-            .expect("user json")["id"]
+            .expect("user json")["user"]["id"]
             .as_str()
             .expect("user id"),
     )
@@ -186,7 +186,7 @@ async fn dataset_with_uploaded_file(
 /// Every "after" assertion is therefore attributable to that one DELETE.
 struct Fx {
     admin: String,
-    pool: PgPool,
+    pool: SqlitePool,
     /// the ORG dataset bob's file is linked to — the dataset branch's subject.
     d_bob: Uuid,
     org: Uuid,
@@ -1297,7 +1297,7 @@ async fn the_dataset_branch_agrees_with_the_dataset_read_gate() {
     let (stranger, _t2) = user_with_token(&server, &fx.admin, "outsider").await;
     let group: Uuid = sqlx::query_scalar(
         "INSERT INTO groups (id, name, description, permissions, is_active) \
-         VALUES (gen_random_uuid(), 'file-authz-lockstep', '', '{}', true) RETURNING id",
+         VALUES (randomblob(16), 'file-authz-lockstep', '', '{}', true) RETURNING id",
     )
     .fetch_one(&fx.pool)
     .await
@@ -1310,7 +1310,7 @@ async fn the_dataset_branch_agrees_with_the_dataset_read_gate() {
         .expect("assign group");
     sqlx::query(
         "INSERT INTO dataset_shares (id, dataset_id, principal_type, principal_id, role) \
-         VALUES (gen_random_uuid(), $1, 'group', $2, 'view')",
+         VALUES (randomblob(16), $1, 'group', $2, 'view')",
     )
     .bind(fx.d_bob)
     .bind(group)
@@ -1554,7 +1554,7 @@ async fn a_view_only_sharee_can_read_but_cannot_delete_or_restore() {
     for (principal, role) in [(viewer, "view"), (editor, "edit")] {
         sqlx::query(
             "INSERT INTO dataset_shares (id, dataset_id, principal_type, principal_id, role) \
-             VALUES (gen_random_uuid(), $1, 'user', $2, $3)",
+             VALUES (randomblob(16), $1, 'user', $2, $3)",
         )
         .bind(fx.d_bob)
         .bind(principal)
@@ -1674,7 +1674,7 @@ async fn the_write_branch_agrees_with_require_can_edit() {
     for (principal, role) in [(viewer, "view"), (editor, "edit")] {
         sqlx::query(
             "INSERT INTO dataset_shares (id, dataset_id, principal_type, principal_id, role) \
-             VALUES (gen_random_uuid(), $1, 'user', $2, $3)",
+             VALUES (randomblob(16), $1, 'user', $2, $3)",
         )
         .bind(fx.d_bob)
         .bind(principal)
@@ -1740,7 +1740,7 @@ async fn the_write_branch_agrees_with_require_can_edit() {
 
 /// Re-export shim so the subset assertion above reads clearly.
 async fn readable_file_ids_pub(
-    pool: &sqlx::PgPool,
+    pool: &sqlx::SqlitePool,
     user: Uuid,
     ids: &[Uuid],
 ) -> Result<Vec<Uuid>, ziee_core::AppError> {

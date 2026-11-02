@@ -18,7 +18,7 @@ use axum::http::StatusCode;
 use axum::{Extension, Json};
 use schemars::JsonSchema;
 use serde::Deserialize;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use ziee_core::{ApiResult, AppError};
@@ -64,7 +64,7 @@ fn validate_account_name(raw: &str) -> Result<String, AppError> {
 /// $auth`), so a caller never sees an account they are not a member of.
 pub async fn list_accounts(
     auth: RequirePermissions<(AccountRead,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
 ) -> ApiResult<Json<AccountListResponse>> {
     let repo = AccountRepository::new(pool);
     let accounts = repo.list_user_accounts(auth.user.id).await.map_err(e)?;
@@ -78,7 +78,7 @@ pub async fn list_accounts(
 /// account + owner-membership CREATE sync frames. Returns 201 + the new account.
 pub async fn create_organization(
     auth: RequirePermissions<(AccountManage,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Json(body): Json<CreateOrganizationRequest>,
 ) -> ApiResult<Json<Account>> {
     let name = validate_account_name(&body.name).map_err(e)?;
@@ -120,7 +120,7 @@ pub struct MembersQuery {
 /// byte-identical to a nonexistent account (the membership gate — PROV-A3-1).
 pub async fn list_account_members(
     auth: RequirePermissions<(AccountRead,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path(account_id): Path<Uuid>,
     Query(q): Query<MembersQuery>,
 ) -> ApiResult<Json<AccountMembersResponse>> {
@@ -192,7 +192,7 @@ pub async fn list_account_members(
 /// gets 403.
 pub async fn list_account_member_events(
     scope: AccountScope<RoleAdmin>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Query(q): Query<MembersQuery>,
 ) -> ApiResult<Json<AccountMemberEventsResponse>> {
     let repo = AccountRepository::new(pool);
@@ -259,7 +259,7 @@ mod tests {
 /// error, because there is no other way to obtain the account id.
 pub async fn account_members_manage_context(
     scope: AccountScope<RoleAdmin>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
 ) -> ApiResult<Json<AccountMembersManageContext>> {
     let member_count = AccountRepository::new(pool)
         .count_members(scope.account_id)
@@ -435,7 +435,7 @@ fn fan_cancelled_transfers(cancelled: Vec<crate::modules::project::CancelledTran
 /// `LAST_OWNER` guard, reached, not duplicated.
 pub async fn set_member_role(
     scope: AccountScope<RoleAdmin>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Path((_account_id, user_id)): Path<(Uuid, Uuid)>,
     Json(body): Json<SetRoleRequest>,
@@ -464,7 +464,7 @@ pub async fn set_member_role(
 /// personal-account refusal and #171's in-transaction transfer cancellation unchanged.
 pub async fn remove_member(
     scope: AccountScope<RoleAdmin>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Path((_account_id, user_id)): Path<(Uuid, Uuid)>,
 ) -> ApiResult<()> {
@@ -498,7 +498,7 @@ pub async fn remove_member(
 /// and not a `DELETE … WHERE user_id = me` (#142 R-2).
 pub async fn leave_account(
     scope: AccountScope<SelfMembership>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
 ) -> ApiResult<()> {
     let ceiling = ceiling_of(&scope);
@@ -553,7 +553,7 @@ const INVITATION_SENT_STATUS: &str = "sent";
 /// address.
 pub async fn create_invitation(
     scope: AccountScope<RoleAdmin>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Json(body): Json<CreateInvitationRequest>,
 ) -> ApiResult<Json<CreateInvitationResponse>> {
     let ceiling = ceiling_of(&scope);
@@ -592,7 +592,7 @@ pub async fn create_invitation(
 /// resend route (#145 DEC-2).
 pub async fn list_invitations(
     scope: AccountScope<RoleAdmin>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Query(q): Query<MembersQuery>,
 ) -> ApiResult<Json<InvitationsListResponse>> {
     // Same clamp as `list_account_members` (guideline §4: never unbounded; default 10 —
@@ -641,7 +641,7 @@ pub async fn list_invitations(
 /// live token for a grant the actor may no longer be entitled to confer.
 pub async fn resend_invitation(
     scope: AccountScope<RoleAdmin>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path((_account_id, invitation_id)): Path<(Uuid, Uuid)>,
 ) -> ApiResult<Json<ResendInvitationResponse>> {
     let ceiling = ceiling_of(&scope);
@@ -672,7 +672,7 @@ pub async fn resend_invitation(
 /// to clean up. See `AccountRepository::revoke_invitation`.
 pub async fn revoke_invitation(
     scope: AccountScope<RoleAdmin>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path((_account_id, invitation_id)): Path<(Uuid, Uuid)>,
 ) -> ApiResult<()> {
     AccountRepository::new(pool)
@@ -715,7 +715,7 @@ pub async fn revoke_invitation(
 /// plan's seats are full, **422 `PERSONAL_ACCOUNT_NOT_MANAGEABLE`** for a personal account.
 pub async fn accept_invitation(
     redeemer: InvitationRedeemer,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Json(body): Json<AcceptInvitationRequest>,
 ) -> ApiResult<Json<AcceptInvitationResponse>> {

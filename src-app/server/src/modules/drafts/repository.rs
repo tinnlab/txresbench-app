@@ -1,11 +1,15 @@
 //! Draft persistence. All SQL lives here (handlers call repo fns). Compile-time
-//! `sqlx::query_as!` verified against the build DB. `timestamptz` columns need the
-//! `col as "col: DateTime<Utc>"` override (the `time` crate's default is
-//! `OffsetDateTime`). Reads are BY ID only — the owner/project 404-guard lives in the
+//! `sqlx::query_as!` verified against the build DB. The DEC-8 type map applies:
+//! uuid columns are BLOB binds, `timestamptz` columns are RFC3339-UTC TEXT
+//! (`DateTime<Utc>` overrides; the `time` crate's default is `OffsetDateTime`).
+//! Reads are BY ID only — the owner/project 404-guard lives in the
 //! handler (via `ProjectScope`), exactly like `project::repository` get/delete.
+//! Single-driver SQLite (sqlite-store, ITEM-23): the pool is a
+//! `SqlitePool`/`SqliteConnection`, and the `$2::text` cast in the list
+//! predicate dropped (the Option<&str> bind is typed, DEC-12).
 
 use chrono::{DateTime, Utc};
-use sqlx::PgPool;
+use sqlx::{Sqlite, SqliteConnection, SqlitePool};
 use uuid::Uuid;
 use ziee_core::AppError;
 
@@ -17,11 +21,11 @@ use super::models::{Draft, DraftLineageEntry};
 const LINEAGE_CHAIN_MAX: usize = 512;
 
 pub struct DraftRepository {
-    pool: PgPool,
+    pool: SqlitePool,
 }
 
 impl DraftRepository {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
 
@@ -42,9 +46,9 @@ impl DraftRepository {
             Draft,
             r#"INSERT INTO drafts (id, kind, project_id, data, status, created_by, frozen_artifact_id)
                VALUES ($1, $2, $3, $4, 'open', $5, $6)
-               RETURNING id, kind, project_id,
-                         data as "data: serde_json::Value", status, frozen_artifact_id,
-                         created_by,
+               RETURNING id as "id: Uuid", kind, project_id as "project_id: Uuid",
+                         data as "data: serde_json::Value", status, frozen_artifact_id as "frozen_artifact_id: Uuid",
+                         created_by as "created_by: Uuid",
                          created_at as "created_at: DateTime<Utc>",
                          updated_at as "updated_at: DateTime<Utc>""#,
             id,
@@ -62,9 +66,9 @@ impl DraftRepository {
     pub async fn get(&self, id: Uuid) -> Result<Option<Draft>, AppError> {
         sqlx::query_as!(
             Draft,
-            r#"SELECT id, kind, project_id,
-                      data as "data: serde_json::Value", status, frozen_artifact_id,
-                      created_by,
+            r#"SELECT id as "id: Uuid", kind, project_id as "project_id: Uuid",
+                      data as "data: serde_json::Value", status, frozen_artifact_id as "frozen_artifact_id: Uuid",
+                      created_by as "created_by: Uuid",
                       created_at as "created_at: DateTime<Utc>",
                       updated_at as "updated_at: DateTime<Utc>"
                FROM drafts WHERE id = $1"#,
@@ -84,11 +88,11 @@ impl DraftRepository {
             r#"UPDATE drafts SET
                  data = $2,
                  status = 'open',
-                 updated_at = now()
+                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
                WHERE id = $1
-               RETURNING id, kind, project_id,
-                         data as "data: serde_json::Value", status, frozen_artifact_id,
-                         created_by,
+               RETURNING id as "id: Uuid", kind, project_id as "project_id: Uuid",
+                         data as "data: serde_json::Value", status, frozen_artifact_id as "frozen_artifact_id: Uuid",
+                         created_by as "created_by: Uuid",
                          created_at as "created_at: DateTime<Utc>",
                          updated_at as "updated_at: DateTime<Utc>""#,
             id,
@@ -127,7 +131,8 @@ impl DraftRepository {
     /// The in-flight freeze producer job for `draft_id` **whose captured content matches
     /// `content_hash`**, if one exists (CONTENT-AWARE dedup — DEC-2). "In-flight" = a
     /// mapped freeze job not yet terminal. Read on the caller's dedup transaction
-    /// (advisory-locked on the draft) so the find + the create decision are serialized
+    /// (the `BEGIN IMMEDIATE` write lock — the SQLite substitution for the dropped
+    /// `pg_advisory_xact_lock`, ITEM-23) so the find + the create decision are serialized
     /// against a concurrent consumer.
     ///
     /// The `content_hash` match is load-bearing: a plain "any in-flight freeze for this
@@ -138,12 +143,12 @@ impl DraftRepository {
     /// would freeze itself; if the draft changed, no in-flight freeze matches and a fresh
     /// producer is created for the current content.
     pub async fn find_inflight_freeze_job(
-        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        tx: &mut sqlx::Transaction<'_, Sqlite>,
         draft_id: Uuid,
         content_hash: &str,
     ) -> Result<Option<Uuid>, AppError> {
         sqlx::query_scalar!(
-            r#"SELECT f.job_id as "job_id!"
+            r#"SELECT f.job_id as "job_id: Uuid"
                FROM draft_freeze_jobs f JOIN jobs j ON j.id = f.job_id
                WHERE f.draft_id = $1 AND f.content_hash = $2
                  AND j.status IN ('blocked','queued','running')
@@ -158,12 +163,12 @@ impl DraftRepository {
 
     /// Record that `job_id` is the freeze producer for `draft_id`, stamping the
     /// `content_hash` of the `draft.data` it captured (the CONTENT-AWARE dedup key) — on
-    /// the caller's dedup transaction, so it becomes visible the instant the advisory lock
+    /// the caller's dedup transaction, so it becomes visible the instant the write lock
     /// releases. The job row is inserted in the SAME transaction (see
     /// `freeze::find_or_create_freeze_job`), so the FK holds and a mapping-insert failure
     /// rolls the producer job back with it (no orphan producer).
     pub async fn insert_freeze_mapping(
-        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        tx: &mut sqlx::Transaction<'_, Sqlite>,
         job_id: Uuid,
         draft_id: Uuid,
         content_hash: &str,
@@ -189,11 +194,11 @@ impl DraftRepository {
     /// unrelated job's completion transaction. Only a CONFIRMED freeze then reads `drafts`
     /// (via [`Self::draft_project_in_conn`]). Runs on the completion `conn`.
     pub async fn freeze_target_draft(
-        conn: &mut sqlx::PgConnection,
+        conn: &mut SqliteConnection,
         job_id: Uuid,
     ) -> Result<Option<Uuid>, AppError> {
         sqlx::query_scalar!(
-            r#"SELECT draft_id as "draft_id!" FROM draft_freeze_jobs WHERE job_id = $1"#,
+            r#"SELECT draft_id as "draft_id: Uuid" FROM draft_freeze_jobs WHERE job_id = $1"#,
             job_id,
         )
         .fetch_optional(&mut *conn)
@@ -205,11 +210,11 @@ impl DraftRepository {
     /// [`Self::freeze_target_draft`] confirmed a freeze job, to scope the minted-artifact
     /// pick — so the `drafts` table is touched only for a genuine freeze completion.
     pub async fn draft_project_in_conn(
-        conn: &mut sqlx::PgConnection,
+        conn: &mut SqliteConnection,
         draft_id: Uuid,
     ) -> Result<Option<Uuid>, AppError> {
         sqlx::query_scalar!(
-            r#"SELECT project_id as "project_id!" FROM drafts WHERE id = $1"#,
+            r#"SELECT project_id as "project_id: Uuid" FROM drafts WHERE id = $1"#,
             draft_id,
         )
         .fetch_optional(&mut *conn)
@@ -233,7 +238,7 @@ impl DraftRepository {
     /// stamped from that (possibly stale) artifact. Only a draft last touched STRICTLY
     /// before the freeze was requested is provably the snapshot the producer froze.
     pub async fn set_frozen_if_unmodified_in_conn(
-        conn: &mut sqlx::PgConnection,
+        conn: &mut SqliteConnection,
         draft_id: Uuid,
         freeze_job_id: Uuid,
         frozen_artifact_id: Uuid,
@@ -242,7 +247,7 @@ impl DraftRepository {
             r#"UPDATE drafts SET
                  status = 'frozen',
                  frozen_artifact_id = $3,
-                 updated_at = now()
+                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
                WHERE id = $1
                  AND updated_at < (SELECT created_at FROM jobs WHERE id = $2)"#,
             draft_id,
@@ -265,12 +270,12 @@ impl DraftRepository {
     /// id ASC` picks the non-hidden output by a stable key (falling back to a hidden one
     /// only if that is all there is), so equal `created_at` never ties non-deterministically.
     pub async fn pick_run_artifact_in_conn(
-        conn: &mut sqlx::PgConnection,
+        conn: &mut SqliteConnection,
         project_id: Uuid,
         run_id: Uuid,
     ) -> Result<Option<Uuid>, AppError> {
         sqlx::query_scalar!(
-            r#"SELECT id as "id!" FROM artifacts
+            r#"SELECT id as "id: Uuid" FROM artifacts
                WHERE project_id = $1 AND run_id = $2
                ORDER BY hidden ASC, output_id ASC, id ASC
                LIMIT 1"#,
@@ -289,13 +294,13 @@ impl DraftRepository {
     /// the lineage row can stamp the new artifact's `parent_artifact_id`. `None` for a first
     /// freeze (the draft has never been frozen) or if the row vanished.
     pub async fn draft_frozen_artifact_in_conn(
-        conn: &mut sqlx::PgConnection,
+        conn: &mut SqliteConnection,
         draft_id: Uuid,
     ) -> Result<Option<Uuid>, AppError> {
         // A row exists (freeze_target_draft confirmed the draft); its `frozen_artifact_id` may be
         // NULL (first freeze). The double-Option flattens "no row" and "row with NULL" to None.
         Ok(sqlx::query_scalar!(
-            r#"SELECT frozen_artifact_id FROM drafts WHERE id = $1"#,
+            r#"SELECT frozen_artifact_id as "frozen_artifact_id: Uuid" FROM drafts WHERE id = $1"#,
             draft_id,
         )
         .fetch_optional(&mut *conn)
@@ -313,7 +318,7 @@ impl DraftRepository {
     /// The parent's version is read from its OWN lineage row; a parent with no lineage row
     /// (frozen before lineage was recorded, or GC'd) is treated as version 1, so its child is 2.
     pub async fn record_lineage_in_conn(
-        conn: &mut sqlx::PgConnection,
+        conn: &mut SqliteConnection,
         artifact_id: Uuid,
         draft_id: Uuid,
         parent_artifact_id: Option<Uuid>,
@@ -322,7 +327,7 @@ impl DraftRepository {
             None => 1,
             Some(parent) => {
                 let parent_version: Option<i32> = sqlx::query_scalar!(
-                    r#"SELECT version FROM draft_artifact_lineage WHERE artifact_id = $1"#,
+                    r#"SELECT version as "version: i32" FROM draft_artifact_lineage WHERE artifact_id = $1"#,
                     parent,
                 )
                 .fetch_optional(&mut *conn)
@@ -363,8 +368,9 @@ impl DraftRepository {
             }
             let entry = sqlx::query_as!(
                 DraftLineageEntry,
-                r#"SELECT artifact_id, draft_id, parent_artifact_id,
-                          version,
+                r#"SELECT artifact_id as "artifact_id: Uuid", draft_id as "draft_id: Uuid",
+                          parent_artifact_id as "parent_artifact_id: Uuid",
+                          version as "version: i32",
                           created_at as "created_at: DateTime<Utc>"
                    FROM draft_artifact_lineage WHERE artifact_id = $1"#,
                 id,
@@ -392,13 +398,13 @@ impl DraftRepository {
     ) -> Result<Vec<Draft>, AppError> {
         sqlx::query_as!(
             Draft,
-            r#"SELECT id, kind, project_id,
-                      data as "data: serde_json::Value", status, frozen_artifact_id,
-                      created_by,
+            r#"SELECT id as "id: Uuid", kind, project_id as "project_id: Uuid",
+                      data as "data: serde_json::Value", status, frozen_artifact_id as "frozen_artifact_id: Uuid",
+                      created_by as "created_by: Uuid",
                       created_at as "created_at: DateTime<Utc>",
                       updated_at as "updated_at: DateTime<Utc>"
                FROM drafts
-               WHERE project_id = $1 AND ($2::text IS NULL OR kind = $2)
+               WHERE project_id = $1 AND ($2 IS NULL OR kind = $2)
                ORDER BY updated_at DESC"#,
             project_id,
             kind,

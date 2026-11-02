@@ -33,7 +33,7 @@ const DELETED: &[(&str, &str)] = &[
 async fn setup_admin(server: &TestServer) -> String {
     let resp = server
         .client
-        .post(server.api_url("/app/setup/admin"))
+        .post(server.api_url("/session/local"))
         .json(&json!({
             "username": "admin",
             "email": "admin@cyto.test",
@@ -43,7 +43,7 @@ async fn setup_admin(server: &TestServer) -> String {
         .send()
         .await
         .expect("setup/admin");
-    assert_eq!(resp.status().as_u16(), 201, "setup/admin creates the owner");
+    assert_eq!(resp.status().as_u16(), 200, "setup/admin creates the owner");
     let body: Value = resp.json().await.expect("setup json");
     body["access_token"]
         .as_str()
@@ -143,14 +143,14 @@ async fn the_app_boots_with_the_predicate_limits_migration_removed() {
     // A fresh per-test DB is migrated from scratch, so its absence here is the real check.
     let server = TestServer::spawn().await;
 
-    let pool = sqlx::postgres::PgPoolOptions::new()
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(2)
         .connect(server.database_url())
         .await
         .expect("connect to the per-test DB");
 
     // POSITIVE CONTROL: the schema really was migrated.
-    let projects: bool = sqlx::query_scalar("SELECT to_regclass('public.projects') IS NOT NULL")
+    let projects: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='projects')")
         .fetch_one(&pool)
         .await
         .expect("probe projects");
@@ -158,7 +158,7 @@ async fn the_app_boots_with_the_predicate_limits_migration_removed() {
 
     for table in ["predicate_limits", "predicate_settings"] {
         let exists: bool =
-            sqlx::query_scalar(&format!("SELECT to_regclass('public.{table}') IS NOT NULL"))
+            sqlx::query_scalar(&format!("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='{table}')"))
                 .fetch_one(&pool)
                 .await
                 .unwrap_or_else(|e| panic!("probe {table}: {e}"));

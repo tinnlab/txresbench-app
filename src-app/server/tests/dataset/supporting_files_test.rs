@@ -22,7 +22,7 @@ use std::time::Duration;
 
 use reqwest::multipart::{Form, Part};
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::dataset::repository::DatasetRepository;
@@ -526,11 +526,11 @@ async fn add_supporting_emits_sync_and_records_integrate_provenance() {
 
 /// Insert a controlled `analysis` job in a chosen status (so the background
 /// scheduler never races a terminal one) → its id.
-async fn insert_job(pool: &PgPool, owner: Uuid, status: &str) -> Uuid {
+async fn insert_job(pool: &SqlitePool, owner: Uuid, status: &str) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO jobs (id, owner_id, job_type, name, status, params, priority_class, resource_class)
-         VALUES ($1, $2, 'analysis', 'derive-test', $3, '{}'::jsonb, 'normal', 'cpu-sandbox')",
+         VALUES ($1, $2, 'analysis', 'derive-test', $3, '{}', 'normal', 'cpu-sandbox')",
     )
     .bind(id)
     .bind(owner)
@@ -687,23 +687,33 @@ async fn add_supporting_at_cap_422() {
     let owner = admin_user_id(&pool).await;
 
     // Seed 50 supporting files (the DEC-12 cap) directly: a batch of `files` rows +
-    // their `dataset_files` supporting links.
-    sqlx::query(
-        "WITH new_files AS (
-             INSERT INTO files (id, user_id, filename, file_size, current_version_id, created_by)
-             SELECT gen_random_uuid(), $1, 'seed-' || g || '.csv', 10, gen_random_uuid(), 'user'
-             FROM generate_series(1, 50) g
-             RETURNING id
-         )
-         INSERT INTO dataset_files (dataset_id, file_id, ordinal, role, kind)
-         SELECT $2, id, 100 + (row_number() OVER ())::int, 'supporting', 'annotation_table'
-         FROM new_files",
-    )
-    .bind(owner)
-    .bind(ds_uuid)
-    .execute(&pool)
-    .await
-    .expect("seed supporting files to the cap");
+    // their `dataset_files` supporting links. SQLite port: the PG data-modifying CTE
+    // (`WITH … INSERT … RETURNING` + `generate_series`) has no SQLite form, so the
+    // seed is a plain loop instead.
+    for i in 0..50i64 {
+        let file_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO files (id, user_id, filename, file_size, current_version_id, created_by) \
+             VALUES (?, ?, ?, 10, ?, 'user')",
+        )
+        .bind(file_id)
+        .bind(owner)
+        .bind(format!("seed-{i}.csv"))
+        .bind(Uuid::new_v4())
+        .execute(&pool)
+        .await
+        .expect("seed file");
+        sqlx::query(
+            "INSERT INTO dataset_files (dataset_id, file_id, ordinal, role, kind) \
+             VALUES (?, ?, ?, 'supporting', 'annotation_table')",
+        )
+        .bind(ds_uuid)
+        .bind(file_id)
+        .bind(100 + i)
+        .execute(&pool)
+        .await
+        .expect("seed dataset_files link");
+    }
 
     // The 51st supporting add is rejected at the cap.
     let resp = post_supporting(

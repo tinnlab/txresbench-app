@@ -10,6 +10,10 @@
 //! scoping (foreign / absent file → 404), the download byte + Content-Disposition
 //! path, and delete. Mirrors `ziee-health`'s `finish_api → oneshot` pattern and
 //! `ziee-framework`'s stub-resolver pattern.
+//!
+//! Dual-driver: the harness in `common` provisions the driver of the build
+//! (postgres cluster DB / sqlite file); the router + assertions are
+//! driver-neutral.
 #![cfg(feature = "routes")]
 
 use std::sync::Arc;
@@ -17,9 +21,12 @@ use std::sync::Arc;
 use axum::body::Body;
 use axum::http::{request::Parts, Request, StatusCode};
 use axum::Extension;
-use sqlx::{postgres::PgPoolOptions, Connection, Executor, PgConnection, PgPool};
 use tower::ServiceExt; // oneshot
 use uuid::Uuid;
+
+mod common;
+use common::{drop_db, fresh_db};
+use ziee_core::DbPool;
 
 use ziee_auth::{Group, User};
 use ziee_core::AppError;
@@ -31,46 +38,7 @@ use ziee_file::seams::{DenyAllFileAccess, FileAccess, FileAccessPolicy, FileEven
 use ziee_file::{get_file_storage, init_file_storage};
 use ziee_framework::permissions::IdentityResolver;
 
-// ---- fresh-DB harness (mirrors tests/repository.rs) -----------------------
-
-fn admin_url() -> String {
-    std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql://postgres:password@127.0.0.1:54321/postgres".to_string())
-}
-
-async fn fresh_db() -> (PgPool, String) {
-    let admin = admin_url();
-    let base_full = admin.split('?').next().unwrap();
-    let (base, _) = base_full.rsplit_once('/').expect("admin url has a /db suffix");
-    let dbname = format!("ziee_file_http_test_{}", Uuid::new_v4().simple());
-
-    let mut conn = PgConnection::connect(&admin).await.expect("connect admin db");
-    conn.execute(format!("CREATE DATABASE \"{dbname}\"").as_str())
-        .await
-        .expect("create test db");
-    conn.close().await.ok();
-
-    let pool = PgPoolOptions::new()
-        .max_connections(4)
-        .connect(&format!("{base}/{dbname}"))
-        .await
-        .expect("connect test db");
-
-    pool.execute(include_str!("../migrations/202607140125_file_schema.sql"))
-        .await
-        .expect("crate migration applies standalone on a bare DB");
-
-    (pool, dbname)
-}
-
-async fn drop_db(dbname: &str) {
-    if let Ok(mut conn) = PgConnection::connect(&admin_url()).await {
-        let _ = conn
-            .execute(format!("DROP DATABASE IF EXISTS \"{dbname}\" WITH (FORCE)").as_str())
-            .await;
-        conn.close().await.ok();
-    }
-}
+// ---- fresh-DB harness (tests/common/mod.rs) -------------------------------
 
 // ---- stub identity + events -----------------------------------------------
 
@@ -157,7 +125,7 @@ fn file_data(user_id: Uuid, filename: &str, size: i64) -> FileCreateData {
 
 /// Build the crate's real router behind the stub resolver + a `FileContext`
 /// carrying an explicit access policy.
-fn app_with(pool: PgPool, user: User, access: Arc<dyn FileAccessPolicy>) -> axum::Router {
+fn app_with(pool: DbPool, user: User, access: Arc<dyn FileAccessPolicy>) -> axum::Router {
     let ctx = FileContext {
         files: Arc::new(FileRepository::new(pool)),
         events: Arc::new(NoopEvents),
@@ -235,7 +203,7 @@ fn mounted_route_templates() -> Vec<String> {
 
 /// The pre-seam behaviour: ownership is the whole answer. Used by the original
 /// owner-scope test so its assertions keep meaning exactly what they meant.
-fn app(pool: PgPool, user: User) -> axum::Router {
+fn app(pool: DbPool, user: User) -> axum::Router {
     app_with(pool, user, Arc::new(OwnerOnlyFileAccess))
 }
 

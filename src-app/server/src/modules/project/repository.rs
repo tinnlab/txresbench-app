@@ -4,10 +4,21 @@
 //! columns need the `col as "col: DateTime<Utc>"` override (ziee-auth pulls
 //! sqlx's `time` feature, whose default is `OffsetDateTime`). Every read is
 //! owner-/recipient-scoped; a foreign project reads as `None` → 404 (no leak).
+//!
+//! SQLite driver (sqlite-store DEC-1: the app's modules are single-driver):
+//! `uuid` columns are 16-byte BLOBs and `timestamptz` columns are canonical
+//! RFC3339-UTC TEXT (DEC-8's map), so the plugin `<ident: Type>` overrides the
+//! PG macro inference cannot produce are written out explicitly everywhere
+//! the DB type differs from the Rust type — `id as "id: Uuid"`,
+//! `created_at as "created_at: DateTime<Utc>"`. The serialization-substitution
+//! note (PG row locks → `BEGIN IMMEDIATE`) is at [`Self::attach_dataset_capped`]
+//! and [`Self::initiator_still_owner_locked`]; the `now()` → `strftime` rewrite
+//! convention is at [`Self::update`]; the SQLITE_BUSY/-UNIQUE error-code maps
+//! are at [`Self::map_lock_timeout`] / [`Self::create_transfer`].
 
 use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
-use sqlx::PgPool;
+use sqlx::{SqliteConnection, SqlitePool};
 use uuid::Uuid;
 use ziee_core::AppError;
 
@@ -71,28 +82,37 @@ pub struct CancelledTransfer {
     pub to_user_id: Uuid,
 }
 
-/// `SET LOCAL lock_timeout` for [`ProjectRepository::accept_transfer`]'s transaction
-/// (DEC-27). Generous relative to the work it bounds (a handful of single-row writes),
-/// so it fires only on genuine contention. A FIXED bound rather than an admin setting:
-/// it is a safety ceiling on a security-critical transaction, not a product knob, and
-/// an operator who could raise it could re-create the outage it exists to prevent.
+/// The SQLite bound for [`ProjectRepository::accept_transfer`]'s transaction
+/// (DEC-27, ported). Generous relative to the work it bounds (a handful of
+/// single-row writes), so it fires only on genuine contention. A FIXED bound
+/// rather than an admin setting: it is a safety ceiling on a security-critical
+/// transaction, not a product knob, and an operator who could raise it could
+/// re-create the outage it exists to prevent. An earlier revision added "and
+/// one who could lower it to 0 could disable the durable half of the #171 gate
+/// by making it always time out" — both halves of that were false, and it is
+/// corrected rather than deleted: in Postgres `lock_timeout = 0` DISABLES the
+/// timeout (an unbounded wait), so 0 restores the old behaviour; and a gate
+/// that always timed out would fail CLOSED, refusing every accept, not letting
+/// transfers through. The argument for a fixed constant stands on its first
+/// sentence alone.
 ///
-/// An earlier revision added "and one who could lower it to 0 could disable the durable
-/// half of the #171 gate by making it always time out". **Both halves of that were
-/// false**, and it is corrected rather than deleted: in Postgres `lock_timeout = 0`
-/// DISABLES the timeout (an unbounded wait — the pre-existing deployment default this
-/// constant exists to fix), so 0 restores the old behaviour rather than making anything
-/// always fire; and a gate that always timed out would fail CLOSED, refusing every
-/// accept, not letting transfers through. The argument for a fixed constant stands on
-/// its first sentence alone.
-const ACCEPT_LOCK_TIMEOUT_SQL: &str = "SET LOCAL lock_timeout = '3s'";
+/// SQLite port: the PG `SET LOCAL lock_timeout = '3s'` statement does not
+/// exist — the engine has one lock (the database write lock), and its wait is
+/// bounded by the CONNECTION'S `busy_timeout` (5000 ms per
+/// PROV-sqlite-store-1, set on the pool). The bound is therefore not a
+/// per-transaction constant any more; it is a pool-wide pragma, and this port
+/// deliberately does not try to re-create a tighter per-transaction bound
+/// (SQLite offers none — the timeout-expiry shape is preserved instead: an
+/// expired `busy_timeout` surfaces as `SQLITE_BUSY`, which
+/// [`Self::map_lock_timeout`] turns into the same retryable `409
+/// TRANSFER_BUSY` the PG `55P03`/`40P01` codes did).
 
 pub struct ProjectRepository {
-    pool: PgPool,
+    pool: SqlitePool,
 }
 
 impl ProjectRepository {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
 
@@ -133,7 +153,7 @@ impl ProjectRepository {
             Project,
             r#"INSERT INTO projects (id, owner_id, account_id, name, description)
                VALUES ($1, $2, $3, $4, $5)
-               RETURNING id, owner_id, account_id, name, description,
+               RETURNING id as "id: Uuid", owner_id as "owner_id: Uuid", account_id as "account_id!: Uuid", name, description,
                          created_at as "created_at: DateTime<Utc>",
                          updated_at as "updated_at: DateTime<Utc>""#,
             id,
@@ -150,7 +170,7 @@ impl ProjectRepository {
     pub async fn get(&self, id: Uuid) -> Result<Option<Project>, AppError> {
         sqlx::query_as!(
             Project,
-            r#"SELECT id, owner_id, account_id, name, description,
+            r#"SELECT id as "id: Uuid", owner_id as "owner_id: Uuid", account_id as "account_id!: Uuid", name, description,
                       created_at as "created_at: DateTime<Utc>",
                       updated_at as "updated_at: DateTime<Utc>"
                FROM projects WHERE id = $1"#,
@@ -181,7 +201,7 @@ impl ProjectRepository {
         // One query resolves owner + the project's account + the caller's membership
         // role in that account (indexed by `idx_account_members_user`).
         let owner = sqlx::query!(
-            r#"SELECT p.owner_id,
+            r#"SELECT p.owner_id as "owner_id: Uuid",
                       (SELECT am.role FROM account_members am
                         WHERE am.account_id = p.account_id AND am.user_id = $2)
                           as "member_role?"
@@ -269,9 +289,17 @@ impl ProjectRepository {
         // label on the one row it could disagree about: a removed ex-owner still
         // reachable through an accepted share is now labelled by that share's level,
         // exactly as `effective_permission` now reports it, instead of `owner`.
+        // SQLite port (DEC-11/DEC-12): the `name ILIKE '%' || $2 || '%'`
+        // predicate became `instr(lower(name), lower($2)) > 0` — substring
+        // containment with ASCII-only folding, the PG-ILIKE equivalent on the
+        // ASCII project-name domain (documented limitation, DEC-11 — a
+        // Unicode-insensitive search is the recorded upgrade path); the
+        // `$2::text` cast went with it (the typed bind carries the NULL on
+        // the `None` search leg). `GREATEST(a, b)` (not an SQLite scalar) is
+        // `MAX(a, b)` — SQLite's scalar multi-arg `max()`.
         let projects = sqlx::query_as!(
             ProjectDto,
-            r#"SELECT s.id, s.owner_id, s.name, s.description,
+            r#"SELECT s.id as "id: Uuid", s.owner_id as "owner_id: Uuid", s.name, s.description,
                       s.created_at as "created_at: DateTime<Utc>",
                       s.updated_at as "updated_at: DateTime<Utc>",
                       CASE WHEN s.owner_id = $1
@@ -279,7 +307,7 @@ impl ProjectRepository {
                                                        FROM account_members am
                                                       WHERE am.user_id = $1)
                            THEN 'owner'
-                           ELSE CASE GREATEST(
+                           ELSE CASE MAX(
                                   CASE sh.permission_level WHEN 'editor' THEN 2
                                                            WHEN 'viewer' THEN 1 ELSE 0 END,
                                   COALESCE((SELECT CASE am.role WHEN 'owner' THEN 3
@@ -298,7 +326,7 @@ impl ProjectRepository {
                WHERE (s.account_id IN (SELECT am.account_id FROM account_members am
                                         WHERE am.user_id = $1)
                       OR sh.id IS NOT NULL)
-                 AND ($2::text IS NULL OR s.name ILIKE '%' || $2 || '%')
+                 AND ($2 IS NULL OR instr(lower(s.name), lower($2)) > 0)
                ORDER BY s.created_at DESC LIMIT $3 OFFSET $4"#,
             user_id,
             search,
@@ -316,7 +344,7 @@ impl ProjectRepository {
                WHERE (s.account_id IN (SELECT am.account_id FROM account_members am
                                         WHERE am.user_id = $1)
                       OR sh.id IS NOT NULL)
-                 AND ($2::text IS NULL OR s.name ILIKE '%' || $2 || '%')"#,
+                 AND ($2 IS NULL OR instr(lower(s.name), lower($2)) > 0)"#,
             user_id,
             search,
         )
@@ -334,14 +362,17 @@ impl ProjectRepository {
         description: Option<&str>,
     ) -> Result<Project, AppError> {
         // fetch_optional → 404 (not 500) if the project was deleted mid-request.
+        // SQLite port: `now()` → the canonical Rust/RFC3339 clock text
+        // (`strftime('%Y-%m-%dT%H:%M:%fZ','now')`) — the same DEC-8/DEC-12
+        // rewrite every module's write clock uses (ITA-17 convention).
         sqlx::query_as!(
             Project,
             r#"UPDATE projects SET
                  name = COALESCE($2, name),
                  description = COALESCE($3, description),
-                 updated_at = now()
+                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
                WHERE id = $1
-               RETURNING id, owner_id, account_id, name, description,
+               RETURNING id as "id: Uuid", owner_id as "owner_id: Uuid", account_id as "account_id!: Uuid", name, description,
                          created_at as "created_at: DateTime<Utc>",
                          updated_at as "updated_at: DateTime<Utc>""#,
             id,
@@ -360,7 +391,7 @@ impl ProjectRepository {
     /// extension `on_project_deleted` hooks (see `project::lifecycle`).
     pub async fn delete_in_tx(
         &self,
-        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
         id: Uuid,
     ) -> Result<(), AppError> {
         sqlx::query!("DELETE FROM projects WHERE id = $1", id)
@@ -377,7 +408,7 @@ impl ProjectRepository {
     /// uncommitted rows — acceptable, projects have no unique-name constraint).
     pub async fn duplicate_in_tx(
         &self,
-        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
         source: &Project,
     ) -> Result<Project, AppError> {
         let mut n = 1;
@@ -388,7 +419,7 @@ impl ProjectRepository {
             // within the account it lives in. Behaviour-preserving for personal
             // accounts (the account's projects == the owner's projects).
             let exists = sqlx::query_scalar!(
-                r#"SELECT EXISTS(SELECT 1 FROM projects WHERE account_id = $1 AND name = $2) as "exists!""#,
+                r#"SELECT EXISTS(SELECT 1 FROM projects WHERE account_id = $1 AND name = $2) as "exists!: bool""#,
                 source.account_id,
                 candidate,
             )
@@ -411,7 +442,7 @@ impl ProjectRepository {
             Project,
             r#"INSERT INTO projects (id, owner_id, account_id, name, description)
                VALUES ($1, $2, $3, $4, $5)
-               RETURNING id, owner_id, account_id, name, description,
+               RETURNING id as "id: Uuid", owner_id as "owner_id: Uuid", account_id as "account_id!: Uuid", name, description,
                          created_at as "created_at: DateTime<Utc>",
                          updated_at as "updated_at: DateTime<Utc>""#,
             id,
@@ -440,7 +471,7 @@ impl ProjectRepository {
     /// True if `dataset_id` exists (referential-integrity guard for attach).
     pub async fn dataset_exists(&self, dataset_id: Uuid) -> Result<bool, AppError> {
         sqlx::query_scalar!(
-            r#"SELECT EXISTS(SELECT 1 FROM datasets WHERE id = $1) as "exists!""#,
+            r#"SELECT EXISTS(SELECT 1 FROM datasets WHERE id = $1) as "exists!: bool""#,
             dataset_id,
         )
         .fetch_one(&self.pool)
@@ -458,16 +489,29 @@ impl ProjectRepository {
         dataset_id: Uuid,
         max: i64,
     ) -> Result<bool, AppError> {
-        let mut tx = self.pool.begin().await.map_err(AppError::database_error)?;
+        // Serialization port (ITEM-17 #7 / ITEM-15 precedent): SQLite has no
+        // row locks, so the PG `FOR UPDATE` is gone and the WRITE lock is the
+        // mechanism — the transaction opens `BEGIN IMMEDIATE`, and the
+        // project row's once-locking SELECT survives as the horizontal read
+        // (its row was discarded under PG too; only the lock mattered). The
+        // per-project cap is therefore serialized at the database-write-lock
+        // grain, the same widening the account module documented.
+        let mut tx = self
+            .pool
+            .begin_with("BEGIN IMMEDIATE")
+            .await
+            .map_err(AppError::database_error)?;
+        // SQLite's `1` literal has NULL type affinity, so the sqlx macro needs
+        // the explicit `<ident: Type>` override (the row is discarded either way).
         sqlx::query!(
-            "SELECT 1 as one FROM projects WHERE id = $1 FOR UPDATE",
+            r#"SELECT 1 as "one: i64" FROM projects WHERE id = $1"#,
             project_id
         )
         .fetch_optional(&mut *tx)
         .await
         .map_err(AppError::database_error)?;
         let already = sqlx::query_scalar!(
-            r#"SELECT EXISTS(SELECT 1 FROM project_datasets WHERE project_id = $1 AND dataset_id = $2) as "exists!""#,
+            r#"SELECT EXISTS(SELECT 1 FROM project_datasets WHERE project_id = $1 AND dataset_id = $2) as "exists!: bool""#,
             project_id,
             dataset_id,
         )
@@ -528,9 +572,9 @@ impl ProjectRepository {
         // `d.`-qualified: `datasets` and `project_datasets` BOTH have `created_at`.
         let datasets = sqlx::query_as!(
             Dataset,
-            r#"SELECT d.id, d.name, d.owner_id, d.account_id, d.datatype,
+            r#"SELECT d.id as "id: Uuid", d.name, d.owner_id as "owner_id: Uuid", d.account_id as "account_id!: Uuid", d.datatype,
                       d.metadata as "metadata: serde_json::Value",
-                      d.source, d.source_artifact_id, d.content_hash,
+                      d.source, d.source_artifact_id as "source_artifact_id: Uuid", d.content_hash,
                       d.created_at as "created_at: DateTime<Utc>",
                       d.updated_at as "updated_at: DateTime<Utc>"
                FROM datasets d
@@ -564,8 +608,8 @@ impl ProjectRepository {
                VALUES ($1, $2, $3, $4, $5, 'pending')
                ON CONFLICT (project_id, recipient_id) DO UPDATE SET
                  permission_level = EXCLUDED.permission_level,
-                 status = 'pending', updated_at = now()
-               RETURNING id, project_id, owner_id, recipient_id, permission_level, status,
+                 status = 'pending', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+               RETURNING id as "id: Uuid", project_id as "project_id: Uuid", owner_id as "owner_id: Uuid", recipient_id as "recipient_id: Uuid", permission_level, status,
                          created_at as "created_at: DateTime<Utc>",
                          updated_at as "updated_at: DateTime<Utc>""#,
             id,
@@ -586,7 +630,7 @@ impl ProjectRepository {
     ) -> Result<bool, AppError> {
         sqlx::query_scalar!(
             r#"SELECT EXISTS(SELECT 1 FROM project_shares
-                 WHERE project_id = $1 AND recipient_id = $2 AND status IN ('pending','accepted')) as "exists!""#,
+                 WHERE project_id = $1 AND recipient_id = $2 AND status IN ('pending','accepted')) as "exists!: bool""#,
             project_id,
             recipient_id,
         )
@@ -599,7 +643,7 @@ impl ProjectRepository {
     /// audience so editors/viewers see live updates).
     pub async fn accepted_recipient_ids(&self, project_id: Uuid) -> Result<Vec<Uuid>, AppError> {
         let rows = sqlx::query!(
-            "SELECT recipient_id FROM project_shares WHERE project_id = $1 AND status = 'accepted'",
+            "SELECT recipient_id as \"recipient_id: Uuid\" FROM project_shares WHERE project_id = $1 AND status = 'accepted'",
             project_id,
         )
         .fetch_all(&self.pool)
@@ -622,7 +666,7 @@ impl ProjectRepository {
     /// (#172).
     pub async fn audience_user_ids(&self, project_id: Uuid) -> Result<Vec<Uuid>, AppError> {
         let rows = sqlx::query_scalar!(
-            r#"SELECT DISTINCT uid as "id!" FROM (
+            r#"SELECT DISTINCT uid as "id!: Uuid" FROM (
                  SELECT am.user_id AS uid
                    FROM projects p
                    JOIN account_members am ON am.account_id = p.account_id
@@ -644,7 +688,7 @@ impl ProjectRepository {
     pub async fn get_share(&self, id: Uuid) -> Result<Option<ProjectShare>, AppError> {
         sqlx::query_as!(
             ProjectShare,
-            r#"SELECT id, project_id, owner_id, recipient_id, permission_level, status,
+            r#"SELECT id as "id: Uuid", project_id as "project_id: Uuid", owner_id as "owner_id: Uuid", recipient_id as "recipient_id: Uuid", permission_level, status,
                       created_at as "created_at: DateTime<Utc>",
                       updated_at as "updated_at: DateTime<Utc>"
                FROM project_shares WHERE id = $1"#,
@@ -661,7 +705,7 @@ impl ProjectRepository {
     ) -> Result<Vec<ProjectShareDto>, AppError> {
         sqlx::query_as!(
             ProjectShareDto,
-            r#"SELECT sh.id, sh.project_id, sh.recipient_id,
+            r#"SELECT sh.id as "id: Uuid", sh.project_id as "project_id: Uuid", sh.recipient_id as "recipient_id: Uuid",
                       u.username as recipient_username, u.email as recipient_email,
                       sh.permission_level, sh.status,
                       sh.created_at as "created_at: DateTime<Utc>"
@@ -681,7 +725,7 @@ impl ProjectRepository {
         status: &str,
     ) -> Result<bool, AppError> {
         let res = sqlx::query!(
-            "UPDATE project_shares SET status = $3, updated_at = now() \
+            "UPDATE project_shares SET status = $3, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') \
              WHERE id = $1 AND recipient_id = $2 AND status = 'pending'",
             id,
             recipient_id,
@@ -756,13 +800,19 @@ impl ProjectRepository {
     /// mutation. That was false, and the claim is what hid `cancel_transfer` from
     /// four successive audit rounds.)
     pub async fn revoke_share(&self, id: Uuid, owner_id: Uuid) -> Result<bool, AppError> {
+        // SQLite port: `DELETE FROM t alias` is not SQLite grammar (the bare
+        // alias form errors "near ps"; even `AS` is newer-only), and the
+        // outer-table alias in the EXISTS also has to go — the membership
+        // conjunct is expressed with a `project_id IN (SELECT …)` subquery
+        // instead (same rows: the share's project must live in an account the
+        // caller is a member of).
         let res = sqlx::query!(
-            "DELETE FROM project_shares ps WHERE ps.id = $1 AND ps.owner_id = $2 \
-             AND EXISTS (SELECT 1 FROM projects p \
-                          WHERE p.id = ps.project_id \
-                            AND p.account_id IN (SELECT am.account_id \
-                                                   FROM account_members am \
-                                                  WHERE am.user_id = $2))",
+            "DELETE FROM project_shares \
+             WHERE id = $1 AND owner_id = $2 \
+               AND project_id IN (SELECT p.id FROM projects p \
+                                   WHERE p.account_id IN (SELECT am.account_id \
+                                                            FROM account_members am \
+                                                           WHERE am.user_id = $2))",
             id,
             owner_id,
         )
@@ -785,7 +835,7 @@ impl ProjectRepository {
             ProjectTransfer,
             r#"INSERT INTO project_transfers (id, project_id, from_user_id, to_user_id, status)
                VALUES ($1, $2, $3, $4, 'pending')
-               RETURNING id, project_id, from_user_id, to_user_id, status,
+               RETURNING id as "id: Uuid", project_id as "project_id: Uuid", from_user_id as "from_user_id: Uuid", to_user_id as "to_user_id: Uuid", status,
                          created_at as "created_at: DateTime<Utc>",
                          updated_at as "updated_at: DateTime<Utc>""#,
             id,
@@ -797,8 +847,13 @@ impl ProjectRepository {
         .await
         .map_err(|err| {
             // Lost the race against `uq_project_transfers_pending` → intended 409.
+            // SQLite port: the violation surfaces as the EXTENDED result code
+            // `2067` (SQLITE_CONSTRAINT_UNIQUE — sqlx-sqlite reports the
+            // extended code as its decimal string, measured in
+            // sqlx-sqlite 0.8.6 `error.rs`; `1555` PRIMARYKEY is the same
+            // race in the unlikely event the composite PK fires first).
             if let sqlx::Error::Database(db) = &err {
-                if db.code().as_deref() == Some("23505") {
+                if matches!(db.code().as_deref(), Some("2067") | Some("1555")) {
                     return AppError::new(
                         StatusCode::CONFLICT,
                         "TRANSFER_PENDING",
@@ -810,29 +865,30 @@ impl ProjectRepository {
         })
     }
 
-    /// Map a `lock_timeout` expiry (`SET LOCAL lock_timeout`, DEC-27) to an honest,
-    /// RETRYABLE refusal instead of letting it fall through to
-    /// `AppError::database_error`'s `500 SYSTEM_DATABASE_ERROR` (DEC-30).
+    /// Map a lock-wait expiry to an honest, RETRYABLE refusal instead of
+    /// letting it fall through to `AppError::database_error`'s
+    /// `500 SYSTEM_DATABASE_ERROR` (DEC-30).
     ///
-    /// The distinction is the whole reason the timeout is worth having. A 500 with
+    /// The distinction is the whole reason the bound is worth having. A 500 with
     /// "An internal database error occurred" is byte-identical to a genuine internal
     /// fault, carries no retry signal, and the accept path's only consumer prints it
     /// verbatim — so a user who merely raced a concurrent membership change would be
     /// told the server is broken. `409 TRANSFER_BUSY` says what actually happened and
-    /// what to do about it. Anything that is NOT a lock timeout still maps to
+    /// what to do about it. Anything that is NOT a busy expiry still maps to
     /// `database_error`, so a real fault is not disguised as contention.
     ///
-    /// SQLSTATE `55P03` is `lock_not_available` (a `lock_timeout` expiry) and `40P01`
-    /// is `deadlock_detected`; both are transient contention, not a fault.
+    /// SQLite port: the PG SQLSTATEs `55P03`/`40P01` never occur on this
+    /// engine. The equivalent wait-expiry is the connection `busy_timeout`
+    /// expiring, which surfaces as the extended code `5` (`SQLITE_BUSY`), and
+    /// its extended cousins `261`/`517`/`773` (`SQLITE_BUSY_RECOVERY`/
+    /// `SQLITE_BUSY_SNAPSHOT`/`SQLITE_BUSY_TIMEOUT`). All are transient
+    /// contention this request lost, safe to retry, and NOT an internal fault.
     fn map_lock_timeout(err: sqlx::Error) -> AppError {
         if let sqlx::Error::Database(db) = &err {
-            // `55P03` lock_not_available (a `lock_timeout` expiry) and `40P01`
-            // deadlock_detected are the same thing to a caller: transient contention
-            // this request lost, safe to retry, and NOT an internal fault. Postgres
-            // detects a deadlock at `deadlock_timeout` (1 s by default), i.e. BEFORE
-            // the 3 s lock_timeout, so a cycle surfaces as 40P01 and would otherwise
-            // reach the client as a 500.
-            if matches!(db.code().as_deref(), Some("55P03") | Some("40P01")) {
+            if matches!(
+                db.code().as_deref(),
+                Some("5") | Some("261") | Some("517") | Some("773")
+            ) {
                 return AppError::new(
                     StatusCode::CONFLICT,
                     "TRANSFER_BUSY",
@@ -912,8 +968,24 @@ impl ProjectRepository {
     ///
     /// See `accept_transfer`'s doc for the full ordering argument and for what this
     /// deliberately does NOT cover.
+    ///
+    /// **SQLite port — the lock mechanism above does not exist here.** SQLite has
+    /// no row locks and no `FOR SHARE`/`FOR UPDATE` (probed: `near "FOR"` is the
+    /// prepare error), so the substitution is the transaction's own
+    /// `BEGIN IMMEDIATE` write lock: the caller ([`Self::accept_transfer`])
+    /// opens that, and this SELECT is a plain read inside it. The lock grain
+    /// widens from two rows to the database file (the same substitution and
+    /// the same documented widening as the account module, ITEM-17 #7) — a
+    /// concurrent `remove_member`/`set_role`/`admin_change_owner` cannot
+    /// commit its writes while this transaction holds the write lock, so the
+    /// re-assert cannot pass on a stale membership either. The EvalPlanQual
+    /// and upgrade-deadlock analyses were specific to Postgres's row-lock
+    /// model: SQLite's single-writer serialization has no share-to-upgrade
+    /// ladder, and `BEGIN IMMEDIATE` acquires the reserved lock up front, so
+    /// the ABBA cycle DEC-25 removed is structurally absent (every writer
+    /// takes the one lock at the one moment).
     pub async fn initiator_still_owner_locked(
-        conn: &mut sqlx::PgConnection,
+        conn: &mut SqliteConnection,
         project_id: Uuid,
         user_id: Uuid,
     ) -> Result<bool, AppError> {
@@ -922,8 +994,7 @@ impl ProjectRepository {
                JOIN account_members am \
                  ON am.account_id = p.account_id AND am.user_id = $2 \
               WHERE p.id = $1 \
-                AND (p.owner_id = $2 OR am.role = 'owner') \
-              FOR SHARE OF am FOR UPDATE OF p",
+                AND (p.owner_id = $2 OR am.role = 'owner')",
             project_id,
             user_id,
         )
@@ -970,19 +1041,27 @@ impl ProjectRepository {
     /// Returns the cancelled rows so the caller can fan out the sync frames both
     /// parties need (DEC-10).
     pub async fn cancel_pending_transfers_for_removed_member(
-        conn: &mut sqlx::PgConnection,
+        conn: &mut SqliteConnection,
         account_id: Uuid,
         user_id: Uuid,
     ) -> Result<Vec<CancelledTransfer>, AppError> {
+        // SQLite port: `DELETE … USING` is not SQLite grammar (probed:
+        // `near "t"`), so the `projects` join is expressed as the
+        // `id IN (SELECT …)` form — the projected rows, the predicate and the
+        // RETURNING are byte-equivalent to the PG statement. The write lock
+        // that replaced the PG row locks belongs to the caller's transaction
+        // (`remove_member` opens it `BEGIN IMMEDIATE` — the account module's
+        // call contract, unchanged here — and this function runs on that
+        // connection, never opening one of its own).
         let rows = sqlx::query!(
-            r#"DELETE FROM project_transfers t
-                USING projects p
-                WHERE t.project_id = p.id
-                  AND t.status = 'pending'
-                  AND p.account_id = $1
-                  AND (t.from_user_id = $2 OR t.to_user_id = $2)
-             RETURNING t.id as "id!", t.project_id as "project_id!",
-                       t.from_user_id as "from_user_id!", t.to_user_id as "to_user_id!""#,
+            r#"DELETE FROM project_transfers
+                WHERE id IN (SELECT t.id FROM project_transfers t
+                              JOIN projects p ON p.id = t.project_id
+                             WHERE t.status = 'pending'
+                               AND p.account_id = $1
+                               AND (t.from_user_id = $2 OR t.to_user_id = $2))
+             RETURNING id as "id!: Uuid", project_id as "project_id!: Uuid",
+                       from_user_id as "from_user_id!: Uuid", to_user_id as "to_user_id!: Uuid""#,
             account_id,
             user_id,
         )
@@ -1002,7 +1081,7 @@ impl ProjectRepository {
 
     pub async fn pending_transfer_exists(&self, project_id: Uuid) -> Result<bool, AppError> {
         sqlx::query_scalar!(
-            r#"SELECT EXISTS(SELECT 1 FROM project_transfers WHERE project_id = $1 AND status = 'pending') as "exists!""#,
+            r#"SELECT EXISTS(SELECT 1 FROM project_transfers WHERE project_id = $1 AND status = 'pending') as "exists!: bool""#,
             project_id,
         )
         .fetch_one(&self.pool)
@@ -1013,7 +1092,7 @@ impl ProjectRepository {
     pub async fn get_transfer(&self, id: Uuid) -> Result<Option<ProjectTransfer>, AppError> {
         sqlx::query_as!(
             ProjectTransfer,
-            r#"SELECT id, project_id, from_user_id, to_user_id, status,
+            r#"SELECT id as "id: Uuid", project_id as "project_id: Uuid", from_user_id as "from_user_id: Uuid", to_user_id as "to_user_id: Uuid", status,
                       created_at as "created_at: DateTime<Utc>",
                       updated_at as "updated_at: DateTime<Utc>"
                FROM project_transfers WHERE id = $1"#,
@@ -1225,32 +1304,37 @@ impl ProjectRepository {
         let new_account =
             crate::modules::account::scope::ensure_personal_account_for(&self.pool, to_user_id)
                 .await?;
-        let mut tx = self.pool.begin().await.map_err(AppError::database_error)?;
-        // #171 (b) — BOUND every lock wait in this transaction (DEC-27).
+        // SQLite port: `BEGIN IMMEDIATE` — the write lock up front, so the
+        // locked-assert SELECT below cannot pass on stale rows and no later
+        // statement in this transaction can fail with SQLITE_BUSY after the
+        // gate has been evaluated (the ITEM-15/17 substitution; the PG
+        // `FOR SHARE`/`FOR UPDATE` lock-order analysis does not transfer —
+        // SQLite serializes all writers on the one file lock).
+        let mut tx = self
+            .pool
+            .begin_with("BEGIN IMMEDIATE")
+            .await
+            .map_err(AppError::database_error)?;
+        // #171 (b) — BOUND every lock wait in this transaction (DEC-27, ported).
         //
         // The locked re-assert below is what makes the gate durable, and it also makes
-        // this transaction a WAITER and a HOLDER of contended rows. Nothing in this
-        // deployment bounds either: `lock_timeout`, `statement_timeout` and
-        // `idle_in_transaction_session_timeout` are all 0. Unbounded, the cost is not
-        // a slow request — it is that this transaction parks one of a 10-connection
-        // pool indefinitely while holding the initiator's membership row, and
-        // `remove_member`/`set_role` both OPEN by locking every owner row of the
-        // account, so a stuck accept can stall all membership administration for that
-        // whole account and, once the pool drains, every unrelated endpoint in the
-        // process. A row-lock wait must not be able to become an outage.
+        // this transaction a WAITER and a HOLDER of contended rows. SQLite bounds the
+        // wait differently from the PG deployment the original argument was written
+        // for: the connection's `busy_timeout` (5000 ms, PROV-sqlite-store-1) is the
+        // one bound, applied by the engine at every lock acquisition. Unbounded, the
+        // cost is the same class as the PG version — this transaction parks one of a
+        // 10-connection pool indefinitely while holding the write lock, and a stuck
+        // accept can stall membership administration for that whole account and, once
+        // the pool drains, every unrelated endpoint in the process. A lock wait must
+        // not be able to become an outage.
         //
         // Bounded, a pathological wait fails THIS request and nothing else, and it
         // fails CLOSED: the transfer does not complete, which is the safe direction
-        // for a security gate. The caller can retry — and is TOLD so, which the first
-        // version of this was not: `Self::map_lock_timeout` turns the expiry (and a
-        // deadlock abort) into
+        // for a security gate. The caller can retry — and is TOLD so (DEC-30):
+        // `Self::map_lock_timeout` turns the `SQLITE_BUSY` expiry into
         // `409 TRANSFER_BUSY` rather than letting it fall through to a generic
         // `500 SYSTEM_DATABASE_ERROR` that no client can distinguish from a real
-        // fault and no UI can act on (DEC-30).
-        sqlx::query(ACCEPT_LOCK_TIMEOUT_SQL)
-            .execute(&mut *tx)
-            .await
-            .map_err(AppError::database_error)?;
+        // fault and no UI can act on.
         // #171 (b), DURABLE HALF (DEC-18) — re-assert the initiator's AUTHORITY inside
         // this transaction, under a row lock, BEFORE claiming the transfer. What the
         // predicate is, why it re-checks the ROLE and not merely that a membership row
@@ -1291,7 +1375,7 @@ impl ProjectRepository {
             return Err(Self::transfer_revoked());
         }
         let claimed = sqlx::query!(
-            "UPDATE project_transfers SET status = 'accepted', updated_at = now() \
+            "UPDATE project_transfers SET status = 'accepted', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') \
              WHERE id = $1 AND to_user_id = $2 AND status = 'pending'",
             id,
             to_user_id,
@@ -1304,7 +1388,7 @@ impl ProjectRepository {
             return Ok(false);
         }
         sqlx::query!(
-            "UPDATE projects SET owner_id = $2, account_id = $3, updated_at = now() \
+            "UPDATE projects SET owner_id = $2, account_id = $3, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') \
              WHERE id = (SELECT project_id FROM project_transfers WHERE id = $1)",
             id,
             to_user_id,
@@ -1339,7 +1423,7 @@ impl ProjectRepository {
 
     pub async fn decline_transfer(&self, id: Uuid, to_user_id: Uuid) -> Result<bool, AppError> {
         let res = sqlx::query!(
-            "UPDATE project_transfers SET status = 'declined', updated_at = now() \
+            "UPDATE project_transfers SET status = 'declined', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') \
              WHERE id = $1 AND to_user_id = $2 AND status = 'pending'",
             id,
             to_user_id,
@@ -1355,7 +1439,7 @@ impl ProjectRepository {
     pub async fn get_settings(&self) -> Result<ProjectSettings, AppError> {
         let row = sqlx::query_as!(
             ProjectSettings,
-            r#"SELECT transfer_enabled, updated_at as "updated_at: DateTime<Utc>"
+            r#"SELECT transfer_enabled as "transfer_enabled: bool", updated_at as "updated_at: DateTime<Utc>"
                FROM project_settings WHERE singleton = true"#,
         )
         .fetch_optional(&self.pool)
@@ -1374,10 +1458,10 @@ impl ProjectRepository {
         sqlx::query_as!(
             ProjectSettings,
             r#"INSERT INTO project_settings (singleton, transfer_enabled, updated_at)
-               VALUES (true, $1, now())
+               VALUES (true, $1, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
                ON CONFLICT (singleton) DO UPDATE SET
-                 transfer_enabled = EXCLUDED.transfer_enabled, updated_at = now()
-               RETURNING transfer_enabled, updated_at as "updated_at: DateTime<Utc>""#,
+                 transfer_enabled = EXCLUDED.transfer_enabled, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+               RETURNING transfer_enabled as "transfer_enabled: bool", updated_at as "updated_at: DateTime<Utc>""#,
             transfer_enabled,
         )
         .fetch_one(&self.pool)
@@ -1409,23 +1493,23 @@ impl ProjectRepository {
 
         let rows = sqlx::query_as!(
             AdminProjectRow,
-            r#"SELECT s.id, s.owner_id, s.name, s.description,
+            r#"SELECT s.id as "id: Uuid", s.owner_id as "owner_id: Uuid", s.name, s.description,
                   s.created_at as "created_at: DateTime<Utc>",
                   s.updated_at as "updated_at: DateTime<Utc>",
                   u.username as "owner_username!", u.email as "owner_email!",
                   u.display_name as "owner_display_name",
-                  u.is_active as "owner_is_active!",
+                  u.is_active as "owner_is_active!: bool",
                   (SELECT count(*) FROM project_datasets sd WHERE sd.project_id = s.id) as "dataset_count!",
                   (SELECT count(*) FROM project_shares sh WHERE sh.project_id = s.id AND sh.status IN ('pending','accepted')) as "share_count!",
-                  EXISTS(SELECT 1 FROM project_transfers t WHERE t.project_id = s.id AND t.status = 'pending') as "transfer_pending!",
-                  (NOT u.is_active) as "is_orphaned!",
-                  GREATEST(s.updated_at,
+                  EXISTS(SELECT 1 FROM project_transfers t WHERE t.project_id = s.id AND t.status = 'pending') as "transfer_pending!: bool",
+                  (NOT u.is_active) as "is_orphaned!: bool",
+                  MAX(s.updated_at,
                     COALESCE((SELECT MAX(d.updated_at) FROM datasets d JOIN project_datasets sd ON sd.dataset_id = d.id WHERE sd.project_id = s.id), s.updated_at))
                     as "last_activity!: DateTime<Utc>"
                FROM projects s JOIN users u ON u.id = s.owner_id
-               WHERE ($1::text IS NULL OR s.name ILIKE '%' || $1 || '%')
-                 AND ($2::uuid IS NULL OR s.owner_id = $2)
-                 AND ($3::text IS NULL
+               WHERE ($1 IS NULL OR instr(lower(s.name), lower($1)) > 0)
+                 AND ($2 IS NULL OR s.owner_id = $2)
+                 AND ($3 IS NULL
                       OR ($3 = 'orphaned' AND NOT u.is_active)
                       OR ($3 = 'private'  AND NOT EXISTS(SELECT 1 FROM project_shares sh WHERE sh.project_id = s.id AND sh.status IN ('pending','accepted')))
                       OR ($3 = 'shared'   AND EXISTS(SELECT 1 FROM project_shares sh WHERE sh.project_id = s.id AND sh.status IN ('pending','accepted')))
@@ -1450,9 +1534,9 @@ impl ProjectRepository {
 
         let total = sqlx::query_scalar!(
             r#"SELECT count(*) as "count!" FROM projects s JOIN users u ON u.id = s.owner_id
-               WHERE ($1::text IS NULL OR s.name ILIKE '%' || $1 || '%')
-                 AND ($2::uuid IS NULL OR s.owner_id = $2)
-                 AND ($3::text IS NULL
+               WHERE ($1 IS NULL OR instr(lower(s.name), lower($1)) > 0)
+                 AND ($2 IS NULL OR s.owner_id = $2)
+                 AND ($3 IS NULL
                       OR ($3 = 'orphaned' AND NOT u.is_active)
                       OR ($3 = 'private'  AND NOT EXISTS(SELECT 1 FROM project_shares sh WHERE sh.project_id = s.id AND sh.status IN ('pending','accepted')))
                       OR ($3 = 'shared'   AND EXISTS(SELECT 1 FROM project_shares sh WHERE sh.project_id = s.id AND sh.status IN ('pending','accepted')))
@@ -1465,11 +1549,17 @@ impl ProjectRepository {
         .await
         .map_err(AppError::database_error)?;
 
+        // SQLite port: `COUNT(*) FILTER (WHERE …)` has no SQLite form —
+        // the DEC-12 rewrite is `COALESCE(SUM(CASE WHEN … THEN 1 ELSE 0 END), 0)`
+        // (the COALESCE turns the empty-set NULL from the aggregate SUM into
+        // the 0 the PG FILTER counted); `GREATEST(a, b)` → `MAX(a, b)` above
+        // (the scalar multi-arg form; the ORDER BY CASE expressions are
+        // unchanged).
         let stats = sqlx::query_as!(
             AdminProjectStats,
             r#"SELECT count(*) as "total_projects!",
                       count(DISTINCT s.owner_id) as "distinct_owners!",
-                      count(*) FILTER (WHERE NOT u.is_active) as "orphaned_count!"
+                      COALESCE(SUM(CASE WHEN NOT u.is_active THEN 1 ELSE 0 END), 0) as "orphaned_count!"
                FROM projects s JOIN users u ON u.id = s.owner_id"#,
         )
         .fetch_one(&self.pool)
@@ -1485,7 +1575,7 @@ impl ProjectRepository {
             return Ok(None);
         };
         let owner = sqlx::query!(
-            "SELECT username, email, display_name, is_active FROM users WHERE id = $1",
+            r#"SELECT username, email, display_name, is_active as "is_active: bool" FROM users WHERE id = $1"#,
             project.owner_id,
         )
         .fetch_optional(&self.pool)
@@ -1516,7 +1606,7 @@ impl ProjectRepository {
     ) -> Result<Option<ProjectTransfer>, AppError> {
         sqlx::query_as!(
             ProjectTransfer,
-            r#"SELECT id, project_id, from_user_id, to_user_id, status,
+            r#"SELECT id as "id: Uuid", project_id as "project_id: Uuid", from_user_id as "from_user_id: Uuid", to_user_id as "to_user_id: Uuid", status,
                       created_at as "created_at: DateTime<Utc>",
                       updated_at as "updated_at: DateTime<Utc>"
                FROM project_transfers WHERE project_id = $1 AND status = 'pending'
@@ -1533,7 +1623,7 @@ impl ProjectRepository {
     /// target (400) distinctly from a deactivated one (422 — a deactivated owner
     /// would instantly orphan the project + get an unseeable notification).
     pub async fn user_active_status(&self, user_id: Uuid) -> Result<Option<bool>, AppError> {
-        let row = sqlx::query!("SELECT is_active FROM users WHERE id = $1", user_id)
+        let row = sqlx::query!(r#"SELECT is_active as "is_active: bool" FROM users WHERE id = $1"#, user_id)
             .fetch_optional(&self.pool)
             .await
             .map_err(AppError::database_error)?;
@@ -1542,7 +1632,7 @@ impl ProjectRepository {
 
     /// Ids of every project owned by `owner_id` (the reassign-all source set).
     pub async fn projects_owned_by(&self, owner_id: Uuid) -> Result<Vec<Uuid>, AppError> {
-        let rows = sqlx::query!("SELECT id FROM projects WHERE owner_id = $1", owner_id)
+        let rows = sqlx::query!("SELECT id as \"id: Uuid\" FROM projects WHERE owner_id = $1", owner_id)
             .fetch_all(&self.pool)
             .await
             .map_err(AppError::database_error)?;
@@ -1567,14 +1657,18 @@ impl ProjectRepository {
         let new_account =
             crate::modules::account::scope::ensure_personal_account_for(&self.pool, new_owner_id)
                 .await?;
-        let mut tx = self.pool.begin().await.map_err(AppError::database_error)?;
-        let row = sqlx::query!(
-            "SELECT owner_id FROM projects WHERE id = $1 FOR UPDATE",
-            project_id,
-        )
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(AppError::database_error)?;
+        // SQLite port: `BEGIN IMMEDIATE` for the write lock (the row-select
+        // `FOR UPDATE` has no SQLite form — the ITEM-17 #7 substitution); the
+        // SELECT below is the existence probe it always was.
+        let mut tx = self
+            .pool
+            .begin_with("BEGIN IMMEDIATE")
+            .await
+            .map_err(AppError::database_error)?;
+        let row = sqlx::query!("SELECT owner_id as \"owner_id: Uuid\" FROM projects WHERE id = $1", project_id,)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(AppError::database_error)?;
         let Some(row) = row else {
             tx.rollback().await.map_err(AppError::database_error)?;
             return Ok(None);
@@ -1587,7 +1681,7 @@ impl ProjectRepository {
         // A2 (ITEM-6): re-stamp `account_id` to the NEW owner's personal account
         // (resolved above, before the tx — AUD-7).
         sqlx::query!(
-            "UPDATE projects SET owner_id = $2, account_id = $3, updated_at = now() WHERE id = $1",
+            "UPDATE projects SET owner_id = $2, account_id = $3, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = $1",
             project_id,
             new_owner_id,
             new_account,
@@ -1620,7 +1714,7 @@ impl ProjectRepository {
                  VALUES ($1, $2, $3, $4, 'editor', 'accepted') \
                  ON CONFLICT (project_id, recipient_id) DO UPDATE SET \
                    owner_id = EXCLUDED.owner_id, permission_level = 'editor', \
-                   status = 'accepted', updated_at = now()",
+                   status = 'accepted', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')",
                 sid,
                 project_id,
                 new_owner_id,
@@ -1642,7 +1736,8 @@ impl ProjectRepository {
         Ok(Some(old_owner_id))
     }
 
-    /// Search users for the admin owner/share pickers (ILIKE username OR email).
+    /// Search users for the admin owner/share pickers (ILIKE username OR email;
+    /// the SQLite port is the DEC-11 `instr(lower(…), lower(?)) > 0` ASCII fold).
     /// Empty query → the first `limit` users. Scoped to admins by the caller.
     pub async fn admin_search_users(
         &self,
@@ -1652,11 +1747,11 @@ impl ProjectRepository {
         let limit = limit.clamp(1, 50);
         sqlx::query_as!(
             super::models::AdminUserOption,
-            r#"SELECT id, username, email, display_name, is_active
+            r#"SELECT id as "id: Uuid", username, email, display_name, is_active as "is_active: bool"
                FROM users
-               WHERE ($1::text IS NULL
-                      OR username ILIKE '%' || $1 || '%'
-                      OR email ILIKE '%' || $1 || '%')
+               WHERE ($1 IS NULL
+                      OR instr(lower(username), lower($1)) > 0
+                      OR instr(lower(email), lower($1)) > 0)
                ORDER BY username ASC LIMIT $2"#,
             search,
             limit,

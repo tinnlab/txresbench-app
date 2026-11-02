@@ -12,7 +12,7 @@
 //! hook is NOT the status writer — only the coverage summary + the live sync nudge.
 
 use async_trait::async_trait;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 
 use crate::modules::jobs::models::Job;
 use crate::modules::jobs::seams::IntegrationSink;
@@ -24,11 +24,11 @@ use super::repository::DatasetRepository;
 
 /// The dataset-side integration-completion sink (pool baked in at install).
 pub struct DatasetIntegrationSink {
-    pool: PgPool,
+    pool: SqlitePool,
 }
 
 impl DatasetIntegrationSink {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
 }

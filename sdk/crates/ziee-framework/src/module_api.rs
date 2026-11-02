@@ -10,12 +10,11 @@
 
 use aide::axum::ApiRouter;
 use linkme::distributed_slice;
-use sqlx::PgPool;
 use std::any::Any;
 use std::error::Error;
 use std::sync::Arc;
 
-use ziee_core::ServerConfig;
+use ziee_core::{DbPool, ServerConfig};
 
 use crate::events::EventHandler;
 
@@ -52,13 +51,18 @@ pub trait AppModule: Send + Sync {
 
 /// Context provided to modules during initialization.
 ///
-/// `config` carries only the app-agnostic [`ServerConfig`] (postgresql / server
-/// / logging / jwt). A module that needs the app's full config reads it from the
-/// opaque `app_config` slot — the app injects its monolithic `Config` there and
-/// the module downcasts it (`app_config.downcast_ref::<Config>()`). This keeps
-/// the framework `ModuleContext` free of any app-specific config type.
+/// `config` carries only the app-agnostic [`ServerConfig`] (postgresql /
+/// database / server / logging / jwt). A module that needs the app's full
+/// config reads it from the opaque `app_config` slot — the app injects its
+/// monolithic `Config` there and the module downcasts it
+/// (`app_config.downcast_ref::<Config>()`). This keeps the framework
+/// `ModuleContext` free of any app-specific config type.
+///
+/// `db_pool` is the dual-driver alias: `Arc<PgPool>` on the default (PG) build
+/// of the SDK, `Arc<SqlitePool>` under `sqlite-backend` — the module writes
+/// repository code against `&DbPool` and never names a concrete driver.
 pub struct ModuleContext {
-    pub db_pool: Arc<PgPool>,
+    pub db_pool: Arc<DbPool>,
     pub config: Arc<ServerConfig>,
     /// The app's full, monolithic config, type-erased. ziee injects
     /// `Arc<ziee::Config>`; modules recover it via `downcast_ref`/`downcast`.
@@ -67,7 +71,7 @@ pub struct ModuleContext {
 
 impl ModuleContext {
     pub fn new(
-        db_pool: Arc<PgPool>,
+        db_pool: Arc<DbPool>,
         config: Arc<ServerConfig>,
         app_config: Arc<dyn Any + Send + Sync>,
     ) -> Self {

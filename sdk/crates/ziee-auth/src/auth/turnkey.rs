@@ -27,7 +27,9 @@ use super::context::AuthContext;
 use super::http::{auth_admin_routes, auth_routes};
 use crate::user::{Group, User, UserRepository};
 
-/// A ready-to-use [`IdentityResolver`] backed by a `PgPool` + an
+/// A ready-to-use [`IdentityResolver`] backed by a `DbPool` (the dual-driver
+/// pool alias — `PgPool` on the default build, `SqlitePool` on
+/// `sqlite-backend`) + an
 /// `Arc<JwtService>` — the SDK-provided default so an app installs working
 /// permission enforcement directly instead of copying ziee's ~90-line resolver.
 ///
@@ -45,7 +47,7 @@ pub struct DefaultIdentityResolver {
 impl DefaultIdentityResolver {
     /// Construct from the app's connection pool + JWT service. Both are cheaply
     /// cloneable (pool is Arc-backed; the JWT service is shared behind `Arc`).
-    pub fn new(pool: sqlx::PgPool, jwt: Arc<JwtService>) -> Self {
+    pub fn new(pool: ziee_core::DbPool, jwt: Arc<JwtService>) -> Self {
         Self {
             users: UserRepository::new(pool),
             jwt,
@@ -247,10 +249,7 @@ mod tests {
     /// in ~5 lines. `connect_lazy` never dials, so this stays unit-test cheap.
     #[tokio::test]
     async fn mount_auth_wires_the_full_surface() {
-        let pool = sqlx::postgres::PgPool::connect_lazy(
-            "postgresql://postgres:password@127.0.0.1:54321/postgres",
-        )
-        .unwrap();
+        let pool = crate::test_support::lazy_test_pool();
         let jwt = strong_jwt();
         let resolver = Arc::new(DefaultIdentityResolver::new(pool.clone(), jwt.clone()));
         let ctx = AuthContext::new(

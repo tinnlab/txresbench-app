@@ -13,7 +13,7 @@
 //! these wrappers make no claim about it.
 
 use serde_json::{json, Value};
-use sqlx::postgres::PgPoolOptions;
+use sqlx::sqlite::SqlitePoolOptions;
 use uuid::Uuid;
 use ziee_core::AppError;
 
@@ -30,7 +30,7 @@ fn staff() -> ActorCeiling {
 }
 
 fn repo(server: &TestServer) -> AccountRepository {
-    let pool = PgPoolOptions::new()
+    let pool = SqlitePoolOptions::new()
         .connect_lazy(server.database_url())
         .expect("lazy pool");
     AccountRepository::new(pool)

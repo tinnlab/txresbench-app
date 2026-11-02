@@ -148,7 +148,7 @@ async fn provision_external_user_links_identity_and_is_findable() {
 }
 
 /// Read `users.email_verified` for a user id.
-async fn email_verified_of(pool: &sqlx::PgPool, uid: Uuid) -> bool {
+async fn email_verified_of(pool: &ziee_core::DbPool, uid: Uuid) -> bool {
     let row: (bool,) = sqlx::query_as("SELECT email_verified FROM users WHERE id = $1")
         .bind(uid)
         .fetch_one(pool)
@@ -572,15 +572,24 @@ async fn cleanup_prunes_only_expired_rows() {
     };
     repo.create_oauth_session(&live).await.unwrap();
 
-    // An expired oauth session (write it directly with a past expiry).
+    // An expired oauth session (write it directly with a past expiry). The
+    // expiry is bound as a value computed in Rust so the same statement runs
+    // on both drivers (the sqlite timestamp column is RFC3339-ms TEXT — the
+    // same canonical form the repositories write).
+    let expired = chrono::Utc::now() - chrono::Duration::hours(1);
+    #[cfg(not(feature = "sqlite-backend"))]
+    let expired_bind = expired;
+    #[cfg(feature = "sqlite-backend")]
+    let expired_bind = expired.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
     sqlx::query(
         "INSERT INTO oauth_sessions (id, state, provider_id, redirect_uri, expires_at)
-         VALUES ($1, $2, $3, $4, NOW() - INTERVAL '1 hour')",
+         VALUES ($1, $2, $3, $4, $5)",
     )
     .bind(Uuid::new_v4())
     .bind("dead-state")
     .bind(pid)
     .bind("https://app/cb")
+    .bind(expired_bind)
     .execute(&pool)
     .await
     .unwrap();

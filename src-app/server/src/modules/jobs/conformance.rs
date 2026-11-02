@@ -144,7 +144,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use serde::Deserialize;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use tokio::io::{AsyncReadExt, BufReader};
 use uuid::Uuid;
 
@@ -764,7 +764,7 @@ fn verify_job(verify_id: Uuid, owner_id: Uuid, params: serde_json::Value) -> Job
 /// says so. Artifact statuses are left ALONE, per the module's verdict-vs-non-verdict
 /// rule — "the box was busy" is not a statement about the bytes.
 pub async fn run_gate(
-    pool: &PgPool,
+    pool: &SqlitePool,
     owner_id: Uuid,
     targets: &[GateTarget],
 ) -> Result<GateVerdict, String> {
@@ -824,7 +824,7 @@ pub async fn run_gate(
 /// The drive loop proper, run with a concurrency slot already claimed under `verify_id`.
 /// Split out so [`run_gate`]'s release tail covers every one of its return paths.
 async fn run_gate_admitted(
-    pool: &PgPool,
+    pool: &SqlitePool,
     owner_id: Uuid,
     targets: &[GateTarget],
     verify_id: Uuid,
@@ -1132,7 +1132,7 @@ pub struct VerdictApplication {
 /// enforce, and enforcing the attributable half of it would be reporting a conclusion over
 /// data the rest of the verdict condemns.
 pub async fn apply_verdict(
-    pool: &PgPool,
+    pool: &SqlitePool,
     targets: &[GateTarget],
     verdict: &GateVerdict,
 ) -> Result<VerdictApplication, String> {
@@ -1201,7 +1201,7 @@ pub async fn apply_verdict(
 /// (the run succeeded — it is the data that is wrong). That detachment IS the
 /// brief-liveness window DEC-12 accepts by name.
 pub fn dispatch_after_ingest(
-    pool: PgPool,
+    pool: SqlitePool,
     owner_id: Uuid,
     job_id: Uuid,
     run_id: Uuid,
@@ -1226,7 +1226,7 @@ pub fn dispatch_after_ingest(
 /// indeterminate outcome legible instead of silent. Distinct from `run_id`, which is the
 /// provenance node and only coincides with the job id by default (DEC-G).
 pub async fn gate_now(
-    pool: &PgPool,
+    pool: &SqlitePool,
     owner_id: Uuid,
     job_id: Uuid,
     run_id: Uuid,
@@ -1244,7 +1244,7 @@ pub async fn gate_now(
 /// without one, nothing tested it. `result` is exactly what [`run_gate`] returns:
 /// `Ok(verdict)` = the gate reached a verdict about the bytes, `Err(reason)` = it did not.
 pub async fn conclude(
-    pool: &PgPool,
+    pool: &SqlitePool,
     job_id: Uuid,
     run_id: Uuid,
     targets: &[GateTarget],
@@ -1328,7 +1328,7 @@ pub async fn conclude(
 /// logged at `warn!` rather than swallowed, because "the record of the gate is missing"
 /// is itself a thing an operator needs to know (§6 — never silently swallow).
 async fn record_outcome(
-    pool: &PgPool,
+    pool: &SqlitePool,
     job_id: Uuid,
     targets: &[GateTarget],
     outcome: &GateOutcome,
@@ -1432,12 +1432,17 @@ mod tests {
     /// condemnation`). So a test that cares only about which arm is taken needs no
     /// database, and the security-relevant decision stops being reachable only from a
     /// suite that spawns a server.
-    fn offline_pool() -> PgPool {
-        sqlx::postgres::PgPoolOptions::new()
+    fn offline_pool() -> SqlitePool {
+        // SQLite leg (sqlite-store): the pool points at a file whose PARENT
+        // DIRECTORY does not exist, so every connect attempt fails ("unable to
+        // open database file") — the same "every query fails" property the PG
+        // leg's refused port had, and nothing is ever created (the open fails
+        // before SQLite can create anything).
+        sqlx::sqlite::SqlitePoolOptions::new()
             .max_connections(1)
-            // Bounded, or a refused connect would be retried until the 30s default.
+            // Bounded, or a failed open would be retried until the 30s default.
             .acquire_timeout(Duration::from_millis(250))
-            .connect_lazy("postgres://gate-unit-test@127.0.0.1:1/none")
+            .connect_lazy("sqlite:///data/pbya/txresbench-app-work/__no_such_dir__/offline.sqlite")
             .expect("a lazy pool is built without connecting")
     }
 

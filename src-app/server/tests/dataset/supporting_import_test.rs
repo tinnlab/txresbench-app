@@ -16,7 +16,7 @@
 
 use reqwest::multipart::{Form, Part};
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use super::hardening_common::pool_for;
@@ -35,7 +35,7 @@ const ANNOTATION_CSV: &[u8] = b"barcode,cluster\nAAACCCAAGAAACACT,0\nAAACCCACAGA
 /// import and the integrate job are BOTH dataset-scoped `analysis` jobs; the import is
 /// the one named `Convert …` (`auto_convert_test` pins that contract). Returns
 /// `(job_id, params)`.
-async fn import_job_params(pool: &PgPool, dataset_id: Uuid) -> (Uuid, Value) {
+async fn import_job_params(pool: &SqlitePool, dataset_id: Uuid) -> (Uuid, Value) {
     let (id, params): (Uuid, Value) = sqlx::query_as(
         "SELECT j.id, j.params FROM jobs j \
          JOIN job_scope s ON s.job_id = j.id \

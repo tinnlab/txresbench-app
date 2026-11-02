@@ -26,11 +26,12 @@ cytoanalyst/
 ## Quick start
 
 ```bash
-# One-time: seed per-machine config (jwt.secret + db)
+# One-time: seed per-machine config (jwt.secret)
 cp src-app/server/config/dev.example.yaml src-app/server/config/dev.yaml
 # edit jwt.secret → `openssl rand -base64 48`
 
-# Backend (embedded Postgres, zero-config)
+# Backend (embedded SQLite, zero-config: one local file, no server process,
+# no database cluster, no docker compose)
 cd src-app/server && CONFIG_FILE=config/dev.yaml cargo run
 
 # Regenerate OpenAPI + TS client
@@ -39,6 +40,16 @@ cargo run -- --generate-openapi ../ui/openapi
 # Frontend
 cd src-app/ui && npm run dev
 ```
+
+The server's store is a single SQLite file — by default
+`<app-data-dir>/txresbench.db` (`CYTO_APP_DATA_DIR`, or `database.url` /
+`database.path` in the config, to relocate). Boot creates the file and runs the
+migration chain on an empty one; no Postgres binary is downloaded, no database
+port is opened, and nothing leaves the machine. **There is no PostgreSQL or
+docker-compose database in this repo** — before the SQLite switch the server
+ran an embedded PostgreSQL runtime, and an existing PostgreSQL data directory
+from that time must be deleted (there is no upgrade path; see
+`src-app/server/src/database.rs`).
 
 The SDK submodule is **pinned** (sdk/main moves as the extraction lands chunks). Bump it
 deliberately with `git -C sdk fetch && git -C sdk checkout <sha> && git add sdk`.
@@ -146,10 +157,10 @@ expected to know about.
 | Tier | What it proves | Needs | Time | Command |
 |---|---|---|---|---|
 | 1 — Rust unit | pure logic (parsers, argv builders, validators) | a compile DB | ~1 min | `just test-unit` |
-| 2 — Rust integration | HTTP handlers, repositories, permissions, migrations | Postgres `:54321` | ~10 min | `just test` |
+| 2 — Rust integration | HTTP handlers, repositories, permissions, migrations | a compile DB (per-test SQLite files; no database cluster) | ~10 min | `just test` |
 | 3 — static / bundle | `cargo check --workspace --tests`, `tsc`, lints, prod build | nothing | ~5 min | `just check` |
 | 4 — frontend runtime health | every gallery surface × state × theme renders with no console error / crash / failed request / contrast failure | Playwright chromium | ~3 min | `just preland-frontend <port>` |
-| 5 — backend e2e (default) | the app through a real browser against a real backend — **153 tests, no sandbox** | Postgres, chromium | ~25 min | `just e2e` |
+| 5 — backend e2e (default) | the app through a real browser against a real backend — **153 tests, no sandbox** | chromium (the backend boots on the SQLite e2e config) | ~25 min | `just e2e` |
 | 6 — backend-free e2e | viz showcase, component gallery, Layer-A visual | chromium | ~15 min | `just e2e-all` |
 | **7 — real-compute processor e2e** | **a processor executing in a REAL bwrap sandbox, driven through the REAL UI** — fixture uploaded → converter runs → picker populates → selector → Run → result asserted | bwrap + squashfuse + userns + the env image | ~10 min (+5 s one-time image pull) | `just env-rootfs` once, then `just e2e-processors` |
 | **7b — real-compute backend** | the same sandbox, from the Rust side — the `sandbox_executes()`-gated integration tests | same as tier 7 | ~10 min | `just test-sandbox` |

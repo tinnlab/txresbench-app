@@ -11,11 +11,15 @@
 //! `ziee_framework::declare_repositories! { user: UserRepository => crate::modules::user, ... }`.
 //!
 //! Cross-crate hygiene: every path the expansion relies on is FULLY-QUALIFIED
-//! (`::once_cell`, `::sqlx`, `::std`, `::paste`, `::tracing`) so it resolves in
-//! any invoking crate regardless of that crate's `use` imports. The invoking
-//! crate must have those crates as dependencies (ziee does). The `$module_path`
-//! and `$type` tokens come from the invocation, so their `crate::` prefixes
-//! resolve against the invoking crate — exactly as when the macro lived there.
+//! (`::once_cell`, `$crate`, `::std`, `::paste`, `::tracing`) so it resolves in
+//! any invoking crate regardless of that crate's `use` imports. The DB pool is
+//! reached through `$crate::DbPool` — the framework's dual-driver alias — so
+//! the expansion compiles unchanged in both a PG-variant invoking crate and a
+//! `sqlite-backend` one (where the invocation crate is not allowed to name
+//! `sqlx::PgPool` at all). The invoking crate must have those crates as
+//! dependencies (ziee does). The `$module_path` and `$type` tokens come from
+//! the invocation, so their `crate::` prefixes resolve against the invoking
+//! crate — exactly as when the macro lived there.
 
 /// Declarative macro for repository registration
 ///
@@ -45,14 +49,14 @@ macro_rules! declare_repositories {
         // SECTION 2: REPOSITORY FACTORY
         // ============================================
         pub struct RepositoryFactory {
-            pool: ::sqlx::PgPool,
+            pool: $crate::DbPool,
             $(
                 $field: ::once_cell::sync::OnceCell<::std::sync::Arc<$type>>,
             )*
         }
 
         impl RepositoryFactory {
-            fn new(pool: ::sqlx::PgPool) -> Self {
+            fn new(pool: $crate::DbPool) -> Self {
                 Self {
                     pool,
                     $(
@@ -61,7 +65,7 @@ macro_rules! declare_repositories {
                 }
             }
 
-            pub fn pool(&self) -> &::sqlx::PgPool {
+            pub fn pool(&self) -> &$crate::DbPool {
                 &self.pool
             }
 
@@ -98,7 +102,7 @@ macro_rules! declare_repositories {
         /// Overwrites any previously-installed factory. In a non-test build
         /// a second call is logged as a warning (it signals a second
         /// bootstrap path in production), but the overwrite still happens.
-        pub fn init_repositories(pool: ::sqlx::PgPool) {
+        pub fn init_repositories(pool: $crate::DbPool) {
             let leaked: &'static RepositoryFactory =
                 Box::leak(Box::new(RepositoryFactory::new(pool)));
             let mut guard = FACTORY.write().unwrap_or_else(|e| e.into_inner());
@@ -165,7 +169,7 @@ macro_rules! declare_repositories {
             ///
             /// For use by modules that haven't been migrated to repository pattern yet.
             /// Prefer using specific repository methods when available.
-            pub fn pool(&self) -> &::sqlx::PgPool {
+            pub fn pool(&self) -> &$crate::DbPool {
                 get_factory().pool()
             }
         }

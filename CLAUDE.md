@@ -17,7 +17,7 @@ One-time: `cp src-app/server/config/dev.example.yaml src-app/server/config/dev.y
 `jwt.secret` (`README.md:27-30`). **That file is gitignored (`.gitignore:11`), so every fresh clone
 or `git worktree add` lacks it** — see Bring-up traps.
 
-- Backend: `cd src-app/server && CONFIG_FILE=config/dev.yaml cargo run` (embedded Postgres)
+- Backend: `cd src-app/server && CONFIG_FILE=config/dev.yaml cargo run` (embedded SQLite: one file, no database cluster)
 - Frontend: `cd src-app/ui && npm run dev`
 - OpenAPI regen: `cargo run -- --generate-openapi ../ui/openapi`
 

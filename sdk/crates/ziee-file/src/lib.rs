@@ -40,6 +40,8 @@ pub mod models;
 pub mod permissions;
 pub mod repository;
 pub mod seams;
+#[cfg(feature = "sqlite-backend")]
+pub mod sqlite_types;
 pub mod storage;
 pub mod types;
 pub mod utils;
@@ -59,4 +61,16 @@ pub use storage::{
 /// build DB from exactly this set for its `query!` verification. Original
 /// filename + version preserved so the merged `_sqlx_migrations` history is
 /// unchanged.
+///
+/// Dual-driver: the SQLite leg embeds `./migrations` — the DEC-8/DEC-9 port
+/// of the same chain (same version number, SQLite dialect), which is the
+/// FORK's canonical chain (ITEM-26 renamed `migrations-sqlite/` to
+/// `migrations/`); ziee's postgres leg embeds `./migrations-pg`. The
+/// selection is a compile-time property of the `sqlite-backend` feature and
+/// AGREES with `build.rs`'s scheme selection by construction: a
+/// `sqlite-backend` build verifies its `query!` sets against a sqlite
+/// `DATABASE_URL` (which is how the build script provisions the build DB).
+#[cfg(not(feature = "sqlite-backend"))]
+pub static FILE_MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations-pg");
+#[cfg(feature = "sqlite-backend")]
 pub static FILE_MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");

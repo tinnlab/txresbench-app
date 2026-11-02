@@ -90,10 +90,10 @@ async fn a_virtual_dataset_owns_exactly_one_mask_that_records_its_source() {
     let hash = format!("sha256:{}", "f".repeat(64));
     let err = sqlx::query(
         "INSERT INTO artifacts \
-           (dataset_id, output_id, datatype, object_key, is_multifile, content_hash, \
+           (id, dataset_id, output_id, datatype, object_key, is_multifile, content_hash, \
             structure, meta, role, status, stored_bytes, hidden) \
-         VALUES ($1, 'mask-2', 'data/opaque', $2, false, $2, \
-                 '{\"encoding\":\"opaque\"}'::jsonb, '{}'::jsonb, 'mask', 'ready', 1, true)",
+         VALUES (randomblob(16), $1, 'mask-2', 'data/opaque', $2, false, $2, \
+                 '{\"encoding\":\"opaque\"}', '{}', 'mask', 'ready', 1, true)",
     )
     .bind(vd)
     .bind(hash)
@@ -101,8 +101,24 @@ async fn a_virtual_dataset_owns_exactly_one_mask_that_records_its_source() {
     .await
     .expect_err("a virtual dataset must own exactly one mask — the second is refused");
     assert!(
-        err.to_string().contains("artifacts_one_mask_per_dataset"),
+        err.to_string().contains("UNIQUE constraint failed: artifacts.dataset_id")
+            && !err.to_string().contains("output_id"),
         "refused by the WRONG constraint — must be the one-mask-per-dataset index: {err}"
+    );
+    // SQLite names no INDEX in a unique-violation message (it names the columns), so the
+    // mechanism's NAME is pinned against the schema instead — the partial index over
+    // `role = 'mask'` is what makes exactly one mask per virtual dataset a DB fact.
+    let has_one_mask_index: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'index' \
+                       AND name = 'artifacts_one_mask_per_dataset')",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("index census");
+    assert!(
+        has_one_mask_index,
+        "the one-mask-per-dataset partial index is gone from the schema — the uniqueness \
+         the insert above relies on would be a coincidence of something else"
     );
 }
 

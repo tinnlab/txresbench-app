@@ -1,29 +1,36 @@
-//! Database bootstrap — a thin shim over `ziee_framework::embedded_pg`.
+//! Database bootstrap — the SQLite store shim over `ziee_framework::embedded_db`
+//! (the driver-side counterpart of `embedded_pg`, which this app never starts
+//! or embeds any more).
 //!
-//! The framework owns the app-agnostic lifecycle (embedded-PG setup/start/stop,
-//! pool connect + retry, process-wide statics, cleanup on panic/drop). We supply
-//! only the two app-bound pieces it is parameterized over:
+//! The framework owns the app-agnostic lifecycle: the local FILE (create-if-
+//! missing), the DEC-7 pragma profile (WAL, synchronous=NORMAL, foreign_keys=ON,
+//! busy_timeout from `database.pool`), the pool (max/min/acquire from
+//! `database.pool`), the process-wide pool cache, and the WAL checkpoint on
+//! cleanup. We supply only the two app-bound pieces it is parameterized over:
+//!   - the resolved database target — `CYTO_DATABASE_URL` >
+//!     `database.url` > `database.path` > `<app-data-dir>/txresbench.db`
+//!     (src/config.rs, DEC-13's precedence as amended), where the app data
+//!     dir is `modules::rootfs::data_root()` (`CYTO_APP_DATA_DIR`, else the
+//!     desktop's `~/.txresbench`);
 //!   - `MERGED_MIGRATOR` — our merged (`migrations-merged`) migration set, with
-//!     `set_ignore_missing(true)` so a subset-owning binary is tolerated. See its
-//!     doc comment for the rule that follows from checksum verification: an
-//!     APPLIED migration file is immutable, comments included.
-//!   - the Postgres-extension hooks — CytoAnalyst installs no PG extension yet,
-//!     so both are no-ops (contrast ziee, which installs pgvector here).
+//!     `set_ignore_missing(true)` so a subset-owning binary is tolerated. See
+//!     its doc comment for the rule that follows from checksum verification.
+//!
+//! There is no server process, no port, no `pg_ctl`, no stop/cleanup hook for
+//! anything but the pool: the file (+ its `-wal`/`-shm` sidecars) is the whole
+//! store. No network access and no binary download — the engine is the
+//! sqlx-bundled libsqlite3 amalgamation (INV-1).
 
 use std::sync::Arc;
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use ziee_core::ServerConfig;
-use ziee_framework::embedded_pg::{self, EmbeddedPgHooks};
+use ziee_framework::embedded_db;
 
-/// The embedded-Postgres binary version — used only for the `pg_ctl` stop path.
-/// Keep identical to `.cargo/config.toml`'s `POSTGRESQL_VERSION` and dev.yaml's
-/// `postgresql.embedded.version`.
-const POSTGRES_VERSION: &str = "18.3.0";
-
-/// The merged migration set composed by build.rs (module `migrations/` ∪ SDK
-/// `crates/*/migrations/`), version-sorted. `LazyLock` so the framework receives
-/// a `&'static Migrator`.
+/// The merged migration set composed by build.rs (the module-owned SQLite
+/// chains in `src/modules/<m>/migrations/` + the SDK crates' `migrations/` —
+/// the final, unconditional layout since ITEM-26), version-sorted.
+/// `LazyLock` so the framework receives a `&'static Migrator`.
 ///
 /// ## AN APPLIED MIGRATION FILE IS IMMUTABLE — INCLUDING ITS COMMENTS
 ///
@@ -48,59 +55,30 @@ const POSTGRES_VERSION: &str = "18.3.0";
 /// banner comment inside a migration file: writing it into an applied migration
 /// would itself trip the checksum it warns about.)
 ///
-/// ## SQUASHED BASELINE — EVERY PRE-SQUASH DATABASE MUST BE RECREATED
+/// ## RECREATION RULE — EVERY PRE-SWAP DATABASE MUST BE RECREATED
 ///
-/// The app-owned migration history was **squashed** while still pre-release:
-/// the 49 incremental `src/modules/*/migrations/*.sql` files are gone, replaced
-/// by ONE baseline per module (`2026080300NN_<module>_baseline.sql`, 8 files).
-/// The SDK-crate migrations (`sdk/crates/ziee-{auth,file,notification}/
-/// migrations`, 5 files) are submodule-owned and were NOT touched.
-///
-/// Why: the retired chain CREATEd, ALTERed and then DROPped an earlier
-/// domain-specific data model, so its files carried that model's vocabulary
-/// forward forever in files describing a schema that no longer contains it. The
-/// immutability rule above is exactly why it could not be edited out in place —
-/// only a squash removes it.
-///
-/// The squashed baseline reproduces the pre-squash schema EXACTLY (verified by
-/// diffing `pg_dump --schema-only` of both chains — byte-identical — plus an
-/// order-independent `pg_catalog` census of columns / constraints / indexes /
-/// triggers / sequences / extensions / functions). The seeded rows are likewise
-/// identical in value; the only intentional deviation is the ELEMENT ORDER of
-/// `groups.permissions` (a set, only ever read with `= ANY`), which now follows
-/// the module apply order. The only physical difference is that `datasets` and
-/// `jobs` no longer carry the `attnum` holes their dropped columns left behind
-/// — the visible column order is unchanged.
-///
-/// ### WHAT A DEVELOPER MUST DO
-///
-/// Any database that ran the OLD chain is incompatible: its `_sqlx_migrations`
-/// records 49 versions that no longer exist and none of the 8 new ones, so the
-/// next boot tries to APPLY the baselines onto a populated schema and fails
-/// loudly on the first one (`relation "job_dependencies" already exists`,
-/// verified against a database that had run the old chain). The baselines use
-/// plain `CREATE TABLE` — not `IF NOT EXISTS` — precisely so this is a loud
-/// stop rather than a half-applied schema. `set_ignore_missing(true)` does
-/// not help — it forgives an applied-but-absent file, not a schema that is
-/// already there. **Recreate the database. There is no upgrade path, and any
+/// The engine changed: the app now runs a single SQLite FILE where it ran an
+/// embedded PostgreSQL cluster (ITEM-12 flip, DEC-3). A PostgreSQL data
+/// directory cannot be migrated — its `_sqlx_migrations` history and wire
+/// types have no SQLite reading — and a SQLite file created by an OLDER
+/// migration chain is likewise not upgradeable (its `_sqlx_migrations`
+/// records versions that no longer exist, so the next boot fails loudly on the
+/// first file that conflicts). **Delete it. There is no upgrade path, and any
 /// data in it is lost.**
 ///
-///   * **Dev, embedded Postgres (the default):** stop the server and delete the
-///     cluster's data directory — `postgresql.embedded.data_dir` from your
-///     config (`config/dev.yaml` ships `../../cytoanalyst-data/dev/postgres-data`),
-///     or `<app_data>/postgres-data` when that field is unset. Restart: the
-///     server re-initializes the cluster and runs the baselines on an empty one.
-///   * **Dev, external Postgres (`database_url` set):**
-///     `DROP DATABASE <db>; CREATE DATABASE <db>;` then restart.
-///   * **The per-worktree BUILD database** (`build.rs`, `:54321`): nothing to
-///     do — `provision_build_db` wipes and re-migrates `cytoanalyst_build_<key>`
-///     on every build. If a stale one somehow survives, `cargo clean -p
-///     cytoanalyst` forces `build.rs` to re-run.
-///   * **The integration-test template DB:** nothing to do — the harness
-///     rebuilds `cytoanalyst_test_template_<key>` from the migration chain.
+///   * **Dev, default store:** stop the server and delete the database file +
+///     its sidecars — `<app-data-dir>/txresbench.db` (`-wal`/`-shm` next to
+///     it), or the `database.path`/`database.url` target from your config.
+///     Restart: the server re-creates the file and runs the chain on an empty
+///     one.
+///   * **The per-worktree BUILD database** (`build.rs`): nothing to do —
+///     `provision_build_db` deletes + re-migrates
+///     `target/sqlx-build/cytoanalyst_build_<key>.sqlite` on every build. If a
+///     stale one somehow survives, `cargo clean -p cytoanalyst` forces
+///     `build.rs` to re-run.
 ///
-/// A new migration is still an ADDITIVE file, exactly as before: the baselines
-/// are now applied history and are immutable like any other applied file.
+/// A new migration is still an ADDITIVE file, exactly as before: the chain is
+/// applied history and is immutable like any other applied file.
 static MERGED_MIGRATOR: std::sync::LazyLock<sqlx::migrate::Migrator> =
     std::sync::LazyLock::new(|| {
         let mut m = sqlx::migrate!("./migrations-merged");
@@ -108,33 +86,85 @@ static MERGED_MIGRATOR: std::sync::LazyLock<sqlx::migrate::Migrator> =
         m
     });
 
-/// No-op Postgres-extension hooks (CytoAnalyst has no PG extensions yet).
-const NOOP_HOOKS: EmbeddedPgHooks = EmbeddedPgHooks {
-    after_setup: noop_after_setup,
-    smoke_test: noop_smoke,
-};
-
-fn noop_after_setup(_install_dir: &std::path::Path) {}
-
-fn noop_smoke(_url: String) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
-    Box::pin(async {})
-}
-
-/// Bring up the database (embedded or external), run migrations, cache the pool.
+/// Bring up the SQLite store (create-if-missing), run migrations, cache the
+/// pool. The driver is fixed — this app's driver is the SQLite seam of the
+/// SDK (`embedded_db`); there is no runtime driver choice and no
+/// embedded-Postgres leg.
 pub async fn initialize_database(
     config: &ServerConfig,
-) -> Result<Arc<PgPool>, Box<dyn std::error::Error + Send + Sync>> {
-    embedded_pg::initialize_database(
-        config.postgresql.clone(),
-        config.database_url(),
-        POSTGRES_VERSION.to_string(),
-        std::sync::LazyLock::force(&MERGED_MIGRATOR),
-        NOOP_HOOKS,
-    )
-    .await
+) -> Result<Arc<SqlitePool>, Box<dyn std::error::Error + Send + Sync>> {
+    // The ITEM-26 postgresql-block contract, loud at boot: a config that still
+    // carries a `postgresql:` block is refused (message pinned by TEST-13).
+    // There is no accepted-with-warning leg any more — the transition window
+    // closed and the block is dead configuration.
+    if let Some(msg) = crate::config::postgresql_block_refusal(config) {
+        return Err(msg.into());
+    }
+    let target =
+        crate::config::resolve_database_target(config, &crate::modules::rootfs::data_root());
+    let pool_config = config
+        .database
+        .as_ref()
+        .map(|db| db.pool.clone())
+        .unwrap_or_default();
+    embedded_db::initialize_database(&target, &pool_config, &MERGED_MIGRATOR).await
 }
 
-/// Close the pool + stop the embedded instance. Idempotent.
+/// The process-wide SQLite pool, or `PoolTimedOut` when the store never
+/// initialized (same contract as the framework's accessor — and the one the
+/// embedded-PG path exposed before the flip).
+pub fn get_database_pool() -> Result<Arc<SqlitePool>, sqlx::Error> {
+    embedded_db::get_database_pool()
+}
+
+/// Close the pool + checkpoint the WAL (TRUNCATE). Idempotent.
 pub async fn cleanup_database() {
-    embedded_pg::cleanup_database().await
+    embedded_db::cleanup_database().await
+}
+
+#[cfg(test)]
+mod tests {
+    //! TEST-8 (sqlite-store ITEM-1): the server crate's resolved sqlx feature
+    //! set carries BOTH drivers, and the bundled SQLite meets the version floor
+    //! the node's type map and port rules are written against (3.46.0).
+    //!
+    //! The driver assertions are a compile-time probe by construction: the
+    //! `sqlx::sqlite` and `sqlx::postgres` modules (and the pool option types
+    //! below) only exist when the matching feature is enabled on the crate's
+    //! sqlx dependency, so a dropped feature set breaks the build before the
+    //! test can even run. The PROV-sqlx-1 contract keeps BOTH feature sets in
+    //! the graph (the SDK stays dual-driver for ziee), so the postgres probe
+    //! stays meaningful after the flip. Nothing here touches a database — it
+    //! asserts the compile/link environment, which is exactly the surface
+    //! ITEM-1 changes.
+
+    use sqlx::postgres::PgPoolOptions;
+    use sqlx::sqlite::SqlitePoolOptions;
+    use sqlx::PgPool;
+    use sqlx::SqlitePool;
+
+    #[test]
+    fn both_driver_feature_sets_are_resolved() {
+        // Unused-value expressions would be optimised away even without `let`;
+        // the point is that the NAMES resolve, i.e. the features are on.
+        let _ = std::any::type_name::<SqlitePoolOptions>();
+        let _ = std::any::type_name::<PgPoolOptions>();
+        let _ = std::any::type_name::<SqlitePool>();
+        let _ = std::any::type_name::<PgPool>();
+    }
+
+    #[test]
+    fn bundled_sqlite_meets_the_version_floor() {
+        // SAFETY: both calls go to the SQLite library C API, returning a
+        // static NUL-terminated string / an int; the libsqlite3-sys bindings
+        // mark them `unsafe` per the FFI convention.
+        let version = unsafe { std::ffi::CStr::from_ptr(libsqlite3_sys::sqlite3_libversion()) }
+            .to_str()
+            .expect("sqlite3_libversion is not UTF-8");
+        let number = unsafe { libsqlite3_sys::sqlite3_libversion_number() };
+        assert!(
+            number >= 3_046_000,
+            "bundled SQLite is {version} ({number}), expected >= 3.46.0"
+        );
+    }
 }

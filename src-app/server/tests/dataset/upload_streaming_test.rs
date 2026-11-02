@@ -733,7 +733,7 @@ async fn over_ceiling_upload_is_a_named_413_and_the_service_survives() {
 /// TEST-4 (second leg) — the named refusal on the REAL production route.
 ///
 /// The ceiling it trips is the per-field cap on a NON-file part — the second
-/// unbounded allocation the fix removed (`Field::text()` had no ceiling under a
+/// unbounded allocation the fix removed (`Field()` had no ceiling under a
 /// 64 GiB body limit, so a giant `groups` part could OOM the API exactly as a `file`
 /// part used to). It is reachable over HTTP with ~1 MiB, unlike the body limit, which
 /// is why INV-3 gets an end-to-end proof at all.
@@ -872,7 +872,7 @@ async fn the_production_staging_function_does_not_rebuffer() {
     // The server's blob store is a local filesystem tree under its per-test data
     // dir, so the test process can open the very same store.
     let storage = ziee_file::init_file_storage(server.data_dir().join("files"));
-    let pool = sqlx::PgPool::connect(server.database_url())
+    let pool = sqlx::SqlitePool::connect(server.database_url())
         .await
         .expect("connect to the test database");
 
@@ -1121,7 +1121,7 @@ async fn double_ingest_is_a_typed_error_not_a_panic() {
     // Point this process at the server's own blob store + database, so the ingest is
     // the real one against real rows.
     ziee_file::init_file_storage(server.data_dir().join("files"));
-    let pool = sqlx::PgPool::connect(server.database_url())
+    let pool = sqlx::SqlitePool::connect(server.database_url())
         .await
         .expect("connect to the test database");
     let repo = ziee_file::FileRepository::new(pool.clone());

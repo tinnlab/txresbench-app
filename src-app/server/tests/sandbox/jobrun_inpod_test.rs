@@ -26,8 +26,11 @@ use crate::dataset::hardening_common::{create_project, pool_for, skip_no_rootfs}
 
 const TEST_6_7: &str = "sandbox::jobrun_inpod::real_run";
 
-async fn owner_id(pool: &sqlx::PgPool) -> Uuid {
-    sqlx::query_scalar("SELECT id FROM users WHERE username = 'sbxadmin'")
+async fn owner_id(pool: &sqlx::SqlitePool) -> Uuid {
+    // The node's owner mint is `POST /session/local`, which IGNORES the request body
+    // and always mints `admin`/`admin@localhost` (localsession.rs OWNER_USERNAME) —
+    // the postgres leg's setup-admin route honored the posted `sbxadmin` name.
+    sqlx::query_scalar("SELECT id FROM users WHERE username = 'admin'")
         .fetch_one(pool)
         .await
         .expect("the setup-admin owner id")
@@ -36,7 +39,7 @@ async fn owner_id(pool: &sqlx::PgPool) -> Uuid {
 /// Insert an ALREADY-CLAIMED (`running`) analysis job — the state the control plane leaves a job
 /// in when it hands it to the job-per-run pod — marked a heavy resource class. Returns the id.
 async fn running_heavy_job(
-    pool: &sqlx::PgPool,
+    pool: &sqlx::SqlitePool,
     owner: Uuid,
     project: Option<Uuid>,
     params: serde_json::Value,
@@ -55,23 +58,13 @@ async fn running_heavy_job(
     id
 }
 
-/// Write a minimal config.yaml pointing the `run-job` subprocess at the test server's Postgres
-/// (parsed from `database_url`), so the pod entrypoint boots the same assembly against the same
-/// DB. The object store + sandbox rootfs are shared via `CYTO_APP_DATA_DIR` (set on the command).
+/// Write a minimal config.yaml pointing the `run-job` subprocess at the test server's
+/// sqlite FILE (the `database.url` the harness hands the app — the config key
+/// `ServerConfig` resolves), so the pod entrypoint boots the same assembly against the
+/// same DB. The object store + sandbox rootfs are shared via `CYTO_APP_DATA_DIR`.
 fn write_config(dir: &Path, database_url: &str) -> std::path::PathBuf {
-    // postgres://user:password@host:port/dbname[?params]
-    let rest = database_url
-        .strip_prefix("postgresql://")
-        .or_else(|| database_url.strip_prefix("postgres://"))
-        .expect("a postgres URL");
-    let (creds, hostpart) = rest.split_once('@').expect("user@host");
-    let (user, pass) = creds.split_once(':').unwrap_or((creds, ""));
-    let hostpart = hostpart.split(['?']).next().unwrap();
-    let (host_port, db) = hostpart.split_once('/').expect("host/db");
-    let (host, port) = host_port.split_once(':').unwrap_or((host_port, "5432"));
-
     let cfg = format!(
-        "postgresql:\n  use_embedded: false\n  external:\n    host: \"{host}\"\n    port: {port}\n    username: \"{user}\"\n    password: \"{pass}\"\n    database: \"{db}\"\n  pool:\n    max_connections: 5\n    min_connections: 1\n    acquire_timeout_secs: 5\n    idle_timeout_secs: 30\n    max_lifetime_secs: 300\nserver:\n  host: \"127.0.0.1\"\n  port: 3199\n  api_prefix: \"/api\"\nlogging:\n  level: \"info\"\n  format: \"pretty\"\njwt:\n  secret: \"jobrun-inpod-test-secret-key-at-least-32-characters\"\n  issuer: \"cytoanalyst\"\n  audience: \"cytoanalyst-api\"\n  access_token_expiry_hours: 24\n  refresh_token_expiry_days: 30\n",
+        "database:\n  url: \"{database_url}\"\nserver:\n  host: \"127.0.0.1\"\n  port: 3199\n  api_prefix: \"/api\"\nlogging:\n  level: \"info\"\n  format: \"pretty\"\njwt:\n  secret: \"jobrun-inpod-test-secret-key-at-least-32-characters\"\n  issuer: \"cytoanalyst\"\n  audience: \"cytoanalyst-api\"\n  access_token_expiry_hours: 24\n  refresh_token_expiry_days: 30\n",
     );
     let path = dir.join(format!("run-job-config-{}.yaml", Uuid::new_v4()));
     std::fs::write(&path, cfg).expect("write config");
@@ -105,7 +98,7 @@ async fn run_job_subprocess(server: &TestServer, job_id: Uuid) -> (i32, String) 
     (out.status.code().unwrap_or(-1), combined)
 }
 
-async fn artifact_rows(pool: &sqlx::PgPool, run: Uuid) -> Vec<(String, Option<String>)> {
+async fn artifact_rows(pool: &sqlx::SqlitePool, run: Uuid) -> Vec<(String, Option<String>)> {
     sqlx::query_as("SELECT content_hash, object_key FROM artifacts WHERE run_id = $1")
         .bind(run)
         .fetch_all(pool)

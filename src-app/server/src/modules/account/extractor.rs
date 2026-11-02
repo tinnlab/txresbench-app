@@ -26,7 +26,7 @@ use std::sync::Arc;
 use aide::OperationIo;
 use axum::extract::FromRequestParts;
 use axum::http::{request::Parts, HeaderMap, StatusCode};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use ziee_auth::auth::DefaultIdentityResolver;
@@ -82,7 +82,7 @@ pub fn parse_account_header(headers: &HeaderMap) -> Result<Option<Uuid>, AppErro
 /// - `Some(id)` + non-member → `Err(404)` (INV-3, the existence-oracle guard routed
 ///   through A1's `membership_role` — the PROV-A3-1 `None ⇒ 404` signal).
 pub async fn resolve_active_account(
-    pool: &PgPool,
+    pool: &SqlitePool,
     user_id: Uuid,
     requested: Option<Uuid>,
 ) -> Result<ActiveAccount, AppError> {
@@ -128,10 +128,11 @@ impl FromRequestParts<()> for ActiveAccount {
                 })?;
             let user = resolver.authenticate(parts).await?;
 
-            let pool =
-                parts.extensions.get::<PgPool>().cloned().ok_or_else(|| {
-                    AppError::internal_error("pool not configured").to_api_error()
-                })?;
+            let pool = parts
+                .extensions
+                .get::<SqlitePool>()
+                .cloned()
+                .ok_or_else(|| AppError::internal_error("pool not configured").to_api_error())?;
 
             let requested = parse_account_header(&parts.headers).map_err(|e| e.to_api_error())?;
             resolve_active_account(&pool, user.id, requested)

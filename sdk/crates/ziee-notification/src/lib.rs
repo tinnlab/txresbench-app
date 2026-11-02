@@ -26,6 +26,9 @@
 pub mod models;
 pub mod permissions;
 
+#[cfg(feature = "sqlite-backend")]
+pub mod sqlite_types;
+
 #[cfg(feature = "routes")]
 pub mod events;
 #[cfg(feature = "routes")]
@@ -54,3 +57,24 @@ pub use registry::{
 // Re-export the core types at the crate root for ergonomic consumption.
 pub use models::{NewNotification, Notification, NotificationPage, UnreadCount};
 pub use permissions::NotificationsRead;
+/// The notification inbox's own migration (the `notifications` table + its two
+/// indexes), embedded at build time. The app globs `sdk/crates/*/migrations/`
+/// into ONE version-sorted merged set for BOTH its runtime `migrate` and its
+/// build-DB provisioner; this crate's own `build.rs` provisions a
+/// notification-only build DB from exactly this set for its `query!`
+/// verification. The original filename + version are preserved so the merged
+/// `_sqlx_migrations` history is unchanged.
+///
+/// Dual-driver: the SQLite leg embeds `./migrations` — the DEC-8/DEC-9 port
+/// of the same chain (same version number, SQLite dialect: uuid BLOB,
+/// payload TEXT JSON, RFC3339 UTC timestamps), which is the FORK's canonical
+/// chain (ITEM-26 renamed `migrations-sqlite/` to `migrations/`); ziee's
+/// postgres leg embeds `./migrations-pg`. The selection is a compile-time
+/// property of the `sqlite-backend` feature and AGREES with `build.rs`'s
+/// scheme selection by construction: a `sqlite-backend` build verifies its
+/// `query!` sets against a sqlite `DATABASE_URL` (which is how the build
+/// script provisions the build DB).
+#[cfg(not(feature = "sqlite-backend"))]
+pub static NOTIFICATION_MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations-pg");
+#[cfg(feature = "sqlite-backend")]
+pub static NOTIFICATION_MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");

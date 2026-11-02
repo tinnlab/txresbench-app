@@ -31,7 +31,7 @@
 use std::time::Duration;
 
 use serde_json::json;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::jobs::models::{CreateJobRequest, Job};
@@ -42,7 +42,7 @@ use crate::common::TestServer;
 
 // ------------------------------------------------------------------ helpers
 
-async fn admin_owner(pool: &PgPool) -> Uuid {
+async fn admin_owner(pool: &SqlitePool) -> Uuid {
     sqlx::query_scalar("SELECT id FROM users LIMIT 1")
         .fetch_one(pool)
         .await
@@ -52,11 +52,11 @@ async fn admin_owner(pool: &PgPool) -> Uuid {
 /// Seed a controllable job directly as `running` — the scheduler only claims
 /// `queued`, so it is never grabbed out from under the test (the `dag_test`
 /// pattern).
-async fn insert_running(pool: &PgPool, owner: Uuid, name: &str) -> Uuid {
+async fn insert_running(pool: &SqlitePool, owner: Uuid, name: &str) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO jobs (id, owner_id, job_type, name, status, started_at) \
-         VALUES ($1, $2, 'stub', $3, 'running', now())",
+         VALUES ($1, $2, 'stub', $3, 'running', strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
     )
     .bind(id)
     .bind(owner)
@@ -92,7 +92,7 @@ async fn log_lines(repo: &JobRepository, id: Uuid) -> Vec<(i32, String, String)>
         .collect()
 }
 
-async fn error_of(pool: &PgPool, id: Uuid) -> Option<String> {
+async fn error_of(pool: &SqlitePool, id: Uuid) -> Option<String> {
     sqlx::query_scalar("SELECT error FROM jobs WHERE id = $1")
         .bind(id)
         .fetch_one(pool)
@@ -401,7 +401,7 @@ async fn the_boot_reconcile_cascade_explains_the_jobs_it_fails() {
     let b = create_child(&repo, owner, "stranded-B", &[a]).await.id;
     // RAW terminalize: bypasses `fail`, so the runtime cascade never runs and B is left
     // `blocked` — exactly the post-crash state the boot pass exists to heal.
-    sqlx::query("UPDATE jobs SET status = 'failed', finished_at = now() WHERE id = $1")
+    sqlx::query("UPDATE jobs SET status = 'failed', finished_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = $1")
         .bind(a)
         .execute(&pool)
         .await

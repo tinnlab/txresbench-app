@@ -57,7 +57,7 @@
 
 use cytoanalyst::modules::account::{AccountRepository, AccountRole};
 use cytoanalyst::modules::project::{EffectivePermission, ProjectRepository};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use super::{add_member, create_user, make_org_account, move_project_to_account, pool_for,
@@ -101,7 +101,7 @@ const UNBLOCK_BOUND: std::time::Duration = std::time::Duration::from_secs(30);
 /// dana(member); **P** created by bob, **Q** by dana, **R** by alice, all three moved
 /// into the org. **eve** is never a member of anything but her own personal account.
 struct Fixture {
-    pool: PgPool,
+    pool: SqlitePool,
     admin_token: String,
     org: Uuid,
     /// account `owner`, stays a member — the authority-intact initiator control.
@@ -235,15 +235,17 @@ impl Fixture {
 /// The warm-up doubles as a positive control: an unobstructed accept must COMPLETE.
 /// It deliberately uses a principal whose membership row the blocker does not hold, so
 /// it cannot itself block.
-async fn spawn_blocked_accept(
-    fx: &Fixture,
-    offer: Uuid,
-    recipient: Uuid,
-    label: &str,
-) -> tokio::task::JoinHandle<Result<bool, ziee_core::AppError>> {
-    // The warm-up deliberately uses a principal whose rows the obstructing transaction
-    // does not hold (dana → eve on Q), so it cannot itself block regardless of which
-    // row the caller is contending.
+///
+/// **SQLite port (record): the warm-up is a WRITE sequence, and the engine's single
+/// write lock is held by the obstruction for the whole test — so on this chain the
+/// warm-up CANNOT run after the obstruction opens. It is therefore a separate helper
+/// the caller must run BEFORE opening the blocking transaction; the
+/// `BEGIN IMMEDIATE`-at-open barrier and this split are the ITEM-25 record of
+/// what the PG row-lock design allowed and the single-writer model does not.**
+/// (The original single helper did both and deadlocked on itself on SQLite — the
+/// warm-up's INSERT queued behind the obstruction and failed `database is locked`;
+/// the "blocked accept" was never even spawned.)
+async fn measure_accept_latency(fx: &Fixture, label: &str) -> std::time::Duration {
     let warm_offer = fx.seed_pending(fx.q, fx.dana, fx.eve).await;
     let warm_start = tokio::time::Instant::now();
     assert!(
@@ -254,17 +256,27 @@ async fn spawn_blocked_accept(
         "{label}: warm-up control — an unobstructed accept completes"
     );
     let warm = warm_start.elapsed();
+    std::cmp::min(std::cmp::max(BLOCK_FLOOR, warm * BLOCK_WARM_MULTIPLIER), BLOCK_CEILING)
+}
 
+/// Spawn the obstructed accept (the caller must already hold the write lock) and assert
+/// it is still blocked at the measured threshold.
+async fn spawn_blocked_accept(
+    fx: &Fixture,
+    offer: Uuid,
+    recipient: Uuid,
+    label: &str,
+    threshold: std::time::Duration,
+) -> tokio::task::JoinHandle<Result<bool, ziee_core::AppError>> {
     let projects = fx.projects();
     let handle = tokio::spawn(async move { projects.accept_transfer(offer, recipient).await });
 
-    let threshold = std::cmp::min(std::cmp::max(BLOCK_FLOOR, warm * BLOCK_WARM_MULTIPLIER), BLOCK_CEILING);
     tokio::time::sleep(threshold).await;
     assert!(
         !handle.is_finished(),
         "{label}: the accept must BLOCK while the obstructing transaction holds the row \
          it needs — finishing within {threshold:?} (an unobstructed accept took \
-         {warm:?}) means the check-then-act window is open"
+         less than that) means the check-then-act window is open"
     );
     handle
 }
@@ -575,7 +587,7 @@ async fn a_transfer_to_a_genuine_non_member_still_completes() {
         sqlx::query(
             "INSERT INTO project_shares (id, project_id, owner_id, recipient_id, \
                                          permission_level, status) \
-             VALUES (gen_random_uuid(), $1, $2, $3, $4, 'accepted')",
+             VALUES (randomblob(16), $1, $2, $3, $4, 'accepted')",
         )
         .bind(fx.r)
         .bind(fx.alice)
@@ -1089,21 +1101,34 @@ async fn a_deactivated_initiators_transfer_cannot_be_accepted_either() {
 /// a hang, and step 5 a refusal rather than a crash.
 #[tokio::test]
 async fn a_removal_committing_mid_accept_still_refuses_the_transfer() {
-    use sqlx::postgres::PgPoolOptions;
+    use sqlx::sqlite::SqlitePoolOptions;
 
     for (commit, label) in [(true, "removal COMMITS"), (false, "removal ROLLS BACK")] {
         let server = TestServer::spawn().await;
         let fx = Fixture::build(&server).await;
         let offer = fx.seed_pending(fx.p, fx.bob, fx.eve).await;
 
+        // The measured unobstructed accept MUST run before the obstruction opens — the
+        // warm-up is a write sequence, and on SQLite the write lock is global (see the
+        // split-helper note above).
+        let threshold = measure_accept_latency(&fx, label).await;
+
         // A separate pool, so holding the removal open cannot starve accept of a
         // connection and turn a lock-wait into a pool-wait.
-        let blocking = PgPoolOptions::new()
+        let blocking = SqlitePoolOptions::new()
             .max_connections(2)
             .connect(server.database_url())
             .await
             .expect("blocking pool");
-        let mut removal = blocking.begin().await.expect("begin removal tx");
+        // SQLite port: `BEGIN IMMEDIATE` at the OPEN is the serialization point — the
+        // PG `begin()` was deferred and took the write lock at the DELETE, which let the
+        // measured warm-up insert-through it and fail `database is locked`; with the
+        // immediate open, the accept is parked at its own transaction open like every
+        // other single-writer barrier in this item's port.
+        let mut removal = blocking
+            .begin_with("BEGIN IMMEDIATE")
+            .await
+            .expect("begin removal tx");
         sqlx::query("DELETE FROM account_members WHERE account_id = $1 AND user_id = $2")
             .bind(fx.org)
             .bind(fx.bob)
@@ -1115,8 +1140,8 @@ async fn a_removal_committing_mid_accept_still_refuses_the_transfer() {
         // assertion the whole test exists for: with the in-transaction re-assert
         // removed, accept sails past (the uncommitted DELETE is invisible to it) and
         // finishes here, so this goes red. The warm-up, the measured threshold and the
-        // block assertion all live in `spawn_blocked_accept`.
-        let handle = spawn_blocked_accept(&fx, offer, fx.eve, label).await;
+        // block assertion all live in `measure_accept_latency` / `spawn_blocked_accept`.
+        let handle = spawn_blocked_accept(&fx, offer, fx.eve, label, threshold).await;
 
         if commit {
             removal.commit().await.expect("commit removal");
@@ -1194,14 +1219,23 @@ async fn the_admin_removal_route_tells_both_parties_the_offer_is_gone() {
     let mut eve_probe = SyncProbe::open(&server, &eve_token).await;
     let mut frank_probe = SyncProbe::open(&server, &frank_token).await;
 
-    let status = admin_remove_member(
-        &server,
-        Some(&fx.admin_token),
-        &fx.org.to_string(),
-        fx.bob,
-    )
-    .await;
-    assert_eq!(status, 204, "the admin removal route still answers 204");
+    // SQLite port: the admin removal ROUTE has no object on this node (the
+    // `/admin/accounts/*` surface is stripped — DRIFT-1.25). The fan-out this test
+    // exists to observe lives in the HANDLER (`fan_cancelled_transfers` in
+    // `handlers.rs`), not in the repository — so the SAME handler-side publish loop is
+    // driven through the RETAINED account-scoped removal route, with the org OWNER as
+    // the remover. The claims under test (both parties are told; a party-to-nothing
+    // stream stays silent) are unchanged: alice was never a party to the offer and is
+    // neither of the two parties whose devices must be told.
+    let alice_token = super::login(&server, "alice").await;
+    let resp = server
+        .client
+        .delete(server.api_url(&format!("/accounts/{}/members/{}", fx.org, fx.bob)))
+        .bearer_auth(&alice_token)
+        .send()
+        .await
+        .expect("remove member (retained route)");
+    assert_eq!(resp.status().as_u16(), 204, "the removal route still answers 204");
 
     // The INITIATOR (the departing member) is told his outgoing offer is gone…
     let to_initiator = bob_probe
@@ -1244,20 +1278,46 @@ async fn the_admin_removal_route_tells_both_parties_the_offer_is_gone() {
 /// recorded on `accept_transfer` rather than overstated here.
 #[tokio::test]
 async fn a_removal_queues_behind_an_in_flight_accepts_membership_lock() {
-    use sqlx::postgres::PgPoolOptions;
+    use sqlx::sqlite::SqlitePoolOptions;
 
     let server = TestServer::spawn().await;
     let fx = Fixture::build(&server).await;
     let offer = fx.seed_pending(fx.p, fx.bob, fx.eve).await;
 
+    // WARM-UP + TIMING CONTROL, for the same reason `spawn_blocked_accept` has one:
+    // "it has not finished yet" only detects an operation that is NOT blocked if that
+    // operation is also FAST, and this is the FIRST `remove_member` in a freshly
+    // spawned server with a cold pool and cold plans. So measure an UNOBSTRUCTED
+    // `remove_member` first — removing dana, who is a party to nothing and whose row
+    // the holder does not hold — and derive the threshold from it. Without this the
+    // test goes green on precisely the regression it exists to catch.
+    // SQLite port (record): the warm-up is a write sequence, so it MUST run before the
+    // holder opens its transaction — on the single-writer model a deferred holder does
+    // not hold the lock, and an immediate one blocks the warm-up instead of the subject
+    // (the same split as `measure_accept_latency`/`spawn_blocked_accept`).
+    let warm_start = tokio::time::Instant::now();
+    fx.accounts()
+        .remove_member(fx.org, fx.dana, super::staff_ceiling())
+        .await
+        .expect("warm-up control: an unobstructed removal succeeds");
+    let warm = warm_start.elapsed();
+
     // Stand in for an accept that has taken its `FOR SHARE` and not yet committed, by
     // taking the identical lock on the identical row from a separate pool.
-    let holder_pool = PgPoolOptions::new()
+    // SQLite port (record): `FOR SHARE` has no SQLite form — the accept's serialization
+    // point on SQLite is the single write lock, taken at `BEGIN IMMEDIATE` (ITEM-18),
+    // so the stand-in takes THAT: the production predicate below runs inside a
+    // write-lock transaction, which is exactly the state `accept_transfer` occupies
+    // between its first write and its commit.
+    let holder_pool = SqlitePoolOptions::new()
         .max_connections(2)
         .connect(server.database_url())
         .await
         .expect("holder pool");
-    let mut holder = holder_pool.begin().await.expect("begin holder tx");
+    let mut holder = holder_pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .expect("begin holder tx");
     // Calls the PRODUCTION predicate, so the lock this test holds is BY CONSTRUCTION
     // the one `accept_transfer` takes. An earlier version re-typed the SQL here — the
     // very practice DEC-24 was written to eliminate — and the copy had already
@@ -1271,20 +1331,6 @@ async fn a_removal_queues_behind_an_in_flight_accepts_membership_lock() {
         "control: the lock really was taken on bob's membership row — otherwise the \
          queueing assertion below would be about nothing"
     );
-
-    // WARM-UP + TIMING CONTROL, for the same reason `spawn_blocked_accept` has one:
-    // "it has not finished yet" only detects an operation that is NOT blocked if that
-    // operation is also FAST, and this is the FIRST `remove_member` in a freshly
-    // spawned server with a cold pool and cold plans. So measure an UNOBSTRUCTED
-    // `remove_member` first — removing dana, who is a party to nothing and whose row
-    // the holder does not hold — and derive the threshold from it. Without this the
-    // test goes green on precisely the regression it exists to catch.
-    let warm_start = tokio::time::Instant::now();
-    fx.accounts()
-        .remove_member(fx.org, fx.dana, super::staff_ceiling())
-        .await
-        .expect("warm-up control: an unobstructed removal succeeds");
-    let warm = warm_start.elapsed();
 
     let accounts = fx.accounts();
     let org = fx.org;
@@ -1434,7 +1480,7 @@ async fn the_in_transaction_reassert_agrees_with_effective_permission() {
     // spellings were this test's copy and itself — reverting the production predicate
     // to its existence-only form left the entire suite green. The mutation battery
     // caught it; the fix was to give the predicate a name so a test can reach it.
-    async fn reassert(pool: &PgPool, project: Uuid, user: Uuid) -> bool {
+    async fn reassert(pool: &SqlitePool, project: Uuid, user: Uuid) -> bool {
         let mut conn = pool.acquire().await.expect("connection");
         ProjectRepository::initiator_still_owner_locked(&mut conn, project, user)
             .await
@@ -1525,7 +1571,7 @@ async fn the_in_transaction_reassert_agrees_with_effective_permission() {
 /// refuses here can only be the in-transaction re-assert reading `am.role`.
 #[tokio::test]
 async fn a_demotion_committing_mid_accept_still_refuses_the_transfer() {
-    use sqlx::postgres::PgPoolOptions;
+    use sqlx::sqlite::SqlitePoolOptions;
 
     for (commit, label) in [(true, "demotion COMMITS"), (false, "demotion ROLLS BACK")] {
         let server = TestServer::spawn().await;
@@ -1539,12 +1585,18 @@ async fn a_demotion_committing_mid_accept_still_refuses_the_transfer() {
             "{label}: control — the initiator is deliberately NOT the project's owner_id"
         );
 
-        let blocking = PgPoolOptions::new()
+        // The measured unobstructed accept first — see the split-helper port note.
+        let threshold = measure_accept_latency(&fx, label).await;
+
+        let blocking = SqlitePoolOptions::new()
             .max_connections(2)
             .connect(server.database_url())
             .await
             .expect("blocking pool");
-        let mut demotion = blocking.begin().await.expect("begin demotion tx");
+        let mut demotion = blocking
+            .begin_with("BEGIN IMMEDIATE")
+            .await
+            .expect("begin demotion tx");
         sqlx::query("UPDATE account_members SET role = 'member' WHERE account_id = $1 AND user_id = $2")
             .bind(fx.org)
             .bind(fx.alice)
@@ -1560,7 +1612,7 @@ async fn a_demotion_committing_mid_accept_still_refuses_the_transfer() {
              below is the in-transaction re-assert alone"
         );
 
-        let handle = spawn_blocked_accept(&fx, offer, fx.eve, label).await;
+        let handle = spawn_blocked_accept(&fx, offer, fx.eve, label, threshold).await;
 
         if commit {
             demotion.commit().await.expect("commit demotion");
@@ -1617,7 +1669,7 @@ async fn a_demotion_committing_mid_accept_still_refuses_the_transfer() {
 /// invisible — which is exactly why it went unnoticed.
 #[tokio::test]
 async fn an_owner_id_change_committing_mid_accept_is_not_read_stale() {
-    use sqlx::postgres::PgPoolOptions;
+    use sqlx::sqlite::SqlitePoolOptions;
 
     for (commit, label) in [(true, "owner_id change COMMITS"), (false, "it ROLLS BACK")] {
         let server = TestServer::spawn().await;
@@ -1630,12 +1682,18 @@ async fn an_owner_id_change_committing_mid_accept_is_not_read_stale() {
              only thing giving him authority here"
         );
 
-        let blocking = PgPoolOptions::new()
+        // The measured unobstructed accept first — see the split-helper port note.
+        let threshold = measure_accept_latency(&fx, label).await;
+
+        let blocking = SqlitePoolOptions::new()
             .max_connections(2)
             .connect(server.database_url())
             .await
             .expect("blocking pool");
-        let mut mover = blocking.begin().await.expect("begin mover tx");
+        let mut mover = blocking
+            .begin_with("BEGIN IMMEDIATE")
+            .await
+            .expect("begin mover tx");
         // Touch the membership row so the accept BLOCKS (a no-op write still locks it),
         // and move the project's owner_id out from under him in the same transaction.
         sqlx::query("UPDATE account_members SET role = role WHERE account_id = $1 AND user_id = $2")
@@ -1659,7 +1717,7 @@ async fn an_owner_id_change_committing_mid_accept_is_not_read_stale() {
              is the in-transaction re-assert reading a FRESH projects tuple"
         );
 
-        let handle = spawn_blocked_accept(&fx, offer, fx.eve, label).await;
+        let handle = spawn_blocked_accept(&fx, offer, fx.eve, label, threshold).await;
 
         if commit {
             mover.commit().await.expect("commit the owner_id change");
@@ -1725,7 +1783,7 @@ async fn an_owner_id_change_committing_mid_accept_is_not_read_stale() {
 /// transaction commits, refuses rather than completing on a row that is gone.
 #[tokio::test]
 async fn an_accept_racing_a_claimed_transfer_row_loses_to_it() {
-    use sqlx::postgres::PgPoolOptions;
+    use sqlx::sqlite::SqlitePoolOptions;
 
     for (commit, label) in [(true, "the claim COMMITS"), (false, "the claim ROLLS BACK")] {
         let server = TestServer::spawn().await;
@@ -1740,17 +1798,25 @@ async fn an_accept_racing_a_claimed_transfer_row_loses_to_it() {
              accept-time check structurally cannot cover, so half (a) is alone"
         );
 
-        let blocking = PgPoolOptions::new()
+        // The measured unobstructed accept first — see the split-helper port note.
+        let threshold = measure_accept_latency(&fx, label).await;
+
+        let blocking = SqlitePoolOptions::new()
             .max_connections(2)
             .connect(server.database_url())
             .await
             .expect("blocking pool");
-        let mut removal = blocking.begin().await.expect("begin removal tx");
+        let mut removal = blocking.begin_with("BEGIN IMMEDIATE").await.expect("begin removal tx");
         // Exactly what the offboarding hook now does FIRST, before touching membership.
+        // `DELETE … USING` has no SQLite grammar — the EXISTS/subquery rewrite (the
+        // ITEM-18 record; same rows, same predicate; the write lock is this
+        // transaction's `BEGIN IMMEDIATE`).
         let claimed = sqlx::query(
-            "DELETE FROM project_transfers t USING projects p \
-              WHERE t.project_id = p.id AND t.status = 'pending' \
-                AND p.account_id = $1 AND (t.from_user_id = $2 OR t.to_user_id = $2)",
+            "DELETE FROM project_transfers \
+              WHERE id IN (SELECT t.id FROM project_transfers t JOIN projects p \
+                               ON t.project_id = p.id \
+                           WHERE t.status = 'pending' AND p.account_id = $1 \
+                             AND (t.from_user_id = $2 OR t.to_user_id = $2))",
         )
         .bind(fx.org)
         .bind(fx.bob)
@@ -1764,7 +1830,7 @@ async fn an_accept_racing_a_claimed_transfer_row_loses_to_it() {
              the blocking assertion below would be about nothing"
         );
 
-        let handle = spawn_blocked_accept(&fx, offer, fx.bob, label).await;
+        let handle = spawn_blocked_accept(&fx, offer, fx.bob, label, threshold).await;
 
         if commit {
             removal.commit().await.expect("commit the removal");
@@ -1831,25 +1897,41 @@ async fn an_accept_racing_a_claimed_transfer_row_loses_to_it() {
 /// with `55P03`. The probe is the discriminator, and it is deterministic — `NOWAIT`
 /// never waits, so there is no timing race in the assertion itself.
 ///
+/// SQLite port note (ITEM-25): the PG `FOR UPDATE` hold + `NOWAIT` probe have no
+/// SQLite form. The holder takes the single write lock at `BEGIN IMMEDIATE` (the
+/// row-lock substitution); the removal queues behind it at its own transaction open;
+/// and the probe becomes a snapshot read of the membership row (an uncommitted
+/// removal is invisible, so the row still shows the departing member). The ordering
+/// itself — cancel before delete — is internal to one transaction and unobservable
+/// from outside on SQLite's single-writer model; its external consequence (a
+/// concurrent accept seeing a half-state) is structurally unreachable.
+///
 /// (`remove_member`'s first statement locks the account's OWNER rows; the subject is a
 /// plain `member`, so his row is untouched until the membership DELETE. That is what
 /// makes the probe clean.)
 #[tokio::test]
 async fn removal_claims_the_transfers_before_deleting_the_membership() {
-    use sqlx::postgres::PgPoolOptions;
+    use sqlx::sqlite::SqlitePoolOptions;
 
     let server = TestServer::spawn().await;
     let fx = Fixture::build(&server).await;
     let offer = fx.seed_pending(fx.r, fx.alice, fx.bob).await;
 
-    let holder_pool = PgPoolOptions::new()
+    let holder_pool = SqlitePoolOptions::new()
         .max_connections(2)
         .connect(server.database_url())
         .await
         .expect("holder pool");
-    let mut holder = holder_pool.begin().await.expect("begin holder tx");
+    // SQLite's one isolation model: the holder takes the single WRITE lock at the
+    // transaction's OPEN (`BEGIN IMMEDIATE`), which is what the PG `FOR UPDATE` on
+    // the transfer row did — the offboarding hook's own write transaction queues
+    // behind it instead of proceeding mid-hold.
+    let mut holder = holder_pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .expect("begin holder tx");
     let held = sqlx::query_scalar::<_, Uuid>(
-        "SELECT id FROM project_transfers WHERE id = $1 FOR UPDATE",
+        "SELECT id FROM project_transfers WHERE id = $1",
     )
     .bind(offer)
     .fetch_optional(&mut *holder)
@@ -1876,34 +1958,36 @@ async fn removal_claims_the_transfers_before_deleting_the_membership() {
          for the transfer row at all"
     );
 
-    // THE DISCRIMINATOR.
-    let probe_pool = PgPoolOptions::new()
+    // THE DISCRIMINATOR — SQLite port (record): PG's `FOR UPDATE NOWAIT` probe has
+    // no SQLite form, and on the one-isolation model the question "has the removal
+    // touched the membership row yet" has no lock-level answer — the removal is
+    // parked at the write lock either way, and an uncommitted state is invisible to
+    // a reader. The probe becomes a snapshot READ of the row: while the removal is
+    // blocked, the membership row still shows the departing member (the removal
+    // cannot have committed its DELETE), which is the same fixture-state fact the
+    // PG probe asserted. The internal ordering (cancel-then-delete) is enforced by
+    // the transaction's statement order and is unobservable from outside on SQLite
+    // — the window a concurrent accept exploited is structurally unreachable
+    // (single writer). Recorded as the ITEM-25 port note.
+    let probe_pool = SqlitePoolOptions::new()
         .max_connections(1)
         .connect(server.database_url())
         .await
         .expect("probe pool");
     let mut probe = probe_pool.begin().await.expect("begin probe tx");
     let probed = sqlx::query_scalar::<_, Uuid>(
-        "SELECT user_id FROM account_members WHERE account_id = $1 AND user_id = $2 \
-         FOR UPDATE NOWAIT",
+        "SELECT user_id FROM account_members WHERE account_id = $1 AND user_id = $2",
     )
     .bind(fx.org)
     .bind(fx.bob)
     .fetch_optional(&mut *probe)
-    .await;
-    assert!(
-        probed.is_ok(),
-        "INV-1: while the removal is blocked claiming the transfer row, the departing \
-         member's membership row must NOT yet be locked — i.e. the cancellation runs \
-         FIRST. A lock here means the membership was deleted before the transfers were \
-         claimed, which is the window a concurrent accept used to escape through \
-         (AUD-30). Got: {:?}",
-        probed.err()
-    );
+    .await
+    .expect("read the membership row");
     assert_eq!(
-        probed.unwrap(),
+        probed,
         Some(fx.bob),
-        "…and the membership row is still there, unremoved, at that moment"
+        "the membership row is still there, uncommitted-removal -> invisible, at \
+         that moment"
     );
     probe.rollback().await.expect("release the probe");
 

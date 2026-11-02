@@ -17,7 +17,7 @@ use openidconnect::{
 // Import TokenResponse trait separately to avoid conflict with oauth2::TokenResponse
 use openidconnect::TokenResponse as _;
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use ziee_core::DbPool;
 use uuid::Uuid;
 
 use crate::auth::AuthRepository;
@@ -330,11 +330,11 @@ pub struct OAuth2Provider {
     raw_config: serde_json::Value,
     // Chunk BG: retained so OAuth-session queries build an `AuthRepository`
     // from this pool instead of reaching the global `Repos` aggregator.
-    pool: PgPool,
+    pool: DbPool,
 }
 
 impl OAuth2Provider {
-    pub fn new(provider: &AuthProvider, pool: PgPool) -> Result<Self, AuthError> {
+    pub fn new(provider: &AuthProvider, pool: DbPool) -> Result<Self, AuthError> {
         let config: OAuth2Config =
             serde_json::from_value(provider.config.clone()).map_err(|e| {
                 AuthError::ConfigurationError(format!("Invalid OAuth2 configuration: {}", e))

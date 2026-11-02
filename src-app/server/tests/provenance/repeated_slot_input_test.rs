@@ -83,7 +83,7 @@ fn repeated_slot_job(owner: Uuid, members: &[Uuid]) -> Job {
 
 /// Seed the synthetic job's `jobs` row + its project `job_scope` row, so the recorder
 /// resolves the run's scope from the table (ITEM-68).
-async fn seed_job_scope(pool: &PgPool, job: &Job, project: Uuid) {
+async fn seed_job_scope(pool: &SqlitePool, job: &Job, project: Uuid) {
     sqlx::query(
         "INSERT INTO jobs (id, owner_id, job_type, name, status) VALUES ($1, $2, $3, $4, $5)",
     )
@@ -110,7 +110,7 @@ async fn seed_job_scope(pool: &PgPool, job: &Job, project: Uuid) {
 /// artifacts are, and it is the arm the widened tenancy check exists for. A
 /// project-scoped pair would resolve through the direct match and never exercise it.
 async fn attached_dataset_artifact(
-    pool: &PgPool,
+    pool: &SqlitePool,
     project: Uuid,
     name: &str,
     content_hash: &str,
@@ -119,11 +119,19 @@ async fn attached_dataset_artifact(
     sqlx::query(
         // A2: datasets.account_id is NOT NULL — self-ensure the owner's personal
         // account (idempotent) and stamp it, since this raw seed bypasses the repo.
-        "WITH a AS (INSERT INTO accounts (id, kind, name, personal_user_id) \
-             VALUES (gen_random_uuid(), 'personal', 'seed', (SELECT id FROM users WHERE username = 'admin')) \
-             ON CONFLICT (personal_user_id) WHERE kind='personal' DO UPDATE SET name = accounts.name RETURNING id) \
-         INSERT INTO datasets (id, name, owner_id, account_id) \
-         SELECT $1, $2, (SELECT id FROM users WHERE username = 'admin'), a.id FROM a",
+        "INSERT INTO accounts (id, kind, name, personal_user_id) \
+         VALUES ($1, 'personal', 'seed', (SELECT id FROM users WHERE username = 'admin')) \
+         ON CONFLICT (personal_user_id) WHERE kind='personal' DO UPDATE SET name = accounts.name",
+    )
+    .bind(Uuid::new_v4())
+    .execute(pool)
+    .await
+    .expect("seed personal account");
+    sqlx::query(
+        "INSERT INTO datasets (id, name, owner_id, account_id) \
+         VALUES ($1, $2, (SELECT id FROM users WHERE username = 'admin'), \
+                 (SELECT id FROM accounts WHERE kind='personal' AND personal_user_id = \
+                  (SELECT id FROM users WHERE username = 'admin')))",
     )
     .bind(dataset_id)
     .bind(name)

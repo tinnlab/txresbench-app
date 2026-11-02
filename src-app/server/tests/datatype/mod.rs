@@ -12,8 +12,8 @@ mod cross_side_test;
 use std::sync::Arc;
 
 use serde_json::{json, Value};
-use sqlx::postgres::PgPoolOptions;
-use sqlx::PgPool;
+use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::datatype::registry::{set_global_registry, DatatypeRegistry};
@@ -25,16 +25,12 @@ use cytoanalyst::modules::workstore::object_store::LocalFsStore;
 
 use crate::common::TestServer;
 
-// The seeded Users group id (holds `projects::use`); a restricted user is stripped
-// from it (mirrors the e2e `_helpers.createRestrictedUser`).
-const USERS_GROUP_ID: &str = "79668b78-16ff-4d3f-80e6-afdbb3236dc9";
-
 // --------------------------- shared helpers ---------------------------
 
 async fn setup_admin(server: &TestServer) -> String {
     let resp = server
         .client
-        .post(server.api_url("/app/setup/admin"))
+        .post(server.api_url("/session/local"))
         .json(&json!({
             "username": "admin", "email": "admin@cyto.test",
             "password": "adminPassw0rd!", "display_name": "Admin"
@@ -42,7 +38,7 @@ async fn setup_admin(server: &TestServer) -> String {
         .send()
         .await
         .expect("setup/admin");
-    assert_eq!(resp.status().as_u16(), 201);
+    assert_eq!(resp.status().as_u16(), 200);
     let body: Value = resp.json().await.expect("setup json");
     tokenof(&body)
 }
@@ -73,7 +69,7 @@ async fn create_project(server: &TestServer, token: &str, name: &str) -> Uuid {
 async fn create_member_token(server: &TestServer, admin: &str, username: &str) -> (Uuid, String) {
     let r = server
         .client
-        .post(server.api_url("/users"))
+        .post(server.api_url("/auth/register"))
         .bearer_auth(admin)
         .json(&json!({ "username": username, "email": format!("{username}@cyto.test"), "password": "memberPassw0rd!" }))
         .send()
@@ -81,7 +77,7 @@ async fn create_member_token(server: &TestServer, admin: &str, username: &str) -
         .expect("create user");
     assert!(r.status().is_success(), "create member: {}", r.status());
     let created: Value = r.json().await.expect("user json");
-    let uid = Uuid::parse_str(created["id"].as_str().expect("user id")).unwrap();
+    let uid = Uuid::parse_str(created["user"]["id"].as_str().expect("user id")).unwrap();
     let token = login(server, username, "memberPassw0rd!").await;
     (uid, token)
 }
@@ -99,19 +95,15 @@ async fn login(server: &TestServer, username: &str, password: &str) -> String {
 }
 
 /// Strip a user from the Users group so they lack `projects::use` (the deny case).
-async fn strip_users_group(server: &TestServer, admin: &str, user_id: Uuid) {
-    let r = server
-        .client
-        .delete(server.api_url(&format!("/groups/{user_id}/{USERS_GROUP_ID}/remove")))
-        .bearer_auth(admin)
-        .send()
-        .await
-        .expect("remove from group");
-    assert!(r.status().is_success(), "strip group: {}", r.status());
+/// The `/groups` HTTP surface is stripped on this node; the removal goes through
+/// the SDK user repository over the per-test DB pool.
+async fn strip_users_group(server: &TestServer, _admin: &str, user_id: Uuid) {
+    let pool = pool_for(server).await;
+    crate::common::group_remove_from_users(&pool, user_id).await;
 }
 
-async fn pool_for(server: &TestServer) -> PgPool {
-    PgPoolOptions::new()
+async fn pool_for(server: &TestServer) -> SqlitePool {
+    SqlitePoolOptions::new()
         .max_connections(2)
         .connect(server.database_url())
         .await
@@ -580,29 +572,43 @@ async fn test24_datatype_column_is_open_text_no_enum_check_fk() {
     // `workstore::test9_axis_entry_table_is_gone_and_axes_derive_from_declarations` and the
     // inverse wire pins in `catalog::models`.
     for col in ["datatype"] {
-        let row = sqlx::query!(
-            r#"SELECT data_type as "data_type!" FROM information_schema.columns
-               WHERE table_name = 'artifacts' AND column_name = $1"#,
-            col,
+        // SQLite port: `information_schema.columns` / `pg_constraint` have no
+        // SQLite form. The declared type and the CHECK/FK constraint text both
+        // live in the CREATE TABLE statement (`sqlite_master.sql`); SQLite has
+        // no enum type at all, so the open-model property is: declared TEXT and
+        // no constraint whose definition mentions the column.
+        let ddl = sqlx::query!(
+            r#"SELECT sql as "ddl!" FROM sqlite_master
+               WHERE type = 'table' AND name = 'artifacts'"#,
         )
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(row.data_type, "text", "{col} must be plain TEXT (no enum)");
+        let ddl_lc = ddl.ddl.to_lowercase();
+        let idx = ddl_lc
+            .find(col)
+            .unwrap_or_else(|| panic!("{col} missing from artifacts DDL"));
+        let frag_end = ddl_lc[idx..]
+            .find(',')
+            .map(|c| idx + c)
+            .unwrap_or(ddl_lc.len());
+        let declared = ddl_lc[idx + col.len()..frag_end].trim();
+        assert!(
+            declared.starts_with("text"),
+            "{col} must be plain TEXT (no enum): [{declared}]"
+        );
 
         // No CHECK or FK constraint on the artifacts table references this column.
-        let cnt = sqlx::query!(
-            r#"SELECT count(*) as "n!" FROM pg_constraint c
-               JOIN pg_class t ON c.conrelid = t.oid
-               WHERE t.relname = 'artifacts' AND c.contype IN ('c','f')
-                 AND pg_get_constraintdef(c.oid) ILIKE $1"#,
-            format!("%{col}%"),
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let constraint_refs = ["check", "foreign key"]
+            .iter()
+            .filter(|kw| {
+                ddl_lc.match_indices(**kw).any(|(i, _)| {
+                    ddl_lc[i + kw.len()..].contains(col)
+                })
+            })
+            .count();
         assert_eq!(
-            cnt.n, 0,
+            constraint_refs, 0,
             "{col} must have no CHECK/FK constraint (open model)"
         );
     }

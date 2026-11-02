@@ -11,8 +11,24 @@ edition = "2024"
 # second app that wants only the engine (or an engine-only build-DB lane) stays
 # lean. The routes surface has NO `query!` macros, so this feature does not
 # widen the auth-only build-DB story.
-default = ["routes"]
+default = ["routes", "embedded-pg"]
 routes = ["dep:aide", "dep:axum"]
+# Dual-driver selection (sqlite-store DEC-1 / DEC-21). OFF (default) = the PG
+# variant: `DbPool` is `PgPool`, the query sets + `AUTH_MIGRATOR` are the
+# Postgres chain (`migrations-pg/` — ITEM-26 renamed the PG chain out of the
+# canonical name), and ziee's behavior is byte-identical to the pre-seam
+# build. ON = the SQLite variant (`DbPool` = `SqlitePool`, cfg-gated sqlite
+# query sets + the `migrations/` chain). The switch is a COMPILE-TIME feature,
+# never a runtime config toggle; the app builds the SDK with it on.
+#
+# The `ziee-framework` edge below is declared WITHOUT default features: the
+# framework's driver variant (embedded-pg vs sqlite-backend) is selected by
+# THESE passthrough features instead of the framework's own defaults, so a
+# `sqlite-backend` build does not link the `postgresql_embedded` downloader
+# at all (DRIFT-1 ITEM-12 #3: TEST-1(a)'s lock prune is the query-port
+# items' manifest work).
+embedded-pg = ["ziee-framework/embedded-pg"]
+sqlite-backend = ["ziee-framework/sqlite-backend"]
 # `module` (gap N-3, default-OFF) ships the turnkey `AuthModule` — a
 # `#[distributed_slice(MODULE_ENTRIES)]`-registered `AppModule` for the standard
 # `build_api_router` path (routes at `/api/auth/*` + whole-app resolver/JWT
@@ -26,7 +42,10 @@ module = ["routes", "dep:linkme"]
 
 [dependencies]
 ziee-core = { path = "../ziee-core" }
-ziee-framework = { path = "../ziee-framework" }
+# `default-features = false` — see the feature block above: the framework
+# driver variant is selected by this crate's embedded-pg / sqlite-backend
+# passthrough features, never by the framework's own defaults.
+ziee-framework = { path = "../ziee-framework", default-features = false }
 ziee-identity = { path = "../ziee-identity" }
 
 # HTTP/aide surface (routes feature only). Versions match ziee-framework so the
@@ -47,7 +66,7 @@ linkme = { version = "0.3", optional = true }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.141"
 schemars = { version = "0.9.0", features = ["chrono04", "uuid1"] }
-sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "postgres", "chrono", "uuid", "json", "time", "macros", "migrate"] }
+sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "postgres", "sqlite", "chrono", "uuid", "json", "time", "macros", "migrate"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.18", features = ["serde", "v4", "v5"] }
 tokio = { version = "1.47.1", features = ["full"] }
@@ -78,9 +97,9 @@ tower = { version = "0.5.3", features = ["util"] }
 http-body-util = "0.1.4"
 
 [build-dependencies]
-# Auth-only build DB provisioning (mirrors the app's build.rs): create +
-# migrate `ziee_auth_build_<key>` on the shared :54321 cluster and point sqlx
-# compile-time `query!` verification at it. ziee-auth is the ONE schema-bound
-# SDK crate; framework/core/identity stay build-DB-free.
-tokio = { version = "1.47.1", features = ["macros", "rt-multi-thread"] }
-sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "postgres", "migrate"] }
+# Build-DB provisioning via the SDK's shared build support crate — the SAME
+# driver split the app's build.rs uses (scheme-selected leg: per-worktree
+# postgres cluster DB or per-worktree sqlite build FILE, key derivation +
+# migration apply single-sourced, never inlined here). ziee-auth is a
+# schema-bound SDK crate; framework/core/identity stay build-DB-free.
+ziee-build-support = { path = "../ziee-build-support" }

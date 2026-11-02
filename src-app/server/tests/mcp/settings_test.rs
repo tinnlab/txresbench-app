@@ -19,8 +19,8 @@ use crate::common::TestServer;
 
 use super::{create_user, login, setup_admin};
 
-async fn pool_for(server: &TestServer) -> sqlx::PgPool {
-    sqlx::PgPool::connect(server.database_url())
+async fn pool_for(server: &TestServer) -> sqlx::SqlitePool {
+    sqlx::SqlitePool::connect(server.database_url())
         .await
         .expect("connect test db")
 }
@@ -165,7 +165,7 @@ async fn pairing_ttl_is_read_at_use_after_a_settings_change() {
     // The persisted code expires ~30s out (the new ttl), NOT ~300s (the default).
     let pool = pool_for(&server).await;
     let secs_to_expiry: f64 = sqlx::query_scalar(
-        "SELECT EXTRACT(EPOCH FROM (expires_at - now()))::float8 FROM mcp_pairing_codes ORDER BY expires_at DESC LIMIT 1",
+        "SELECT (julianday(expires_at) - julianday('now')) * 86400.0 FROM mcp_pairing_codes ORDER BY expires_at DESC LIMIT 1",
     )
     .fetch_one(&pool)
     .await

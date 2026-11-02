@@ -250,15 +250,15 @@ async fn dataset_summary_route_and_acl() {
 #[tokio::test]
 async fn cleanup_query_is_index_backed() {
     let server = TestServer::spawn().await;
-    let pool = sqlx::PgPool::connect(server.database_url())
+    let pool = sqlx::SqlitePool::connect(server.database_url())
         .await
         .expect("connect to test db");
     // An index on project_datasets whose definition leads with (project_id ...) —
     // supports `WHERE project_id = $1` for the cleanup DELETE + deep-copy JOIN +
     // summary aggregate + the project-delete cascade scan.
     let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM pg_indexes \
-         WHERE tablename = 'project_datasets' AND indexdef LIKE '%(project_id%')",
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master \
+         WHERE type = 'index' AND tbl_name = 'project_datasets' AND sql LIKE '%project_id%')",
     )
     .fetch_one(&pool)
     .await

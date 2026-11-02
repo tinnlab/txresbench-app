@@ -8,24 +8,28 @@ use super::DEMO_FLAG;
 use crate::account::pool_for;
 use crate::common::TestServer;
 
-async fn make_account(pool: &sqlx::PgPool, name: &str) -> Uuid {
-    sqlx::query_scalar::<_, Uuid>(
-        "INSERT INTO accounts (kind, name) VALUES ('organization', $1) RETURNING id",
-    )
-    .bind(name)
-    .fetch_one(pool)
-    .await
-    .expect("insert account")
-}
-
-async fn set_row(pool: &sqlx::PgPool, flag: &str, account: Option<Uuid>, enabled: bool) {
-    sqlx::query("INSERT INTO feature_flags (flag_key, account_id, enabled) VALUES ($1, $2, $3)")
-        .bind(flag)
-        .bind(account)
-        .bind(enabled)
+async fn make_account(pool: &sqlx::SqlitePool, name: &str) -> Uuid {
+    let id = Uuid::new_v4();
+    sqlx::query("INSERT INTO accounts (id, kind, name) VALUES ($1, 'organization', $2)")
+        .bind(id)
+        .bind(name)
         .execute(pool)
         .await
-        .expect("insert flag row");
+        .expect("insert account");
+    id
+}
+
+async fn set_row(pool: &sqlx::SqlitePool, flag: &str, account: Option<Uuid>, enabled: bool) {
+    sqlx::query(
+        "INSERT INTO feature_flags (id, flag_key, account_id, enabled) \
+         VALUES (randomblob(16), $1, $2, $3)",
+    )
+    .bind(flag)
+    .bind(account)
+    .bind(enabled)
+    .execute(pool)
+    .await
+    .expect("insert flag row");
 }
 
 #[tokio::test]

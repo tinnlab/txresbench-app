@@ -13,7 +13,7 @@
 
 use async_trait::async_trait;
 use linkme::distributed_slice;
-use sqlx::{PgPool, Postgres, Transaction};
+use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -27,11 +27,11 @@ use super::super::catalog::repository::CatalogRepository;
 use super::super::object_store::{decode_manifest, ContentKey};
 
 pub struct WorkstoreProjectExtension {
-    pool: PgPool,
+    pool: SqlitePool,
 }
 
 impl WorkstoreProjectExtension {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
 }
@@ -45,7 +45,7 @@ impl ProjectExtension for WorkstoreProjectExtension {
     async fn on_project_deleted(
         &self,
         project_id: Uuid,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut Transaction<'_, Sqlite>,
         gc: &mut GcManifest,
     ) -> Result<(), AppError> {
         // Collect the project's blob refs into the GcManifest BEFORE deleting the
@@ -81,7 +81,7 @@ impl ProjectExtension for WorkstoreProjectExtension {
         &self,
         src_project_id: Uuid,
         dst_project_id: Uuid,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut Transaction<'_, Sqlite>,
     ) -> Result<(), AppError> {
         // Re-reference the same immutable content-addressed blobs by key (no byte
         // copy — DEC-14). That is the WHOLE duplicate now: ITEM-8 removed the second
@@ -133,7 +133,7 @@ fn human_bytes(bytes: i64) -> String {
     }
 }
 
-fn create(pool: PgPool) -> Arc<dyn ProjectExtension> {
+fn create(pool: SqlitePool) -> Arc<dyn ProjectExtension> {
     Arc::new(WorkstoreProjectExtension::new(pool))
 }
 

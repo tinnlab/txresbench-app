@@ -9,54 +9,16 @@
 //! Also proves STANDALONE MIGRATION APPLY — the base schema carries no
 //! cross-module FK (the `users`/self FKs stay ziee-side), so it migrates on a
 //! bare DB. The assembled-app upload/download/processing flow stays in ziee.
+//!
+//! Dual-driver (sqlite-store DEC-1/DEC-21): the harness in `common` provisions
+//! the driver of the build; the assertions are driver-neutral and run on both.
 
-use sqlx::{Connection, Executor, PgConnection, PgPool, postgres::PgPoolOptions};
+mod common;
+use common::{drop_db, fresh_db};
+
 use uuid::Uuid;
 use ziee_file::models::{FileCreateData, FileVersionCreateData};
 use ziee_file::repository::FileRepository;
-
-fn admin_url() -> String {
-    std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql://postgres:password@127.0.0.1:54321/postgres".to_string())
-}
-
-/// Provision a fresh throwaway DB and apply the crate's migration. The migration
-/// applying at all IS the standalone-apply proof (no domain tables present).
-async fn fresh_db() -> (PgPool, String) {
-    let admin = admin_url();
-    let base_full = admin.split('?').next().unwrap();
-    let (base, _) = base_full.rsplit_once('/').expect("admin url has a /db suffix");
-    let dbname = format!("ziee_file_test_{}", Uuid::new_v4().simple());
-
-    let mut conn = PgConnection::connect(&admin).await.expect("connect admin db");
-    conn.execute(format!("CREATE DATABASE \"{dbname}\"").as_str())
-        .await
-        .expect("create test db");
-    conn.close().await.ok();
-
-    let pool = PgPoolOptions::new()
-        .max_connections(4)
-        .connect(&format!("{base}/{dbname}"))
-        .await
-        .expect("connect test db");
-
-    pool.execute(include_str!(
-        "../migrations/202607140125_file_schema.sql"
-    ))
-    .await
-    .expect("crate migration applies standalone on a bare DB");
-
-    (pool, dbname)
-}
-
-async fn drop_db(dbname: &str) {
-    if let Ok(mut conn) = PgConnection::connect(&admin_url()).await {
-        let _ = conn
-            .execute(format!("DROP DATABASE IF EXISTS \"{dbname}\" WITH (FORCE)").as_str())
-            .await;
-        conn.close().await.ok();
-    }
-}
 
 fn file_data(user_id: Uuid, filename: &str, size: i64) -> FileCreateData {
     FileCreateData {

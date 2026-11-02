@@ -24,7 +24,7 @@
 //! FILTER and not about an empty set.
 
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
@@ -49,7 +49,7 @@ const COMPOSITION_ROWS: i64 = 4;
 /// code maintains).
 #[allow(clippy::too_many_arguments)]
 async fn insert_row(
-    pool: &PgPool,
+    pool: &SqlitePool,
     project_id: Option<Uuid>,
     dataset_id: Option<Uuid>,
     output_id: &str,
@@ -66,7 +66,7 @@ async fn insert_row(
         "INSERT INTO artifacts
              (id, project_id, dataset_id, output_id, datatype, object_key, is_multifile,
               content_hash, structure, meta, role, status, logical_bytes, hidden)
-         VALUES ($1, $2, $3, $4, $5, $6, false, $6, '{}'::jsonb, '{}'::jsonb, $7, $8, $9, $10)",
+         VALUES ($1, $2, $3, $4, $5, $6, false, $6, '{}', '{}', $7, $8, $9, $10)",
     )
     .bind(id)
     .bind(project_id)
@@ -87,7 +87,7 @@ async fn insert_row(
 /// Write THE composition into a scope: one usable row, and one of each way a row can fail
 /// to be usable. Every non-usable row is deliberately much larger than the usable one, so
 /// a total that included any of them is off by an amount no rounding could explain.
-async fn write_composition(pool: &PgPool, project_id: Option<Uuid>, dataset_id: Option<Uuid>) {
+async fn write_composition(pool: &SqlitePool, project_id: Option<Uuid>, dataset_id: Option<Uuid>) {
     let at = |slot: &str| {
         format!(
             "{slot}-{}",
@@ -183,7 +183,7 @@ async fn summary_totals(server: &TestServer, token: &str, dataset: &str) -> (i64
 
 /// How many rows the scope holds in the TABLE, whatever their state — the PRESENT
 /// population, read straight from `artifacts` so it cannot be affected by the view.
-async fn rows_present(pool: &PgPool, column: &str, id: Uuid) -> i64 {
+async fn rows_present(pool: &SqlitePool, column: &str, id: Uuid) -> i64 {
     sqlx::query_scalar::<_, i64>(&format!(
         "SELECT count(*) FROM artifacts WHERE {column} = $1"
     ))

@@ -27,7 +27,7 @@
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use ziee_core::AppError;
 
 use super::backend::ComputeSpec;
@@ -232,7 +232,7 @@ pub async fn materialize_inputs(
     inputs_dir: &Path,
     owner_id: uuid::Uuid,
     allowlist: &[PathBuf],
-    pool: &PgPool,
+    pool: &SqlitePool,
     store: &dyn ObjectStore,
 ) -> Result<Vec<MaterializedInput>, AppError> {
     tokio::fs::create_dir_all(inputs_dir)
@@ -553,7 +553,7 @@ fn unique_mount_name(name: String, used: &mut std::collections::HashSet<String>)
 /// its NAME, ITEM-23) are used. Split out of the former `stage_artifact` so the
 /// runner can derive the mount name from the artifact BEFORE choosing a host path.
 async fn resolve_artifact(
-    pool: &PgPool,
+    pool: &SqlitePool,
     artifact_id: uuid::Uuid,
     owner_id: uuid::Uuid,
 ) -> Result<crate::modules::workstore::consume::ConsumableArtifact, AppError> {
@@ -700,7 +700,7 @@ fn describe_artifact_staging_failure(
 /// (kind `artifact-prefix`), with the artifact's merkle `content_hash` (ITEM-5,
 /// replacing the old `MULTIFILE_INPUT_UNSUPPORTED` rejection).
 async fn stage_resolved_artifact(
-    pool: &PgPool,
+    pool: &SqlitePool,
     store: &dyn ObjectStore,
     artifact: &crate::modules::workstore::consume::ConsumableArtifact,
     dest: &Path,
@@ -818,7 +818,7 @@ fn axis_index_datatype_allow(
 /// contract is the documentation vector by which that defect kept returning, so do not
 /// reintroduce one.
 async fn resolve_axis_index(
-    pool: &PgPool,
+    pool: &SqlitePool,
     axis_ref: &super::spec::DatasetAxisIndexRef,
     owner_id: uuid::Uuid,
 ) -> Result<crate::modules::workstore::consume::ConsumableArtifact, AppError> {
@@ -917,7 +917,7 @@ fn guard_member_path(rel: &str) -> Result<(), AppError> {
 /// A nonexistent OR foreign file → `false`: a uniform reject with no existence
 /// oracle.
 pub async fn file_readable_by(
-    pool: &PgPool,
+    pool: &SqlitePool,
     file_id: uuid::Uuid,
     owner_id: uuid::Uuid,
 ) -> Result<bool, AppError> {
@@ -947,7 +947,7 @@ pub async fn file_readable_by(
 /// stay green if this function were reverted to the buffered shape. Production
 /// callers are unchanged (`materialize_inputs`, below).
 pub async fn stage_dataset_file(
-    pool: &PgPool,
+    pool: &SqlitePool,
     file_id: uuid::Uuid,
     owner_id: uuid::Uuid,
     dest: &Path,

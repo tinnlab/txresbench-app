@@ -45,10 +45,10 @@
 //! no standalone pool).
 
 use async_trait::async_trait;
-use sqlx::PgConnection;
 
 use ziee_auth::{User, UserCreatedHook};
 use ziee_core::AppError;
+use ziee_core::DbConnection;
 
 use super::repository::AccountRepository;
 
@@ -58,7 +58,7 @@ pub struct PersonalAccountHook;
 
 #[async_trait]
 impl UserCreatedHook for PersonalAccountHook {
-    async fn on_user_created(&self, user: &User, tx: &mut PgConnection) -> Result<(), AppError> {
+    async fn on_user_created(&self, user: &User, tx: &mut DbConnection) -> Result<(), AppError> {
         // In-tx idempotent upsert on the creation transaction's own connection, so
         // the personal account commits atomically with the user row. Named after
         // the username (DEC-4), matching the backstop.

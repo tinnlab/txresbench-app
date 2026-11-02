@@ -69,7 +69,7 @@
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::jobs::conformance::{
@@ -132,7 +132,7 @@ async fn sandbox_executable(server: &TestServer, token: &str) -> bool {
     }
 }
 
-async fn artifact_id(pool: &PgPool, run_id: Uuid, output_id: &str) -> Uuid {
+async fn artifact_id(pool: &SqlitePool, run_id: Uuid, output_id: &str) -> Uuid {
     sqlx::query_scalar::<_, Uuid>("SELECT id FROM artifacts WHERE run_id = $1 AND output_id = $2")
         .bind(run_id)
         .bind(output_id)
@@ -141,7 +141,7 @@ async fn artifact_id(pool: &PgPool, run_id: Uuid, output_id: &str) -> Uuid {
         .unwrap_or_else(|e| panic!("artifact {output_id} was cataloged by the run: {e}"))
 }
 
-async fn status_of(pool: &PgPool, id: Uuid) -> String {
+async fn status_of(pool: &SqlitePool, id: Uuid) -> String {
     sqlx::query_scalar::<_, String>("SELECT status FROM artifacts WHERE id = $1")
         .bind(id)
         .fetch_one(pool)
@@ -151,7 +151,7 @@ async fn status_of(pool: &PgPool, id: Uuid) -> String {
 
 /// Every `job_logs` line a job carries, in order — the operator-visible record surface
 /// (`GET /jobs/{id}` returns exactly these).
-async fn job_log_lines(pool: &PgPool, job_id: Uuid) -> Vec<String> {
+async fn job_log_lines(pool: &SqlitePool, job_id: Uuid) -> Vec<String> {
     sqlx::query_scalar::<_, String>(
         "SELECT content FROM job_logs WHERE job_id = $1 ORDER BY seq ASC",
     )
@@ -164,7 +164,7 @@ async fn job_log_lines(pool: &PgPool, job_id: Uuid) -> Vec<String> {
 /// Poll until `id` reaches `want` or the budget expires, returning the last status seen.
 /// The dispatch is detached by design (DEC-12's accepted brief-liveness window), so
 /// waiting is the honest shape — and exhausting the budget is a real failure, never a skip.
-async fn await_status(pool: &PgPool, id: Uuid, want: &str, budget: Duration) -> String {
+async fn await_status(pool: &SqlitePool, id: Uuid, want: &str, budget: Duration) -> String {
     let deadline = Instant::now() + budget;
     let mut last = String::new();
     while Instant::now() < deadline {
@@ -397,7 +397,7 @@ async fn the_gate_records_an_unverified_outcome_when_it_cannot_reach_a_verdict()
     for (seq, line) in [(1, "the run's first line"), (2, "the run's second line")] {
         sqlx::query(
             "INSERT INTO job_logs (id, job_id, seq, stream, content)
-             VALUES (gen_random_uuid(), $1, $2, 'stdout', $3)",
+             VALUES (randomblob(16), $1, $2, 'stdout', $3)",
         )
         .bind(job_id)
         .bind(seq as i32)
@@ -924,7 +924,7 @@ async fn a_condemnation_the_server_could_not_write_is_never_reported_as_ok() {
 
     // ── LEG 2: the write ERRORS. A closed pool fails every query, which is exactly the
     // shape that used to be reported as `conformance: OK`.
-    let dead = sqlx::postgres::PgPoolOptions::new()
+    let dead = sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(1)
         .connect(server.database_url())
         .await

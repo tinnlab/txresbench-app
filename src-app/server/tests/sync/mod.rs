@@ -12,12 +12,12 @@ use crate::common::{TestOptions, TestServer};
 async fn setup_admin(server: &TestServer) -> String {
     let resp = server
         .client
-        .post(server.api_url("/app/setup/admin"))
+        .post(server.api_url("/session/local"))
         .json(&json!({"username":"syncadmin","email":"sync@x.test","password":"syncPassw0rd!"}))
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status().as_u16(), 201, "sync setup_admin");
+    assert_eq!(resp.status().as_u16(), 200, "sync setup_admin");
     let body: serde_json::Value = resp.json().await.unwrap();
     body["access_token"].as_str().or_else(|| body["token"].as_str()).unwrap().to_string()
 }
@@ -25,7 +25,7 @@ async fn setup_admin(server: &TestServer) -> String {
 async fn make_user(server: &TestServer, admin: &str, name: &str) -> String {
     server
         .client
-        .post(server.api_url("/users"))
+        .post(server.api_url("/auth/register"))
         .bearer_auth(admin)
         .json(&json!({"username":name,"email":format!("{name}@x.test"),"password":"userPassw0rd!"}))
         .send()

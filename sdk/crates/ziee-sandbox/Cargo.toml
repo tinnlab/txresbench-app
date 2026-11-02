@@ -30,9 +30,10 @@ hex = "0.4"
 tracing = "0.1"
 rmcp = { version = "1.4", features = ["client", "transport-child-process"] }
 libc = "0.2"
-# FromRow derive macro ONLY — no postgres/runtime feature keeps the crate
-# build-DB-free (no compile-time query verification, no DATABASE_URL).
-sqlx = { version = "0.8.6", default-features = false, features = ["derive", "macros"] }
+# FromRow derive macro ONLY — no query! use keeps the crate build-DB-free (no
+# compile-time query verification, no DATABASE_URL); the sqlite driver feature
+# is on but dormant (no sqlite pool is constructed here).
+sqlx = { version = "0.8.6", default-features = false, features = ["derive", "macros", "sqlite"] }
 
 # The microVM backends (macOS libkrun, Windows WSL2) talk to the in-guest agent
 # over this shared control protocol. Also compiled on Linux — `backend/vm_long_lived`

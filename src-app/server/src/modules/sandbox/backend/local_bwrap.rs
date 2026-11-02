@@ -9,7 +9,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use ziee_core::AppError;
 
 use super::{
@@ -52,11 +52,11 @@ pub fn assemble_mounts(spec: &ComputeSpec, reference_mounts: &[ExtraMount]) -> V
 /// The local bwrap backend. Holds the pool (to read the resource-limits ceiling).
 pub struct LocalBwrapBackend {
     #[allow(dead_code)] // used only on the Linux launch path
-    pool: PgPool,
+    pool: SqlitePool,
 }
 
 impl LocalBwrapBackend {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
 }
@@ -185,7 +185,7 @@ pub struct BackendRegistry {
 
 impl BackendRegistry {
     /// Build the registry over the local bwrap backend.
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: SqlitePool) -> Self {
         Self {
             local: Arc::new(LocalBwrapBackend::new(pool)),
         }

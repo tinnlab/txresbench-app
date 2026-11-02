@@ -1,170 +1,162 @@
--- provenance module — SQUASHED BASELINE.
+-- provenance module — SQUASHED BASELINE — SQLite dialect port (ITEM-11,
+-- sqlite-store) of
+-- `src/modules/provenance/migrations/202608030005_provenance_baseline.sql`.
 --
--- This single file replaces the module's pre-release incremental migration
--- history. The app was squashed to one baseline per module before first
--- release: the old chain created, ALTERed and then DROPped an earlier
--- domain-specific data model, so it carried retired domain vocabulary forward
--- in perpetuity for a schema that no longer contains it. An applied migration file
--- is byte-immutable (`sqlx::migrate!` checksums full file bytes — see the
--- `MERGED_MIGRATOR` doc in `src/database.rs`), so that vocabulary could not be
--- edited out in place; only a squash removes it.
+-- The Postgres file carries the squash provenance (a VERBATIM `pg_dump
+-- --schema-only` rendering of the schema the full chain produced — column
+-- ORDER included). This port preserves that identity — table/column NAMES,
+-- column ORDER, constraint NAMES, row semantics — expressed in SQLite
+-- dialect (DEC-2/DEC-8): uuid -> BLOB (16 raw bytes, no `gen_random_uuid()`
+-- DEFAULT — the runtime binds `Uuid::new_v4()`, DEC-12), jsonb -> TEXT JSON,
+-- bigint -> INTEGER, `double precision` -> REAL, boolean -> INTEGER 0/1,
+-- `timestamp with time zone DEFAULT now()` -> TEXT RFC3339 UTC with
+-- `strftime('%Y-%m-%dT%H:%M:%fZ','now')`.
 --
--- Every DDL statement below is a VERBATIM `pg_dump --schema-only` rendering of
--- the schema the full chain produced, so the end state is identical to the
--- pre-squash schema — column ORDER included. Some columns therefore sit where an
--- `ALTER TABLE … ADD COLUMN` put them rather than in a tidier place; that is
--- deliberate, and it is what makes the identity mechanically provable.
+-- SQLite port notes (ITEM-11):
+--   * SQLite has no `ALTER TABLE … ADD CONSTRAINT`: every PK, CHECK, FK and
+--     unique constraint the Postgres file added by ALTER is declared INLINE
+--     here with the SAME names (the ITEM-7/8/9/10 convention).
+--   * `provenance_settings.id` is the boolean singleton (PG: `boolean
+--     DEFAULT true` PK + `CHECK (id = true)`) — the port is `INTEGER
+--     DEFAULT 1` PK + the `= 1` pin (the ITEM-8 `job_settings` / ITEM-10
+--     `project_settings` precedents): SQLite's `INTEGER PRIMARY KEY` is the
+--     rowid alias, so the PK alone would admit `id = 2` with a fresh rowid —
+--     a shape the boolean domain cannot hold. The seed's `ON CONFLICT (id)
+--     DO NOTHING` keeps its upsert target.
+--   * the FK parents `projects` (202608030003) and `datasets`
+--     (202608030002 — this module's sibling baseline, ported at ITEM-11
+--     before this file's position) sort earlier in the chain; SQLite binds
+--     FK parents lazily by name, so the CREATEs succeed and DML is enforced
+--     against the real tables.
+--   * `COALESCE(project_id, '00000000-0000-0000-0000-000000000000'::uuid)`
+--     in the dedup unique index -> `COALESCE(project_id, X'00…')` (the
+--     16-byte zero BLOB — the uuid-blob equivalent; probed: the COALESCE
+--     expression is deterministic and index-legal, the NULL-project dedup
+--     is enforced, a project-scoped row is distinct).
 --
--- The per-statement DESIGN RATIONALE the retired files carried is not
--- reproduced here (much of it narrated the very model that was dropped). It
--- lives in git history: `git log --diff-filter=D -p -- \
--- src-app/server/src/modules/provenance/migrations`.
---
--- CONSEQUENCE: a database created before the squash MUST BE RECREATED — see the
--- "SQUASHED BASELINE" section of `src/database.rs`.
---
--- Ordering: applies after the project + dataset baselines.
+-- Ordering: applies after the project + dataset baselines (unchanged).
+-- CONSEQUENCE (unchanged from the Postgres file): a database created before
+-- the squash MUST BE RECREATED — see the "SQUASHED BASELINE" section of
+-- `src/database.rs`.
 
--- == tables ==============================================================
+-- == tables (PKs/FKs/CHECKs inline; the ALTER … ADD CONSTRAINT sections of
+-- == the Postgres file are folded in here) ==============================
 
-CREATE TABLE public.provenance_code_blobs (
-    sha256 text NOT NULL,
-    language text NOT NULL,
-    source text NOT NULL,
-    byte_len bigint NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+CREATE TABLE provenance_code_blobs (
+    sha256 TEXT NOT NULL,
+    language TEXT NOT NULL,
+    source TEXT NOT NULL,
+    byte_len INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    CONSTRAINT provenance_code_blobs_pkey PRIMARY KEY (sha256)
 );
 
-CREATE TABLE public.provenance_reference_resources (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    project_id uuid,
-    kind text NOT NULL,
-    name text NOT NULL,
-    version text DEFAULT ''::text NOT NULL,
-    accession text,
-    doi text,
-    content_hash text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+CREATE TABLE provenance_reference_resources (
+    id BLOB NOT NULL,
+    project_id BLOB,
+    kind TEXT NOT NULL,
+    name TEXT NOT NULL,
+    version TEXT DEFAULT '' NOT NULL,
+    accession TEXT,
+    doi TEXT,
+    content_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    CONSTRAINT provenance_reference_resources_pkey PRIMARY KEY (id),
+    CONSTRAINT provenance_reference_resources_project_id_fkey FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
 );
 
-CREATE TABLE public.provenance_run_repro (
-    run_id uuid NOT NULL,
-    project_id uuid,
-    kind text NOT NULL,
-    status text DEFAULT 'recorded'::text NOT NULL,
-    generator_id text DEFAULT ''::text NOT NULL,
-    generator_version text DEFAULT ''::text NOT NULL,
-    code_sha256 text,
-    env_rootfs_sha256 text,
-    lockfile_json jsonb,
-    seed bigint,
-    params jsonb DEFAULT '{}'::jsonb NOT NULL,
-    inputs_json jsonb DEFAULT '[]'::jsonb NOT NULL,
-    acting_user uuid,
-    started_at timestamp with time zone,
-    finished_at timestamp with time zone,
-    captured_at timestamp with time zone DEFAULT now() NOT NULL,
-    rerun_spec_json jsonb,
-    dataset_id uuid
+CREATE TABLE provenance_run_repro (
+    run_id BLOB NOT NULL,
+    project_id BLOB,
+    kind TEXT NOT NULL,
+    status TEXT DEFAULT 'recorded' NOT NULL,
+    generator_id TEXT DEFAULT '' NOT NULL,
+    generator_version TEXT DEFAULT '' NOT NULL,
+    code_sha256 TEXT,
+    env_rootfs_sha256 TEXT,
+    lockfile_json TEXT,
+    seed INTEGER,
+    params TEXT NOT NULL DEFAULT '{}',
+    inputs_json TEXT NOT NULL DEFAULT '[]',
+    acting_user BLOB,
+    started_at TEXT,
+    finished_at TEXT,
+    captured_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    rerun_spec_json TEXT,
+    dataset_id BLOB,
+    CONSTRAINT provenance_run_repro_pkey PRIMARY KEY (run_id),
+    CONSTRAINT provenance_run_repro_code_sha256_fkey FOREIGN KEY (code_sha256) REFERENCES provenance_code_blobs (sha256),
+    CONSTRAINT provenance_run_repro_dataset_id_fkey FOREIGN KEY (dataset_id) REFERENCES datasets (id) ON DELETE CASCADE,
+    CONSTRAINT provenance_run_repro_project_id_fkey FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
 );
 
-CREATE TABLE public.provenance_settings (
-    id boolean DEFAULT true NOT NULL,
-    export_bundle_max_bytes bigint DEFAULT 1073741824 NOT NULL,
-    export_retention_days bigint DEFAULT 30 NOT NULL,
-    methods_llm_polish_enabled boolean DEFAULT false NOT NULL,
-    verify_default_tolerance double precision DEFAULT 0.99 NOT NULL,
-    verify_time_budget_secs bigint DEFAULT 3600 NOT NULL,
-    verify_size_budget_bytes bigint DEFAULT '4294967296'::bigint NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    capture_code_max_bytes bigint DEFAULT 262144 NOT NULL,
-    CONSTRAINT provenance_settings_capture_code_max_bytes_check CHECK (((capture_code_max_bytes >= 4096) AND (capture_code_max_bytes <= 16777216))),
-    CONSTRAINT provenance_settings_export_bundle_max_bytes_check CHECK (((export_bundle_max_bytes >= 1048576) AND (export_bundle_max_bytes <= '68719476736'::bigint))),
-    CONSTRAINT provenance_settings_export_retention_days_check CHECK (((export_retention_days >= 0) AND (export_retention_days <= 3650))),
-    CONSTRAINT provenance_settings_id_check CHECK ((id = true)),
-    CONSTRAINT provenance_settings_verify_default_tolerance_check CHECK (((verify_default_tolerance >= (0.0)::double precision) AND (verify_default_tolerance <= (1.0)::double precision))),
-    CONSTRAINT provenance_settings_verify_size_budget_bytes_check CHECK (((verify_size_budget_bytes >= 1048576) AND (verify_size_budget_bytes <= '274877906944'::bigint))),
-    CONSTRAINT provenance_settings_verify_time_budget_secs_check CHECK (((verify_time_budget_secs >= 1) AND (verify_time_budget_secs <= 86400)))
+CREATE TABLE provenance_settings (
+    id INTEGER DEFAULT 1 NOT NULL,
+    export_bundle_max_bytes INTEGER DEFAULT 1073741824 NOT NULL,
+    export_retention_days INTEGER DEFAULT 30 NOT NULL,
+    methods_llm_polish_enabled INTEGER DEFAULT 0 NOT NULL,
+    verify_default_tolerance REAL DEFAULT 0.99 NOT NULL,
+    verify_time_budget_secs INTEGER DEFAULT 3600 NOT NULL,
+    verify_size_budget_bytes INTEGER DEFAULT 4294967296 NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    capture_code_max_bytes INTEGER DEFAULT 262144 NOT NULL,
+    CONSTRAINT provenance_settings_pkey PRIMARY KEY (id),
+    CONSTRAINT provenance_settings_id_check CHECK (id = 1),
+    CONSTRAINT provenance_settings_capture_code_max_bytes_check CHECK (capture_code_max_bytes BETWEEN 4096 AND 16777216),
+    CONSTRAINT provenance_settings_export_bundle_max_bytes_check CHECK (export_bundle_max_bytes BETWEEN 1048576 AND 68719476736),
+    CONSTRAINT provenance_settings_export_retention_days_check CHECK (export_retention_days BETWEEN 0 AND 3650),
+    CONSTRAINT provenance_settings_verify_default_tolerance_check CHECK (verify_default_tolerance BETWEEN 0.0 AND 1.0),
+    CONSTRAINT provenance_settings_verify_size_budget_bytes_check CHECK (verify_size_budget_bytes BETWEEN 1048576 AND 274877906944),
+    CONSTRAINT provenance_settings_verify_time_budget_secs_check CHECK (verify_time_budget_secs BETWEEN 1 AND 86400)
 );
 
-CREATE TABLE public.provenance_verifications (
-    id uuid NOT NULL,
-    target_run_id uuid NOT NULL,
-    project_id uuid NOT NULL,
-    status text DEFAULT 'pending'::text NOT NULL,
-    tolerance_mode text DEFAULT 'tolerant'::text NOT NULL,
-    diff_report jsonb DEFAULT '{}'::jsonb NOT NULL,
-    rootfs_digest text,
-    cert_json jsonb,
-    verified_at timestamp with time zone,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+CREATE TABLE provenance_verifications (
+    id BLOB NOT NULL,
+    target_run_id BLOB NOT NULL,
+    project_id BLOB NOT NULL,
+    status TEXT DEFAULT 'pending' NOT NULL,
+    tolerance_mode TEXT DEFAULT 'tolerant' NOT NULL,
+    diff_report TEXT NOT NULL DEFAULT '{}',
+    rootfs_digest TEXT,
+    cert_json TEXT,
+    verified_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    CONSTRAINT provenance_verifications_pkey PRIMARY KEY (id),
+    CONSTRAINT provenance_verifications_project_id_fkey FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
 );
-
--- == primary keys / unique / table constraints ===========================
-
-ALTER TABLE ONLY public.provenance_code_blobs
-    ADD CONSTRAINT provenance_code_blobs_pkey PRIMARY KEY (sha256);
-
-ALTER TABLE ONLY public.provenance_reference_resources
-    ADD CONSTRAINT provenance_reference_resources_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY public.provenance_run_repro
-    ADD CONSTRAINT provenance_run_repro_pkey PRIMARY KEY (run_id);
-
-ALTER TABLE ONLY public.provenance_settings
-    ADD CONSTRAINT provenance_settings_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY public.provenance_verifications
-    ADD CONSTRAINT provenance_verifications_pkey PRIMARY KEY (id);
 
 -- == indexes =============================================================
 
-CREATE UNIQUE INDEX provenance_reference_dedup ON public.provenance_reference_resources USING btree (kind, content_hash, COALESCE(project_id, '00000000-0000-0000-0000-000000000000'::uuid));
+CREATE UNIQUE INDEX provenance_reference_dedup ON provenance_reference_resources (kind, content_hash, COALESCE(project_id, X'00000000000000000000000000000000'));
 
-CREATE INDEX provenance_reference_resources_hash ON public.provenance_reference_resources USING btree (content_hash);
+CREATE INDEX provenance_reference_resources_hash ON provenance_reference_resources (content_hash);
 
-CREATE INDEX provenance_reference_resources_project ON public.provenance_reference_resources USING btree (project_id);
+CREATE INDEX provenance_reference_resources_project ON provenance_reference_resources (project_id);
 
-CREATE INDEX provenance_run_repro_dataset_captured ON public.provenance_run_repro USING btree (dataset_id, captured_at DESC);
+CREATE INDEX provenance_run_repro_dataset_captured ON provenance_run_repro (dataset_id, captured_at DESC);
 
-CREATE INDEX provenance_run_repro_project_captured ON public.provenance_run_repro USING btree (project_id, captured_at DESC);
+CREATE INDEX provenance_run_repro_project_captured ON provenance_run_repro (project_id, captured_at DESC);
 
-CREATE INDEX provenance_verifications_project ON public.provenance_verifications USING btree (project_id, created_at DESC);
+CREATE INDEX provenance_verifications_project ON provenance_verifications (project_id, created_at DESC);
 
-CREATE INDEX provenance_verifications_run ON public.provenance_verifications USING btree (target_run_id, created_at DESC);
-
--- == foreign keys ========================================================
-
-ALTER TABLE ONLY public.provenance_reference_resources
-    ADD CONSTRAINT provenance_reference_resources_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY public.provenance_run_repro
-    ADD CONSTRAINT provenance_run_repro_code_sha256_fkey FOREIGN KEY (code_sha256) REFERENCES public.provenance_code_blobs(sha256);
-
-ALTER TABLE ONLY public.provenance_run_repro
-    ADD CONSTRAINT provenance_run_repro_dataset_id_fkey FOREIGN KEY (dataset_id) REFERENCES public.datasets(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY public.provenance_run_repro
-    ADD CONSTRAINT provenance_run_repro_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY public.provenance_verifications
-    ADD CONSTRAINT provenance_verifications_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE CASCADE;
+CREATE INDEX provenance_verifications_run ON provenance_verifications (target_run_id, created_at DESC);
 
 -- == seed data + permission grants ====================================
 
-INSERT INTO provenance_settings (id) VALUES (TRUE) ON CONFLICT (id) DO NOTHING;
+INSERT INTO provenance_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 
 -- `provenance::read` + `provenance::export` are granted to the Users group (every
 -- projects user may read the lineage of, and export, projects they can access; the
 -- per-project role via effective_permission gates the specific project). The admin
 -- perms `provenance::settings::{read,manage}` get NO grant — Administrators hold
--- them via the `*` wildcard / is_admin short-circuit. Idempotent array_append.
-UPDATE public.groups
-SET permissions = array_append(permissions, 'provenance::read')
-WHERE name = 'Users'
-  AND NOT ('provenance::read' = ANY (permissions));
+-- them via the `*` wildcard / is_admin short-circuit. Idempotent — the JSON1 port
+-- of `array_append` (DEC-8: the `groups.permissions` text[] is JSON-array text).
+UPDATE groups
+   SET permissions = json_insert(permissions, '$[#]', 'provenance::read')
+ WHERE name = 'Users'
+   AND NOT EXISTS (SELECT 1 FROM json_each(permissions) WHERE value = 'provenance::read');
 
-UPDATE public.groups
-SET permissions = array_append(permissions, 'provenance::export')
-WHERE name = 'Users'
-  AND NOT ('provenance::export' = ANY (permissions));
+UPDATE groups
+   SET permissions = json_insert(permissions, '$[#]', 'provenance::export')
+ WHERE name = 'Users'
+   AND NOT EXISTS (SELECT 1 FROM json_each(permissions) WHERE value = 'provenance::export');

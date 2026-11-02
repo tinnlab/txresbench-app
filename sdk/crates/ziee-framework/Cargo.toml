@@ -16,7 +16,7 @@ ziee-build-support = { path = "../ziee-build-support" }
 # TYPES + machinery only (module system + app_builder); build-DB-free (plan §7).
 aide = { version = "0.15", features = ["axum", "axum-json", "macros"] }
 axum = { version = "0.8.4", features = ["macros", "multipart"] }
-sqlx = { version = "0.8.6", default-features = false, features = ["postgres", "runtime-tokio-rustls", "migrate"] }
+sqlx = { version = "0.8.6", default-features = false, features = ["postgres", "sqlite", "runtime-tokio-rustls", "migrate"] }
 tower-http = { version = "0.6.2", features = ["cors"] }
 tower_governor = "0.7"
 linkme = "0.3"
@@ -68,7 +68,23 @@ once_cell = "1.21.3"
 # Version + features mirror the ziee server's [workspace.dependencies] catalog so
 # the single src-app/Cargo.lock unifies them (no duplicate build when ziee
 # consumes the framework by path).
-postgresql_embedded = { version = "0.20.0", default-features = false, features = ["bundled", "theseus", "rustls"] }
+#
+# OPTIONAL: enabled by the crate's default `embedded-pg` feature (the PG
+# variant). A driver-switched consumer declares
+# `default-features = false, features = ["sqlite-backend"]` and the downloader
+# (the theseus-rs Postgres binaries) is NOT linked at all — it is absent from
+# the dependency graph rather than merely unused.
+postgresql_embedded = { version = "0.20.0", default-features = false, features = ["bundled", "theseus", "rustls"], optional = true }
+
+# Dual-driver selection — see `ziee_core::db_pool` for the rationale.
+# - `embedded-pg` (default): the PG variant, byte-identical to the pre-seam
+#   build (`DbPool` = `PgPool`, `embedded_pg` linked).
+# - `sqlite-backend`: the SQLite variant (`DbPool` = `SqlitePool`). A consumer
+#   that wants it turns the PG side off by disabling default features.
+[features]
+default = ["embedded-pg"]
+embedded-pg = ["dep:postgresql_embedded"]
+sqlite-backend = ["ziee-core/sqlite-backend"]
 
 [dev-dependencies]
 tempfile = "3.15"

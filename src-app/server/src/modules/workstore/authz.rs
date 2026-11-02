@@ -9,7 +9,7 @@
 //! `ProjectScope` when it lands.
 
 use axum::http::StatusCode;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 use ziee_core::AppError;
 
@@ -19,7 +19,7 @@ use crate::modules::project::ProjectRepository;
 /// Require the acting user to have ANY role on the project (Viewer+). A foreign /
 /// nonexistent project is a 404 (matches the owner-scoped 404 idiom — no leak).
 pub async fn require_project_read(
-    pool: &PgPool,
+    pool: &SqlitePool,
     project_id: Uuid,
     user_id: Uuid,
 ) -> Result<(), (StatusCode, AppError)> {
@@ -38,7 +38,7 @@ pub async fn require_project_read(
 /// is a 403; a foreign project is a 404. This is the server-authoritative write
 /// boundary (the FE gate is UX-only).
 pub async fn require_project_edit(
-    pool: &PgPool,
+    pool: &SqlitePool,
     project_id: Uuid,
     user_id: Uuid,
 ) -> Result<(), (StatusCode, AppError)> {
@@ -85,7 +85,7 @@ pub async fn require_project_edit(
 /// fact free to diverge. The test now exists and covers both the removed-owner
 /// condition and the co-member/account-owner principals.
 pub async fn require_dataset_read(
-    pool: &PgPool,
+    pool: &SqlitePool,
     dataset_id: Uuid,
     user_id: Uuid,
 ) -> Result<(), (StatusCode, AppError)> {
@@ -116,7 +116,7 @@ pub async fn require_dataset_read(
                            JOIN groups g ON g.id = ug.group_id
                           WHERE ug.user_id = $2 AND g.is_active)) )
                )
-             )) as "e!""#,
+             )) as "e!: bool""#,
         dataset_id,
         user_id,
     )
@@ -158,7 +158,7 @@ pub fn artifact_scope(project_id: Option<Uuid>, dataset_id: Option<Uuid>) -> Art
 /// for a live row) is treated as invisible → 404. Used by the by-artifact-id
 /// data-plane routes (the artifact carries its scope).
 pub async fn require_artifact_read(
-    pool: &PgPool,
+    pool: &SqlitePool,
     artifact: &Artifact,
     user_id: Uuid,
 ) -> Result<(), (StatusCode, AppError)> {

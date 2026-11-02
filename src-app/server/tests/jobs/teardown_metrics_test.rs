@@ -42,7 +42,7 @@ fn finished_job() -> Job {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn teardown_metrics_noop_records_nothing() {
     let server = TestServer::spawn().await;
-    let pool = sqlx::PgPool::connect(server.database_url())
+    let pool = sqlx::SqlitePool::connect(server.database_url())
         .await
         .expect("connect test db");
 
@@ -60,7 +60,7 @@ async fn teardown_metrics_noop_records_nothing() {
         )
         .await;
     let count: i64 =
-        sqlx::query("SELECT count(*)::bigint AS c FROM compute_meter")
+        sqlx::query("SELECT count(*) AS c FROM compute_meter")
             .fetch_one(&pool)
             .await
             .expect("count meter rows")

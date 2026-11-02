@@ -1,39 +1,31 @@
-# CytoAnalyst dev config (per-machine).
+# TxResBench dev config (per-machine).
 #
 # Copy to `config/dev.yaml` and set `jwt.secret` to `openssl rand -base64 48`.
 # The server refuses to boot on a weak/placeholder secret (see src/config.rs).
 #
+# No database cluster and no docker compose: the store is ONE embedded SQLite
+# file (see `database:` below) — created on first boot, migrated by the server,
+# deleted to reset. The only thing to copy is this file + the JWT secret.
+#
 # Ports are chosen distinct from ziee (app #1) so both apps can run side-by-side:
-#   - embedded Postgres :54341   (ziee dev uses :54323)
 #   - HTTP server       :3100    (ziee dev uses :3000)
 
-postgresql:
-  use_embedded: true
-  embedded:
-    version: "18.3.0"
-    port: 54341
-    bind_address: "127.0.0.1"
-    username: "postgres"
-    password: "password"
-    database: "postgres"
-    # SDK_GAPS G3: the SDK ships no `resolve_paths`, and embedded_pg hard-requires
-    # these two paths (it `.expect()`s them). So we set them explicitly here
-    # rather than deriving from an app.data_dir the SDK config has no field for.
-    installation_dir: "../../cytoanalyst-data/dev/postgres"
-    data_dir: "../../cytoanalyst-data/dev/postgres-data"
-    timezone: "UTC"
-    log_timezone: "UTC"
-    logging:
-      collector: true
-      directory: "log"
-      filename: "postgresql-%Y-%m-%d_%H%M%S.log"
-      statement: "all"
-  pool:
-    max_connections: 10
-    min_connections: 1
-    acquire_timeout_secs: 5
-    idle_timeout_secs: 30
-    max_lifetime_secs: 300
+# SQLite database — the app's embedded store: one local file, no server process,
+# no network access, no binary download. The default location is
+# <app-data-dir>/txresbench.db (app data dir: CYTO_APP_DATA_DIR when set, else
+# the app data dir — the desktop's ~/.txresbench). To relocate it, set `path`
+# (a plain filesystem path) or `url` (a `sqlite://` URL — wins over `path` when
+# both are set); the CYTO_DATABASE_URL env var wins over both. The pool knobs
+# default to the framework profile (10 connections / 1 minimum / 5 s acquire
+# timeout / 5000 ms busy timeout); WAL, synchronous=NORMAL and foreign_keys=ON
+# are engine correctness properties, not knobs.
+database:
+  path: null   # e.g. "/home/you/TxResBench/txresbench.db"
+  # pool:
+  #   max_connections: 10
+  #   min_connections: 1
+  #   acquire_timeout_secs: 5
+  #   busy_timeout_ms: 5000
 
 server:
   host: "127.0.0.1"
@@ -59,15 +51,15 @@ jwt:
   access_token_expiry_hours: 24
   refresh_token_expiry_days: 30
 
-# At-rest secret encryption (#60). `storage_key` is the pgcrypto symmetric key used
-# to encrypt admin-configured payment credentials (the Stripe secret + webhook
-# signing secret) in the `billing_integration` table. It is a DEPLOYMENT secret like
-# `jwt.secret` — set it to a random >=32-char string (`openssl rand -base64 48`) and
-# keep it stable (rotating it makes previously-encrypted secrets undecryptable).
+# At-rest secret encryption (#60). `storage_key` is the symmetric key for the
+# framework's secret-encryption layer (SDK `ziee_framework::secret`). The
+# desktop build's shipped surfaces do not use it and no key is configured by
+# default (`null`). It is a DEPLOYMENT secret like `jwt.secret` — set it to a
+# random >=32-char string (`openssl rand -base64 48`) and keep it stable
+# (rotating it makes previously-encrypted secrets undecryptable).
 #
-# UNSET (this block absent, or storage_key blank) => COMPAT MODE: no DB secret
-# storage; the app falls back to the `STRIPE_SECRET_KEY` env var exactly as before,
-# and the admin Billing-integration page's secret storage is disabled. An override
-# env var `CYTO_SECRET_STORAGE_KEY` takes precedence over this value.
+# UNSET (this block absent, or storage_key blank) => NO at-rest secret storage.
+# An override env var `CYTO_SECRET_STORAGE_KEY` takes precedence over this
+# value.
 secrets:
   storage_key: null   # e.g. "CHANGE_ME_run_openssl_rand_base64_48"

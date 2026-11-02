@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::watch;
 use tokio::time::interval;
@@ -94,11 +94,6 @@ impl Default for ReaperLimits {
     }
 }
 
-/// A process-wide advisory-lock key for the reaper's single-leader gate (ITEM-4).
-/// An arbitrary stable constant (namespaced to "cyto jobs reaper"); collisions
-/// with other advisory-lock users are avoided by picking a high, distinctive value.
-pub const REAPER_ADVISORY_KEY: i64 = 0x6379_746f_7261_7000; // "cytorap\0"
-
 /// This worker's identity for `claimed_by` (DEC-4): the pod name via `HOSTNAME`
 /// (k8s downward API), ALWAYS suffixed with a fresh per-PROCESS UUID.
 ///
@@ -160,7 +155,7 @@ pub fn scheduler_should_spawn() -> bool {
 
 /// Owns the shared handles the loop + executors need.
 pub struct Scheduler {
-    pub pool: PgPool,
+    pub pool: SqlitePool,
     pub runner: Arc<dyn JobRunner>,
     /// This process's worker identity, stamped into `claimed_by` at claim time
     /// and used by the heartbeat to refresh its OWN rows (T4 / DEC-4).
@@ -287,7 +282,6 @@ impl Scheduler {
                 let stale = limits.stale_threshold.as_secs() as i64;
                 match repo
                     .reaper_sweep(
-                        REAPER_ADVISORY_KEY,
                         stale,
                         limits.max_reclaims,
                         limits.reclaim_batch,
@@ -418,7 +412,7 @@ pub fn staging_ceiling(budget: Duration) -> Duration {
 
 /// Drive one job's process end-to-end.
 pub async fn execute_job(
-    pool: PgPool,
+    pool: SqlitePool,
     runner: Arc<dyn JobRunner>,
     job: Job,
     cancel_rx: watch::Receiver<bool>,
@@ -769,7 +763,7 @@ async fn kill_child(child: &mut tokio::process::Child, pid: Option<u32>) {
 /// Drain both child streams into `job_logs` + the SSE stream with a shared
 /// monotonic seq.
 async fn drain_logs(
-    pool: PgPool,
+    pool: SqlitePool,
     job_id: Uuid,
     stdout: Option<tokio::process::ChildStdout>,
     stderr: Option<tokio::process::ChildStderr>,
@@ -889,7 +883,7 @@ pub struct ReconcileReport {
 /// long-running, job across a restart). Best-effort: a DB/FS hiccup on one job
 /// logs + is skipped, never aborting the pass.
 pub async fn reconcile_orphaned_running(
-    pool: &PgPool,
+    pool: &SqlitePool,
     workspace_root: &Path,
     staging_root: &Path,
 ) -> ReconcileReport {
@@ -912,7 +906,7 @@ pub async fn reconcile_orphaned_running(
 /// STAGING dir — the workspace no longer holds them — and the finalize is handed
 /// both dirs so it ingests from one and hashes the recorded entry out of the other.
 pub async fn reconcile_orphaned_running_in(
-    pool: &PgPool,
+    pool: &SqlitePool,
     workspace_root: &Path,
     staging_root: &Path,
     ingest: Arc<dyn ArtifactIngestSink>,

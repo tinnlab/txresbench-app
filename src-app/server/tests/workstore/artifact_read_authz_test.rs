@@ -399,32 +399,22 @@ async fn dataset_scoped_artifact_bytes_are_gated_by_group_share() {
     assert_surfaces(&server, Some(&owner), &fx, 200, "dataset owner").await;
 
     // A dedicated group with NO RBAC permissions of its own — so a 200 below can
-    // only come from the SHARE, never from a capability the group carries.
-    let group = server
-        .client
-        .post(server.api_url("/groups"))
-        .bearer_auth(&admin)
-        .json(&json!({ "name": "byte-authz-group", "description": "", "permissions": [] }))
-        .send()
+    // only come from the SHARE, never from a capability the group carries. The
+    // `/groups` HTTP surface is stripped on this node; create/assign/deactivate
+    // go through the SDK repositories over the per-test DB pool.
+    let pool = pool_for(&server).await;
+    let group_id = crate::common::group_create(&pool, "byte-authz-group", vec![])
         .await
-        .expect("create group");
-    assert_eq!(group.status().as_u16(), 201, "create group");
-    let group_id = group.json::<Value>().await.expect("group json")["id"]
-        .as_str()
-        .expect("group id")
         .to_string();
 
     let (member_id, member) = create_member_token(&server, &admin, "gsmember").await;
     let (_stranger_id, stranger) = create_member_token(&server, &admin, "gsstranger").await;
-    let assign = server
-        .client
-        .post(server.api_url("/groups/assign"))
-        .bearer_auth(&admin)
-        .json(&json!({ "user_id": member_id, "group_id": group_id }))
-        .send()
-        .await
-        .expect("assign to group");
-    assert!(assign.status().is_success(), "assign: {}", assign.status());
+    crate::common::group_assign(
+        &pool,
+        member_id,
+        Uuid::parse_str(&group_id).expect("group id is a uuid"),
+    )
+    .await;
 
     // Before the share, group membership alone grants nothing.
     assert_surfaces(
@@ -492,30 +482,20 @@ async fn deactivating_a_shared_group_revokes_dataset_and_artifact_reads_together
     // `create_member_token` already puts them in — deactivating THIS group therefore
     // removes the share without removing the capability, which is what isolates the
     // predicate under test.
-    let group = server
-        .client
-        .post(server.api_url("/groups"))
-        .bearer_auth(&admin)
-        .json(&json!({ "name": "revoked-group", "description": "", "permissions": [] }))
-        .send()
-        .await
-        .expect("create group");
-    assert_eq!(group.status().as_u16(), 201, "create group");
-    let group_id = group.json::<Value>().await.expect("group json")["id"]
-        .as_str()
-        .expect("group id")
-        .to_string();
-
     let (member_id, member) = create_member_token(&server, &admin, "dgmember").await;
-    let assign = server
-        .client
-        .post(server.api_url("/groups/assign"))
-        .bearer_auth(&admin)
-        .json(&json!({ "user_id": member_id, "group_id": group_id }))
-        .send()
-        .await
-        .expect("assign to group");
-    assert!(assign.status().is_success(), "assign: {}", assign.status());
+    let group_id = {
+        let pool = pool_for(&server).await;
+        let group_id = crate::common::group_create(&pool, "revoked-group", vec![])
+            .await
+            .to_string();
+        crate::common::group_assign(
+            &pool,
+            member_id,
+            Uuid::parse_str(&group_id).expect("group id is a uuid"),
+        )
+        .await;
+        group_id
+    };
 
     let share = server
         .client
@@ -551,19 +531,11 @@ async fn deactivating_a_shared_group_revokes_dataset_and_artifact_reads_together
     assert_surfaces(&server, Some(&member), &fx, 200, "active group share").await;
 
     // --- Deactivate the group (the revocation). ---
-    let upd = server
-        .client
-        .post(server.api_url(&format!("/groups/{group_id}")))
-        .bearer_auth(&admin)
-        .json(&json!({ "is_active": false }))
-        .send()
-        .await
-        .expect("deactivate group");
-    assert!(
-        upd.status().is_success(),
-        "deactivate group: {}",
-        upd.status()
-    );
+    crate::common::group_deactivate(
+        &pool_for(&server).await,
+        Uuid::parse_str(&group_id).expect("group id is a uuid"),
+    )
+    .await;
 
     // The dataset module's own gate stops honouring the share …
     assert_eq!(

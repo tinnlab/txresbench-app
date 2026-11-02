@@ -165,29 +165,18 @@ async fn group_share_visibility() {
     let dave = login(&server, "dave").await;
 
     // A dedicated group; carol is a member (assigned BEFORE she logs in so her
-    // token's resolved groups include it), dave is not.
-    let group = server
-        .client
-        .post(server.api_url("/groups"))
-        .bearer_auth(&admin)
-        .json(&json!({ "name": "lab-A", "description": "", "permissions": [] }))
-        .send()
+    // token's resolved groups include it), dave is not. The `/groups` HTTP
+    // surface is stripped on this node; create/assign go through the SDK repos.
+    let pool = super::hardening_common::pool_for(&server).await;
+    let group_id = crate::common::group_create(&pool, "lab-A", vec![])
         .await
-        .unwrap();
-    assert_eq!(group.status().as_u16(), 201);
-    let group_id = group.json::<Value>().await.unwrap()["id"]
-        .as_str()
-        .unwrap()
         .to_string();
-    let assign = server
-        .client
-        .post(server.api_url("/groups/assign"))
-        .bearer_auth(&admin)
-        .json(&json!({ "user_id": carol_id, "group_id": group_id }))
-        .send()
-        .await
-        .unwrap();
-    assert!(assign.status().is_success(), "assign carol → lab-A");
+    crate::common::group_assign(
+        &pool,
+        uuid::Uuid::parse_str(&carol_id).expect("carol id is a uuid"),
+        uuid::Uuid::parse_str(&group_id).expect("group id is a uuid"),
+    )
+    .await;
     let carol = login(&server, "carol").await;
 
     let ds = create_dataset(&server, &owner, "group-shared").await;

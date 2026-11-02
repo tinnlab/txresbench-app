@@ -25,8 +25,9 @@ edition.workspace = true
 [dependencies]
 ziee-build-support = { path = "../ziee-build-support" }
 
-# Runtime-only Postgres: no `macros` feature → no `query!` → build-DB-free.
-sqlx = { version = "0.8.6", default-features = false, features = ["postgres", "runtime-tokio-rustls", "migrate"] }
+# Runtime-only drivers (Postgres today, SQLite alongside for the app's
+# sqlite-backend leg): no `macros` feature → no `query!` → build-DB-free.
+sqlx = { version = "0.8.6", default-features = false, features = ["postgres", "sqlite", "runtime-tokio-rustls", "migrate"] }
 tokio = { version = "1.47.1", features = ["rt", "sync", "time"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "charset", "http2"] }
 uuid = { version = "1.18", features = ["v4"] }

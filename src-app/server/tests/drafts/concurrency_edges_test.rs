@@ -22,7 +22,7 @@ use std::collections::HashSet;
 use std::time::Duration;
 
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::jobs::models::CreateJobRequest;
@@ -233,14 +233,15 @@ async fn consumer_born_on_a_completed_freeze_is_pinned() {
     super::wait_frozen(&server, &alice, &id).await;
 
     // Resolve the now-completed freeze job F + its minted artifact A from the DB.
-    let pool = PgPool::connect(server.database_url()).await.unwrap();
+    let pool = SqlitePool::connect(server.database_url()).await.unwrap();
+    let draft_uuid = Uuid::parse_str(&id).unwrap();
     let row = sqlx::query!(
-        r#"SELECT f.job_id as "freeze_id!", d.frozen_artifact_id as "artifact_id!", j.status as "status!"
+        r#"SELECT f.job_id as "freeze_id!: Uuid", d.frozen_artifact_id as "artifact_id!: Uuid", j.status as "status!"
            FROM draft_freeze_jobs f
            JOIN drafts d ON d.id = f.draft_id
            JOIN jobs j ON j.id = f.job_id
-           WHERE f.draft_id = $1::uuid"#,
-        Uuid::parse_str(&id).unwrap(),
+           WHERE f.draft_id = $1"#,
+        draft_uuid,
     )
     .fetch_one(&pool)
     .await
@@ -344,10 +345,11 @@ async fn editing_a_draft_mid_freeze_freezes_the_new_content() {
     );
     let consumer_id = cb["id"].as_str().unwrap().to_string();
 
-    let pool = PgPool::connect(server.database_url()).await.unwrap();
+    let pool = SqlitePool::connect(server.database_url()).await.unwrap();
+    let consumer_uuid = Uuid::parse_str(&consumer_id).unwrap();
     let deps: Vec<Uuid> = sqlx::query_scalar!(
-        r#"SELECT depends_on_job_id as "dep!" FROM job_dependencies WHERE job_id = $1::uuid"#,
-        Uuid::parse_str(&consumer_id).unwrap(),
+        r#"SELECT depends_on_job_id as "dep!: Uuid" FROM job_dependencies WHERE job_id = $1"#,
+        consumer_uuid,
     )
     .fetch_all(&pool)
     .await
@@ -366,9 +368,10 @@ async fn editing_a_draft_mid_freeze_freezes_the_new_content() {
 
     // The fresh freeze captured DIFFERENT content than F1 (its content_hash differs) — the
     // positive proof it is not a reuse of the stale snapshot.
+    let draft_uuid = Uuid::parse_str(&id).unwrap();
     let hashes: Vec<String> = sqlx::query_scalar!(
-        r#"SELECT content_hash as "h!" FROM draft_freeze_jobs WHERE draft_id = $1::uuid ORDER BY created_at"#,
-        Uuid::parse_str(&id).unwrap(),
+        r#"SELECT content_hash as "h!" FROM draft_freeze_jobs WHERE draft_id = $1 ORDER BY created_at"#,
+        draft_uuid,
     )
     .fetch_all(&pool)
     .await

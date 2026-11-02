@@ -279,6 +279,21 @@
       },
       "meta": null,
       "hidden": true
+    },
+    {
+      "id": "run-environment",
+      "datatype": "report/qc",
+      "path": "run-environment.json",
+      "layout": "opaque",
+      "role": "artifact",
+      "hidden": true,
+      "structure": {
+        "encoding": "opaque",
+        "media_type": "application/json"
+      },
+      "meta": {
+        "kind": "run-environment"
+      }
     }
   ]
 }

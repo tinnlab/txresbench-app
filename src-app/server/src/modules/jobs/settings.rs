@@ -5,11 +5,17 @@
 //! partial COALESCE update, read-at-use (the scheduler reads it every tick, with
 //! a safe fallback on DB error so the hot path never breaks). Compile-time
 //! `query_as!` macros (SDK gap G4 resolved).
+//!
+//! SQLite driver (sqlite-store DEC-1): the INTEGER-affinity columns keep their
+//! Rust field types spelled out (`max_concurrent_jobs as "…: i32"` — the sqlite
+//! macro infers INTEGER as `i64`), and the write clock is the canonical
+//! `now()` → `strftime('%Y-%m-%dT%H:%M:%fZ','now')` rewrite. `id = TRUE` is
+//! legal SQLite 3.46 (TRUE is the integer 1) and is kept verbatim.
 
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 use ziee_core::AppError;
 
@@ -93,23 +99,25 @@ pub const MIN_METRIC_TICK_SECS: i64 = 1;
 pub const MAX_METRIC_TICK_SECS: i64 = 60;
 
 pub struct JobSettingsRepository {
-    pool: PgPool,
+    pool: SqlitePool,
 }
 
 impl JobSettingsRepository {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
 
     pub async fn get(&self) -> Result<JobSettings, AppError> {
         sqlx::query_as!(
             JobSettings,
-            r#"SELECT max_concurrent_jobs, reserved_interactive_slots,
-                      per_tenant_max_concurrent,
-                      sse_keep_alive_secs, sse_max_clients,
+            r#"SELECT max_concurrent_jobs as "max_concurrent_jobs: i32",
+                      reserved_interactive_slots as "reserved_interactive_slots: i32",
+                      per_tenant_max_concurrent as "per_tenant_max_concurrent: i32",
+                      sse_keep_alive_secs, sse_max_clients as "sse_max_clients: i32",
                       admission_wait_secs, admission_poll_ms,
                       heartbeat_secs, reaper_tick_secs, stale_threshold_secs,
-                      max_reclaims, reclaim_batch, dispatch_tick_ms, metric_tick_secs,
+                      max_reclaims as "max_reclaims: i32", reclaim_batch,
+                      dispatch_tick_ms, metric_tick_secs,
                       updated_at as "updated_at: DateTime<Utc>",
                       updated_by as "updated_by: Uuid"
                FROM job_settings WHERE id = TRUE"#
@@ -143,15 +151,17 @@ impl JobSettingsRepository {
                    reclaim_batch = COALESCE($13, reclaim_batch),
                    dispatch_tick_ms = COALESCE($14, dispatch_tick_ms),
                    metric_tick_secs = COALESCE($15, metric_tick_secs),
-                   updated_at = now(),
+                   updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
                    updated_by = $8
                WHERE id = TRUE
-               RETURNING max_concurrent_jobs, reserved_interactive_slots,
-                         per_tenant_max_concurrent,
-                         sse_keep_alive_secs, sse_max_clients,
+               RETURNING max_concurrent_jobs as "max_concurrent_jobs: i32",
+                         reserved_interactive_slots as "reserved_interactive_slots: i32",
+                         per_tenant_max_concurrent as "per_tenant_max_concurrent: i32",
+                         sse_keep_alive_secs, sse_max_clients as "sse_max_clients: i32",
                          admission_wait_secs, admission_poll_ms,
                          heartbeat_secs, reaper_tick_secs, stale_threshold_secs,
-                         max_reclaims, reclaim_batch, dispatch_tick_ms, metric_tick_secs,
+                         max_reclaims as "max_reclaims: i32", reclaim_batch,
+                         dispatch_tick_ms, metric_tick_secs,
                          updated_at as "updated_at: DateTime<Utc>",
                          updated_by as "updated_by: Uuid""#,
             req.max_concurrent_jobs,

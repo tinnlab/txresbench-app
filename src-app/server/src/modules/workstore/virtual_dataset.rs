@@ -57,7 +57,7 @@ use std::path::Path;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::json;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 use ziee_core::AppError;
 
@@ -650,7 +650,7 @@ pub fn gathered_logical_bytes(data_type: &str, n: usize) -> Option<i64> {
 /// `None` and "the column is absent from the map" are deliberately different: the first says
 /// nothing is known, the second says this alignment fuses no vocabulary for that column.
 /// Both lead to the sources' width, but only the first is a diagnostic worth logging.
-async fn read_unified_levels(pool: &PgPool, alignment_id: Uuid) -> Option<serde_json::Value> {
+async fn read_unified_levels(pool: &SqlitePool, alignment_id: Uuid) -> Option<serde_json::Value> {
     let store = super::get_object_store();
     let bytes = super::data_api::read_member_bytes(pool, store.as_ref(), alignment_id, "zarr.json")
         .await
@@ -890,11 +890,11 @@ pub fn cross_check_row_bindings(
 
 /// The installed [`crate::modules::jobs::seams::VirtualDatasetSink`].
 pub struct WorkstoreVirtualDatasetSink {
-    pool: PgPool,
+    pool: SqlitePool,
 }
 
 impl WorkstoreVirtualDatasetSink {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
 }
@@ -965,25 +965,25 @@ impl WorkstoreVirtualDatasetSink {
 
 /// Every artifact this run cataloged, within the run's own tenancy scope.
 async fn run_artifacts(
-    pool: &PgPool,
+    pool: &SqlitePool,
     project_id: Option<Uuid>,
     dataset_id: Option<Uuid>,
     run_id: Uuid,
 ) -> Result<Vec<Artifact>, AppError> {
     sqlx::query_as!(
         Artifact,
-        r#"SELECT id, project_id, dataset_id, run_id, output_id, datatype,
-                  object_key, is_multifile, content_hash,
+        r#"SELECT id as "id: Uuid", project_id as "project_id?: Uuid", dataset_id as "dataset_id?: Uuid", run_id as "run_id?: Uuid", output_id, datatype,
+                  object_key, is_multifile as "is_multifile: bool", content_hash,
                   structure as "structure: serde_json::Value",
                   meta as "meta: serde_json::Value",
-                  role, status, stored_bytes, logical_bytes, created_by,
+                  role, status, stored_bytes, logical_bytes, created_by as "created_by: Uuid",
                   created_at as "created_at: DateTime<Utc>",
                   updated_at as "updated_at: DateTime<Utc>",
-                  hidden, representation_of
+                  hidden as "hidden: bool", representation_of as "representation_of?: Uuid"
            FROM artifacts
            WHERE run_id = $1
-             AND ($2::uuid IS NULL OR project_id = $2)
-             AND ($3::uuid IS NULL OR dataset_id = $3)
+             AND ($2 IS NULL OR project_id = $2)
+             AND ($3 IS NULL OR dataset_id = $3)
            ORDER BY created_at ASC"#,
         run_id,
         project_id,
@@ -996,7 +996,7 @@ async fn run_artifacts(
 
 /// The `(id, content_hash, structure)` of one artifact, whatever its status.
 async fn artifact_row(
-    pool: &PgPool,
+    pool: &SqlitePool,
     id: Uuid,
 ) -> Result<Option<(String, serde_json::Value, String)>, AppError> {
     let row = sqlx::query!(
@@ -1029,7 +1029,7 @@ async fn artifact_row(
 /// than a gap — there is no project to link it to, and inventing one would put the dataset in a
 /// project the run was not run in.
 async fn attach_to_project(
-    pool: &PgPool,
+    pool: &SqlitePool,
     project_id: Option<Uuid>,
     dataset: Uuid,
 ) -> Result<(), AppError> {
@@ -1048,12 +1048,17 @@ async fn attach_to_project(
     Ok(())
 }
 
-async fn existing_virtual_dataset(pool: &PgPool, run_id: Uuid) -> Result<Option<Uuid>, AppError> {
+async fn existing_virtual_dataset(
+    pool: &SqlitePool,
+    run_id: Uuid,
+) -> Result<Option<Uuid>, AppError> {
+    // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+    let bind_run_id_str = run_id.to_string();
     let row = sqlx::query!(
-        "SELECT id FROM datasets
-         WHERE source = $1 AND metadata ->> 'alignment_run_id' = $2",
+        r#"SELECT id as "id: Uuid" FROM datasets
+         WHERE source = $1 AND json_extract(metadata, '$.alignment_run_id') = $2"#,
         DATASET_SOURCE_INTEGRATE,
-        run_id.to_string(),
+        bind_run_id_str,
     )
     .fetch_optional(pool)
     .await
@@ -1063,7 +1068,7 @@ async fn existing_virtual_dataset(pool: &PgPool, run_id: Uuid) -> Result<Option<
 
 /// **The creator proper.** See the module header for the ordering bounds this relies on.
 pub async fn create_for_run(
-    pool: &PgPool,
+    pool: &SqlitePool,
     job: &Job,
     workspace_root: &Path,
 ) -> Result<Outcome, AppError> {
@@ -1167,10 +1172,10 @@ pub async fn create_for_run(
     // pass loses the race rather than minting a second dataset. `ON CONFLICT DO NOTHING`
     // turns that loss into the `AlreadyCreated` answer.
     let inserted = sqlx::query!(
-        "INSERT INTO datasets (id, name, owner_id, account_id, datatype, metadata, source)
+        r#"INSERT INTO datasets (id, name, owner_id, account_id, datatype, metadata, source)
          VALUES ($1, $2, $3, $4, NULL, $5, $6)
          ON CONFLICT DO NOTHING
-         RETURNING id",
+         RETURNING id as "id: Uuid""#,
         new_dataset,
         name,
         job.owner_id,
@@ -1467,11 +1472,16 @@ pub enum FilterOutcome {
 
 /// The filter virtual dataset already created for this run, if any (the idempotency read the
 /// `datasets_one_per_filter_run` index backs).
-async fn existing_filter_dataset(pool: &PgPool, run_id: Uuid) -> Result<Option<Uuid>, AppError> {
+async fn existing_filter_dataset(
+    pool: &SqlitePool,
+    run_id: Uuid,
+) -> Result<Option<Uuid>, AppError> {
+    // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+    let bind_run_id_str2 = run_id.to_string();
     let row = sqlx::query!(
-        "SELECT id FROM datasets WHERE source = $1 AND metadata ->> 'filter_run_id' = $2",
+        r#"SELECT id as "id: Uuid" FROM datasets WHERE source = $1 AND json_extract(metadata, '$.filter_run_id') = $2"#,
         DATASET_SOURCE_FILTER,
-        run_id.to_string(),
+        bind_run_id_str2,
     )
     .fetch_optional(pool)
     .await
@@ -1480,8 +1490,8 @@ async fn existing_filter_dataset(pool: &PgPool, run_id: Uuid) -> Result<Option<U
 }
 
 /// One artifact's owning `dataset_id`, whatever its status.
-async fn artifact_dataset_id(pool: &PgPool, id: Uuid) -> Result<Option<Uuid>, AppError> {
-    let row = sqlx::query!("SELECT dataset_id FROM artifacts WHERE id = $1", id)
+async fn artifact_dataset_id(pool: &SqlitePool, id: Uuid) -> Result<Option<Uuid>, AppError> {
+    let row = sqlx::query!(r#"SELECT dataset_id as "dataset_id?: Uuid" FROM artifacts WHERE id = $1"#, id)
         .fetch_optional(pool)
         .await
         .map_err(AppError::database_error)?;
@@ -1494,7 +1504,7 @@ async fn artifact_dataset_id(pool: &PgPool, id: Uuid) -> Result<Option<Uuid>, Ap
 /// the channel the mask's `meta.sources[]` is then stamped from, so the VD's source, the detach
 /// guard and the cascade all agree.
 async fn filter_source_dataset(
-    pool: &PgPool,
+    pool: &SqlitePool,
     bindings: &[(String, Uuid)],
 ) -> Result<Option<Uuid>, AppError> {
     let candidate = bindings
@@ -1522,7 +1532,10 @@ fn source_gather_kind(structure: &serde_json::Value) -> Option<bool> {
 
 /// **The filter creator proper.** Mints a `source='filter'` virtual dataset over ONE source read
 /// through the run's hidden per-source mask.
-pub async fn create_filter_vd_for_run(pool: &PgPool, job: &Job) -> Result<FilterOutcome, AppError> {
+pub async fn create_filter_vd_for_run(
+    pool: &SqlitePool,
+    job: &Job,
+) -> Result<FilterOutcome, AppError> {
     let run_id = job.run_id.unwrap_or(job.id);
     let (project_id, dataset_id) =
         match crate::modules::jobs::repository::JobRepository::job_scope(pool, job.id).await? {
@@ -1573,10 +1586,10 @@ pub async fn create_filter_vd_for_run(pool: &PgPool, job: &Job) -> Result<Filter
     let account_id =
         crate::modules::account::scope::ensure_personal_account_for(pool, job.owner_id).await?;
     let inserted = sqlx::query!(
-        "INSERT INTO datasets (id, name, owner_id, account_id, datatype, metadata, source)
+        r#"INSERT INTO datasets (id, name, owner_id, account_id, datatype, metadata, source)
          VALUES ($1, $2, $3, $4, NULL, $5, $6)
          ON CONFLICT DO NOTHING
-         RETURNING id",
+         RETURNING id as "id: Uuid""#,
         new_dataset,
         name,
         job.owner_id,
@@ -1780,7 +1793,7 @@ pub struct VdComputeInputs {
 /// None, alignment: None}` — the identity case: it stages its own artifacts directly, with no mask
 /// and no alignment to apply.
 pub async fn resolve_vd_compute_inputs(
-    pool: &PgPool,
+    pool: &SqlitePool,
     vd_dataset_id: Uuid,
 ) -> Result<VdComputeInputs, AppError> {
     let rows = sqlx::query!(

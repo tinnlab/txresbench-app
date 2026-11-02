@@ -5,7 +5,9 @@
 //! functions, the at-rest secret key, and the SSRF URL-validator helpers).
 //! Chunk BG inverted that: the auth module depends on the **abstractions
 //! declared here** (`AuthEventSink`, `AuthSyncSink`) and takes a per-request
-//! [`AuthContext`] handle carrying a `PgPool` + those sinks. The APP installs
+//! [`AuthContext`] handle carrying a `DbPool` (the dual-driver pool alias —
+//! `PgPool` on the default build, `SqlitePool` on `sqlite-backend`) + those
+//! sinks. The APP installs
 //! concrete implementations once at boot and layers a single
 //! `Extension<AuthContext>` onto the router.
 //!
@@ -20,8 +22,8 @@
 
 use std::sync::{Arc, OnceLock};
 
-use sqlx::PgPool;
 use uuid::Uuid;
+use ziee_core::DbPool;
 use ziee_framework::sync::Audience;
 
 use crate::auth::providers::events::AuthProviderEvent;
@@ -87,7 +89,7 @@ pub trait AuthSyncSink: Send + Sync {
 /// cloneable (everything behind `Arc`).
 #[derive(Clone)]
 pub struct AuthContext {
-    pool: Arc<PgPool>,
+    pool: Arc<DbPool>,
     /// The at-rest secret storage key (app copies it from
     /// the app's at-rest secret key at install time).
     secret_key: Option<String>,
@@ -101,7 +103,7 @@ impl AuthContext {
     /// Assemble the handle from a pool + the installed sinks. Called once at
     /// boot by the app wiring.
     pub fn new(
-        pool: Arc<PgPool>,
+        pool: Arc<DbPool>,
         secret_key: Option<String>,
         events: Arc<dyn AuthEventSink>,
         sync: Arc<dyn AuthSyncSink>,
@@ -115,7 +117,7 @@ impl AuthContext {
     }
 
     /// The shared connection pool (replaces `Repos.pool()`).
-    pub fn pool(&self) -> &PgPool {
+    pub fn pool(&self) -> &DbPool {
         &self.pool
     }
 

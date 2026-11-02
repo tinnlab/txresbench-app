@@ -1,104 +1,100 @@
--- workstore module — SQUASHED BASELINE.
+-- workstore module — SQUASHED BASELINE — SQLite dialect port (ITEM-9,
+-- sqlite-store) of
+-- `src/modules/workstore/migrations/202608030004_workstore_baseline.sql`.
 --
--- This single file replaces the module's pre-release incremental migration
--- history. The app was squashed to one baseline per module before first
--- release: the old chain created, ALTERed and then DROPped an earlier
--- domain-specific data model, so it carried retired domain vocabulary forward
--- in perpetuity for a schema that no longer contains it. An applied migration file
--- is byte-immutable (`sqlx::migrate!` checksums full file bytes — see the
--- `MERGED_MIGRATOR` doc in `src/database.rs`), so that vocabulary could not be
--- edited out in place; only a squash removes it.
+-- The Postgres file is the squash provenance: a VERBATIM `pg_dump
+-- --schema-only` rendering of the schema the pre-squash chain produced
+-- (column ORDER included), so the end state is identical to the pre-squash
+-- schema. This port preserves that identity — table/column NAMES, column
+-- ORDER, constraint NAMES, row semantics — expressed in the SQLite dialect;
+-- the dialect is the deliberate, reviewed change (DEC-2/DEC-8). The
+-- per-statement DESIGN RATIONALE the retired files carried lived in git
+-- history (see the PG file) and is not reproduced here.
 --
--- Every DDL statement below is a VERBATIM `pg_dump --schema-only` rendering of
--- the schema the full chain produced, so the end state is identical to the
--- pre-squash schema — column ORDER included. Some columns therefore sit where an
--- `ALTER TABLE … ADD COLUMN` put them rather than in a tidier place; that is
--- deliberate, and it is what makes the identity mechanically provable.
---
--- The per-statement DESIGN RATIONALE the retired files carried is not
--- reproduced here (much of it narrated the very model that was dropped). It
--- lives in git history: `git log --diff-filter=D -p -- \
--- src-app/server/src/modules/workstore/migrations`.
---
--- CONSEQUENCE: a database created before the squash MUST BE RECREATED — see the
--- "SQUASHED BASELINE" section of `src/database.rs`.
+-- SQLite port notes (DEC-8 type map):
+--   * uuid -> BLOB (16 raw bytes; sqlx's sqlite `Uuid` mapping; the app binds
+--     `Uuid::new_v4()` — there is no SQL-side UUID generator).
+--   * jsonb -> TEXT JSON text (defaults `'{}'` kept verbatim — they are
+--     dropped by `…0002`, not by this port); boolean -> INTEGER 0/1;
+--     bigint -> INTEGER; `timestamp with time zone DEFAULT now()` -> TEXT
+--     RFC3339 UTC with `strftime('%Y-%m-%dT%H:%M:%fZ','now')`.
+--   * no `public.` schema prefix; no `::` casts; `USING btree` dropped
+--     (SQLite indexes are B-trees); the zero-uuid `COALESCE` literal becomes
+--     the 16-byte blob X'00000000000000000000000000000000'.
+--   * SQLite has no ALTER TABLE ADD CONSTRAINT: the primary keys and the
+--     three artifact FKs + one axis-entry FK the Postgres file added by
+--     `ALTER TABLE … ADD CONSTRAINT` are declared INLINE here WITH THE SAME
+--     constraint names (the ITEM-7/8 precedent). The FK parents
+--     (`datasets` 202608030002, `projects` 202608030003) sort BEFORE this
+--     file in the full chain; in the staged chain they are ITEM-10/11 ports
+--     that do not exist yet — SQLite binds FK parents lazily, so the CREATE
+--     succeeds and a DML errors with `no such table` (the correct
+--     staged-chain state; the apply harness stands in the stub parents).
 --
 -- Ordering: applies after the project + dataset baselines.
+-- CONSEQUENCE (unchanged from the Postgres file): a database created before
+-- the squash MUST BE RECREATED — see the "SQUASHED BASELINE" section of
+-- `src/database.rs`.
 
--- == tables ==============================================================
+-- == tables (PKs and FKs declared inline; the ALTER … ADD CONSTRAINT
+-- == sections of the Postgres file are folded in here) ====================
 
-CREATE TABLE public.artifacts (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    project_id uuid,
-    run_id uuid,
-    output_id text NOT NULL,
-    datatype text NOT NULL,
-    storage_layout text NOT NULL,
-    object_key text NOT NULL,
-    is_multifile boolean DEFAULT false NOT NULL,
-    content_hash text NOT NULL,
-    shape jsonb DEFAULT '{}'::jsonb NOT NULL,
-    params jsonb DEFAULT '{}'::jsonb NOT NULL,
-    covered_axes jsonb DEFAULT '{}'::jsonb NOT NULL,
-    status text DEFAULT 'pending'::text NOT NULL,
-    size_bytes bigint DEFAULT 0 NOT NULL,
-    created_by uuid,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    dataset_id uuid,
-    hidden boolean DEFAULT false NOT NULL,
-    representation_of uuid
+CREATE TABLE artifacts (
+    id BLOB NOT NULL,
+    project_id BLOB,
+    run_id BLOB,
+    output_id TEXT NOT NULL,
+    datatype TEXT NOT NULL,
+    storage_layout TEXT NOT NULL,
+    object_key TEXT NOT NULL,
+    is_multifile INTEGER NOT NULL DEFAULT 0,
+    content_hash TEXT NOT NULL,
+    shape TEXT NOT NULL DEFAULT '{}',
+    params TEXT NOT NULL DEFAULT '{}',
+    covered_axes TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'pending',
+    size_bytes INTEGER NOT NULL DEFAULT 0,
+    created_by BLOB,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    dataset_id BLOB,
+    hidden INTEGER NOT NULL DEFAULT 0,
+    representation_of BLOB,
+    CONSTRAINT artifacts_pkey PRIMARY KEY (id),
+    CONSTRAINT artifacts_dataset_id_fkey FOREIGN KEY (dataset_id) REFERENCES datasets (id) ON DELETE CASCADE,
+    CONSTRAINT artifacts_project_id_fkey FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE,
+    CONSTRAINT artifacts_representation_of_fkey FOREIGN KEY (representation_of) REFERENCES artifacts (id) ON DELETE CASCADE
 );
 
-CREATE TABLE public.workstore_axis_entry (
-    project_id uuid NOT NULL,
-    axis_name text NOT NULL,
-    entry_index integer NOT NULL,
-    entry_key text,
-    group_id uuid,
-    group_local_index integer
+CREATE TABLE workstore_axis_entry (
+    project_id BLOB NOT NULL,
+    axis_name TEXT NOT NULL,
+    entry_index INTEGER NOT NULL,
+    entry_key TEXT,
+    group_id BLOB,
+    group_local_index INTEGER,
+    CONSTRAINT workstore_axis_entry_pkey PRIMARY KEY (project_id, axis_name, entry_index),
+    CONSTRAINT workstore_axis_entry_project_id_fkey FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
 );
-
--- == primary keys / unique / table constraints ===========================
-
-ALTER TABLE ONLY public.artifacts
-    ADD CONSTRAINT artifacts_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY public.workstore_axis_entry
-    ADD CONSTRAINT workstore_axis_entry_pkey PRIMARY KEY (project_id, axis_name, entry_index);
 
 -- == indexes =============================================================
 
-CREATE INDEX artifacts_dataset_datatype ON public.artifacts USING btree (dataset_id, datatype);
+CREATE INDEX artifacts_dataset_datatype ON artifacts (dataset_id, datatype);
 
-CREATE INDEX artifacts_dataset_id ON public.artifacts USING btree (dataset_id);
+CREATE INDEX artifacts_dataset_id ON artifacts (dataset_id);
 
-CREATE UNIQUE INDEX artifacts_natural_key ON public.artifacts USING btree (COALESCE(project_id, '00000000-0000-0000-0000-000000000000'::uuid), COALESCE(dataset_id, '00000000-0000-0000-0000-000000000000'::uuid), COALESCE(run_id, '00000000-0000-0000-0000-000000000000'::uuid), output_id);
+CREATE UNIQUE INDEX artifacts_natural_key ON artifacts (COALESCE(project_id, X'00000000000000000000000000000000'), COALESCE(dataset_id, X'00000000000000000000000000000000'), COALESCE(run_id, X'00000000000000000000000000000000'), output_id);
 
-CREATE INDEX artifacts_object_key ON public.artifacts USING btree (object_key);
+CREATE INDEX artifacts_object_key ON artifacts (object_key);
 
-CREATE INDEX artifacts_project_datatype ON public.artifacts USING btree (project_id, datatype);
+CREATE INDEX artifacts_project_datatype ON artifacts (project_id, datatype);
 
-CREATE INDEX artifacts_project_run ON public.artifacts USING btree (project_id, run_id);
+CREATE INDEX artifacts_project_run ON artifacts (project_id, run_id);
 
-CREATE INDEX idx_artifacts_representation_of ON public.artifacts USING btree (representation_of);
+CREATE INDEX idx_artifacts_representation_of ON artifacts (representation_of);
 
-CREATE INDEX workstore_axis_entry_group ON public.workstore_axis_entry USING btree (project_id, axis_name, group_id);
+CREATE INDEX workstore_axis_entry_group ON workstore_axis_entry (project_id, axis_name, group_id);
 
-CREATE UNIQUE INDEX workstore_axis_entry_group_identity ON public.workstore_axis_entry USING btree (project_id, axis_name, group_id, group_local_index) WHERE (group_id IS NOT NULL);
+CREATE UNIQUE INDEX workstore_axis_entry_group_identity ON workstore_axis_entry (project_id, axis_name, group_id, group_local_index) WHERE (group_id IS NOT NULL);
 
-CREATE UNIQUE INDEX workstore_axis_entry_key ON public.workstore_axis_entry USING btree (project_id, axis_name, entry_key) WHERE (entry_key IS NOT NULL);
-
--- == foreign keys ========================================================
-
-ALTER TABLE ONLY public.artifacts
-    ADD CONSTRAINT artifacts_dataset_id_fkey FOREIGN KEY (dataset_id) REFERENCES public.datasets(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY public.artifacts
-    ADD CONSTRAINT artifacts_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY public.artifacts
-    ADD CONSTRAINT artifacts_representation_of_fkey FOREIGN KEY (representation_of) REFERENCES public.artifacts(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY public.workstore_axis_entry
-    ADD CONSTRAINT workstore_axis_entry_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE CASCADE;
+CREATE UNIQUE INDEX workstore_axis_entry_key ON workstore_axis_entry (project_id, axis_name, entry_key) WHERE (entry_key IS NOT NULL);

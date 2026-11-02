@@ -3,7 +3,7 @@
 use axum::extract::Path;
 use axum::http::StatusCode;
 use axum::{Extension, Json};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use ziee_core::{ApiResult, AppError};
@@ -23,7 +23,7 @@ fn e(err: AppError) -> (StatusCode, AppError) {
 /// via the project repository (a foreign/nonexistent project reads as `None` → 404).
 pub async fn dataset_summary(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<ProjectDatasetSummary>> {
     let repo = ProjectRepository::new(pool.clone());

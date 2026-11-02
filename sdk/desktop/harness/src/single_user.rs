@@ -31,12 +31,11 @@
 //! [`mint_owner_login`]: SingleUserStrategy::mint_owner_login
 
 use serde::Serialize;
-use sqlx::PgPool;
 use ziee_auth::auth::JwtService;
 use ziee_auth::auth::refresh_tokens::mint_session_tokens;
 use ziee_auth::user::UserRepository;
 use ziee_auth::User;
-use ziee_core::AppError;
+use ziee_core::{AppError, DbPool};
 
 /// The permission the single-user owner holds — the full wildcard. Evaluated by
 /// `ziee-identity`'s RBAC wildcard match, so a desktop owner passes every
@@ -90,7 +89,7 @@ impl SingleUserStrategy {
     /// Whether the owner is absent (first run) — the readable half of
     /// `ensure_desktop_admin`. `true` ⇒ the app's create seam must provision the
     /// owner (see the module docs on why creation stays app-side).
-    pub async fn owner_missing(&self, pool: &PgPool) -> Result<bool, AppError> {
+    pub async fn owner_missing(&self, pool: &DbPool) -> Result<bool, AppError> {
         let has_admin = UserRepository::new(pool.clone()).has_admin().await?;
         Ok(!has_admin)
     }
@@ -104,7 +103,7 @@ impl SingleUserStrategy {
     /// app's `mint_admin_login`.
     pub async fn mint_owner_login(
         &self,
-        pool: &PgPool,
+        pool: &DbPool,
         jwt: &JwtService,
     ) -> Result<OwnerLogin, AppError> {
         let owner = UserRepository::new(pool.clone())

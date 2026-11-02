@@ -89,7 +89,7 @@ async fn a_backfilled_row_does_not_appear_in_another_projects_catalog() {
         .expect("insert")
         .id;
 
-    async fn in_project(pool: &sqlx::PgPool, proj: Uuid, art: Uuid) -> usize {
+    async fn in_project(pool: &sqlx::SqlitePool, proj: Uuid, art: Uuid) -> usize {
         CatalogRepository::new(pool.clone())
             .list_for_project_scope(proj, &ArtifactFilter::default(), None)
             .await

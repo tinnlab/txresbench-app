@@ -8,7 +8,7 @@ use axum::response::{IntoResponse, Response};
 use axum::{Extension, Json};
 use schemars::JsonSchema;
 use serde::Deserialize;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use ziee_core::{ApiResult, AppError};
@@ -55,7 +55,7 @@ pub struct RunsQuery {
 
 pub async fn get_graph(
     auth: RequirePermissions<(ProvenanceRead,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Query(q): Query<GraphQuery>,
 ) -> ApiResult<Json<GraphDto>> {
     authz::require_project_read(&pool, q.project_id, auth.user.id).await?;
@@ -78,7 +78,7 @@ pub struct ForwardQuery {
 /// authorized by owner/sharee VISIBILITY; a foreign/invisible dataset → 404.
 pub async fn get_forward(
     auth: RequirePermissions<(ProvenanceRead,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Query(q): Query<ForwardQuery>,
 ) -> ApiResult<Json<ForwardGraphDto>> {
     let group_ids = active_group_ids(&auth.groups);
@@ -103,7 +103,7 @@ pub async fn get_forward(
 
 pub async fn list_runs(
     auth: RequirePermissions<(ProvenanceRead,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Query(q): Query<RunsQuery>,
 ) -> ApiResult<Json<RunsPageDto>> {
     authz::require_project_read(&pool, q.project_id, auth.user.id).await?;
@@ -124,7 +124,7 @@ pub async fn list_runs(
 
 pub async fn get_run(
     auth: RequirePermissions<(ProvenanceRead,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<RunNodeDto>> {
     let repo = ProvenanceRepository::new(pool.clone());
@@ -158,7 +158,7 @@ pub async fn get_run(
 /// upload path had. Mirrors `workstore::sync::publish_artifact`, which already
 /// resolves this exact audience for artifacts.
 async fn publish_run_to_project(
-    pool: &PgPool,
+    pool: &SqlitePool,
     project_id: Uuid,
     run_id: Uuid,
     actor: Actor,
@@ -184,7 +184,7 @@ async fn publish_run_to_project(
 
 pub async fn record_selection(
     auth: RequirePermissions<(ProvenanceRead,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Json(req): Json<RecordSelectionRequest>,
 ) -> ApiResult<Json<RunNodeDto>> {
@@ -211,7 +211,7 @@ pub async fn record_selection(
 
 pub async fn record_action(
     auth: RequirePermissions<(ProvenanceRead,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Json(req): Json<RecordActionRequest>,
 ) -> ApiResult<Json<RunNodeDto>> {
@@ -279,7 +279,7 @@ pub struct VerificationsQuery {
 /// `sync:provenance_verification`.
 pub async fn verify(
     auth: RequirePermissions<(ProvenanceExport,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Json(req): Json<VerifyRequest>,
 ) -> ApiResult<Json<VerificationDto>> {
     // Edit-level per-project role: triggering an expensive re-run is not a read.
@@ -367,7 +367,7 @@ pub async fn verify(
 /// paginated (bounded — default 50, cap 500).
 pub async fn list_verifications(
     auth: RequirePermissions<(ProvenanceRead,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Query(q): Query<VerificationsQuery>,
 ) -> ApiResult<Json<VerificationsResponse>> {
     authz::require_project_read(&pool, q.project_id, auth.user.id).await?;
@@ -389,7 +389,7 @@ pub async fn list_verifications(
 
 pub async fn export(
     auth: RequirePermissions<(ProvenanceExport,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Json(req): Json<ExportRequest>,
 ) -> ApiResult<Json<ExportResponse>> {
     authz::require_project_read(&pool, req.project_id, auth.user.id).await?;
@@ -430,7 +430,7 @@ pub async fn export(
 /// ownership re-check on the bundle's project.
 pub async fn download_export(
     auth: RequirePermissions<(ProvenanceExport,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path(id): Path<Uuid>,
 ) -> Response {
     let Some(record) = bundle::read_bundle(id) else {
@@ -461,7 +461,7 @@ pub async fn download_export(
 
 pub async fn get_settings(
     _auth: RequirePermissions<(ProvenanceSettingsRead,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
 ) -> ApiResult<Json<ProvenanceSettings>> {
     let row = ProvenanceSettingsRepository::new(pool).get().await.map_err(e)?;
     Ok((StatusCode::OK, Json(row)))
@@ -469,7 +469,7 @@ pub async fn get_settings(
 
 pub async fn update_settings(
     auth: RequirePermissions<(ProvenanceSettingsManage,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Json(body): Json<UpdateProvenanceSettings>,
 ) -> ApiResult<Json<ProvenanceSettings>> {

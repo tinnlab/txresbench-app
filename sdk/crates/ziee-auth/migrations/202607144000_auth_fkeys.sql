@@ -1,29 +1,19 @@
--- Squashed module baseline (MIGRATE-squash / N3.1 / N7).
--- Auth foreign keys (deferred).
-
-ALTER TABLE ONLY public.oauth_sessions
-    ADD CONSTRAINT oauth_sessions_provider_id_fkey FOREIGN KEY (provider_id) REFERENCES public.auth_providers(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY public.pending_account_links
-    ADD CONSTRAINT pending_account_links_provider_id_fkey FOREIGN KEY (provider_id) REFERENCES public.auth_providers(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY public.pending_account_links
-    ADD CONSTRAINT pending_account_links_target_user_id_fkey FOREIGN KEY (target_user_id) REFERENCES public.users(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY public.refresh_tokens
-    ADD CONSTRAINT refresh_tokens_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY public.user_auth_links
-    ADD CONSTRAINT user_auth_links_provider_id_fkey FOREIGN KEY (provider_id) REFERENCES public.auth_providers(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY public.user_auth_links
-    ADD CONSTRAINT user_auth_links_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY public.user_groups
-    ADD CONSTRAINT user_groups_assigned_by_fkey FOREIGN KEY (assigned_by) REFERENCES public.users(id) ON DELETE SET NULL;
-
-ALTER TABLE ONLY public.user_groups
-    ADD CONSTRAINT user_groups_group_id_fkey FOREIGN KEY (group_id) REFERENCES public.groups(id) ON DELETE CASCADE;
-
-ALTER TABLE ONLY public.user_groups
-    ADD CONSTRAINT user_groups_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+-- Auth foreign keys. SQLite port note: the FK topology is the same nine
+-- constraints named in the Postgres file; SQLite has no
+-- `ALTER TABLE … ADD CONSTRAINT`, so every one of them is declared inline in
+-- the table definitions of 202607140050_auth_schema.sql with these exact names:
+--
+--   oauth_sessions_provider_id_fkey            provider_id -> auth_providers(id)   ON DELETE CASCADE
+--   pending_account_links_provider_id_fkey     provider_id -> auth_providers(id)   ON DELETE CASCADE
+--   pending_account_links_target_user_id_fkey  target_user_id -> users(id)         ON DELETE CASCADE
+--   refresh_tokens_user_id_fkey                user_id -> users(id)                ON DELETE CASCADE
+--   user_auth_links_provider_id_fkey           provider_id -> auth_providers(id)   ON DELETE CASCADE
+--   user_auth_links_user_id_fkey               user_id -> users(id)                ON DELETE CASCADE
+--   user_groups_assigned_by_fkey               assigned_by -> users(id)            ON DELETE SET NULL
+--   user_groups_group_id_fkey                  group_id -> groups(id)              ON DELETE CASCADE
+--   user_groups_user_id_fkey                   user_id -> users(id)                ON DELETE CASCADE
+--
+-- Enforcement is on by default in the app's SQLite connections (`foreign_keys =
+-- ON` is part of the connect-options profile), so the cascade behaviors are
+-- identical to the Postgres chain. This file is kept as a documentation marker
+-- with the same version number, so the two chains stay file-for-file aligned.

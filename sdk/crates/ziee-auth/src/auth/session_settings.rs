@@ -14,7 +14,6 @@
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
 use ziee_core::AppError;
 
 // ─────────────────────────────── DTOs ───────────────────────────────
@@ -43,14 +42,15 @@ pub struct UpdateSessionSettingsRequest {
 
 #[derive(Clone, Debug)]
 pub struct SessionSettingsRepository {
-    pool: PgPool,
+    pool: ziee_core::DbPool,
 }
 
 impl SessionSettingsRepository {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: ziee_core::DbPool) -> Self {
         Self { pool }
     }
 
+    #[cfg(not(feature = "sqlite-backend"))]
     pub async fn get(&self) -> Result<SessionSettings, AppError> {
         let row = sqlx::query_as!(
             SessionSettings,
@@ -69,6 +69,26 @@ impl SessionSettingsRepository {
         Ok(row)
     }
 
+    #[cfg(feature = "sqlite-backend")]
+    pub async fn get(&self) -> Result<SessionSettings, AppError> {
+        let row = sqlx::query_as!(
+            SessionSettings,
+            r#"
+            SELECT
+                access_token_expiry_hours as "access_token_expiry_hours: _",
+                refresh_token_expiry_days as "refresh_token_expiry_days: _",
+                updated_at as "updated_at: _"
+            FROM session_settings
+            WHERE id = TRUE
+            "#
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(AppError::database_error)?;
+        Ok(row)
+    }
+
+    #[cfg(not(feature = "sqlite-backend"))]
     pub async fn update(
         &self,
         access_token_expiry_hours: Option<i32>,
@@ -102,6 +122,36 @@ impl SessionSettingsRepository {
         Ok(row)
     }
 
+    #[cfg(feature = "sqlite-backend")]
+    pub async fn update(
+        &self,
+        access_token_expiry_hours: Option<i32>,
+        refresh_token_expiry_days: Option<i32>,
+    ) -> Result<SessionSettings, AppError> {
+        // Same latch semantics as the postgres leg (see above).
+        let row = sqlx::query_as!(
+            SessionSettings,
+            r#"
+            UPDATE session_settings SET
+                access_token_expiry_hours = COALESCE($1, access_token_expiry_hours),
+                refresh_token_expiry_days = COALESCE($2, refresh_token_expiry_days),
+                seeded_from_config        = TRUE,
+                updated_at                = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+            WHERE id = TRUE
+            RETURNING
+                access_token_expiry_hours as "access_token_expiry_hours: _",
+                refresh_token_expiry_days as "refresh_token_expiry_days: _",
+                updated_at as "updated_at: _"
+            "#,
+            access_token_expiry_hours,
+            refresh_token_expiry_days,
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(AppError::database_error)?;
+        Ok(row)
+    }
+
     /// One-time boot copy of the YAML jwt lifetimes into the singleton row.
     ///
     /// Runs on every boot but writes only while `seeded_from_config` is
@@ -110,6 +160,7 @@ impl SessionSettingsRepository {
     /// customized YAML values into the DB so upgrading doesn't silently
     /// reset their lifetimes to the migration defaults. Values outside
     /// the DB CHECK ranges are clamped rather than failing boot.
+    #[cfg(not(feature = "sqlite-backend"))]
     pub async fn seed_from_config_once(
         &self,
         config_access_hours: i64,
@@ -124,6 +175,32 @@ impl SessionSettingsRepository {
                 refresh_token_expiry_days = $2,
                 seeded_from_config        = TRUE,
                 updated_at                = NOW()
+            WHERE id = TRUE AND seeded_from_config = FALSE
+            "#,
+            access,
+            refresh,
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(AppError::database_error)?;
+        Ok(())
+    }
+
+    #[cfg(feature = "sqlite-backend")]
+    pub async fn seed_from_config_once(
+        &self,
+        config_access_hours: i64,
+        config_refresh_days: i64,
+    ) -> Result<(), AppError> {
+        let access = config_access_hours.clamp(1, 8760) as i32;
+        let refresh = config_refresh_days.clamp(1, 3650) as i32;
+        sqlx::query!(
+            r#"
+            UPDATE session_settings SET
+                access_token_expiry_hours = $1,
+                refresh_token_expiry_days = $2,
+                seeded_from_config        = TRUE,
+                updated_at                = strftime('%Y-%m-%dT%H:%M:%fZ','now')
             WHERE id = TRUE AND seeded_from_config = FALSE
             "#,
             access,

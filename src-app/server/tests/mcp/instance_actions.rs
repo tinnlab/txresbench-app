@@ -1,24 +1,137 @@
 //! TEST-6/7/8 (`.lifecycle/ai-actions/TESTS.md`) — the ai-actions slice-3
 //! backend deltas over the merged capability catalogs: an INSTANCE-kind
-//! frontend action (`harness.setValue`/`harness.describe`, registered by
-//! `src/core/actions/builtin/harnessActions.ts`) describes its `view_id`/
-//! `expected_token` inputs, its invoke carries both through the REAL agent
-//! channel to a SIMULATED engine, a world-model read (`views.list`) returns
-//! whatever directory payload the simulated engine answers with (proving the
-//! generic frontend-dispatch path, no special backend casing needed for
-//! reads), and a simulated-stale mutating invoke relays as an `isError`
-//! `STALE_STATE` tool result — the backend never judges staleness itself
-//! (ARCHITECTURE.md Layer 5/6: permission = backend-enforced trust,
-//! staleness = engine-enforced correctness; this suite only proves the
-//! backend RELAYS the engine's verdict faithfully).
+//! frontend action describes its `view_id`/`expected_token` inputs, its
+//! invoke carries both through the REAL agent channel to a SIMULATED engine,
+//! a world-model read (`views.list`) returns whatever directory payload the
+//! simulated engine answers with (proving the generic frontend-dispatch path,
+//! no special backend casing needed for reads), and a simulated-stale
+//! mutating invoke relays as an `isError` `STALE_STATE` tool result — the
+//! backend never judges staleness itself (ARCHITECTURE.md Layer 5/6:
+//! permission = backend-enforced trust, staleness = engine-enforced
+//! correctness; this suite only proves the backend RELAYS the engine's
+//! verdict faithfully).
+//!
+//! ## SQLite-node re-point
+//!
+//! The app-owned `harness.setValue`/`harness.describe` actions (registered by
+//! `src/core/actions/builtin/harnessActions.ts`) were stripped with the
+//! harness/agent-ish surfaces (e38a55d). The RETAINED mechanism for an
+//! instance-kind stateful action is the control-session capability report
+//! (`POST /mcp/agent/capabilities`) — the shape the `view_capabilities`
+//! suite proves — so these tests report a `demo.view::setValue` /
+//! `demo.view::describe` pair with the SAME kind/mutating/stateful shape the
+//! stripped actions had, and exercise the backend's describe/invoke relay
+//! against the reported catalog.
 
 use std::time::Duration;
 
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use super::{create_user, login, next_sse_event, open_agent_stream, post_agent_result, setup_admin, tools_call};
+use super::{
+    create_user, login, next_sse_event, open_agent_stream, post_agent_result, setup_admin,
+    tools_call,
+};
 use crate::common::TestServer;
+
+/// `POST /api/mcp/agent/capabilities` — the ack's `ok` flag (whether the report
+/// correlated to the caller's currently bound control connection).
+async fn post_capabilities(
+    server: &TestServer,
+    token: &str,
+    connection_id: &Value,
+    capabilities: Value,
+) -> bool {
+    let resp = server
+        .client
+        .post(server.api_url("/mcp/agent/capabilities"))
+        .bearer_auth(token)
+        .json(&json!({ "connection_id": connection_id, "capabilities": capabilities }))
+        .send()
+        .await
+        .expect("agent capabilities");
+    assert_eq!(resp.status().as_u16(), 200, "capabilities report status");
+    let body: Value = resp.json().await.expect("capabilities ack json");
+    body["ok"].as_bool().unwrap_or(false)
+}
+
+/// Open the agent SSE stream and return `(response, buffer, connection_id)` —
+/// the handshake's server-minted connection id is what a capability report must
+/// echo back.
+async fn open_stream_with_connection_id(
+    server: &TestServer,
+    token: &str,
+) -> (reqwest::Response, String, Value) {
+    let session_id = Uuid::new_v4();
+    let mut resp = server
+        .client
+        .get(server.api_url(&format!("/mcp/agent/stream?session_id={session_id}")))
+        .bearer_auth(token)
+        .header("Accept", "text/event-stream")
+        .send()
+        .await
+        .expect("open agent stream");
+    assert_eq!(resp.status().as_u16(), 200, "agent stream open");
+    let mut buf = String::new();
+    let connected = next_sse_event(&mut resp, &mut buf, Duration::from_secs(5))
+        .await
+        .expect("connected handshake frame");
+    assert_eq!(connected["type"], "connected");
+    let connection_id = connected["connection_id"].clone();
+    assert!(
+        connection_id.as_str().is_some(),
+        "the handshake must carry the connection_id a report correlates on: {connected}"
+    );
+    (resp, buf, connection_id)
+}
+
+/// A reported mutating+STATEFUL instance action — the shape the stripped
+/// `harness.setValue` carried (the only mutating+stateful action the app-owned
+/// catalog ever held). `expected_token` is the engine's staleness guard input.
+fn set_value_capability() -> Value {
+    json!({
+        "id": "demo.view::setValue",
+        "title": "Set a value",
+        "kind": "instance",
+        "mutating": true,
+        "stateful": true,
+        "context": "global",
+        "permission": "jobs::use",
+        "description": "Set the value of the demo view.",
+        "params_schema": {
+            "type": "object",
+            "required": ["view_id", "value", "expected"],
+            "additionalProperties": false,
+            "properties": {
+                "view_id": { "type": "string" },
+                "value": { "type": "integer" },
+                "expected": { "type": "string" }
+            }
+        }
+    })
+}
+
+/// A reported non-mutating instance READ — the `harness.describe` shape.
+fn describe_view_capability() -> Value {
+    json!({
+        "id": "demo.view::describe",
+        "title": "Describe a view",
+        "kind": "instance",
+        "mutating": false,
+        "stateful": false,
+        "context": "global",
+        "permission": "jobs::use",
+        "description": "Read the demo view's state.",
+        "params_schema": {
+            "type": "object",
+            "required": ["view_id"],
+            "additionalProperties": false,
+            "properties": {
+                "view_id": { "type": "string" }
+            }
+        }
+    })
+}
 
 // ------------------------------- TEST-6 -------------------------------
 
@@ -29,12 +142,27 @@ async fn describe_capability_reports_instance_action_view_id_and_expected_token_
     create_user(&server, &admin, "describer", "describer@x.test").await;
     let user = login(&server, "describer").await;
 
+    // The reported catalog lives on the calling user's bound control connection,
+    // so the report needs a live stream (kept open through the describes).
+    let (_stream, _buf, connection_id) =
+        open_stream_with_connection_id(&server, &user).await;
+    assert!(
+        post_capabilities(
+            &server,
+            &user,
+            &connection_id,
+            json!([set_value_capability(), describe_view_capability()]),
+        )
+        .await,
+        "the report must correlate to the bound connection"
+    );
+
     // A mutating+stateful instance action requires BOTH inputs.
     let set_value = tools_call(
         &server,
         &user,
         "describe_capability",
-        json!({ "operation_id": "harness.setValue" }),
+        json!({ "operation_id": "demo.view::setValue" }),
     )
     .await;
     let structured = &set_value["structuredContent"];
@@ -49,7 +177,7 @@ async fn describe_capability_reports_instance_action_view_id_and_expected_token_
         &server,
         &user,
         "describe_capability",
-        json!({ "operation_id": "harness.describe" }),
+        json!({ "operation_id": "demo.view::describe" }),
     )
     .await;
     let structured = &describe["structuredContent"];
@@ -79,8 +207,18 @@ async fn invoke_instance_action_relays_view_id_and_expected_token_over_the_real_
     create_user(&server, &admin, "driver", "driver@x.test").await;
     let driver = login(&server, "driver").await;
 
-    let session_id = Uuid::new_v4();
-    let (mut stream, mut buf) = open_agent_stream(&server, &driver, session_id).await;
+    let (mut stream, mut buf, connection_id) =
+        open_stream_with_connection_id(&server, &driver).await;
+    assert!(
+        post_capabilities(
+            &server,
+            &driver,
+            &connection_id,
+            json!([set_value_capability()]),
+        )
+        .await,
+        "the report must correlate to the bound connection"
+    );
 
     let (invoke_result, ()) = tokio::join!(
         tools_call(
@@ -88,7 +226,7 @@ async fn invoke_instance_action_relays_view_id_and_expected_token_over_the_real_
             &driver,
             "invoke_capability",
             json!({
-                "operation_id": "harness.setValue",
+                "operation_id": "demo.view::setValue",
                 "body": { "view_id": "v1", "value": 5, "expected": "v1@0" }
             }),
         ),
@@ -97,7 +235,7 @@ async fn invoke_instance_action_relays_view_id_and_expected_token_over_the_real_
                 .await
                 .expect("agent_invoke frame arrives over the real SSE channel");
             assert_eq!(invoke_frame["type"], "agent_invoke");
-            assert_eq!(invoke_frame["action_id"], "harness.setValue");
+            assert_eq!(invoke_frame["action_id"], "demo.view::setValue");
             // The full params still carry view_id/expected (the manifest's own
             // zod schema requires them) — AND the backend threads them through
             // as dedicated top-level fields for the engine's guard.
@@ -196,8 +334,18 @@ async fn mutating_instance_invoke_reported_stale_by_the_engine_surfaces_as_iserr
     create_user(&server, &admin, "stale-driver", "stale-driver@x.test").await;
     let driver = login(&server, "stale-driver").await;
 
-    let session_id = Uuid::new_v4();
-    let (mut stream, mut buf) = open_agent_stream(&server, &driver, session_id).await;
+    let (mut stream, mut buf, connection_id) =
+        open_stream_with_connection_id(&server, &driver).await;
+    assert!(
+        post_capabilities(
+            &server,
+            &driver,
+            &connection_id,
+            json!([set_value_capability()]),
+        )
+        .await,
+        "the report must correlate to the bound connection"
+    );
 
     let (invoke_result, ()) = tokio::join!(
         tools_call(
@@ -205,7 +353,7 @@ async fn mutating_instance_invoke_reported_stale_by_the_engine_surfaces_as_iserr
             &driver,
             "invoke_capability",
             json!({
-                "operation_id": "harness.setValue",
+                "operation_id": "demo.view::setValue",
                 // A caller-presented token the (simulated) engine will judge
                 // stale — the backend does NOT reject this itself; it relays
                 // whatever the engine decides.
@@ -260,12 +408,14 @@ async fn mutating_instance_invoke_reported_stale_by_the_engine_surfaces_as_iserr
 // (caught by the new `kind == "instance"` type guard in `invoke_frontend`,
 // since `validate_body`'s required-presence check alone lets it through);
 // a wholesale-missing `view_id` is rejected up front by `validate_body`
-// itself (both `harness.*` actions declare `view_id` in their manifest
+// itself (both the stripped `harness.*` actions and the reported
+// `demo.view::setValue` declare `view_id` in their manifest
 // `params_schema.required`) — proving BOTH failure shapes are a clear
 // `isError`, never a silent `None` relayed to the agent channel. Neither
-// test opens an agent SSE stream: `tools_call` returning synchronously
-// (rather than hanging on a `agent_invoke` frame nobody will answer) is
-// itself proof that no dispatch was attempted.
+// test answers any `agent_invoke` frame: `tools_call` returning synchronously
+// (rather than hanging on a frame nobody will answer) is itself proof that no
+// dispatch was attempted — even though a stream is open and the operation is
+// in the reported catalog (which it must be for the invoke to resolve at all).
 
 #[tokio::test]
 async fn invoke_instance_action_with_non_string_view_id_is_rejected_not_silently_coerced_to_none() {
@@ -274,12 +424,25 @@ async fn invoke_instance_action_with_non_string_view_id_is_rejected_not_silently
     create_user(&server, &admin, "bad-view-id", "bad-view-id@x.test").await;
     let driver = login(&server, "bad-view-id").await;
 
+    let (_stream, _buf, connection_id) =
+        open_stream_with_connection_id(&server, &driver).await;
+    assert!(
+        post_capabilities(
+            &server,
+            &driver,
+            &connection_id,
+            json!([set_value_capability()]),
+        )
+        .await,
+        "the report must correlate to the bound connection"
+    );
+
     let invoke_result = tools_call(
         &server,
         &driver,
         "invoke_capability",
         json!({
-            "operation_id": "harness.setValue",
+            "operation_id": "demo.view::setValue",
             // view_id present (so validate_body's required-presence check
             // passes) but the WRONG JSON type — this is exactly the gap
             // `validate_body` cannot catch on its own.
@@ -302,12 +465,25 @@ async fn invoke_instance_action_with_missing_view_id_is_rejected_not_silently_di
     create_user(&server, &admin, "no-view-id", "no-view-id@x.test").await;
     let driver = login(&server, "no-view-id").await;
 
+    let (_stream, _buf, connection_id) =
+        open_stream_with_connection_id(&server, &driver).await;
+    assert!(
+        post_capabilities(
+            &server,
+            &driver,
+            &connection_id,
+            json!([set_value_capability()]),
+        )
+        .await,
+        "the report must correlate to the bound connection"
+    );
+
     let invoke_result = tools_call(
         &server,
         &driver,
         "invoke_capability",
         json!({
-            "operation_id": "harness.setValue",
+            "operation_id": "demo.view::setValue",
             // view_id entirely absent — the manifest's own params_schema
             // already lists it as `required`, so `validate_body` rejects
             // this before `invoke_frontend`'s kind=="instance" branch ever

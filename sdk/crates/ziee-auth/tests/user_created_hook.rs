@@ -21,7 +21,8 @@ mod common;
 
 use std::sync::{Arc, Mutex};
 
-use sqlx::{PgConnection, Row};
+use sqlx::Row;
+use ziee_core::{DbConnection, DbPool};
 use uuid::Uuid;
 
 use common::{SEEDED_PROVIDER_ID, drop_db, fresh_db};
@@ -49,7 +50,7 @@ impl UserCreatedHook for RecordingHook {
     async fn on_user_created(
         &self,
         user: &ziee_auth::User,
-        tx: &mut PgConnection,
+        tx: &mut DbConnection,
     ) -> Result<(), AppError> {
         self.seen.lock().unwrap().push(user.id);
 
@@ -84,14 +85,14 @@ impl UserCreatedHook for SecondHook {
     async fn on_user_created(
         &self,
         user: &ziee_auth::User,
-        _tx: &mut PgConnection,
+        _tx: &mut DbConnection,
     ) -> Result<(), AppError> {
         self.seen.lock().unwrap().push(user.id);
         Ok(())
     }
 }
 
-async fn user_exists(pool: &sqlx::PgPool, username: &str) -> Option<(Uuid, Option<String>)> {
+async fn user_exists(pool: &DbPool, username: &str) -> Option<(Uuid, Option<String>)> {
     sqlx::query("SELECT id, avatar_url FROM users WHERE username = $1")
         .bind(username)
         .fetch_optional(pool)

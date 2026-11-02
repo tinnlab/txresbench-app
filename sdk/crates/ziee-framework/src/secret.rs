@@ -18,8 +18,7 @@
 //! (High), and adjacent items.
 
 use serde::{Deserialize, Serialize};
-use ziee_core::AppError;
-use sqlx::PgPool;
+use ziee_core::{AppError, DbPool};
 
 const MIN_STORAGE_KEY_LENGTH: usize = 32;
 
@@ -75,8 +74,9 @@ impl<T> Serialize for SecretView<T> {
 /// pgp_sym_encrypt. Returns Ok(Some(bytes)) on success, Ok(None) when
 /// the storage key is unset (compat mode for unconfigured deployments).
 /// Errors only on actual DB / encryption failure.
+#[cfg_attr(feature = "sqlite-backend", allow(unused_variables))]
 pub async fn encrypt_secret(
-    pool: &PgPool,
+    pool: &DbPool,
     plaintext: &str,
     storage_key: Option<&str>,
 ) -> Result<Option<Vec<u8>>, AppError> {
@@ -90,22 +90,39 @@ pub async fn encrypt_secret(
         None => return Ok(None),
     };
 
-    let row: (Vec<u8>,) = sqlx::query_as("SELECT pgp_sym_encrypt($1, $2)")
-        .bind(plaintext)
-        .bind(key)
-        .fetch_one(pool)
-        .await
-        .map_err(AppError::database_error)?;
+    // D02 (owner decision): the secret-encryption feature stays DORMANT on the
+    // sqlite store — the desktop build has no billing/cloud-store/login path
+    // that uses it and no key is configured by default. The PG machinery
+    // (pgcrypto) does not exist on SQLite; no replacement cipher is built.
+    // A configured storage key therefore fails EXPLICITLY (never silently
+    // stores the plaintext as if it had been encrypted).
+    #[cfg(not(feature = "sqlite-backend"))]
+    {
+        let row: (Vec<u8>,) = sqlx::query_as("SELECT pgp_sym_encrypt($1, $2)")
+            .bind(plaintext)
+            .bind(key)
+            .fetch_one(pool)
+            .await
+            .map_err(AppError::database_error)?;
 
-    Ok(Some(row.0))
+        Ok(Some(row.0))
+    }
+    #[cfg(feature = "sqlite-backend")]
+    {
+        Err(AppError::internal_error(
+            "Secret encryption is unavailable on the SQLite store (feature dormant, D02): \
+             no storage key may be used at rest",
+        ))
+    }
 }
 
 /// Decrypt a bytea blob to plaintext using pgcrypto's pgp_sym_decrypt.
 /// Returns Ok(plaintext) on success. Errors on DB / decryption failure
 /// (typically a wrong key — fail closed and surface a generic error to
 /// the caller).
+#[cfg_attr(feature = "sqlite-backend", allow(unused_variables))]
 pub async fn decrypt_secret(
-    pool: &PgPool,
+    pool: &DbPool,
     ciphertext: &[u8],
     storage_key: &str,
 ) -> Result<String, AppError> {
@@ -115,14 +132,27 @@ pub async fn decrypt_secret(
         ));
     }
 
-    let row: (String,) = sqlx::query_as("SELECT pgp_sym_decrypt($1, $2)")
-        .bind(ciphertext)
-        .bind(storage_key)
-        .fetch_one(pool)
-        .await
-        .map_err(AppError::database_error)?;
+    // D02 — see `encrypt_secret`: the decrypt path is unavailable on the
+    // sqlite store, with the same explicit error (a caller's
+    // `resolve_optional_secret` falls back to the plaintext column, exactly
+    // as it does on a decryption failure).
+    #[cfg(not(feature = "sqlite-backend"))]
+    {
+        let row: (String,) = sqlx::query_as("SELECT pgp_sym_decrypt($1, $2)")
+            .bind(ciphertext)
+            .bind(storage_key)
+            .fetch_one(pool)
+            .await
+            .map_err(AppError::database_error)?;
 
-    Ok(row.0)
+        Ok(row.0)
+    }
+    #[cfg(feature = "sqlite-backend")]
+    {
+        Err(AppError::internal_error(
+            "Secret decryption is unavailable on the SQLite store (feature dormant, D02)",
+        ))
+    }
 }
 
 /// Repository-side resolver for the encrypted/plaintext dual-column
@@ -136,7 +166,7 @@ pub async fn decrypt_secret(
 /// plaintext column was cleared on write, so the secret simply
 /// becomes unavailable rather than 500-ing every read).
 pub async fn resolve_optional_secret(
-    pool: &PgPool,
+    pool: &DbPool,
     encrypted: Option<Vec<u8>>,
     plaintext: Option<String>,
 ) -> Option<String> {
@@ -228,12 +258,24 @@ mod tests {
     // encrypt_secret's two pre-DB branches — the encryption-FAILURE path that
     // repository write paths (e.g. llm_repository) propagate as
     // "secret encryption failed", and the encryption-DISABLED (no key) path.
-    // Both return before touching the pool, so a lazy pool suffices.
-    fn lazy_pool() -> PgPool {
-        sqlx::postgres::PgPoolOptions::new()
-            .max_connections(1)
-            .connect_lazy("postgresql://postgres:password@127.0.0.1:54321/unused")
-            .expect("lazy pool")
+    // Both return before touching the pool, so a lazy pool suffices. The pool
+    // is the dual-driver alias, so the lazy construction picks the driver's
+    // own options/URL.
+    fn lazy_pool() -> DbPool {
+        #[cfg(not(feature = "sqlite-backend"))]
+        {
+            sqlx::postgres::PgPoolOptions::new()
+                .max_connections(1)
+                .connect_lazy("postgresql://postgres:password@127.0.0.1:54321/unused")
+                .expect("lazy pool")
+        }
+        #[cfg(feature = "sqlite-backend")]
+        {
+            sqlx::sqlite::SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect_lazy("sqlite::memory:")
+                .expect("lazy pool")
+        }
     }
 
     #[tokio::test]

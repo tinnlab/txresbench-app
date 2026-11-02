@@ -16,7 +16,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 use ziee_core::AppError;
 
@@ -381,7 +381,7 @@ pub(crate) async fn sweep_refs(
 
 /// The workstore blob-GC sweeper.
 pub struct GcSweeper {
-    pool: PgPool,
+    pool: SqlitePool,
     store: Arc<dyn ObjectStore>,
     /// Which catalog owns `store`'s root. A sweeper cannot be built without one:
     /// the keep-set comes from `pool`'s catalog and everything outside it is
@@ -392,7 +392,7 @@ pub struct GcSweeper {
 }
 
 impl GcSweeper {
-    pub fn new(pool: PgPool, store: Arc<dyn ObjectStore>, claim: StoreClaim) -> Self {
+    pub fn new(pool: SqlitePool, store: Arc<dyn ObjectStore>, claim: StoreClaim) -> Self {
         Self { pool, store, claim }
     }
 
@@ -564,7 +564,7 @@ pub(crate) fn gc_cycle_plan(settings: &WorkstoreSettings) -> (bool, Duration) {
 /// initialized (a delete before boot wiring — not a real runtime path), it's a
 /// no-op and the standing reaper self-heals.
 pub async fn sweep_marked_manifest(
-    pool: &PgPool,
+    pool: &SqlitePool,
     manifest: &crate::modules::project::GcManifest,
 ) -> Result<(), AppError> {
     let Some(store) = super::try_get_object_store() else {
@@ -1244,12 +1244,17 @@ mod tests {
     /// removed the test fails on a connection error instead of passing — the
     /// check's POSITION (before `all_blob_refs`) is asserted, not just that it
     /// exists somewhere.
-    fn unreachable_pool() -> PgPool {
-        sqlx::postgres::PgPoolOptions::new()
+    fn unreachable_pool() -> SqlitePool {
+        // SQLite port (record; the jobs `offline_pool` precedent, ITEM-19 #8):
+        // a lazy pool pointing at a file whose PARENT DIRECTORY does not exist —
+        // every connect fails ("unable to open database file"), nothing is ever
+        // created, and the "every query fails, the ownership guard fires first"
+        // property is unchanged.
+        sqlx::sqlite::SqlitePoolOptions::new()
             // Short, so the CONTROL (which is meant to reach the pool and fail
             // there) costs a fraction of a second rather than the 30s default.
             .acquire_timeout(Duration::from_millis(250))
-            .connect_lazy("postgresql://nobody:nobody@127.0.0.1:1/nonexistent")
+            .connect_lazy("sqlite:///nonexistent-cyto-item20/unreachable.sqlite")
             .expect("a lazy pool never connects")
     }
 

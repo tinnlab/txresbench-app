@@ -13,14 +13,12 @@ use uuid::Uuid;
 
 use crate::common::TestServer;
 
-pub(crate) const USERS_GROUP_ID: &str = "79668b78-16ff-4d3f-80e6-afdbb3236dc9";
-
 // ------------------------------- auth helpers -------------------------------
 
 pub(crate) async fn setup_admin(server: &TestServer) -> String {
     let resp = server
         .client
-        .post(server.api_url("/app/setup/admin"))
+        .post(server.api_url("/session/local"))
         .json(&json!({
             "username": "admin",
             "email": "admin@cyto.test",
@@ -30,7 +28,7 @@ pub(crate) async fn setup_admin(server: &TestServer) -> String {
         .send()
         .await
         .expect("setup/admin");
-    assert_eq!(resp.status().as_u16(), 201);
+    assert_eq!(resp.status().as_u16(), 200);
     token_of(resp.json().await.expect("setup json"))
 }
 
@@ -48,7 +46,7 @@ pub(crate) fn token_of(body: Value) -> String {
 pub(crate) async fn create_user(server: &TestServer, admin: &str, username: &str, email: &str) -> String {
     let resp = server
         .client
-        .post(server.api_url("/users"))
+        .post(server.api_url("/auth/register"))
         .bearer_auth(admin)
         .json(&json!({
             "username": username,
@@ -58,9 +56,9 @@ pub(crate) async fn create_user(server: &TestServer, admin: &str, username: &str
         .send()
         .await
         .expect("create user");
-    assert_eq!(resp.status().as_u16(), 201, "create user {username}");
+    assert!(resp.status().is_success(), "create user {username}: {}", resp.status());
     let body: Value = resp.json().await.expect("user json");
-    body["id"].as_str().expect("user id").to_string()
+    body["user"]["id"].as_str().expect("user id").to_string()
 }
 
 /// Log in → an access token.
@@ -85,14 +83,16 @@ pub(crate) async fn create_user_without_mcp_use(
     email: &str,
 ) -> String {
     let id = create_user(server, admin, username, email).await;
-    let resp = server
-        .client
-        .delete(server.api_url(&format!("/groups/{id}/{USERS_GROUP_ID}/remove")))
-        .bearer_auth(admin)
-        .send()
+    // The `/groups` HTTP surface is stripped on this node; the removal goes
+    // through the SDK user repository.
+    let pool = sqlx::SqlitePool::connect(server.database_url())
         .await
-        .expect("remove from group");
-    assert!(resp.status().is_success(), "strip group: {}", resp.status());
+        .expect("connect strip pool");
+    crate::common::group_remove_from_users(
+        &pool,
+        uuid::Uuid::parse_str(&id).expect("user id is a uuid"),
+    )
+    .await;
     id
 }
 
@@ -109,33 +109,18 @@ pub(crate) async fn create_user_with_only_mcp_use(
     let id = create_user_without_mcp_use(server, admin, username, email).await;
 
     let group_name = format!("mcp-only-{username}");
-    let group = server
-        .client
-        .post(server.api_url("/groups"))
-        .bearer_auth(admin)
-        .json(&json!({ "name": group_name, "description": "", "permissions": ["mcp::use"] }))
-        .send()
+    let pool = sqlx::SqlitePool::connect(server.database_url())
         .await
-        .expect("create mcp-only group");
-    assert_eq!(group.status().as_u16(), 201, "create mcp-only group");
-    let group_id = group.json::<Value>().await.expect("group json")["id"]
-        .as_str()
-        .expect("group id")
+        .expect("connect mcp-only pool");
+    let group_id = crate::common::group_create(&pool, &group_name, vec!["mcp::use".to_string()])
+        .await
         .to_string();
-
-    let assign = server
-        .client
-        .post(server.api_url("/groups/assign"))
-        .bearer_auth(admin)
-        .json(&json!({ "user_id": id, "group_id": group_id }))
-        .send()
-        .await
-        .expect("assign mcp-only group");
-    assert!(
-        assign.status().is_success(),
-        "assign mcp-only group: {}",
-        assign.status()
-    );
+    crate::common::group_assign(
+        &pool,
+        uuid::Uuid::parse_str(&id).expect("user id is a uuid"),
+        uuid::Uuid::parse_str(&group_id).expect("group id is a uuid"),
+    )
+    .await;
     id
 }
 

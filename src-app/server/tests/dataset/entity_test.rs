@@ -159,26 +159,27 @@ async fn promote_source_columns_round_trip() {
     let admin = setup_admin(&server).await;
     let cid = create_user(&server, &admin, "cara", "cara@x.test").await;
     let cara = login(&server, "cara").await;
+    let cid_uuid = uuid::Uuid::parse_str(&cid).expect("cara id is a uuid");
 
     let dataset_id = uuid::Uuid::new_v4();
     let artifact_id = uuid::Uuid::new_v4();
-    let pool = sqlx::PgPool::connect(server.database_url()).await.unwrap();
+    let pool = sqlx::SqlitePool::connect(server.database_url()).await.unwrap();
     // A2: `datasets.account_id` is NOT NULL. This raw seed bypasses the repository
     // (the promote endpoint is ITEM-7), so ensure the owner's personal account and
     // stamp it — the same value the repository's `create_promoted` would stamp.
     cytoanalyst::modules::account::scope::ensure_personal_account_for(
         &pool,
-        cid.parse().expect("cara id is a uuid"),
+        cid_uuid,
     )
     .await
     .expect("ensure cara's personal account");
     sqlx::query(
         "INSERT INTO datasets (id, name, owner_id, account_id, datatype, source, source_artifact_id, content_hash)
-         VALUES ($1, $2, $3::uuid, (SELECT id FROM accounts WHERE kind='personal' AND personal_user_id = $3::uuid), $4, 'promote', $5::uuid, $6)",
+         VALUES ($1, $2, $3, (SELECT id FROM accounts WHERE kind='personal' AND personal_user_id = $3), $4, 'promote', $5, $6)",
     )
     .bind(dataset_id)
     .bind("PBMC filtered")
-    .bind(&cid)
+    .bind(cid_uuid)
     .bind("single-cell/expression")
     .bind(artifact_id)
     .bind("sha256:deadbeef")

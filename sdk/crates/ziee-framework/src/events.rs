@@ -14,10 +14,9 @@
 //! Observable behavior is unchanged — the event is never on the OpenAPI wire.
 
 use async_trait::async_trait;
-use sqlx::PgPool;
 use std::any::Any;
 
-use ziee_core::AppError;
+use ziee_core::{AppError, DbPool};
 
 /// Trait for handling application events.
 ///
@@ -30,11 +29,12 @@ pub trait EventHandler: Send + Sync {
     ///
     /// Return error to log it, but it won't stop other handlers from running.
     /// The `event` is type-erased — downcast it to the app's event enum, e.g.
-    /// `event.downcast_ref::<AppEvent>()`.
+    /// `event.downcast_ref::<AppEvent>()`. The pool is the dual-driver alias
+    /// (`&PgPool` / `&SqlitePool` per the build's driver feature).
     async fn handle(
         &self,
         event: &(dyn Any + Send + Sync),
-        pool: &PgPool,
+        pool: &DbPool,
     ) -> Result<(), AppError>;
 
     /// Name for logging and debugging.

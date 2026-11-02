@@ -194,7 +194,7 @@ async fn test_dataset_scoped_job_persists_dataset_id_owner_gated() {
 
     // The scope reached the row: a `job_scope(scope_kind='dataset')` row points at
     // the dataset (ITEM-68 — jobs is scope-agnostic; scope lives in `job_scope`).
-    let pool = sqlx::PgPool::connect(server.database_url())
+    let pool = sqlx::SqlitePool::connect(server.database_url())
         .await
         .expect("connect test db");
     let stored: Option<Uuid> = sqlx::query_scalar(

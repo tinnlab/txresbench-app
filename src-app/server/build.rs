@@ -1,19 +1,25 @@
 //! CytoAnalyst build script.
 //!
 //! 1. Composes `migrations-merged/` (SDK `compose_merged_migrations_from`) for
-//!    the runtime `sqlx::migrate!`.
-//! 2. Provisions a per-worktree BUILD DATABASE on the shared local build cluster
-//!    (`127.0.0.1:54321`, see `src-app/docker-compose.yaml`), wipes + migrates
-//!    it, and sets `DATABASE_URL` (`cargo:rustc-env`, scoped to THIS crate) so
-//!    sqlx compile-time `query!`/`query_as!` macros verify SQL against the real
-//!    schema at `cargo check` time — SDK gap G4, resolved by `provision_build_db`.
+//!    the runtime `sqlx::migrate!`. The source is UNCONDITIONAL (ITEM-26: the
+//!    driver-selection branch is gone — there is one chain): the module-owned
+//!    SQLite migrations under `src/modules/<m>/migrations/` (globbed through
+//!    the `src/modules` root) plus the three schema-bound SDK crates'
+//!    `migrations/` dirs, passed explicitly.
+//! 2. Provisions a per-worktree BUILD DATABASE (`sqlx::` macros verify SQL at
+//!    compile time): the build FILE under `target/sqlx-build/` derived from
+//!    the committed `sqlite:` sentinel (see `ziee_build_support::
+//!    provision_build_db`; that helper keeps its postgres leg for the SDK's
+//!    own standalone builds, but THIS crate's compose is sqlite-only).
+//!    `cargo:rustc-env=DATABASE_URL` then holds the resolved URL (scoped to
+//!    THIS crate) — SDK gap G4, resolved by `provision_build_db`. Beneath it:
+//!    the build-time processor-manifest / env-pin gates, the sandbox-rootfs
+//!    embed (fail-soft), and the `rootfs_version` freshness single-sourcing
+//!    (lib + build script path-include).
 //!
-//! The build DB lives on the SDK's committed `:54321` sentinel, so the one-call
-//! `provision_build_db` handles per-worktree isolation (`cytoanalyst_build_<key>`)
-//! automatically — same cluster ziee-auth uses, so a single running Postgres
-//! serves everything. If a cluster is already up on `:54321` (e.g. ziee's
-//! pgvector container), we reuse it; pgvector is a superset of plain Postgres, so
-//! CytoAnalyst's (vector-free) schema is happy either way.
+//! The build DB is the per-worktree file `cytoanalyst_build_<key>.sqlite` the
+//! one-call `provision_build_db` derives from the committed sqlite sentinel
+//! (wiped + re-migrated on every build).
 
 use std::path::PathBuf;
 
@@ -32,26 +38,18 @@ fn main() {
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let merged = manifest.join("migrations-merged");
 
-    let auth_migrations = manifest.join("../../sdk/crates/ziee-auth/migrations");
-    // The notification crate (linked with `features = ["module"]`) ships the
-    // generic inbox schema; fold its migrations into the merged set.
-    let notification_migrations =
-        manifest.join("../../sdk/crates/ziee-notification/migrations");
-    // The ziee-file crate ships the base `files`/`file_versions` store schema;
-    // fold it in so the dataset upload path (+ the `datasets.file_id` FK) has the
-    // files table at build-DB provision + runtime migrate time.
-    let file_migrations = manifest.join("../../sdk/crates/ziee-file/migrations");
-    // Re-run when any SDK crate's migrations change (the fn emits rerun hints
-    // for the app module roots; make the explicit SDK dirs just as robust).
-    println!("cargo:rerun-if-changed={}", auth_migrations.display());
-    println!("cargo:rerun-if-changed={}", notification_migrations.display());
-    println!("cargo:rerun-if-changed={}", file_migrations.display());
-
-    compose_merged_migrations_from(
-        &merged,
-        &[manifest.join("src/modules")],
-        &[auth_migrations, notification_migrations, file_migrations],
-    );
+    // Single-chain composition (ITEM-26): the ONE sqlite migration set is the
+    // module-owned `src/modules/*/migrations/` dirs (globbed by the composer)
+    // plus the three schema-bound SDK crates' `migrations/` dirs (explicit —
+    // their names are the crates the app schema-binds; ziee-onboarding/seed
+    // are not bound). There is no driver branch: the PG chains were deleted
+    // with the engine swap and the merged dir always holds the sqlite chain.
+    let module_roots = vec![manifest.join("src/modules")];
+    let sdk_migration_dirs: Vec<PathBuf> = ["ziee-auth", "ziee-file", "ziee-notification"]
+        .iter()
+        .map(|c| manifest.join("../../sdk/crates").join(c).join("migrations"))
+        .collect();
+    compose_merged_migrations_from(&merged, &module_roots, &sdk_migration_dirs);
 
     // BUILD-TIME processor-manifest syntax gate (ITEM-8/DEC-5, INV-5): parse +
     // `deny_unknown_fields`-lint EVERY `src-app/packages/*/manifest.yaml` against
@@ -110,8 +108,11 @@ fn main() {
     }
 
     // Provision + migrate the per-worktree build DB and set DATABASE_URL so the
-    // sqlx query macros verify at compile time. Requires the `:54321` build
-    // cluster up: `cd src-app && docker compose up -d` (or reuse an existing one).
+    // sqlx query macros verify at compile time. The committed `.cargo/config.toml`
+    // sentinel is a `sqlite:` URL, so the SQLite leg of `provision_build_db`
+    // derives the per-worktree file under `target/sqlx-build/` (the SDK helper
+    // keeps its postgres leg for the SDK's own standalone builds; this crate's
+    // chain is sqlite and a postgres-leg run here would fail loudly at apply).
     provision_build_db(&merged);
 
     // Docker-build + embed the analysis rootfs (fail-soft: stub on any failure,

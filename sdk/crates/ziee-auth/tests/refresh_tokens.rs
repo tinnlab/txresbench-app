@@ -13,7 +13,7 @@ mod common;
 
 use chrono::{Duration, Utc};
 use common::{drop_db, fresh_db};
-use sqlx::PgPool;
+use ziee_core::DbPool;
 use uuid::Uuid;
 use ziee_auth::auth::AuthRepository;
 use ziee_auth::auth::JwtService;
@@ -33,7 +33,7 @@ fn jwt_service() -> JwtService {
 }
 
 /// Create a real user row (refresh_tokens.user_id has an FK → users).
-async fn make_user(pool: &PgPool, username: &str) -> Uuid {
+async fn make_user(pool: &DbPool, username: &str) -> Uuid {
     AuthRepository::new(pool.clone())
         .create_local_user_with_default_group(username, &format!("{username}@corp.com"), None, None)
         .await

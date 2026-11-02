@@ -43,7 +43,7 @@ impl SyncIdentityResolver {
     /// configured from the same `jwt` config block as the one `AuthModule`
     /// mints with — same secret ⇒ the tokens are interoperable (the same
     /// argument `lib.rs` makes for the `BootParts` service).
-    pub fn new(pool: sqlx::PgPool, jwt: Arc<JwtService>) -> Self {
+    pub fn new(pool: sqlx::SqlitePool, jwt: Arc<JwtService>) -> Self {
         Self {
             inner: DefaultIdentityResolver::new(pool, jwt.clone()),
             jwt,

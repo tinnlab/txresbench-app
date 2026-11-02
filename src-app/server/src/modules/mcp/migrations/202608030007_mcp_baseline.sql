@@ -1,64 +1,50 @@
--- mcp module — SQUASHED BASELINE.
+-- mcp module — SQUASHED BASELINE — SQLite dialect port (ITEM-8, sqlite-store)
+-- of `src/modules/mcp/migrations/202608030007_mcp_baseline.sql`.
 --
--- This single file replaces the module's pre-release incremental migration
--- history. The app was squashed to one baseline per module before first
--- release: the old chain created, ALTERed and then DROPped an earlier
--- domain-specific data model, so it carried retired domain vocabulary forward
--- in perpetuity for a schema that no longer contains it. An applied migration file
--- is byte-immutable (`sqlx::migrate!` checksums full file bytes — see the
--- `MERGED_MIGRATOR` doc in `src/database.rs`), so that vocabulary could not be
--- edited out in place; only a squash removes it.
+-- The Postgres file carries the squash provenance (a VERBATIM `pg_dump
+-- --schema-only` rendering of the pre-squash chain's schema). This port
+-- preserves table/column NAMES, column ORDER, constraint NAMES and row
+-- semantics in SQLite dialect (DEC-2/DEC-8).
 --
--- Every DDL statement below is a VERBATIM `pg_dump --schema-only` rendering of
--- the schema the full chain produced, so the end state is identical to the
--- pre-squash schema — column ORDER included. Some columns therefore sit where an
--- `ALTER TABLE … ADD COLUMN` put them rather than in a tidier place; that is
--- deliberate, and it is what makes the identity mechanically provable.
---
--- The per-statement DESIGN RATIONALE the retired files carried is not
--- reproduced here (much of it narrated the very model that was dropped). It
--- lives in git history: `git log --diff-filter=D -p -- \
--- src-app/server/src/modules/mcp/migrations`.
---
--- CONSEQUENCE: a database created before the squash MUST BE RECREATED — see the
--- "SQUASHED BASELINE" section of `src/database.rs`.
+-- SQLite port notes (DEC-8 type map): uuid -> BLOB, `text` -> TEXT,
+-- `timestamp with time zone DEFAULT now()` -> TEXT RFC3339 UTC with
+-- `strftime('%Y-%m-%dT%H:%M:%fZ','now')`, no `public.` prefix, no `::`
+-- casts, `USING btree` dropped; SQLite has no ALTER TABLE ADD CONSTRAINT,
+-- so the UNIQUE, PK and FK are declared INLINE with the same names; the
+-- `mcp_pairing_codes_user_id_fkey` parent (`users`, SDK-owner) is created
+-- by the SDK auth baseline (version 202607140050) which sorts earlier.
+-- `array_append` + `= ANY` -> `json_insert`/`json_each` (JSON1; the
+-- permissions column is TEXT JSON array text).
 --
 -- Ordering: applies after the SDK auth schema (users).
+-- CONSEQUENCE (unchanged from the Postgres file): a database created before
+-- the squash MUST BE RECREATED — see the "SQUASHED BASELINE" section of
+-- `src/database.rs`.
 
 -- == tables ==============================================================
 
-CREATE TABLE public.mcp_pairing_codes (
-    id uuid NOT NULL,
-    code text NOT NULL,
-    user_id uuid NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    expires_at timestamp with time zone NOT NULL,
-    used_at timestamp with time zone
+CREATE TABLE mcp_pairing_codes (
+    id BLOB NOT NULL,
+    code TEXT NOT NULL,
+    user_id BLOB NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    expires_at TEXT NOT NULL,
+    used_at TEXT,
+    CONSTRAINT mcp_pairing_codes_code_key UNIQUE (code),
+    CONSTRAINT mcp_pairing_codes_pkey PRIMARY KEY (id),
+    CONSTRAINT mcp_pairing_codes_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
-
--- == primary keys / unique / table constraints ===========================
-
-ALTER TABLE ONLY public.mcp_pairing_codes
-    ADD CONSTRAINT mcp_pairing_codes_code_key UNIQUE (code);
-
-ALTER TABLE ONLY public.mcp_pairing_codes
-    ADD CONSTRAINT mcp_pairing_codes_pkey PRIMARY KEY (id);
 
 -- == indexes =============================================================
 
-CREATE INDEX idx_mcp_pairing_codes_code ON public.mcp_pairing_codes USING btree (code);
-
--- == foreign keys ========================================================
-
-ALTER TABLE ONLY public.mcp_pairing_codes
-    ADD CONSTRAINT mcp_pairing_codes_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+CREATE INDEX idx_mcp_pairing_codes_code ON mcp_pairing_codes (code);
 
 -- == seed data + permission grants ====================================
 
 -- Grant `mcp::use` to the default Users group (Administrators already hold
 -- `*`) so every user can pair an AI assistant to drive the app on their own
 -- behalf. Idempotent (skip if already present).
-UPDATE public.groups
-SET permissions = array_append(permissions, 'mcp::use')
-WHERE name = 'Users'
-  AND NOT ('mcp::use' = ANY (permissions));
+UPDATE groups
+   SET permissions = json_insert(permissions, '$[#]', 'mcp::use')
+ WHERE name = 'Users'
+   AND NOT EXISTS (SELECT 1 FROM json_each(permissions) WHERE value = 'mcp::use');

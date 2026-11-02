@@ -40,7 +40,7 @@ async fn manage_context(
 }
 
 /// The id of `user_id`'s personal account.
-async fn personal_account_id(pool: &sqlx::PgPool, user_id: Uuid) -> Uuid {
+async fn personal_account_id(pool: &sqlx::SqlitePool, user_id: Uuid) -> Uuid {
     sqlx::query_scalar::<_, Uuid>(
         "SELECT id FROM accounts WHERE kind='personal' AND personal_user_id=$1",
     )
@@ -204,10 +204,12 @@ async fn inv3_holding_the_capability_is_not_authority_over_another_account() {
     let foreign = make_org_account(&pool, "Cap Foreign", other).await;
 
     // U holds the capability — via the Users group grant this branch's migration adds.
+    // (`groups.id` is a BLOB on the sqlite chain — the app-bound surrogate, DEC-12 — so
+    // the string constant must be parsed before the bind, or the EXISTS reads no row.)
     let held: bool = sqlx::query_scalar(
-        "SELECT 'account::members::manage' = ANY(g.permissions) FROM groups g WHERE g.id = $1::uuid",
+        "SELECT EXISTS(SELECT 1 FROM json_each(g.permissions) WHERE value = 'account::members::manage') FROM groups g WHERE g.id = $1",
     )
-    .bind(USERS_GROUP_ID)
+    .bind(USERS_GROUP_ID.parse::<uuid::Uuid>().expect("users group uuid"))
     .fetch_one(&pool)
     .await
     .expect("read Users group perms");
@@ -341,7 +343,7 @@ async fn inv15_existing_surfaces_are_untouched() {
         "org creation still requires account::manage (admin-only): {body}"
     );
     let manage_granted: Option<String> = sqlx::query_scalar(
-        "SELECT name FROM groups WHERE 'account::manage' = ANY(permissions) LIMIT 1",
+        "SELECT name FROM groups WHERE EXISTS(SELECT 1 FROM json_each(permissions) WHERE value = 'account::manage') LIMIT 1",
     )
     .fetch_optional(&pool)
     .await
@@ -416,61 +418,11 @@ async fn inv15_existing_surfaces_are_untouched() {
         resp.status()
     );
 
-    // (c) AdminAccountScope's 403-BEFORE-lookup order is unchanged — a non-admin gets
-    //     the same 403 for a NONEXISTENT account as for a real one, so the admin
-    //     surface is still not an existence oracle (the opposite oracle from ours).
-    let nonexistent = Uuid::new_v4();
-    let real = server
-        .client
-        .get(server.api_url(&format!("/admin/accounts/{foreign}")))
-        .bearer_auth(&token)
-        .send()
-        .await
-        .expect("non-admin on a real account");
-    let fake = server
-        .client
-        .get(server.api_url(&format!("/admin/accounts/{nonexistent}")))
-        .bearer_auth(&token)
-        .send()
-        .await
-        .expect("non-admin on a nonexistent account");
-    assert_eq!(real.status().as_u16(), 403);
-    assert_eq!(
-        real.status().as_u16(),
-        fake.status().as_u16(),
-        "the admin surface must 403 identically whether or not the account exists"
-    );
-
-    //     POSITIVE CONTROL for (c): a REAL admin gets 200 on that same real account,
-    //     and 404 on the nonexistent one. Without this arm both assertions above are
-    //     satisfied by a completely dead route (403 for everyone, or removed), so the
-    //     "no existence oracle" claim would be unfalsifiable.
-    let admin_real = server
-        .client
-        .get(server.api_url(&format!("/admin/accounts/{foreign}")))
-        .bearer_auth(&admin_token)
-        .send()
-        .await
-        .expect("admin on a real account");
-    assert_eq!(
-        admin_real.status().as_u16(),
-        200,
-        "the admin surface DOES serve a real admin — so the 403s above are authz, \
-         not a dead route"
-    );
-    let admin_fake = server
-        .client
-        .get(server.api_url(&format!("/admin/accounts/{nonexistent}")))
-        .bearer_auth(&admin_token)
-        .send()
-        .await
-        .expect("admin on a nonexistent account");
-    assert_eq!(
-        admin_fake.status().as_u16(),
-        404,
-        "an AUTHORIZED admin may learn existence — that asymmetry against the \
-         non-admin's uniform 403 is exactly the documented AdminAccountScope ordering"
-    );
+    // (c) AdminAccountScope's 403-BEFORE-lookup order — the arm asserting it has no object
+    //     on this node: the `/admin/accounts/*` surface it guarded is stripped (DRIFT-1.25),
+    //     and the retained `AccountScope` keys on membership FIRST, which is what (b) above
+    //     proves is not an existence oracle for the account-scoped surfaces. Recorded in the
+    //     drift ledger rather than silently dropped.
     let _ = user;
 }
 
@@ -569,8 +521,8 @@ async fn migration_grants_the_new_key_to_users_exactly_once() {
     let pool = pool_for(&server).await;
 
     let occurrences: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM unnest((SELECT permissions FROM groups WHERE name = 'Users')) p \
-         WHERE p = 'account::members::manage'",
+        "SELECT COUNT(*) FROM json_each((SELECT permissions FROM groups WHERE name = 'Users')) \
+         WHERE value = 'account::members::manage'",
     )
     .fetch_one(&pool)
     .await
@@ -593,16 +545,19 @@ async fn migration_grants_the_new_key_to_users_exactly_once() {
     ))
     .expect("read the migration file");
     assert!(
-        migration.contains("NOT ('account::members::manage' = ANY (permissions))"),
-        "the migration must carry its idempotence guard"
+        migration.contains(
+            "NOT EXISTS (SELECT 1 FROM json_each(permissions) WHERE value = 'account::members::manage')"
+        ),
+        "the sqlite migration must carry its idempotence guard (the JSON1 form of the \
+         `NOT (p = ANY (permissions))` PG guard)"
     );
     sqlx::raw_sql(&migration)
         .execute(&pool)
         .await
         .expect("re-run the migration file");
     let after: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM unnest((SELECT permissions FROM groups WHERE name = 'Users')) p \
-         WHERE p = 'account::members::manage'",
+        "SELECT COUNT(*) FROM json_each((SELECT permissions FROM groups WHERE name = 'Users')) \
+         WHERE value = 'account::members::manage'",
     )
     .fetch_one(&pool)
     .await

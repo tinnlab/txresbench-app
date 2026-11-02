@@ -24,8 +24,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use sqlx::PgPool;
 use ziee_auth::auth::JwtService;
+use ziee_core::DbPool;
 
 /// What the harness needs back from the app after the embedded server is up: the
 /// bound address (published to the Tauri command + the remote-access forwarder),
@@ -34,8 +34,11 @@ use ziee_auth::auth::JwtService;
 pub struct BootHandle {
     /// The address the embedded Axum server actually bound.
     pub addr: SocketAddr,
-    /// The server's DB pool (`Repos.pool()` on the app side today).
-    pub pool: PgPool,
+    /// The server's DB pool (`Repos.pool()` on the app side today). The
+    /// dual-driver alias: `PgPool` on the SDK's default (PG) build, `SqlitePool`
+    /// under `sqlite-backend` — the harness holds the pool type the app's
+    /// repositories were built against.
+    pub pool: DbPool,
     /// The server's JWT service (stashed into the app's `JWT_SERVICE`
     /// `OnceLock` today; the harness holds it for the `auto_login` command).
     pub jwt: Arc<JwtService>,

@@ -47,26 +47,46 @@ serde_norway = "0.9"
 
 [dependencies]
 # --- SDK platform crates (path-deps into the pinned submodule) ---------------
-ziee-core = { path = "../../sdk/crates/ziee-core" }
-ziee-framework = { path = "../../sdk/crates/ziee-framework" }
+# Dual-driver SDK selection (sqlite-store DEC-1): the app builds the SDK's
+# SQLite variant — `sqlite-backend` ON makes `DbPool` = `SqlitePool`, so the
+# framework seam this app wires (`ModuleContext.db_pool`,
+# `build_api_router`'s pool extension, `Transaction<'_, Db>`) carries the
+# app's sqlite store, and `embedded_pg` is not this app's driver. Every edge
+# below is `default-features = false` + the driver feature; no edge in the
+# SERVER crate's graph carries a driver default anymore, so the framework's
+# `embedded-pg` (the postgresql_embedded downloader) is absent from the
+# server's build graph — TEST-1(a)'s prune (DRIFT-1 ITEM-12 #3; the desktop
+# crate's own edges flip with ITEM-24).
+ziee-core = { path = "../../sdk/crates/ziee-core", default-features = false, features = ["sqlite-backend"] }
+ziee-framework = { path = "../../sdk/crates/ziee-framework", default-features = false, features = ["sqlite-backend"] }
 # AI-controllable-actions MCP surface: the DB-free OpenAPI→capability catalog +
 # deployment policy + static tool descriptors. `modules/mcp` is the thin
 # app-side glue (JSON-RPC handler, agent channel, pairing) built on top.
-ziee-control-mcp = { path = "../../sdk/crates/ziee-control-mcp" }
+# `default-features = false` + the driver feature: this was the LAST edge that
+# still default-featured the framework (the `embedded-pg` downloader activated
+# through it); flipped with the rest of the app graph (ITEM-16).
+ziee-control-mcp = { path = "../../sdk/crates/ziee-control-mcp", default-features = false, features = ["sqlite-backend"] }
 # Auth: the default schema-bound auth module + its mountable routes bundle
-# (`routes` feature is default-on) + the identity abstractions.
-ziee-auth = { path = "../../sdk/crates/ziee-auth", features = ["module"] }
+# (`module` implies `routes`) + the identity abstractions. `sqlite-backend`
+# selects the cfg-gated sqlite query sets + the sqlite `migrations/` chain
+# (ITEM-14; ITEM-26 moved the chain into the canonical name).
+ziee-auth = { path = "../../sdk/crates/ziee-auth", default-features = false, features = ["module", "sqlite-backend"] }
 ziee-identity = { path = "../../sdk/crates/ziee-identity" }
 # Notification inbox: the SDK notification feature promoted to a self-registering
 # module (generic `payload` schema + per-module kind registry + pluggable sync
-# emitter). PROPOSED SDK contribution — see SDK_GAPS.
-ziee-notification = { path = "../../sdk/crates/ziee-notification", features = ["module"] }
+# emitter). PROPOSED SDK contribution — see SDK_GAPS. `sqlite-backend` selects the
+# cfg-gated sqlite query sets + the sqlite `migrations/` chain (ITEM-16) and — with
+# `embedded-pg` gone from the server graph — completes TEST-1(a)'s build-graph
+# prune: no `postgresql_embedded` downloader is linked by any edge anymore.
+ziee-notification = { path = "../../sdk/crates/ziee-notification", default-features = false, features = ["module", "sqlite-backend"] }
 # Liveness/readiness surface: the DB-free `GET /health` route (no auth, no DB).
 ziee-health = { path = "../../sdk/crates/ziee-health" }
 # File STORE: the generic, domain-agnostic multi-derivative blob store + its
 # mountable `file_routes` HTTP surface (`routes` feature default-on). Backs the
 # dataset upload path (INPUT uploads only — see docs/DATA_STORAGE_REDESIGN.md).
-ziee-file = { path = "../../sdk/crates/ziee-file" }
+# `sqlite-backend` selects the cfg-gated sqlite query sets + the sqlite
+# `migrations/` chain (ITEM-15/ITEM-26).
+ziee-file = { path = "../../sdk/crates/ziee-file", default-features = false, features = ["routes", "sqlite-backend"] }
 
 # --- Third-party (versions matched to the SDK crates so the single Cargo.lock
 #     unifies them without a duplicate build) -------------------------------
@@ -80,7 +100,7 @@ axum = { version = "0.8.4", features = ["macros", "multipart"] }
 # hand-rolled equivalent diverged. See the module doc in `modules/file/upload_guard.rs`.
 multer = "3.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "signal"] }
-sqlx = { version = "0.8.6", features = ["postgres", "runtime-tokio-rustls", "uuid", "chrono", "macros", "migrate", "json"] }
+sqlx = { version = "0.8.6", features = ["postgres", "sqlite", "runtime-tokio-rustls", "uuid", "chrono", "macros", "migrate", "json"] }
 linkme = "0.3"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.141"
@@ -182,6 +202,21 @@ flate2 = "1"
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
 
+# The bundled SQLite C library symbols, as a REGULAR dependency (sqlite-store
+# ITEM-17): the SQLite port of `account::seat::assert_serializable_context`'s
+# "is this connection inside a transaction" probe is the engine's own
+# `sqlite3_get_autocommit()` — the PG `pg_current_xact_id_if_assigned()` probe
+# has no SQL-level SQLite equivalent, and the connection handle
+# (`SqliteConnection::lock_handle() -> LockedSqliteHandle::as_raw_handle()`) is
+# the only honest source. The `bundled` feature here is the SAME feature sqlx's
+# `sqlite` feature enables on the shared libsqlite3-sys, so no second build of
+# the amalgamation is introduced. sqlx's docs mark the `sqlite3` type
+# semver-exempt ("pin the version of SQLX that you're using") — sqlx 0.8.6 is
+# pinned in this manifest. The same symbols serve the TEST-8
+# `sqlite3_libversion*` floor probe (dev-dep below); the entry is shared, no new
+# line enters `Cargo.lock`.
+libsqlite3-sys = { version = "0.30.1", features = ["bundled"] }
+
 [dependencies.sandbox-seccomp]
 path = "../../sdk/crates/sandbox-seccomp"
 optional = true
@@ -189,9 +224,14 @@ optional = true
 [dev-dependencies]
 # SDK integration-test harness (app-neutral `HarnessApp` seam) — per-worktree
 # template DBs cloned per test + a spawned-server-per-test. CytoAnalyst impls
-# `HarnessApp` once in `tests/common`. Needs a reachable Postgres (DATABASE_URL
-# or the shared cluster default 127.0.0.1:54321).
+# `HarnessApp` once in `tests/common`. The sqlite leg serves per-test FILE DBs
+# (the app's store; the harness keeps its postgres leg for ziee's own suites).
 ziee-test-harness = { path = "../../sdk/crates/ziee-test-harness", features = ["sync-probe"] }
+# TEST-14 (the SQLite chain-apply harness): composes the ported chain through
+# the REAL SDK composer `build.rs` uses (via the `#[path]`-included
+# `build_helper::migration_chain` driver lists). The crate already sits in this
+# package's build-dependency graph, so no new package enters `Cargo.lock`.
+ziee-build-support = { path = "../../sdk/crates/ziee-build-support" }
 # `stream` (#182, DEC-16): the measured-RSS upload tests send a 256 MiB body that
 # is GENERATED as it is sent, so the test process never buffers the payload either
 # (this box has ~3 GB of RAM). Dev-dependency only — Cargo unifies features per
@@ -201,7 +241,19 @@ ziee-test-harness = { path = "../../sdk/crates/ziee-test-harness", features = ["
 reqwest = { version = "0.12", features = ["json", "multipart", "stream"] }
 # DB-layer assertions in integration tests (e.g. the boot-crash-safety reset):
 # a test connects its own pool to `TestServer::database_url()`.
-sqlx = { version = "0.8.6", features = ["postgres", "runtime-tokio-rustls", "uuid", "chrono"] }
+sqlx = { version = "0.8.6", features = ["postgres", "sqlite", "runtime-tokio-rustls", "uuid", "chrono"] }
+# TEST-33 (ITEM-26): the final-layout pin's PG-dialect construct grep runs
+# over the migration SQL with a few static patterns. `regex` 1.x is already a
+# transitive lock member (no new package enters `Cargo.lock`).
+regex = "1"
+# TEST-8: the `sqlite3_libversion*` probe that pins the bundled SQLite version
+# floor at test time. The `bundled` feature here is the SAME feature sqlx's
+# `sqlite` feature enables on the shared libsqlite3-sys, so no second build of
+# the amalgamation is introduced; since ITEM-17 the symbols also live in the
+# regular dependency set above (the seat probe), so this dev-dep entry is a
+# duplicate of that entry's resolved features, kept because the test names the
+# C symbols directly.
+libsqlite3-sys = { version = "0.30.1", features = ["bundled"] }
 uuid = { version = "1.18", features = ["v4"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 # B0 (billing epic) local Stripe sim — the test-only signed-webhook injector

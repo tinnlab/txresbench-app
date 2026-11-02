@@ -5,11 +5,17 @@
 //! `validate()` 422-bounds + partial `Update` + `Repository` COALESCE-update +
 //! `merge()`). Defaults EQUAL the compiled constants so a never-PUT deployment is
 //! byte-identical (INV-1). Repository uses `sqlx::query_as!` (build-DB checked —
-//! `build.rs::provision_build_db` auto-migrates the `:54321` cluster).
+//! `build.rs::provision_build_db` auto-migrates the sqlite build file).
+//!
+//! SQLite port (record; sqlite-store): `WHERE id = TRUE` stays verbatim (legal
+//! SQLite — the ITEM-19 jobs precedent for the singleton pin), `NOW()` becomes
+//! the canonical RFC3339 `strftime` write clock, and the i64/bool columns
+//! follow the DEC-8 map with no typed overrides (INTEGER→i64 / INTEGER→bool are
+//! the macro's own inference, probed at ITEM-18/19).
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 use ziee_core::AppError;
 
@@ -248,11 +254,11 @@ pub(crate) fn gc_env_overrides_from(
 }
 
 pub struct WorkstoreSettingsRepository {
-    pool: PgPool,
+    pool: SqlitePool,
 }
 
 impl WorkstoreSettingsRepository {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
 
@@ -261,7 +267,7 @@ impl WorkstoreSettingsRepository {
     pub async fn get(&self) -> Result<WorkstoreSettings, AppError> {
         sqlx::query_as!(
             WorkstoreSettings,
-            r#"SELECT gc_enabled, gc_interval_hours, gc_grace_secs,
+            r#"SELECT gc_enabled as "gc_enabled: bool", gc_interval_hours, gc_grace_secs,
                       max_output_file_bytes, max_multifile_total_bytes,
                       max_upload_body_bytes, max_upload_parts
                FROM workstore_settings WHERE id = TRUE"#
@@ -289,10 +295,10 @@ impl WorkstoreSettingsRepository {
                     max_multifile_total_bytes = COALESCE($5, max_multifile_total_bytes),
                     max_upload_body_bytes = COALESCE($6, max_upload_body_bytes),
                     max_upload_parts = COALESCE($7, max_upload_parts),
-                    updated_at = NOW(),
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
                     updated_by = $8
                WHERE id = TRUE
-               RETURNING gc_enabled, gc_interval_hours, gc_grace_secs,
+               RETURNING gc_enabled as "gc_enabled: bool", gc_interval_hours, gc_grace_secs,
                          max_output_file_bytes, max_multifile_total_bytes,
                          max_upload_body_bytes, max_upload_parts"#,
             req.gc_enabled,

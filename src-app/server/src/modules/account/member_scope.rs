@@ -160,7 +160,7 @@ use std::sync::Arc;
 use aide::OperationIo;
 use axum::extract::{FromRequestParts, RawPathParams};
 use axum::http::{request::Parts, StatusCode};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use ziee_auth::auth::DefaultIdentityResolver;
@@ -347,10 +347,11 @@ where
             let account_id =
                 resolve_account_id_param(params.iter()).map_err(|e| e.to_api_error())?;
 
-            let pool =
-                parts.extensions.get::<PgPool>().cloned().ok_or_else(|| {
-                    AppError::internal_error("pool not configured").to_api_error()
-                })?;
+            let pool = parts
+                .extensions
+                .get::<SqlitePool>()
+                .cloned()
+                .ok_or_else(|| AppError::internal_error("pool not configured").to_api_error())?;
             let repo = AccountRepository::new(pool);
 
             // ── 4. membership — THE CROSS-TENANT GUARD ──

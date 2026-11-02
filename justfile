@@ -9,9 +9,10 @@ ui_dir := justfile_directory() / "src-app/ui"
 default:
     @just --list
 
-# Backend integration tests. Needs a reachable Postgres (DATABASE_URL or the
-# shared cluster default 127.0.0.1:54321). Per-test DB isolation makes parallel
-# safe; keep --test-threads modest on a shared host.
+# Backend integration tests. The harness gives each test its own SQLite file
+# (create + migrate + delete; ziee-test-harness) — no database cluster, no
+# Postgres needed. Per-test file isolation makes parallel safe; keep
+# --test-threads modest on a shared host.
 test THREADS="4":
     cd {{server_dir}} && CONFIG_FILE=config/dev.yaml cargo test --test integration_tests -- --test-threads={{THREADS}}
 

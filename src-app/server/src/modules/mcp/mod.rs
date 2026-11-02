@@ -47,7 +47,7 @@ use std::sync::Arc;
 
 use aide::axum::ApiRouter;
 use linkme::distributed_slice;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 
 use ziee_framework::{loopback_host, AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
 
@@ -55,7 +55,7 @@ pub use permissions::McpUse;
 
 pub struct McpModule {
     #[allow(dead_code)]
-    pool: Option<Arc<PgPool>>,
+    pool: Option<Arc<SqlitePool>>,
 }
 
 impl McpModule {

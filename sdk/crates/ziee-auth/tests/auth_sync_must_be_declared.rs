@@ -30,6 +30,9 @@
 
 #![cfg(feature = "module")]
 
+mod common;
+use common::lazy_test_pool;
+
 use std::any::Any;
 use std::sync::{Arc, Mutex};
 
@@ -97,10 +100,7 @@ impl AppModule for SyncProbeModule {
 fn module_context() -> ModuleContext {
     // `connect_lazy` never dials, so this stays unit-test cheap; a strong,
     // non-placeholder ≥32-char secret so `JwtService::try_new` accepts it.
-    let pool = sqlx::postgres::PgPool::connect_lazy(
-        "postgresql://postgres:password@127.0.0.1:54321/postgres",
-    )
-    .expect("lazy pool");
+    let pool = lazy_test_pool();
     let cfg: ziee_core::ServerConfig = serde_json::from_value(serde_json::json!({
         "postgresql": { "use_embedded": false },
         "server": { "host": "127.0.0.1", "port": 3000, "api_prefix": "/api" },
@@ -162,10 +162,7 @@ async fn auth_sync_wiring_must_be_declared_and_the_declared_sink_is_the_one_used
         m.init(&ctx).expect("with a declaration, AuthModule boots");
     }
 
-    let pool = sqlx::postgres::PgPool::connect_lazy(
-        "postgresql://postgres:password@127.0.0.1:54321/postgres",
-    )
-    .expect("lazy pool");
+    let pool = lazy_test_pool();
     let (api_router, _doc) = ziee_framework::app_builder::build_api_router(&modules, "/api", pool);
     let mut openapi = aide::openapi::OpenApi::default();
     let app: axum::Router = api_router.finish_api(&mut openapi);

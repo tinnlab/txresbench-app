@@ -8,7 +8,7 @@
 //! `repo.delete`/`repo.duplicate_in_tx` path — that would silently skip cleanup
 //! (or the deep-copy) for the modules that registered it.
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 use ziee_core::AppError;
 
@@ -27,11 +27,18 @@ use super::repository::ProjectRepository;
 /// The caller is responsible for the ACL check (owner-only) and any
 /// sync/notification emission AFTER this returns.
 pub async fn delete_project_with_extensions(
-    pool: &PgPool,
+    pool: &SqlitePool,
     project_id: Uuid,
 ) -> Result<GcManifest, AppError> {
     let repo = ProjectRepository::new(pool.clone());
-    let mut tx = pool.begin().await.map_err(AppError::database_error)?;
+    // SQLite port: `BEGIN IMMEDIATE` — the delete transaction is a WRITE
+    // transaction (extension hooks + the row delete); opening it immediate
+    // takes the write lock up front instead of on the first mutation (the
+    // ITEM-15/17 substitution for the absent row locks).
+    let mut tx = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(AppError::database_error)?;
     let mut gc = GcManifest::for_project(project_id);
 
     // Fire extension cleanup BEFORE deleting the project row, so extensions can read
@@ -66,11 +73,15 @@ pub async fn delete_project_with_extensions(
 /// (the caller overrides `owner_id` to the acting user) while `source.id` is the
 /// SOURCE project id the hook copies FROM. Returns the created duplicate row.
 pub async fn duplicate_project_with_extensions(
-    pool: &PgPool,
+    pool: &SqlitePool,
     source: &Project,
 ) -> Result<Project, AppError> {
     let repo = ProjectRepository::new(pool.clone());
-    let mut tx = pool.begin().await.map_err(AppError::database_error)?;
+    // SQLite port: `BEGIN IMMEDIATE` (see `delete_project_with_extensions`).
+    let mut tx = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(AppError::database_error)?;
     let dup = repo.duplicate_in_tx(&mut tx, source).await?;
     if let Some(registry) = get_global_registry() {
         registry

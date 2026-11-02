@@ -18,7 +18,7 @@ use aide::axum::ApiRouter;
 use async_trait::async_trait;
 use linkme::distributed_slice;
 use once_cell::sync::OnceCell;
-use sqlx::{PgPool, Postgres, Transaction};
+use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -40,12 +40,12 @@ pub struct ProjectSummaryTag {
 /// Registration entry collected into the [`PROJECT_EXTENSIONS`] distributed slice.
 /// `Copy` so it can live as a `static`; `factory` is a bare fn pointer building
 /// the trait object from the DB pool (the only dependency the first consumer
-/// needs — kept narrower than ziee's `(PgPool, Config)`).
+/// needs — kept narrower than ziee's `(SqlitePool, Config)`).
 #[derive(Clone, Copy)]
 pub struct ProjectExtensionEntry {
     pub name: &'static str,
     pub order: i32,
-    pub factory: fn(PgPool) -> Arc<dyn ProjectExtension>,
+    pub factory: fn(SqlitePool) -> Arc<dyn ProjectExtension>,
 }
 
 /// Distributed slice collecting every project extension at link time. A consumer
@@ -77,7 +77,7 @@ pub trait ProjectExtension: Send + Sync {
     async fn on_project_deleted(
         &self,
         _project_id: Uuid,
-        _tx: &mut Transaction<'_, Postgres>,
+        _tx: &mut Transaction<'_, Sqlite>,
         _gc: &mut GcManifest,
     ) -> Result<(), AppError> {
         Ok(())
@@ -90,7 +90,7 @@ pub trait ProjectExtension: Send + Sync {
         &self,
         _src_project_id: Uuid,
         _dst_project_id: Uuid,
-        _tx: &mut Transaction<'_, Postgres>,
+        _tx: &mut Transaction<'_, Sqlite>,
     ) -> Result<(), AppError> {
         Ok(())
     }
@@ -106,7 +106,7 @@ pub trait ProjectExtension: Send + Sync {
     }
 
     /// Initialize once at startup. Default: no-op.
-    async fn initialize(&self, _pool: &PgPool) -> Result<(), AppError> {
+    async fn initialize(&self, _pool: &SqlitePool) -> Result<(), AppError> {
         Ok(())
     }
 }
@@ -136,7 +136,7 @@ impl ProjectExtensionRegistry {
     }
 
     /// Run every extension's `initialize` once at startup.
-    pub async fn initialize_all(&self, pool: &PgPool) -> Result<(), AppError> {
+    pub async fn initialize_all(&self, pool: &SqlitePool) -> Result<(), AppError> {
         for ext in &self.extensions {
             ext.initialize(pool).await?;
         }
@@ -156,7 +156,7 @@ impl ProjectExtensionRegistry {
     pub async fn fire_on_project_deleted(
         &self,
         project_id: Uuid,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut Transaction<'_, Sqlite>,
         gc: &mut GcManifest,
     ) -> Result<(), AppError> {
         for ext in &self.extensions {
@@ -171,7 +171,7 @@ impl ProjectExtensionRegistry {
         &self,
         src_project_id: Uuid,
         dst_project_id: Uuid,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut Transaction<'_, Sqlite>,
     ) -> Result<(), AppError> {
         for ext in &self.extensions {
             ext.on_project_duplicated(src_project_id, dst_project_id, tx).await?;

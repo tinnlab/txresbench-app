@@ -1,16 +1,47 @@
 //! Catalog persistence (ITEM-2). sqlx COMPILE-TIME macros (canonical pattern —
 //! `dataset/repository.rs`): `timestamptz` needs `col as "col: DateTime<Utc>"`,
 //! `jsonb` needs `col as "col: serde_json::Value"` (see `jobs/repository.rs`).
+//!
+//! SQLite driver (sqlite-store DEC-1: the app's modules are single-driver; the
+//! port rules are PROV-sqlite-store-4 / DEC-12). The deliberate substitutions:
+//! the nil-uuid `'00000000-…'::uuid` literals become 16-byte-zero BLOB literals
+//! (`X'0000…'` — the same spelling the ported chain's `artifacts_natural_key`
+//! index uses), `now()` becomes the canonical RFC3339 `strftime` clock, the
+//! jsonb containment/`jsonb_set`/`jsonb_path_query_array` predicates become
+//! JSON1 (`json_type`, `json_set` + `json_quote`, `json_each`), and the
+//! `datatype = ANY($n)` TEXT-array membership becomes `IN (SELECT value FROM
+//! json_each($n))` (sqlx-sqlite binds no `Vec<T>`; DEC-8 TEXT-JSON transport).
+//! The `LATERAL` join in `object_keys_for_project_in_tx` becomes a `json_tree`
+//! walk (SQLite has no LATERAL — DEC-12's derived-table rule).
 
 use chrono::{DateTime, Utc};
-use sqlx::{PgPool, Postgres, Transaction};
+use sqlx::{Sqlite, SqlitePool, Transaction};
 use uuid::Uuid;
 use ziee_core::AppError;
 
 use super::models::{Artifact, ArtifactFilter, NewArtifact};
 
 pub struct CatalogRepository {
-    pool: PgPool,
+    pool: SqlitePool,
+}
+
+/// Serialize a `String` batch into the JSON-text form the SQLite membership
+/// predicates consume (`json_each($n)` — DEC-8 TEXT-JSON array transport;
+/// sqlx-sqlite has no `Vec<T>` bind).
+pub(crate) fn text_list_json(xs: &[String]) -> String {
+    serde_json::to_string(xs).expect("Vec<String> is JSON-serializable")
+}
+
+/// Serialize a `uuid[]` batch into the JSON-hex form the SQLite membership
+/// predicates consume (`IN (SELECT unhex(j.value) FROM json_each($1) AS j)` —
+/// the ITEM-15/19 convention; a TEXT-vs-BLOB `=` would never match).
+pub(crate) fn uuid_list_json(ids: &[Uuid]) -> String {
+    serde_json::to_string(
+        &ids.iter()
+            .map(|id| id.simple().to_string())
+            .collect::<Vec<String>>(),
+    )
+    .expect("Vec<String> is JSON-serializable")
 }
 
 /// One live blob reference for the GC keep-set (ITEM-14).
@@ -46,29 +77,35 @@ const ARTIFACT_COLS: &str = r#"id, project_id, dataset_id, run_id, output_id, da
     hidden, representation_of"#;
 
 impl CatalogRepository {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
 
     /// Insert (or idempotently re-insert on the `(project_id, run_id, output_id)`
     /// natural key) one artifact row with `status = 'ready'`. Returns the row.
+    ///
+    /// **The id is bound app-side** (the first column, `$1`): the SQLite chain
+    /// has no SQL uuid generator (the PG baseline's `DEFAULT gen_random_uuid()`
+    /// is gone — the ITEM-17-recorded default gap, this module's instance of
+    /// DEC-12's "gen_random_uuid() → Rust `Uuid::new_v4()` bind" rule).
     pub async fn insert_artifact(&self, a: &NewArtifact) -> Result<Artifact, AppError> {
         Self::insert_artifact_tx(&self.pool, a).await
     }
 
     /// The pool-or-tx variant is folded via a plain executor-generic helper below;
     /// callers inside the ingest transaction use `insert_artifact_in_tx`.
-    async fn insert_artifact_tx(pool: &PgPool, a: &NewArtifact) -> Result<Artifact, AppError> {
+    async fn insert_artifact_tx(pool: &SqlitePool, a: &NewArtifact) -> Result<Artifact, AppError> {
+        let new_artifact_id = Uuid::new_v4();
         sqlx::query_as!(
             Artifact,
             r#"INSERT INTO artifacts
-                 (project_id, dataset_id, run_id, output_id, datatype, object_key,
+                 (id, project_id, dataset_id, run_id, output_id, datatype, object_key,
                   is_multifile, content_hash, structure, meta, role, status,
                   stored_bytes, logical_bytes, created_by, hidden, representation_of)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'ready',$12,$13,$14,$15,$16)
-               ON CONFLICT (COALESCE(project_id, '00000000-0000-0000-0000-000000000000'::uuid),
-                            COALESCE(dataset_id, '00000000-0000-0000-0000-000000000000'::uuid),
-                            COALESCE(run_id, '00000000-0000-0000-0000-000000000000'::uuid), output_id)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'ready',$13,$14,$15,$16,$17)
+               ON CONFLICT (COALESCE(project_id, X'00000000000000000000000000000000'),
+                            COALESCE(dataset_id, X'00000000000000000000000000000000'),
+                            COALESCE(run_id, X'00000000000000000000000000000000'), output_id)
                DO UPDATE SET datatype = EXCLUDED.datatype,
                              object_key = EXCLUDED.object_key,
                              is_multifile = EXCLUDED.is_multifile,
@@ -81,15 +118,17 @@ impl CatalogRepository {
                              logical_bytes = EXCLUDED.logical_bytes,
                              hidden = EXCLUDED.hidden,
                              representation_of = EXCLUDED.representation_of,
-                             updated_at = now()
-               RETURNING id, project_id, dataset_id, run_id, output_id, datatype,
-                         object_key, is_multifile, content_hash,
+                             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+               RETURNING id as "id: Uuid", project_id as "project_id: Uuid", dataset_id as "dataset_id: Uuid", run_id as "run_id: Uuid", output_id, datatype,
+                         object_key, is_multifile as "is_multifile: bool", content_hash,
                          structure as "structure: serde_json::Value",
                          meta as "meta: serde_json::Value",
-                         role, status, stored_bytes, logical_bytes, created_by,
+                         role, status, stored_bytes, logical_bytes, created_by as "created_by: Uuid",
                          created_at as "created_at: DateTime<Utc>",
                          updated_at as "updated_at: DateTime<Utc>",
-                         hidden, representation_of"#,
+                         hidden as "hidden: bool", representation_of as "representation_of: Uuid""#,
+
+            new_artifact_id,
             a.project_id,
             a.dataset_id,
             a.run_id,
@@ -114,19 +153,20 @@ impl CatalogRepository {
 
     /// Insert inside a caller-owned transaction (the atomic ingest path, ITEM-5).
     pub async fn insert_artifact_in_tx(
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut Transaction<'_, Sqlite>,
         a: &NewArtifact,
     ) -> Result<Artifact, AppError> {
+        let new_artifact_id = Uuid::new_v4();
         sqlx::query_as!(
             Artifact,
             r#"INSERT INTO artifacts
-                 (project_id, dataset_id, run_id, output_id, datatype, object_key,
+                 (id, project_id, dataset_id, run_id, output_id, datatype, object_key,
                   is_multifile, content_hash, structure, meta, role, status,
                   stored_bytes, logical_bytes, created_by, hidden, representation_of)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'ready',$12,$13,$14,$15,$16)
-               ON CONFLICT (COALESCE(project_id, '00000000-0000-0000-0000-000000000000'::uuid),
-                            COALESCE(dataset_id, '00000000-0000-0000-0000-000000000000'::uuid),
-                            COALESCE(run_id, '00000000-0000-0000-0000-000000000000'::uuid), output_id)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'ready',$13,$14,$15,$16,$17)
+               ON CONFLICT (COALESCE(project_id, X'00000000000000000000000000000000'),
+                            COALESCE(dataset_id, X'00000000000000000000000000000000'),
+                            COALESCE(run_id, X'00000000000000000000000000000000'), output_id)
                DO UPDATE SET datatype = EXCLUDED.datatype,
                              object_key = EXCLUDED.object_key,
                              is_multifile = EXCLUDED.is_multifile,
@@ -139,15 +179,17 @@ impl CatalogRepository {
                              logical_bytes = EXCLUDED.logical_bytes,
                              hidden = EXCLUDED.hidden,
                              representation_of = EXCLUDED.representation_of,
-                             updated_at = now()
-               RETURNING id, project_id, dataset_id, run_id, output_id, datatype,
-                         object_key, is_multifile, content_hash,
+                             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+               RETURNING id as "id: Uuid", project_id as "project_id: Uuid", dataset_id as "dataset_id: Uuid", run_id as "run_id: Uuid", output_id, datatype,
+                         object_key, is_multifile as "is_multifile: bool", content_hash,
                          structure as "structure: serde_json::Value",
                          meta as "meta: serde_json::Value",
-                         role, status, stored_bytes, logical_bytes, created_by,
+                         role, status, stored_bytes, logical_bytes, created_by as "created_by: Uuid",
                          created_at as "created_at: DateTime<Utc>",
                          updated_at as "updated_at: DateTime<Utc>",
-                         hidden, representation_of"#,
+                         hidden as "hidden: bool", representation_of as "representation_of: Uuid""#,
+
+            new_artifact_id,
             a.project_id,
             a.dataset_id,
             a.run_id,
@@ -189,14 +231,14 @@ impl CatalogRepository {
     pub async fn get_any_status(&self, id: Uuid) -> Result<Option<Artifact>, AppError> {
         sqlx::query_as!(
             Artifact,
-            r#"SELECT id, project_id, dataset_id, run_id, output_id, datatype,
-                      object_key, is_multifile, content_hash,
+            r#"SELECT id as "id: Uuid", project_id as "project_id: Uuid", dataset_id as "dataset_id: Uuid", run_id as "run_id: Uuid", output_id, datatype,
+                      object_key, is_multifile as "is_multifile: bool", content_hash,
                       structure as "structure: serde_json::Value",
                       meta as "meta: serde_json::Value",
-                      role, status, stored_bytes, logical_bytes, created_by,
+                      role, status, stored_bytes, logical_bytes, created_by as "created_by: Uuid",
                       created_at as "created_at: DateTime<Utc>",
                       updated_at as "updated_at: DateTime<Utc>",
-                      hidden, representation_of
+                      hidden as "hidden: bool", representation_of as "representation_of: Uuid"
                FROM artifacts WHERE id = $1"#,
             id,
         )
@@ -216,28 +258,32 @@ impl CatalogRepository {
         filter: &ArtifactFilter,
         datatype_allow: Option<&[String]>,
     ) -> Result<Vec<Artifact>, AppError> {
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let datatype_bind = filter.datatype.as_deref();
+        let output_id_bind = filter.output_id.as_deref();
+        let datatype_allow_bind = datatype_allow.map(text_list_json);
         sqlx::query_as!(
             Artifact,
-            r#"SELECT id, project_id, dataset_id, run_id, output_id, datatype,
-                      object_key, is_multifile, content_hash,
+            r#"SELECT id as "id: Uuid", project_id as "project_id: Uuid", dataset_id as "dataset_id: Uuid", run_id as "run_id: Uuid", output_id, datatype,
+                      object_key, is_multifile as "is_multifile: bool", content_hash,
                       structure as "structure: serde_json::Value",
                       meta as "meta: serde_json::Value",
-                      role, status, stored_bytes, logical_bytes, created_by,
+                      role, status, stored_bytes, logical_bytes, created_by as "created_by: Uuid",
                       created_at as "created_at: DateTime<Utc>",
                       updated_at as "updated_at: DateTime<Utc>",
-                      hidden, representation_of
+                      hidden as "hidden: bool", representation_of as "representation_of: Uuid"
                FROM artifacts
                WHERE project_id = $1
-                 AND ($2::text IS NULL OR datatype = $2)
-                 AND ($3::uuid IS NULL OR run_id = $3)
-                 AND ($4::text IS NULL OR output_id = $4)
-                 AND ($5::text[] IS NULL OR datatype = ANY($5))
+                 AND ($2 IS NULL OR datatype = $2)
+                 AND ($3 IS NULL OR run_id = $3)
+                 AND ($4 IS NULL OR output_id = $4)
+                 AND ($5 IS NULL OR datatype IN (SELECT j.value FROM json_each($5) AS j))
                ORDER BY created_at DESC"#,
             project_id,
-            filter.datatype.as_deref(),
+            datatype_bind,
             filter.run_id,
-            filter.output_id.as_deref(),
-            datatype_allow.map(|s| s.to_vec()) as Option<Vec<String>>,
+            output_id_bind,
+            datatype_allow_bind,
         )
         .fetch_all(&self.pool)
         .await
@@ -261,16 +307,21 @@ impl CatalogRepository {
         filter: &ArtifactFilter,
         datatype_allow: Option<&[String]>,
     ) -> Result<Vec<Artifact>, AppError> {
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let datatype_bind = filter.datatype.as_deref();
+        let output_id_bind = filter.output_id.as_deref();
+        let datatype_allow_bind = datatype_allow.map(text_list_json);
+        let on_axis_bind = filter.on_axis.as_deref();
         sqlx::query_as!(
             Artifact,
-            r#"SELECT id, project_id, dataset_id, run_id, output_id, datatype,
-                      object_key, is_multifile, content_hash,
+            r#"SELECT id as "id: Uuid", project_id as "project_id: Uuid", dataset_id as "dataset_id: Uuid", run_id as "run_id: Uuid", output_id, datatype,
+                      object_key, is_multifile as "is_multifile: bool", content_hash,
                       structure as "structure: serde_json::Value",
                       meta as "meta: serde_json::Value",
-                      role, status, stored_bytes, logical_bytes, created_by,
+                      role, status, stored_bytes, logical_bytes, created_by as "created_by: Uuid",
                       created_at as "created_at: DateTime<Utc>",
                       updated_at as "updated_at: DateTime<Utc>",
-                      hidden, representation_of
+                      hidden as "hidden: bool", representation_of as "representation_of: Uuid"
                FROM artifacts
                -- ITEM-49 — THE LISTING USES THE SAME SCOPE RULE AS THE AUTHZ GATE.
                --
@@ -296,14 +347,20 @@ impl CatalogRepository {
                WHERE (project_id = $1
                       OR (project_id IS NULL AND dataset_id IN (
                           SELECT pd.dataset_id FROM project_datasets pd WHERE pd.project_id = $1)))
-                 AND ($2::text IS NULL OR datatype = $2)
-                 AND ($3::uuid IS NULL OR run_id = $3)
-                 AND ($4::text IS NULL OR output_id = $4)
-                 AND ($5::text[] IS NULL OR datatype = ANY($5))
-                 -- ITEM-30 — the MEMBERSHIP narrowing (INV-2). Containment against the
-                 -- expression `202608040004` indexes, spelled IDENTICALLY here or the planner
-                 -- cannot use the index: `jsonb_path_query_array` (the IMMUTABLE one, not the
-                 -- `_tz` variant) over `$.memberships[*].aligned_to`, `@>` a one-element array.
+                 AND ($2 IS NULL OR datatype = $2)
+                 AND ($3 IS NULL OR run_id = $3)
+                 AND ($4 IS NULL OR output_id = $4)
+                 AND ($5 IS NULL OR datatype IN (SELECT j.value FROM json_each($5) AS j))
+                 -- ITEM-30 — the MEMBERSHIP narrowing (INV-2). The PG arm was
+                 -- containment against the GIN `jsonb_path_query_array` expression
+                 -- index `202608040004`; the SQLite chain carries NO such index
+                 -- (202608280001's port note: JSON1 has no GIN and `json_each`
+                 -- cannot appear in an index expression), so the predicate here is
+                 -- the ported form — `EXISTS (SELECT 1 FROM json_each(...))` over
+                 -- the scope-narrowed rows (bounded), spelled with the exact
+                 -- `json_type(..., path) IS NOT NULL` treatment for the two
+                 -- absence arms so PG `-> IS NULL` semantics (a JSON-null value is
+                 -- a PRESENT key) survive.
                  --
                  -- No identity judgment in SQL, no ordering, no `LIMIT 1`: which candidate is
                  -- OFFERED is decided in TypeScript, where it is unit-testable without a
@@ -318,8 +375,7 @@ impl CatalogRepository {
                  -- the pane would silently lose every offer it has — with no error anywhere,
                  -- which is the exact failure that test exists to catch.
                  --
-                 --   1. declares a membership on this axis — the indexed arm, and the one the
-                 --      GIN index serves;
+                 --   1. declares a membership on this axis — the array arm;
                  --   2. declares the LEGACY SCALAR for this axis — which IS a membership
                  --      (ITEM-2 reads it as `kind: full`), just in the older spelling;
                  --   3. declares NEITHER — A3, unknown alignment, which is OFFERED and must
@@ -334,19 +390,21 @@ impl CatalogRepository {
                  -- one HERE would make the server narrower than the client in precisely the way
                  -- INV-2 forbids. Staged/condemned artifacts are refused at CONSUMPTION
                  -- (`ConsumableArtifact`), which is enforcement; this is narrowing.
-                 AND ($6::text IS NULL OR (
-                        jsonb_path_query_array(structure, '$.memberships[*].aligned_to')
-                            @> jsonb_build_array($6::text)
-                        OR structure ->> 'aligned_to' = $6
-                        OR (structure -> 'memberships' IS NULL
-                            AND structure -> 'aligned_to' IS NULL)))
+                 AND ($6 IS NULL OR (
+                        EXISTS (
+                          SELECT 1 FROM json_each(COALESCE(
+                                     json_extract(structure, '$.memberships'), '[]')) AS j
+                          WHERE json_extract(j.value, '$.aligned_to') = $6)
+                        OR json_extract(structure, '$.aligned_to') = $6
+                        OR (json_type(structure, '$.memberships') IS NULL
+                            AND json_type(structure, '$.aligned_to') IS NULL)))
                ORDER BY created_at DESC"#,
             project_id,
-            filter.datatype.as_deref(),
+            datatype_bind,
             filter.run_id,
-            filter.output_id.as_deref(),
-            datatype_allow.map(|s| s.to_vec()) as Option<Vec<String>>,
-            filter.on_axis.as_deref(),
+            output_id_bind,
+            datatype_allow_bind,
+            on_axis_bind,
         )
         .fetch_all(&self.pool)
         .await
@@ -374,8 +432,9 @@ impl CatalogRepository {
     ///
     /// The `datatype_allow` set is the caller-resolved metadata-column family
     /// (registry-derived from the `metadata-column-family` capability, DEC-12) bound
-    /// as `datatype = ANY($n)` — the repo stays pure SQL with NO datatype-id literal,
-    /// and a contributed subtype resolves for free.
+    /// as the JSON1 membership `datatype IN (SELECT value FROM json_each($n))`
+    /// (the SQLite port of `datatype = ANY($n)`) — the repo stays pure SQL with
+    /// NO datatype-id literal, and a contributed subtype resolves for free.
     ///
     /// `ORDER BY id` is for a DETERMINISTIC candidate order, not a preference: no
     /// ordering of this list may decide which axis the caller gets (that was the bug —
@@ -395,25 +454,27 @@ impl CatalogRepository {
         axis: &str,
         datatype_allow: &[String],
     ) -> Result<Vec<Artifact>, AppError> {
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let datatype_allow_json = text_list_json(datatype_allow);
         sqlx::query_as!(
             Artifact,
-            r#"SELECT id, project_id, dataset_id, run_id, output_id, datatype,
-                      object_key, is_multifile, content_hash,
+            r#"SELECT id as "id: Uuid", project_id as "project_id: Uuid", dataset_id as "dataset_id: Uuid", run_id as "run_id: Uuid", output_id, datatype,
+                      object_key, is_multifile as "is_multifile: bool", content_hash,
                       structure as "structure: serde_json::Value",
                       meta as "meta: serde_json::Value",
-                      role, status, stored_bytes, logical_bytes, created_by,
+                      role, status, stored_bytes, logical_bytes, created_by as "created_by: Uuid",
                       created_at as "created_at: DateTime<Utc>",
                       updated_at as "updated_at: DateTime<Utc>",
-                      hidden, representation_of
+                      hidden as "hidden: bool", representation_of as "representation_of: Uuid"
                FROM artifacts
                WHERE dataset_id = $1
-                 AND datatype = ANY($2)
-                 AND meta @> '{"is_axis_index": true}'::jsonb
-                 AND structure ->> 'axis' = $3
+                 AND datatype IN (SELECT j.value FROM json_each($2) AS j)
+                 AND json_type(meta, '$.is_axis_index') = 'true'
+                 AND json_extract(structure, '$.axis') = $3
                  AND status = 'ready'
                ORDER BY id"#,
             dataset_id,
-            datatype_allow,
+            datatype_allow_json,
             axis,
         )
         .fetch_all(&self.pool)
@@ -451,14 +512,14 @@ impl CatalogRepository {
     ) -> Result<Vec<Artifact>, AppError> {
         sqlx::query_as!(
             Artifact,
-            r#"SELECT id, project_id, dataset_id, run_id, output_id, datatype,
-                      object_key, is_multifile, content_hash,
+            r#"SELECT id as "id: Uuid", project_id as "project_id: Uuid", dataset_id as "dataset_id: Uuid", run_id as "run_id: Uuid", output_id, datatype,
+                      object_key, is_multifile as "is_multifile: bool", content_hash,
                       structure as "structure: serde_json::Value",
                       meta as "meta: serde_json::Value",
-                      role, status, stored_bytes, logical_bytes, created_by,
+                      role, status, stored_bytes, logical_bytes, created_by as "created_by: Uuid",
                       created_at as "created_at: DateTime<Utc>",
                       updated_at as "updated_at: DateTime<Utc>",
-                      hidden, representation_of
+                      hidden as "hidden: bool", representation_of as "representation_of: Uuid"
                FROM artifacts WHERE project_id = $1 AND run_id = $2
                ORDER BY created_at DESC"#,
             project_id,
@@ -487,16 +548,16 @@ impl CatalogRepository {
         // forced with `!` (the jsonb/timestamptz casts keep their type override too).
         sqlx::query_as!(
             Artifact,
-            r#"SELECT id as "id!", project_id, dataset_id, run_id, output_id as "output_id!",
-                      datatype as "datatype!", object_key, is_multifile as "is_multifile!",
+            r#"SELECT id as "id!: Uuid", project_id as "project_id: Uuid", dataset_id as "dataset_id: Uuid", run_id as "run_id: Uuid", output_id as "output_id!",
+                      datatype as "datatype!", object_key, is_multifile as "is_multifile!: bool",
                       content_hash as "content_hash!",
                       structure as "structure!: serde_json::Value",
                       meta as "meta!: serde_json::Value",
                       role as "role!", status as "status!", stored_bytes as "stored_bytes!",
-                      logical_bytes, created_by,
+                      logical_bytes, created_by as "created_by: Uuid",
                       created_at as "created_at!: DateTime<Utc>",
                       updated_at as "updated_at!: DateTime<Utc>",
-                      hidden as "hidden!", representation_of
+                      hidden as "hidden!: bool", representation_of as "representation_of: Uuid"
                FROM usable_artifacts WHERE dataset_id = $1
                ORDER BY created_at ASC"#,
             dataset_id,
@@ -533,7 +594,7 @@ impl CatalogRepository {
         let res = sqlx::query!(
             "UPDATE artifacts \
                 SET dataset_id = $2, project_id = NULL, role = $3, hidden = true, \
-                    meta = $4, updated_at = now() \
+                    meta = $4, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') \
              WHERE id = $1 AND object_key IS NOT NULL",
             mask_id,
             dataset_id,
@@ -554,7 +615,7 @@ impl CatalogRepository {
     /// when nothing had been written (see `jobs::conformance::VerdictApplication`).
     pub async fn set_status(&self, id: Uuid, status: &str) -> Result<bool, AppError> {
         let res = sqlx::query!(
-            "UPDATE artifacts SET status = $2, updated_at = now() WHERE id = $1",
+            "UPDATE artifacts SET status = $2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = $1",
             id,
             status,
         )
@@ -594,9 +655,9 @@ impl CatalogRepository {
         let res = sqlx::query!(
             "UPDATE artifacts \
                 SET status = $2, \
-                    meta = jsonb_set(COALESCE(meta, '{}'::jsonb), '{unresolved_source}', \
-                                     to_jsonb($3::text), true), \
-                    updated_at = now() \
+                    meta = json_set(COALESCE(meta, '{}'), '$.unresolved_source', \
+                                    json_quote($3)), \
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') \
              WHERE id = $1 AND object_key IS NULL AND status <> $2",
             id,
             super::super::consume::STATUS_UNRESOLVABLE,
@@ -622,7 +683,7 @@ impl CatalogRepository {
     /// caller's tx — collected BEFORE the rows are deleted so the delete-time
     /// `GcManifest` can mark the project's blobs (ITEM-14 collect).
     pub async fn object_keys_for_project_in_tx(
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut Transaction<'_, Sqlite>,
         project_id: Uuid,
     ) -> Result<Vec<BlobRefRow>, AppError> {
         // ITEM-28 — a GATHERED artifact names no blob of its own, but the blobs its
@@ -647,32 +708,56 @@ impl CatalogRepository {
         // Both edges are walked for the same reason as before: the ALIGNMENT is as
         // load-bearing as the sources, since a gather without it resolves to nothing, and
         // collecting either half leaves a column that reads short with no error.
+        // SQLite port (record — DEC-12's LATERAL rewrite): SQLite has no
+        // `LATERAL` and no `jsonb_path_query_array`; the three ref sources
+        // (alignment, mask, each `sources[].artifact_id`) are THREE terms of
+        // the recursive member, all `json_extract`/`json_each` JSON1 (measured:
+        // `json_tree`'s path/value columns quote keys version-dependently, so
+        // path-matching the recipe is not portable — the chain's JSON1 rule is
+        // the stable instrument). `UNION` (not `UNION ALL`) terminates a cycle
+        // by construction: a repeated id is not re-expanded. The
+        // `? 'gathered_from'` check is spelled `json_type(..., path) IS NOT
+        // NULL` (migration 202608040010's `jsonb_exists` rule); the refs are
+        // the producers' hyphenated uuid strings, so
+        // `unhex(replace(...,'-',''))` restores the 16-byte BLOB form
+        // `reach(id)` joins against (the TEXT-vs-BLOB `=` would never match —
+        // ITEM-15/19's membership note).
         let rows = sqlx::query!(
             r#"WITH RECURSIVE reach(id) AS (
                    SELECT id FROM artifacts WHERE project_id = $1
                  UNION
-                   SELECT refs.ref::uuid
+                   SELECT unhex(replace(json_extract(a.structure,
+                              '$.gathered_from.alignment_artifact_id'), '-', ''))
                    FROM reach r
                    JOIN artifacts a ON a.id = r.id
-                   CROSS JOIN LATERAL (
-                       SELECT a.structure->'gathered_from'->>'alignment_artifact_id' AS ref
-                       UNION ALL
-                       -- The MASK is as load-bearing as the alignment (ITEM-1/ITEM-2): a
-                       -- masked gather without it resolves to nothing, so its blob must be
-                       -- kept while any column reads through it. Null for the integration
-                       -- (no-mask) and identity cases; `refs.ref IS NOT NULL` drops those.
-                       SELECT a.structure->'gathered_from'->>'mask_artifact_id'
-                       UNION ALL
-                       SELECT s->>'artifact_id'
-                       FROM jsonb_array_elements(
-                                COALESCE(a.structure->'gathered_from'->'sources', '[]'::jsonb)
-                            ) AS s
-                   ) AS refs
                    WHERE a.object_key IS NULL
-                     AND a.structure ? 'gathered_from'
-                     AND refs.ref IS NOT NULL
+                     AND json_type(a.structure, '$.gathered_from') IS NOT NULL
+                     AND json_extract(a.structure,
+                              '$.gathered_from.alignment_artifact_id') IS NOT NULL
+                 UNION
+                   -- The MASK is as load-bearing as the alignment (ITEM-1/ITEM-2): a
+                   -- masked gather without it resolves to nothing, so its blob must be
+                   -- kept while any column reads through it. Null for the integration
+                   -- (no-mask) and identity cases; the IS NOT NULL guard drops those.
+                   SELECT unhex(replace(json_extract(a.structure,
+                              '$.gathered_from.mask_artifact_id'), '-', ''))
+                   FROM reach r
+                   JOIN artifacts a ON a.id = r.id
+                   WHERE a.object_key IS NULL
+                     AND json_type(a.structure, '$.gathered_from') IS NOT NULL
+                     AND json_extract(a.structure,
+                              '$.gathered_from.mask_artifact_id') IS NOT NULL
+                 UNION
+                   SELECT unhex(replace(json_extract(jt.value, '$.artifact_id'), '-', ''))
+                   FROM reach r
+                   JOIN artifacts a ON a.id = r.id
+                   JOIN json_each(COALESCE(
+                            json_extract(a.structure, '$.gathered_from.sources'), '[]')) AS jt
+                   WHERE a.object_key IS NULL
+                     AND json_type(a.structure, '$.gathered_from') IS NOT NULL
+                     AND json_type(jt.value, '$.artifact_id') = 'text'
                )
-               SELECT a.id, a.project_id, a.output_id, a.object_key, a.is_multifile
+               SELECT a.id as "id: Uuid", a.project_id as "project_id: Uuid", a.output_id, a.object_key, a.is_multifile as "is_multifile: bool"
                FROM artifacts a JOIN reach r ON a.id = r.id"#,
             project_id,
         )
@@ -698,7 +783,7 @@ impl CatalogRepository {
     /// Delete every artifact row for a project, inside the caller's tx (ITEM-12
     /// cascade). Returns the count removed.
     pub async fn delete_for_project_in_tx(
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut Transaction<'_, Sqlite>,
         project_id: Uuid,
     ) -> Result<u64, AppError> {
         let res = sqlx::query!("DELETE FROM artifacts WHERE project_id = $1", project_id)
@@ -711,7 +796,7 @@ impl CatalogRepository {
     /// Deep-copy a project's artifact rows into `dst`, RE-REFERENCING the same
     /// immutable blobs by key (DEC-14 — no byte copy). Returns the count copied.
     pub async fn copy_to_project_in_tx(
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut Transaction<'_, Sqlite>,
         src_project_id: Uuid,
         dst_project_id: Uuid,
     ) -> Result<u64, AppError> {
@@ -746,7 +831,7 @@ impl CatalogRepository {
     /// collect) and `footprint` (disk used is disk used, whatever the status).
     pub async fn all_blob_refs(&self) -> Result<Vec<BlobRefRow>, AppError> {
         let rows = sqlx::query!(
-            r#"SELECT id, project_id, output_id, object_key, is_multifile FROM artifacts"#
+            r#"SELECT id as "id: Uuid", project_id as "project_id: Uuid", output_id, object_key, is_multifile as "is_multifile: bool" FROM artifacts"#
         )
         .fetch_all(&self.pool)
         .await
@@ -822,8 +907,13 @@ impl CatalogRepository {
             // is the only arithmetic a scalar total can honestly do. A surface that
             // needs to distinguish "small" from "unknown" has to carry the unknown
             // COUNT, and this signature deliberately does not pretend to.
+            //
+            // SQLite port (record): the `::bigint` cast is gone; the expression column
+            // carries the typed override instead — the sqlite macro infers the NULL
+            // affinity of a `COALESCE(..., 0)` literal (the ITEM-18 `one: i64` class),
+            // and `sum()` over the INTEGER column is i64-faithful (the DEC-8 map).
             r#"SELECT count(*) as "count!",
-                      coalesce(sum(logical_bytes), 0)::bigint as "bytes!"
+                      coalesce(sum(logical_bytes), 0) as "bytes!: i64"
                FROM usable_artifacts WHERE project_id = $1"#,
             project_id,
         )

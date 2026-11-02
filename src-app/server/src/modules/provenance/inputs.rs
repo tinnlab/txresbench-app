@@ -3,7 +3,7 @@
 //! resource}`, or the capture is rejected — guaranteeing every backward walk
 //! terminates at roots (no "from-nowhere" hole).
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 use ziee_core::AppError;
 
@@ -105,7 +105,7 @@ pub fn artifact_in_project_scope(
 /// part of resolution, and a caller who cannot read the dataset gets the same
 /// `PROVENANCE_UNKNOWN_INPUT` an unknown id gets — no existence oracle.
 pub async fn resolve_input(
-    pool: &PgPool,
+    pool: &SqlitePool,
     project_id: Uuid,
     caller_id: Uuid,
     input_id: Uuid,

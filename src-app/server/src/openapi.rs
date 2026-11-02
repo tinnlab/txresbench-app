@@ -10,7 +10,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
-use sqlx::postgres::PgPoolOptions;
+use sqlx::sqlite::SqlitePoolOptions;
 use ziee_framework::app_builder::{build_api_router, create_modules};
 use ziee_framework::openapi::finish_and_emit;
 use ziee_framework::ModuleContext;
@@ -36,10 +36,15 @@ pub async fn generate_openapi_spec(
     let cfg = config::load_config(config_file.as_deref())?;
 
     // Lazy, never-connected pool — the URL is parsed at construction but no
-    // socket opens, and generation issues no query.
-    let pool = PgPoolOptions::new()
+    // socket opens, and generation issues no query. The sqlite driver is the
+    // app's only driver under this node, so the resolved target (env override
+    // > config > app-data-dir default) is what gets parsed, never dialed.
+    let pool = SqlitePoolOptions::new()
         .max_connections(1)
-        .connect_lazy(&cfg.database_url())?;
+        .connect_lazy(&config::resolve_database_target(
+            &cfg,
+            &crate::modules::rootfs::data_root(),
+        ))?;
 
     let ctx = ModuleContext::new(
         Arc::new(pool.clone()),

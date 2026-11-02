@@ -36,7 +36,7 @@
 // assertion in this file changed.
 
 use serde_json::Value;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 
 use super::{add_member, create_user, make_org_account, pool_for, setup_admin};
 use crate::common::TestServer;
@@ -68,7 +68,7 @@ fn code_of(body: &Value) -> &str {
 /// `SELECT count(*) FROM account_members` — the DB-layer truth the invariant is stated in.
 /// Every refusal assertion in this file re-queries it, because "the response said 422" and
 /// "no membership row was created" are different claims and only the second is INV-10.
-async fn member_count(pool: &PgPool, account: uuid::Uuid) -> i64 {
+async fn member_count(pool: &SqlitePool, account: uuid::Uuid) -> i64 {
     sqlx::query_scalar::<_, i64>("SELECT count(*) FROM account_members WHERE account_id = $1")
         .bind(account)
         .fetch_one(pool)
@@ -78,7 +78,7 @@ async fn member_count(pool: &PgPool, account: uuid::Uuid) -> i64 {
 
 /// The member set as an ORDERED, comparable snapshot — used by the cross-tenant test to
 /// prove the OTHER account was untouched, rather than merely that its count is the same.
-async fn member_snapshot(pool: &PgPool, account: uuid::Uuid) -> Vec<(uuid::Uuid, String)> {
+async fn member_snapshot(pool: &SqlitePool, account: uuid::Uuid) -> Vec<(uuid::Uuid, String)> {
     sqlx::query_as::<_, (uuid::Uuid, String)>(
         "SELECT user_id, role FROM account_members WHERE account_id = $1 ORDER BY user_id",
     )
@@ -104,7 +104,7 @@ fn free_allowance() -> i64 {
 async fn fill_to(
     server: &TestServer,
     admin: &str,
-    pool: &PgPool,
+    pool: &SqlitePool,
     account: uuid::Uuid,
     target: i64,
     prefix: &str,
@@ -360,7 +360,7 @@ async fn test8_minting_is_ungated_and_membership_creation_is_the_only_authority(
     }
     let pending: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM account_invitations WHERE account_id = $1 \
-         AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > now()",
+         AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')",
     )
     .bind(org)
     .fetch_one(&pool)
@@ -499,7 +499,7 @@ async fn test8_minting_is_ungated_and_membership_creation_is_the_only_authority(
 /// "coverage that isn't" this module refuses elsewhere.
 #[tokio::test]
 async fn test20_the_guard_refuses_an_unserializable_transaction_context() {
-    use cytoanalyst::modules::account::seat::{SEAT_NO_TRANSACTION, SEAT_UNSERIALIZED_ISOLATION};
+    use cytoanalyst::modules::account::seat::SEAT_NO_TRANSACTION;
     use cytoanalyst::modules::account::{AccountRepository, AccountRole, ActorCeiling};
     use sqlx::Acquire;
 
@@ -557,12 +557,38 @@ async fn test20_the_guard_refuses_an_unserializable_transaction_context() {
         "and it admitted nobody on the unserialized path"
     );
 
-    // ── ARM 2: REPEATABLE READ — in a transaction, but on an unsound snapshot ──
+    // ── ARM 2 (SQLite port): the stale-snapshot arm changed SHAPE, not died ──
+    //
+    // PG had two context questions and refused the second (`SEAT_UNSERIALIZED_ISOLATION`).
+    // SQLite has ONE isolation model, so that refusal has no object (see
+    // `seat.rs::assert_serializable_context`'s port note). Its guarantee — a stale
+    // count can never be committed SILENTLY — is now the engine's: a deferred
+    // transaction whose snapshot is stale fails its write (`database is locked` /
+    // `SQLITE_BUSY_SNAPSHOT`) instead of passing. Pin that: the call under a stale
+    // snapshot FAILS and admits nobody.
     let mut tx = pool.begin().await.expect("begin");
-    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-        .execute(&mut *tx)
+    // Take the snapshot: a read pins the deferred transaction's file view. `SELECT 1` does
+    // NOT do this in WAL mode — it never touches the database file, so no snapshot is
+    // taken and the later write would simply see the current file (the first version of
+    // this arm was green for exactly that reason and proved nothing). A real table read is
+    // what pins the view.
+    let _ = sqlx::query_scalar::<_, uuid::Uuid>("SELECT id FROM accounts WHERE id = $1")
+        .bind(org)
+        .fetch_one(&mut *tx)
         .await
-        .expect("set isolation");
+        .expect("snapshot read");
+    // Advance the file from a SECOND connection so the snapshot is stale by the
+    // time the mutation's write runs. The write must actually CHANGE a value:
+    // SQLite (3.46) treats `SET name = name` as a no-op and writes NO WAL frame,
+    // so the snapshot stays valid and the arm would pass for the wrong reason
+    // (verified — the first version of this arm was green exactly that way).
+    let mut other = pool.acquire().await.expect("other connection");
+    sqlx::query("UPDATE accounts SET name = name || '-advanced' WHERE id = $1")
+        .bind(org)
+        .execute(&mut *other)
+        .await
+        .expect("advance the file");
+    drop(other);
     let err = AccountRepository::add_member_in_tx(
         &mut tx,
         org,
@@ -574,16 +600,14 @@ async fn test20_the_guard_refuses_an_unserializable_transaction_context() {
         None,
     )
     .await
-    .expect_err("a repeatable-read snapshot cannot serialize the seat count");
-    assert_eq!(err.status_code(), 500);
-    assert_eq!(
-        err.error_code(),
-        SEAT_UNSERIALIZED_ISOLATION,
-        "refused for the ISOLATION LEVEL specifically — a DIFFERENT code from arm 1, so a \
-         regression that collapsed the two branches fails here: {err:?}"
-    );
+    .expect_err("a stale snapshot must be refused by the engine, never silently committed");
+    assert_eq!(err.status_code(), 500, "server-side failure, not a client error");
     tx.rollback().await.expect("rollback");
-    assert_eq!(member_count(&pool, org).await, 1);
+    assert_eq!(
+        member_count(&pool, org).await,
+        1,
+        "the stale-snapshot path admitted nobody"
+    );
 
     // ── ARM 4: the guard fires BEFORE the R-1 ceiling re-read, not merely before the
     //          INSERT (FIX_ROUND-6, R6-2) ──
@@ -648,25 +672,21 @@ async fn test20_the_guard_refuses_an_unserializable_transaction_context() {
         "the control really added the member"
     );
 
-    // ── ARM 3: SERIALIZABLE is ALSO refused, and the reversal is the point ──
+    // ── ARM 3 (SQLite port): the second isolation level does not exist ──
     //
-    // FIX_ROUND-2 ACCEPTED SERIALIZABLE, reasoning it aborts on exactly the read-write
-    // conflict REPEATABLE READ hides. FIX_ROUND-3 showed that is false IN THIS DEPLOYMENT:
-    // PostgreSQL's SSI only serializes against OTHER serializable transactions, nothing sets
-    // `default_transaction_isolation`, and the shipped caller (`add_member` → `pool.begin()`)
-    // is READ COMMITTED. A SERIALIZABLE accept racing a READ COMMITTED admin add gets the
-    // failure verbatim — stale snapshot, no 40001 from a lock-only tuple, no SSI abort
-    // because the counterparty is not serializable — and BOTH take the last seat.
-    //
-    // So this arm asserts the CURRENT, corrected behaviour. If a future change makes every
-    // membership-mutating transaction serializable, this is the test that must be
-    // consciously rewritten — which is exactly what a pin is for.
+    // The PG arm set `SERIALIZABLE` and asserted the REFUSAL
+    // (`SEAT_UNSERIALIZED_ISOLATION`): PostgreSQL's SSI only serializes against
+    // OTHER serializable transactions, so a SERIALIZABLE accept could race a
+    // READ COMMITTED add and both take the last seat. SQLite has ONE isolation
+    // model — writers serialize on the database write lock — so neither the
+    // refusal nor its failure mode exists (the port note in
+    // `seat.rs::assert_serializable_context`). The guarantee ARM 3 existed to
+    // pin ("a stale count can never be committed silently") is now the ported
+    // ARM 2 above: a stale snapshot is refused by the engine. The honest
+    // positive corollary here: an explicit transaction — the ONLY mode there is
+    // — is admitted, and its write serializes.
     let mut ser_tx = pool.begin().await.expect("begin");
-    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-        .execute(&mut *ser_tx)
-        .await
-        .expect("set isolation");
-    let err = AccountRepository::add_member_in_tx(
+    AccountRepository::add_member_in_tx(
         &mut ser_tx,
         org,
         v,
@@ -677,18 +697,12 @@ async fn test20_the_guard_refuses_an_unserializable_transaction_context() {
         None,
     )
     .await
-    .expect_err("SSI does not protect against a READ COMMITTED counterparty");
-    assert_eq!(err.status_code(), 500);
-    assert_eq!(
-        err.error_code(),
-        SEAT_UNSERIALIZED_ISOLATION,
-        "SERIALIZABLE is refused for the ISOLATION reason, same code as repeatable read: {err:?}"
-    );
-    ser_tx.rollback().await.expect("rollback");
+    .expect("an explicit transaction's write serializes on the engine write lock");
+    ser_tx.commit().await.expect("commit");
     assert_eq!(
         member_count(&pool, org).await,
-        2,
-        "and it admitted nobody — the count is unchanged from the positive control"
+        3,
+        "the explicit-transaction add committed (count 2 from the control + this one)"
     );
 }
 
@@ -1510,11 +1524,18 @@ fn test16_the_saas_gate_is_confined_to_account_seat_rs() {
     }
     gated.sort();
     mentions_in_prose.sort();
+    // SQLite port: the `saas` feature itself is STRIPPED on this node (the billing module is
+    // gone — see DRIFT-1.25), so the gate attribute was removed from `seat.rs` along with the
+    // policy it gated (the port kept only the transaction-context guard, which is not a
+    // billing property). The invariant "nothing but seat.rs may carry a saas gate"
+    // degenerates to its other half, and that is what is pinned: NO file in the module
+    // carries one, so nothing is gated out of a build that has no second build.
     assert_eq!(
         gated,
-        vec!["seat.rs".to_string()],
-        "exactly one file in modules/account may carry a saas gate, and it is seat.rs — \
-         everything else must work in BOTH builds (A1 INV-3 / AC-INV-6)"
+        Vec::<String>::new(),
+        "no file in modules/account may carry a saas gate on this node — the `saas` feature \
+         and its billing module are stripped, so a gate would gate a path out of the ONLY \
+         build there is. (On the upstream build the pinned set is exactly [seat.rs].)"
     );
 
     // AND the shipped guard's own, prose-INCLUSIVE constraint still holds on the five files
@@ -1584,180 +1605,31 @@ fn test16_the_saas_gate_is_confined_to_account_seat_rs() {
 /// Read from the SAAS spec, since `/api/billing/*` mounts only in that build.
 #[test]
 fn test9_no_route_mutates_member_allowance() {
-    let doc: Value = serde_json::from_str(&repo_file("../ui/openapi-saas/openapi.json"))
-        .expect("parse the saas openapi.json");
+    // SQLite port: the SAAS spec and the billing module it documents are STRIPPED on this
+    // node (DRIFT-1.25) — `/api/billing/*` mounts in no build that exists here, so the
+    // claim "no route mutates `member_allowance`" has no subject to be false against in the
+    // saas document the upstream test read. The same claim is re-pointed at the ONE
+    // document there is, asserted at full strength on what it can see: the billing catalog
+    // route is absent (the item's subject is gone with the stripped module), and the field
+    // appears NOWHERE in the shipped document — which subsumes the upstream request-body
+    // scan, because here there is no `$ref`-hidden billing schema to resolve: the field
+    // does not exist at all outside test fixtures.
+    let doc: Value = serde_json::from_str(&repo_file("../ui/openapi/openapi.json"))
+        .expect("parse the shipped openapi.json");
 
-    // The catalog path exposes GET only — it is a VIEW, there is no PUT (INV-1/INV-10b).
     let paths = doc["paths"].as_object().expect("paths object");
-    let catalog = paths
-        .get("/api/billing/catalog")
-        .expect("the catalog route is in the saas document");
-    let methods: Vec<&str> = catalog
-        .as_object()
-        .expect("catalog path item")
-        .keys()
-        .map(|k| k.as_str())
-        .filter(|k| {
-            matches!(
-                *k,
-                "get" | "put" | "post" | "patch" | "delete" | "head" | "options" | "trace"
-            )
-        })
-        .collect();
-    assert_eq!(
-        methods,
-        vec!["get"],
-        "the catalog is READ-ONLY — a put/post/patch here would make the plan set \
-         operator-editable, which INV-1 forbids"
-    );
-
-    // And `member_allowance` appears in no request body anywhere in the document — the
-    // assertion a source-grep cannot make, because it covers EVERY module's routes at once.
-    //
-    // FIX_ROUND-1 F5: the first version serialized the `requestBody` node and searched the
-    // text. That could not fail: every one of the spec's request bodies is
-    // `{"content":{"application/json":{"schema":{"$ref":"#/components/schemas/X"}}}}` with
-    // ZERO inline properties, so the field name is never in that subtree no matter what the
-    // route accepts. A test that cannot fail reads as coverage and is worse than none. The
-    // $refs are now RESOLVED before searching, and the resolver is itself controlled below.
-    let schemas = doc["components"]["schemas"]
-        .as_object()
-        .expect("components.schemas");
-
-    fn schema_mentions(
-        node: &Value,
-        schemas: &serde_json::Map<String, Value>,
-        field: &str,
-        depth: usize,
-        seen: &mut Vec<String>,
-    ) -> bool {
-        if depth > 12 {
-            return false;
-        }
-        if let Some(r) = node.get("$ref").and_then(|v| v.as_str()) {
-            let name = r.rsplit('/').next().unwrap_or_default().to_string();
-            if seen.contains(&name) {
-                return false; // already on THIS path — a cycle, not a missed branch
-            }
-            // FIX_ROUND-2 R2-7: `seen` is a PATH stack, popped on the way out. The first
-            // version never popped, making it a global visited-set: a schema first reached
-            // at the depth cut-off under one branch stayed marked and was then skipped
-            // outright on a later, shallower path — a false NEGATIVE, which is the direction
-            // that makes the assertion vacuous rather than noisy.
-            seen.push(name.clone());
-            let found = schemas
-                .get(&name)
-                .map(|target| schema_mentions(target, schemas, field, depth + 1, seen))
-                .unwrap_or(false);
-            seen.pop();
-            return found;
-        }
-        if let Some(props) = node.get("properties").and_then(|v| v.as_object()) {
-            if props.contains_key(field) {
-                return true;
-            }
-            for v in props.values() {
-                if schema_mentions(v, schemas, field, depth + 1, seen) {
-                    return true;
-                }
-            }
-        }
-        for key in ["items", "additionalProperties"] {
-            if let Some(v) = node.get(key) {
-                if schema_mentions(v, schemas, field, depth + 1, seen) {
-                    return true;
-                }
-            }
-        }
-        for key in ["allOf", "anyOf", "oneOf"] {
-            if let Some(arr) = node.get(key).and_then(|v| v.as_array()) {
-                for v in arr {
-                    if schema_mentions(v, schemas, field, depth + 1, seen) {
-                        return true;
-                    }
-                }
-            }
-        }
-        false
-    }
-
-    // CONTROLS for the resolver itself. Without these, a resolver that silently returned
-    // `false` for everything would make the assertion below vacuous again — the exact
-    // failure being repaired. FIX_ROUND-2 R2-7 widened them: the originals followed a single
-    // `$ref` to a top-level property and exercised none of the recursion they underwrite.
-
-    // (1) found THROUGH a $ref at all.
-    let probe = serde_json::json!({ "$ref": "#/components/schemas/QuotaStateResponse" });
     assert!(
-        schema_mentions(&probe, schemas, "member_allowance", 0, &mut Vec::new()),
-        "resolver control: member_allowance must be found through a $ref"
+        !paths.contains_key("/api/billing/catalog"),
+        "the billing catalog route must not exist in the shipped default document on this \
+         node — the billing module that serves it is stripped. If it reappears, the saas \
+         spec and the upstream test9 arms must be restored with it."
     );
-    // (2) an absent field is not reported present.
+    let raw = serde_json::to_string(&doc).expect("serialize");
     assert!(
-        !schema_mentions(&probe, schemas, "no_such_field_anywhere", 0, &mut Vec::new()),
-        "resolver control: an absent field must not be reported present"
-    );
-    // (3) NESTED — through an array's `items`, through a composed `allOf`, and one property
-    // level down. These are the paths the real scan takes and the originals never touched.
-    let nested = serde_json::json!({
-        "type": "object",
-        "properties": {
-            "wrapper": {
-                "type": "array",
-                "items": { "allOf": [{ "$ref": "#/components/schemas/QuotaStateResponse" }] }
-            }
-        }
-    });
-    assert!(
-        schema_mentions(&nested, schemas, "member_allowance", 0, &mut Vec::new()),
-        "resolver control: the field must be found through properties → items → allOf → $ref"
-    );
-    // (4) a CYCLE must terminate and must not poison a sibling branch — the false-negative
-    // the path-stack fix exists to prevent. `self` cycles; `also` reaches the field.
-    let mut cyclic = serde_json::Map::new();
-    cyclic.insert(
-        "Loop".into(),
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "self": { "$ref": "#/components/schemas/Loop" },
-                "also": { "$ref": "#/components/schemas/QuotaStateResponse" }
-            }
-        }),
-    );
-    for (k, v) in schemas.iter() {
-        cyclic.insert(k.clone(), v.clone());
-    }
-    let loop_probe = serde_json::json!({ "$ref": "#/components/schemas/Loop" });
-    assert!(
-        schema_mentions(&loop_probe, &cyclic, "member_allowance", 0, &mut Vec::new()),
-        "resolver control: a self-referential schema must terminate AND still find the field \
-         down its other branch"
-    );
-
-    let mut checked = 0usize;
-    for (path, item) in paths {
-        for (method, op) in item.as_object().expect("path item").iter() {
-            let Some(schema) = op
-                .get("requestBody")
-                .and_then(|b| b.get("content"))
-                .and_then(|c| c.as_object())
-                .and_then(|c| c.values().next())
-                .and_then(|m| m.get("schema"))
-            else {
-                continue;
-            };
-            checked += 1;
-            assert!(
-                !schema_mentions(schema, schemas, "member_allowance", 0, &mut Vec::new()),
-                "{method} {path} accepts `member_allowance` in its request body — the \
-                 seat allowance is code-defined and must not be settable over the API"
-            );
-        }
-    }
-    assert!(
-        checked > 20,
-        "the scan must actually reach the document's request bodies; only {checked} found"
+        !raw.contains("member_allowance"),
+        "`member_allowance` must appear nowhere in the shipped document — neither in a \
+         request body (the upstream assertion) nor anywhere else, since the seat-allowance \
+         surface is stripped with the billing module it belonged to"
     );
 }
 
@@ -1770,41 +1642,49 @@ fn test9_no_route_mutates_member_allowance() {
 /// also a wire-level proof of INV-3 (a desktop client is never told about seat allowances).
 #[test]
 fn test18_the_seat_fields_land_in_the_saas_client_and_only_there() {
-    let saas: Value = serde_json::from_str(&repo_file("../ui/openapi-saas/openapi.json"))
-        .expect("parse the saas openapi.json");
-    let schemas = &saas["components"]["schemas"];
+    // The saas client artifact is STRIPPED on this node (no `/ui/openapi-saas`).
+    // INV-3's wire half is then: the seat/allowance surface is absent from the
+    // ONE client there is. If a future build restores the saas client, the
+    // original assertions re-apply from this branch.
+    let saas_dir =
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../ui/openapi-saas");
+    if saas_dir.exists() {
+        let saas: Value = serde_json::from_str(&repo_file("../ui/openapi-saas/openapi.json"))
+            .expect("parse the saas openapi.json");
+        let schemas = &saas["components"]["schemas"];
 
-    let entry = schemas["PlanCatalogEntry"]["properties"]
-        .as_object()
-        .expect("saas spec: PlanCatalogEntry properties");
-    assert!(
-        entry.contains_key("member_allowance"),
-        "saas spec: PlanCatalogEntry must carry member_allowance"
-    );
-
-    let quota = schemas["QuotaStateResponse"]["properties"]
-        .as_object()
-        .expect("saas spec: QuotaStateResponse properties");
-    for f in ["member_allowance", "members_used"] {
+        let entry = schemas["PlanCatalogEntry"]["properties"]
+            .as_object()
+            .expect("saas spec: PlanCatalogEntry properties");
         assert!(
-            quota.contains_key(f),
-            "saas spec: QuotaStateResponse must carry {f}"
+            entry.contains_key("member_allowance"),
+            "saas spec: PlanCatalogEntry must carry member_allowance"
         );
-        // REQUIRED, not optional — a client that omits it would render "N of undefined".
-        let required: Vec<&str> = schemas["QuotaStateResponse"]["required"]
-            .as_array()
-            .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
-            .unwrap_or_default();
-        assert!(required.contains(&f), "saas spec: {f} must be required");
-    }
 
-    // The regenerated TypeScript carries them too — the artifact the FE actually imports.
-    let ts = repo_file("../ui/src/api-client-saas/types.ts");
-    for f in ["member_allowance", "members_used"] {
-        assert!(
-            ts.contains(f),
-            "api-client-saas/types.ts must carry {f} — regenerate with `just openapi-regen`"
-        );
+        let quota = schemas["QuotaStateResponse"]["properties"]
+            .as_object()
+            .expect("saas spec: QuotaStateResponse properties");
+        for f in ["member_allowance", "members_used"] {
+            assert!(
+                quota.contains_key(f),
+                "saas spec: QuotaStateResponse must carry {f}"
+            );
+            // REQUIRED, not optional — a client that omits it would render "N of undefined".
+            let required: Vec<&str> = schemas["QuotaStateResponse"]["required"]
+                .as_array()
+                .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
+                .unwrap_or_default();
+            assert!(required.contains(&f), "saas spec: {f} must be required");
+        }
+
+        // The regenerated TypeScript carries them too — the artifact the FE actually imports.
+        let ts = repo_file("../ui/src/api-client-saas/types.ts");
+        for f in ["member_allowance", "members_used"] {
+            assert!(
+                ts.contains(f),
+                "api-client-saas/types.ts must carry {f} — regenerate with `just openapi-regen`"
+            );
+        }
     }
 
     // ABSENT from the default (non-saas) client: billing does not exist there at all, so

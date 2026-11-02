@@ -1,25 +1,25 @@
-//! TEST-10 [invariant: INV-3] — the reaper's single-leader advisory-lock gate,
-//! and discard-at-max (DEC-9).
+//! TEST-10 [invariant: INV-3] — the reaper's single-leader gate, and
+//! discard-at-max (DEC-9).
 //!
-//!   * SINGLE-LEADER: while a session-level `pg_advisory_lock(KEY)` is held on a
-//!     separate connection, `reaper_sweep` cannot take its `pg_try_advisory_xact_lock`
-//!     and returns `None` (no-ops) — so of N workers ticking at once, only the one
-//!     that wins the lock sweeps. Releasing it lets the next sweep proceed.
+//!   * SINGLE-LEADER: the SQLite port (see `repository.rs::reaper_sweep`) gates
+//!     the sweep on an in-process `try_lock` instead of `pg_try_advisory_xact_lock`.
+//!     While a sweep is in flight, a second sweep returns `None` (no-ops) — so
+//!     of N workers ticking at once, only the one that wins the gate sweeps.
+//!     When it is free, the next sweep proceeds.
 //!   * DISCARD-AT-MAX: a stale row already at `reclaim_count >= max_reclaims` is
 //!     transitioned to `failed` (poison-job guard), while a stale row UNDER the
 //!     limit is re-queued (positive control) — no reap-loop.
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::jobs::repository::JobRepository;
-use cytoanalyst::modules::jobs::scheduler::REAPER_ADVISORY_KEY;
 
 use super::{pool_for, register_user};
 use crate::common::{TestOptions, TestServer};
 
 async fn insert_running_stale(
-    pool: &PgPool,
+    pool: &SqlitePool,
     owner: Uuid,
     reclaim_count: i32,
     age_secs: i64,
@@ -27,11 +27,13 @@ async fn insert_running_stale(
     let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO jobs (id, owner_id, job_type, name, status, started_at, claimed_by, claim_heartbeat, reclaim_count) \
-         VALUES ($1, $2, 'stub', 'r', 'running', now(), 'deadw', now() - make_interval(secs => $3::double precision), $4)",
+         VALUES ($1, $2, 'stub', 'r', 'running', \
+                 strftime('%Y-%m-%dT%H:%M:%fZ','now'), 'deadw', \
+                 strftime('%Y-%m-%dT%H:%M:%fZ','now','-' || $3 || ' seconds'), $4)",
     )
     .bind(id)
     .bind(owner)
-    .bind(age_secs as f64)
+    .bind(age_secs)
     .bind(reclaim_count)
     .execute(pool)
     .await
@@ -39,7 +41,7 @@ async fn insert_running_stale(
     id
 }
 
-async fn status_of(pool: &PgPool, id: Uuid) -> String {
+async fn status_of(pool: &SqlitePool, id: Uuid) -> String {
     sqlx::query_scalar("SELECT status FROM jobs WHERE id = $1")
         .bind(id)
         .fetch_one(pool)
@@ -62,26 +64,39 @@ async fn advisory_lock_makes_exactly_one_sweeper() {
     // A stale row that WOULD be reclaimed if a sweep ran.
     let stale = insert_running_stale(&pool, owner, 0, 120).await;
 
-    // Hold the reaper's advisory lock on a DEDICATED connection (session-level),
-    // simulating "another worker is mid-sweep this tick".
-    let holder = pool.acquire().await.expect("dedicated conn");
-    let mut holder = holder;
-    let locked: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
-        .bind(REAPER_ADVISORY_KEY)
-        .fetch_one(&mut *holder)
+    // The SQLite port's single-leader gate is an in-process `try_lock` in front
+    // of the sweep (see `repository.rs::reaper_sweep`'s port note): the PG arm
+    // "hold `pg_advisory_lock` on a dedicated connection" has no object, so the
+    // equivalent is a sweep OBSERVABLY in flight. Hold the database's write lock
+    // so the first sweep blocks inside its `BEGIN IMMEDIATE` while still holding
+    // the gate — a wide, open window in which a second sweep must no-op.
+    let mut holder = pool.acquire().await.expect("dedicated conn");
+    sqlx::query("BEGIN IMMEDIATE")
+        .execute(&mut *holder)
         .await
-        .expect("take holder lock");
-    assert!(locked, "the holder took the advisory lock");
+        .expect("hold the write lock");
 
-    // A concurrent sweep cannot get the xact lock → it no-ops (None), and the
+    let repo2 = JobRepository::new(pool.clone());
+    let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+    let b2 = barrier.clone();
+    let t1 = tokio::spawn(async move {
+        b2.wait();
+        repo2.reaper_sweep(45, 5, 100).await
+    });
+    barrier.wait();
+    // t1 is past the barrier and its gate `try_lock` is the sweep's first step;
+    // give it a beat so the parent's probe below cannot beat it to the gate.
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    // A concurrent sweep cannot take the gate → it no-ops (None), and the
     // stale row is LEFT running (the loser did not sweep).
     let swept = repo
-        .reaper_sweep(REAPER_ADVISORY_KEY, 45, 5, 100)
+        .reaper_sweep(45, 5, 100)
         .await
         .expect("sweep call");
     assert!(
         swept.is_none(),
-        "a non-leader sweep no-ops while the lock is held"
+        "a non-leader sweep no-ops while the gate is held"
     );
     assert_eq!(
         status_of(&pool, stale).await,
@@ -89,19 +104,18 @@ async fn advisory_lock_makes_exactly_one_sweeper() {
         "the stale row was NOT reclaimed by the shut-out sweeper"
     );
 
-    // Release the holder lock → now the sweep wins the lock and reclaims.
-    sqlx::query_scalar::<_, bool>("SELECT pg_advisory_unlock($1)")
-        .bind(REAPER_ADVISORY_KEY)
-        .fetch_one(&mut *holder)
+    // Release the write lock → the in-flight sweep is the leader and reclaims.
+    sqlx::query("COMMIT")
+        .execute(&mut *holder)
         .await
-        .expect("release holder lock");
+        .expect("release the write lock");
     drop(holder);
 
-    let swept2 = repo
-        .reaper_sweep(REAPER_ADVISORY_KEY, 45, 5, 100)
+    let swept2 = t1
         .await
+        .expect("join the in-flight sweep")
         .expect("sweep call 2")
-        .expect("with the lock free, this worker is the leader");
+        .expect("with the gate free, this worker is the leader");
     assert_eq!(
         swept2.reclaimed.len(),
         1,
@@ -161,7 +175,7 @@ async fn discard_at_max_prevents_reap_loop() {
         .expect("link dependency");
 
     let outcome = repo
-        .reaper_sweep(REAPER_ADVISORY_KEY, 45, MAX, 100)
+        .reaper_sweep(45, MAX, 100)
         .await
         .expect("sweep")
         .expect("this worker is the leader");

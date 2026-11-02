@@ -267,10 +267,7 @@ mod tests {
     ///      missing), NOT the 500 a missing resolver extension would produce.
     #[tokio::test]
     async fn auth_module_nests_under_api_and_resolver_reaches_non_auth_route() {
-        let pool = sqlx::postgres::PgPool::connect_lazy(
-            "postgresql://postgres:password@127.0.0.1:54321/postgres",
-        )
-        .unwrap();
+        let pool = crate::test_support::lazy_test_pool();
         let config = test_config();
         let app_config: Arc<dyn Any + Send + Sync> = config.clone();
         let ctx = ModuleContext::new(Arc::new(pool.clone()), config, app_config);

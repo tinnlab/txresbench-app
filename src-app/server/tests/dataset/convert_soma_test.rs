@@ -261,13 +261,14 @@ async fn h5ad_converts_to_zarr_expression_and_embeddings() {
     // plus their subtypes — so no datatype-id literal appears here and a contributed
     // subtype is covered for free (the same derivation `workstore::test17` uses).
     let allow = axis_index_datatype_allow();
+    let allow_json = serde_json::to_string(&allow).expect("Vec<String> is JSON-serializable");
     let axes: Vec<String> = sqlx::query_scalar(
-        "SELECT structure->>'axis' FROM artifacts \
-         WHERE dataset_id = $1 AND datatype = ANY($2) \
-           AND meta->>'is_axis_index' = 'true'",
+        "SELECT json_extract(structure, '$.axis') FROM artifacts \
+         WHERE dataset_id = $1 AND datatype IN (SELECT value FROM json_each($2)) \
+           AND json_extract(meta, '$.is_axis_index') = 'true'",
     )
     .bind(ds_uuid)
-    .bind(&allow)
+    .bind(allow_json)
     .fetch_all(&pool)
     .await
     .expect("list key-artifact axis labels");

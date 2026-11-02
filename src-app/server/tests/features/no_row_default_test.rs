@@ -19,12 +19,12 @@ async fn no_row_returns_compiled_default_and_unknown_fails_closed() {
         "a registry flag with no row returns its compiled default (false)"
     );
     // Same for a per-account query with no rows.
-    let account = sqlx::query_scalar::<_, uuid::Uuid>(
-        "INSERT INTO accounts (kind, name) VALUES ('organization', 'acct') RETURNING id",
-    )
-    .fetch_one(&pool)
-    .await
-    .expect("insert account");
+    let account = uuid::Uuid::new_v4();
+    sqlx::query("INSERT INTO accounts (id, kind, name) VALUES ($1, 'organization', 'acct')")
+        .bind(account)
+        .execute(&pool)
+        .await
+        .expect("insert account");
     assert!(
         !is_feature_enabled(&pool, DEMO_FLAG, Some(account)).await,
         "a registry flag with no per-account or global row returns its compiled default"

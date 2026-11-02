@@ -8,15 +8,13 @@ use serde_json::{json, Value};
 
 use crate::common::TestServer;
 
-const USERS_GROUP_ID: &str = "79668b78-16ff-4d3f-80e6-afdbb3236dc9";
-
 // ------------------------------- helpers -------------------------------
 
 /// First-run setup → the admin owner + their access token.
 async fn setup_admin(server: &TestServer) -> String {
     let resp = server
         .client
-        .post(server.api_url("/app/setup/admin"))
+        .post(server.api_url("/session/local"))
         .json(&json!({
             "username": "admin",
             "email": "admin@cyto.test",
@@ -26,7 +24,7 @@ async fn setup_admin(server: &TestServer) -> String {
         .send()
         .await
         .expect("setup/admin");
-    assert_eq!(resp.status().as_u16(), 201);
+    assert_eq!(resp.status().as_u16(), 200);
     token_of(resp.json().await.expect("setup json"))
 }
 
@@ -43,7 +41,7 @@ fn token_of(body: Value) -> String {
 async fn create_user(server: &TestServer, admin: &str, username: &str, email: &str) -> String {
     let resp = server
         .client
-        .post(server.api_url("/users"))
+        .post(server.api_url("/auth/register"))
         .bearer_auth(admin)
         .json(&json!({
             "username": username,
@@ -53,9 +51,9 @@ async fn create_user(server: &TestServer, admin: &str, username: &str, email: &s
         .send()
         .await
         .expect("create user");
-    assert_eq!(resp.status().as_u16(), 201, "create user {username}");
+    assert!(resp.status().is_success(), "create user {username}: {}", resp.status());
     let body: Value = resp.json().await.expect("user json");
-    body["id"].as_str().expect("user id").to_string()
+    body["user"]["id"].as_str().expect("user id").to_string()
 }
 
 /// Log in → an access token.
@@ -72,7 +70,8 @@ async fn login(server: &TestServer, username: &str) -> String {
 }
 
 /// Create a user then STRIP them from the Users group → they no longer hold
-/// `projects::use` (for the A9 deny path).
+/// `projects::use` (for the A9 deny path). The `/groups` HTTP surface is
+/// stripped on this node, so the removal goes through the SDK user repository.
 async fn create_user_without_projects(
     server: &TestServer,
     admin: &str,
@@ -80,14 +79,14 @@ async fn create_user_without_projects(
     email: &str,
 ) -> String {
     let id = create_user(server, admin, username, email).await;
-    let resp = server
-        .client
-        .delete(server.api_url(&format!("/groups/{id}/{USERS_GROUP_ID}/remove")))
-        .bearer_auth(admin)
-        .send()
+    let pool = sqlx::SqlitePool::connect(server.database_url())
         .await
-        .expect("remove from group");
-    assert!(resp.status().is_success(), "strip group: {}", resp.status());
+        .expect("connect strip pool");
+    crate::common::group_remove_from_users(
+        &pool,
+        uuid::Uuid::parse_str(&id).expect("user id is a uuid"),
+    )
+    .await;
     id
 }
 

@@ -6,7 +6,6 @@
 
 use ziee_core::AppError;
 use chrono::{DateTime, Utc};
-use sqlx::PgPool;
 use uuid::Uuid;
 
 use super::jwt::{JwtService, TokenPairWithJti};
@@ -17,7 +16,7 @@ use crate::user::UserRepository;
 /// from the `session_settings` singleton, falling back to the YAML
 /// `jwt.*` values when the DB read fails (so login never breaks
 /// mid-migration or on a transient DB error).
-pub async fn session_expiries(pool: &PgPool, jwt_service: &JwtService) -> (i64, i64) {
+pub async fn session_expiries(pool: &ziee_core::DbPool, jwt_service: &JwtService) -> (i64, i64) {
     match SessionSettingsRepository::new(pool.clone()).get().await {
         Ok(s) => (
             s.access_token_expiry_hours as i64,
@@ -45,7 +44,10 @@ pub async fn session_expiries(pool: &PgPool, jwt_service: &JwtService) -> (i64, 
 /// should surface as 401) and `Err` only for a genuine DB failure (a transient
 /// condition the caller must NOT report as 401 — a 401 from `/auth/refresh` is
 /// terminal to the client and would log the user out over a pool blip).
-pub async fn current_token_version(pool: &PgPool, user_id: Uuid) -> Result<Option<i32>, AppError> {
+pub async fn current_token_version(
+    pool: &ziee_core::DbPool,
+    user_id: Uuid,
+) -> Result<Option<i32>, AppError> {
     UserRepository::new(pool.clone())
         .get_token_version(user_id)
         .await
@@ -79,9 +81,13 @@ pub async fn current_token_version(pool: &PgPool, user_id: Uuid) -> Result<Optio
 /// NOTE: this is intentionally NOT a refactor of `revoke_all_for_user` — that
 /// function's other callers (change-password, admin reset) are out of scope and
 /// must keep their current semantics.
-pub async fn end_session_atomically(pool: &PgPool, user_id: Uuid) -> Result<i32, AppError> {
+pub async fn end_session_atomically(
+    pool: &ziee_core::DbPool,
+    user_id: Uuid,
+) -> Result<i32, AppError> {
     let mut tx = pool.begin().await.map_err(AppError::database_error)?;
 
+    #[cfg(not(feature = "sqlite-backend"))]
     let new_version: i32 = sqlx::query_scalar!(
         r#"
         UPDATE users
@@ -95,10 +101,38 @@ pub async fn end_session_atomically(pool: &PgPool, user_id: Uuid) -> Result<i32,
     .await
     .map_err(AppError::database_error)?;
 
+    #[cfg(feature = "sqlite-backend")]
+    let new_version: i32 = sqlx::query_scalar!(
+        r#"
+        UPDATE users
+        SET token_version = token_version + 1
+        WHERE id = $1
+        RETURNING token_version as "token_version: i32"
+        "#,
+        user_id,
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(AppError::database_error)?;
+
+    #[cfg(not(feature = "sqlite-backend"))]
     sqlx::query!(
         r#"
         UPDATE refresh_tokens
         SET revoked_at = NOW()
+        WHERE user_id = $1 AND revoked_at IS NULL
+        "#,
+        user_id,
+    )
+    .execute(&mut *tx)
+    .await
+    .map_err(AppError::database_error)?;
+
+    #[cfg(feature = "sqlite-backend")]
+    sqlx::query!(
+        r#"
+        UPDATE refresh_tokens
+        SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
         WHERE user_id = $1 AND revoked_at IS NULL
         "#,
         user_id,
@@ -122,7 +156,7 @@ pub async fn end_session_atomically(pool: &PgPool, user_id: Uuid) -> Result<i32,
 /// whitelist before the pair is returned (fail-closed: a DB write
 /// failure means no usable refresh token was handed out).
 pub async fn mint_session_tokens(
-    pool: &PgPool,
+    pool: &ziee_core::DbPool,
     jwt_service: &JwtService,
     user_id: Uuid,
     username: &str,
@@ -151,27 +185,48 @@ pub async fn mint_session_tokens(
 /// immediately AFTER JwtService::generate_tokens_with_jti so the token
 /// is whitelisted before being returned to the user.
 pub async fn register(
-    pool: &PgPool,
+    pool: &ziee_core::DbPool,
     jti: Uuid,
     user_id: Uuid,
     expires_at: DateTime<Utc>,
 ) -> Result<(), AppError> {
-    // sqlx uses time::OffsetDateTime for TIMESTAMPTZ; convert via Unix
-    // seconds (chrono and time share the same instant model).
-    let expires_at_ts = time::OffsetDateTime::from_unix_timestamp(expires_at.timestamp())
-        .map_err(|e| AppError::internal_error(format!("invalid expires_at: {}", e)))?;
-    sqlx::query!(
-        r#"
-        INSERT INTO refresh_tokens (jti, user_id, expires_at)
-        VALUES ($1, $2, $3)
-        "#,
-        jti,
-        user_id,
-        expires_at_ts,
-    )
-    .execute(pool)
-    .await
-    .map_err(AppError::database_error)?;
+    #[cfg(not(feature = "sqlite-backend"))]
+    {
+        // sqlx uses time::OffsetDateTime for TIMESTAMPTZ; convert via Unix
+        // seconds (chrono and time share the same instant model).
+        let expires_at_ts = time::OffsetDateTime::from_unix_timestamp(expires_at.timestamp())
+            .map_err(|e| AppError::internal_error(format!("invalid expires_at: {}", e)))?;
+        sqlx::query!(
+            r#"
+            INSERT INTO refresh_tokens (jti, user_id, expires_at)
+            VALUES ($1, $2, $3)
+            "#,
+            jti,
+            user_id,
+            expires_at_ts,
+        )
+        .execute(pool)
+        .await
+        .map_err(AppError::database_error)?;
+    }
+    #[cfg(feature = "sqlite-backend")]
+    {
+        // The sqlite timestamp column is RFC3339-ms TEXT; the bound form is
+        // the same canonical shape the SELECT side compares lexicographically.
+        let expires_at = expires_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        sqlx::query!(
+            r#"
+            INSERT INTO refresh_tokens (jti, user_id, expires_at)
+            VALUES ($1, $2, $3)
+            "#,
+            jti,
+            user_id,
+            expires_at,
+        )
+        .execute(pool)
+        .await
+        .map_err(AppError::database_error)?;
+    }
     Ok(())
 }
 
@@ -181,8 +236,9 @@ pub async fn register(
 /// has no in-crate caller — but it's the whitelist-gate primitive the
 /// integration + desktop tests assert against, so keep it (the allow
 /// silences the BIN target's dead-code pass, same as `revoke`).
+#[cfg(not(feature = "sqlite-backend"))]
 #[allow(dead_code)]
-pub async fn is_active(pool: &PgPool, jti: Uuid) -> Result<bool, AppError> {
+pub async fn is_active(pool: &ziee_core::DbPool, jti: Uuid) -> Result<bool, AppError> {
     let row = sqlx::query!(
         r#"
         SELECT 1 as "exists!"
@@ -197,6 +253,29 @@ pub async fn is_active(pool: &PgPool, jti: Uuid) -> Result<bool, AppError> {
     Ok(row.is_some())
 }
 
+#[cfg(feature = "sqlite-backend")]
+#[allow(dead_code)]
+pub async fn is_active(pool: &ziee_core::DbPool, jti: Uuid) -> Result<bool, AppError> {
+    // SQLite reports no declared type for a bare `SELECT 1` (the driver's
+    // decltype introspection returns NULL), so this leg must shape the query
+    // as `query_scalar!` with an `exists!: bool` override — see `has_admin`
+    // in user/repository.rs for the same pattern.
+    let result = sqlx::query_scalar!(
+        r#"
+        SELECT EXISTS(
+            SELECT 1 FROM refresh_tokens
+            WHERE jti = $1 AND revoked_at IS NULL
+              AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        ) as "exists!: bool"
+        "#,
+        jti,
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(AppError::database_error)?;
+    Ok(result)
+}
+
 /// Mark a single jti as revoked. Used for revoked-for-real cases (NOT
 /// rotation — that's `revoke_rotated`, which records the successor and
 /// thereby opts the row into the 30s rotation grace).
@@ -206,10 +285,24 @@ pub async fn is_active(pool: &PgPool, jti: Uuid) -> Result<bool, AppError> {
 /// cross-crate by the integration tests (`tests/auth/mod.rs` jti
 /// lifecycle) — keep it. The allow silences the BIN target's dead-code
 /// pass (same pattern as `JwtService::new`).
+#[cfg(not(feature = "sqlite-backend"))]
 #[allow(dead_code)]
-pub async fn revoke(pool: &PgPool, jti: Uuid) -> Result<(), AppError> {
+pub async fn revoke(pool: &ziee_core::DbPool, jti: Uuid) -> Result<(), AppError> {
     sqlx::query!(
         r#"UPDATE refresh_tokens SET revoked_at = NOW() WHERE jti = $1"#,
+        jti,
+    )
+    .execute(pool)
+    .await
+    .map_err(AppError::database_error)?;
+    Ok(())
+}
+
+#[cfg(feature = "sqlite-backend")]
+#[allow(dead_code)]
+pub async fn revoke(pool: &ziee_core::DbPool, jti: Uuid) -> Result<(), AppError> {
+    sqlx::query!(
+        r#"UPDATE refresh_tokens SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE jti = $1"#,
         jti,
     )
     .execute(pool)
@@ -238,8 +331,9 @@ pub async fn revoke(pool: &PgPool, jti: Uuid) -> Result<(), AppError> {
 ///
 /// A token already revoked (rotation OR logout) matches 0 rows → `false`
 /// and no successor is written.
+#[cfg(not(feature = "sqlite-backend"))]
 pub async fn claim_rotation_and_register(
-    pool: &PgPool,
+    pool: &ziee_core::DbPool,
     presented_jti: Uuid,
     successor_jti: Uuid,
     user_id: Uuid,
@@ -311,6 +405,65 @@ pub async fn claim_rotation_and_register(
     Ok(true)
 }
 
+#[cfg(feature = "sqlite-backend")]
+pub async fn claim_rotation_and_register(
+    pool: &ziee_core::DbPool,
+    presented_jti: Uuid,
+    successor_jti: Uuid,
+    user_id: Uuid,
+    successor_expires_at: DateTime<Utc>,
+) -> Result<bool, AppError> {
+    let mut tx = pool.begin().await.map_err(AppError::database_error)?;
+
+    // The concurrency argument above is preserved by the engine's write
+    // model rather than `FOR SHARE` (which does not exist in SQLite): SQLite
+    // serializes ALL writers through one database write lock (single-writer
+    // model; `busy_timeout` is part of the DEC-7 connect profile), so the
+    // two transactions cannot interleave their writes at all:
+    //   * logout commits first → this transaction's revoke (a write, so it
+    //     waits for the writer) then sees the presented token already revoked
+    //     → 0 rows → `false` → 401, and NO successor is written;
+    //   * this transaction commits first → logout's revoke-all (its scan
+    //     starts after this commit, because it waited on the same write lock)
+    //     sees the committed successor row and revokes it too.
+    // Row locks, lock order and EvalPlanQual are Postgres mechanisms; the
+    // single-writer lock makes the same convergence proof simpler, not
+    // weaker. `user_id` still identifies the family for both paths.
+
+    let r = sqlx::query!(
+        r#"
+        UPDATE refresh_tokens
+        SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), rotated_to = $2
+        WHERE jti = $1 AND revoked_at IS NULL
+        "#,
+        presented_jti,
+        successor_jti,
+    )
+    .execute(&mut *tx)
+    .await
+    .map_err(AppError::database_error)?;
+
+    if r.rows_affected() != 1 {
+        // Lost the race / already revoked.
+        tx.rollback().await.map_err(AppError::database_error)?;
+        return Ok(false);
+    }
+
+    let expires_at = successor_expires_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+    sqlx::query!(
+        r#"INSERT INTO refresh_tokens (jti, user_id, expires_at) VALUES ($1, $2, $3)"#,
+        successor_jti,
+        user_id,
+        expires_at,
+    )
+    .execute(&mut *tx)
+    .await
+    .map_err(AppError::database_error)?;
+
+    tx.commit().await.map_err(AppError::database_error)?;
+    Ok(true)
+}
+
 /// How long a rotation-revoked refresh token remains acceptable to a
 /// racing legitimate client. Long enough for a slow concurrent request
 /// to land, short enough that a stolen-then-rotated token is useless
@@ -333,8 +486,9 @@ pub const ROTATION_GRACE_SECONDS: i64 = 30;
 ///     NULL` clause is what makes sign-out hard-fail even a just-rotated
 ///     token, and what prevents a replayed-within-grace token from
 ///     outliving the family it belongs to.
+#[cfg(not(feature = "sqlite-backend"))]
 pub async fn rotation_grace_successor(
-    pool: &PgPool,
+    pool: &ziee_core::DbPool,
     jti: Uuid,
 ) -> Result<Option<(Uuid, DateTime<Utc>)>, AppError> {
     let row = sqlx::query!(
@@ -364,14 +518,79 @@ pub async fn rotation_grace_successor(
     }))
 }
 
+#[cfg(feature = "sqlite-backend")]
+pub async fn rotation_grace_successor(
+    pool: &ziee_core::DbPool,
+    jti: Uuid,
+) -> Result<Option<(Uuid, DateTime<Utc>)>, AppError> {
+    // The grace-window boundary is computed in Rust (SQLite has no
+    // `make_interval`); the successor's expiry comes back as its canonical
+    // RFC3339-ms TEXT and is parsed here (no EXTRACT/EPOCH — the timestamp
+    // column type is TEXT, and a Rust parse cannot disagree with the format
+    // the writers used).
+    let grace_cutoff = (Utc::now() - chrono::Duration::seconds(ROTATION_GRACE_SECONDS))
+        .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+        .to_string();
+    let row = sqlx::query!(
+        r#"
+        SELECT s.jti AS "succ_jti!: Uuid",
+               s.expires_at AS "succ_exp"
+        FROM refresh_tokens t
+        JOIN refresh_tokens s ON s.jti = t.rotated_to
+        WHERE t.jti = $1
+          AND t.rotated_to IS NOT NULL
+          AND t.revoked_at > $2
+          AND t.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')
+          AND s.revoked_at IS NULL
+          AND s.expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')
+        "#,
+        jti,
+        grace_cutoff,
+    )
+    .fetch_optional(pool)
+    .await
+    .map_err(AppError::database_error)?;
+    Ok(row.map(|r| {
+        (
+            r.succ_jti,
+            DateTime::parse_from_rfc3339(&r.succ_exp)
+                .map(|t| t.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now()),
+        )
+    }))
+}
+
 /// Revoke every active refresh token belonging to `user_id`. Used by
 /// logout (the audit's F-02: logout was a no-op; now it actually signs
 /// the user out by killing every refresh token they hold).
-pub async fn revoke_all_for_user(pool: &PgPool, user_id: Uuid) -> Result<(), AppError> {
+#[cfg(not(feature = "sqlite-backend"))]
+pub async fn revoke_all_for_user(
+    pool: &ziee_core::DbPool,
+    user_id: Uuid,
+) -> Result<(), AppError> {
     sqlx::query!(
         r#"
         UPDATE refresh_tokens
         SET revoked_at = NOW()
+        WHERE user_id = $1 AND revoked_at IS NULL
+        "#,
+        user_id,
+    )
+    .execute(pool)
+    .await
+    .map_err(AppError::database_error)?;
+    Ok(())
+}
+
+#[cfg(feature = "sqlite-backend")]
+pub async fn revoke_all_for_user(
+    pool: &ziee_core::DbPool,
+    user_id: Uuid,
+) -> Result<(), AppError> {
+    sqlx::query!(
+        r#"
+        UPDATE refresh_tokens
+        SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
         WHERE user_id = $1 AND revoked_at IS NULL
         "#,
         user_id,

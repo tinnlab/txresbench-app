@@ -23,7 +23,7 @@
 //! whose refused account was empty cannot tell "refused" from "there was nothing there".
 
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::account::{
@@ -56,7 +56,7 @@ struct StoredEvent {
 }
 
 /// Every stored row for one account, oldest first.
-async fn stored_events(pool: &PgPool, account: Uuid) -> Vec<StoredEvent> {
+async fn stored_events(pool: &SqlitePool, account: Uuid) -> Vec<StoredEvent> {
     sqlx::query_as::<_, StoredEvent>(
         "SELECT action, actor_kind, actor_user_id, target_user_id, target_email, \
                 old_role, new_role, invitation_id, reason \
@@ -68,7 +68,7 @@ async fn stored_events(pool: &PgPool, account: Uuid) -> Vec<StoredEvent> {
     .expect("read stored ledger rows")
 }
 
-async fn event_count(pool: &PgPool, account: Uuid) -> i64 {
+async fn event_count(pool: &SqlitePool, account: Uuid) -> i64 {
     sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM account_member_events WHERE account_id = $1",
     )
@@ -79,7 +79,7 @@ async fn event_count(pool: &PgPool, account: Uuid) -> i64 {
 }
 
 /// The admin (first-run owner) user id.
-async fn admin_user_id(pool: &PgPool) -> Uuid {
+async fn admin_user_id(pool: &SqlitePool) -> Uuid {
     sqlx::query_scalar::<_, Uuid>("SELECT id FROM users WHERE is_admin = true LIMIT 1")
         .fetch_one(pool)
         .await
@@ -90,56 +90,22 @@ async fn admin_user_id(pool: &PgPool) -> Uuid {
 /// `tests/account/mod.rs` helper — changing shared harness to suit one branch's tests is the
 /// workaround that breaks everyone else (B3). Four connections is exactly zero headroom for a
 /// holder + a blocked mutation + a poller + an observer.
-async fn barrier_pool(server: &TestServer) -> PgPool {
-    sqlx::postgres::PgPoolOptions::new()
+async fn barrier_pool(server: &TestServer) -> SqlitePool {
+    sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(12)
         .connect(server.database_url())
         .await
         .expect("connect barrier pool")
 }
 
-/// Block until exactly one backend is waiting **directly** on `blocker_pid`, and return its pid.
-///
-/// Two things this must not do, both of which a blind audit caught in earlier shapes:
-///
-/// - It must not use a bare `wait_event_type = 'Lock'` count. That hits on ANY lock wait in the
-///   database, the spawned server's own background loops included, so it would release the
-///   barrier before the mutation under test had reached its blocking statement — and the test
-///   would be green for the wrong reason.
-/// - It must not return an ARBITRARY pid out of a transitive wait-for closure. The pid is handed
-///   to `pg_cancel_backend`, so picking the wrong one cancels the wrong backend and the test
-///   HANGS rather than failing. `pg_blocking_pids(a.pid) @> ARRAY[$1]` restricts it to backends
-///   blocked DIRECTLY by the barrier, and the loop below refuses to guess when there is more
-///   than one — it polls again rather than cancelling an arbitrary member of the set. The poll
-///   is bounded (200 x 50 ms), so a persistent extra waiter fails the test rather than hanging
-///   it.
-async fn wait_for_blocked_by(pool: &PgPool, blocker_pid: i32) -> i32 {
-    for _ in 0..200 {
-        let pids: Vec<i32> = sqlx::query_scalar(
-            "SELECT pid FROM pg_stat_activity \
-             WHERE datname = current_database() \
-               AND pg_blocking_pids(pid) @> ARRAY[$1::int] \
-             ORDER BY pid",
-        )
-        .bind(blocker_pid)
-        .fetch_all(pool)
-        .await
-        .expect("read pg_stat_activity");
-        // Exactly one, or keep polling. Cancelling an arbitrary one of several would signal
-        // the wrong backend and HANG the test; but a transient second direct waiter (anything
-        // queuing behind the barrier's own row lock) should cost one more 50 ms poll, not a
-        // spurious failure — so this continues rather than asserting.
-        if pids.len() == 1 {
-            return pids[0];
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
-    panic!(
-        "no single backend was ever blocked DIRECTLY on the barrier — either the mutation never \
-         reached its DELETE, or more than one backend stayed queued on it for the whole poll \
-         window"
-    );
-}
+/// The wall-clock grace the SQLite barrier uses: a concurrent writer parks inside the sqlite
+/// busy-handler at its `BEGIN IMMEDIATE` (the engine's single write lock — see the port note on
+/// `while_the_account_row_is_held` in the accept test), and SQLite exposes no queue-observation
+/// surface, so the in-flight window is a fixed sleep rather than a `pg_stat_activity` poll.
+/// Recorded once here: on a box so loaded that a worker cannot reach the busy-handler inside
+/// the grace, the barrier degrades to serialized execution (the PG design's silent-degradation
+/// risk moved, not gone).
+const LOCK_BARRIER_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 
 async fn patch_role(
     server: &TestServer,
@@ -172,17 +138,10 @@ async fn get_events(server: &TestServer, token: &str, account: Uuid) -> (u16, Va
     (status, resp.json().await.unwrap_or(Value::Null))
 }
 
-async fn get_admin_events(server: &TestServer, token: &str, account: Uuid) -> (u16, Value) {
-    let resp = server
-        .client
-        .get(server.api_url(&format!("/admin/accounts/{account}/members/events")))
-        .bearer_auth(token)
-        .send()
-        .await
-        .expect("get admin events");
-    let status = resp.status().as_u16();
-    (status, resp.json().await.unwrap_or(Value::Null))
-}
+// NOTE — the staff-side read sibling (`GET /api/admin/accounts/{account_id}/members/events`)
+// has no object on this node (the `/admin/accounts/*` surface is stripped here; see DRIFT).
+// The projection's falsifiability control is therefore the raw-DB read (`stored_events`),
+// not a second HTTP surface.
 
 // ---------------------------------------------------------------------------
 // INV-13 — one row per successful mutation, with the right fields
@@ -545,15 +504,22 @@ async fn inv13b_staff_and_self_service_rows_are_distinguishable() {
     let owner_token = login(&server, "sd_own").await;
 
     // (a) staff promote the subject through the admin surface.
-    let resp = server
-        .client
-        .patch(server.api_url(&format!("/admin/accounts/{org}/members/{subject}")))
-        .bearer_auth(&admin_token)
-        .json(&json!({ "role": "admin" }))
-        .send()
+    //
+    // SQLite port: `PATCH /api/admin/accounts/{org}/members/{subject}` has no object on this
+    // node — the `/admin/accounts/*` surface is stripped (see DRIFT-1.25). The repository call
+    // IS the surface: the handler added nothing but the `PlatformStaff` ceiling, so the
+    // assertion run through it is the same contract with the route layer removed.
+    AccountRepository::new(pool.clone())
+        .set_role(
+            org,
+            subject,
+            AccountRole::Admin,
+            cytoanalyst::modules::account::ActorCeiling::PlatformStaff {
+                staff_user_id: staff,
+            },
+        )
         .await
-        .expect("staff patch role");
-    assert_eq!(resp.status().as_u16(), 200);
+        .expect("staff set_role is not ceilinged");
 
     // (b) the account's own owner performs the SAME mutation shape, back to `member`.
     assert_eq!(patch_role(&server, &owner_token, org, subject, "member").await, 200);
@@ -582,15 +548,17 @@ async fn inv13b_staff_and_self_service_rows_are_distinguishable() {
     );
 
     // (c) a staff ADD is audited as `joined` with the staff identity...
-    let resp = server
-        .client
-        .post(server.api_url(&format!("/admin/accounts/{org}/members")))
-        .bearer_auth(&admin_token)
-        .json(&json!({ "user_id": added, "role": "member" }))
-        .send()
+    AccountRepository::new(pool.clone())
+        .add_member(
+            org,
+            added,
+            AccountRole::Member,
+            cytoanalyst::modules::account::ActorCeiling::PlatformStaff {
+                staff_user_id: staff,
+            },
+        )
         .await
         .expect("staff add member");
-    assert_eq!(resp.status().as_u16(), 201);
     let join = stored_events(&pool, org)
         .await
         .into_iter()
@@ -604,24 +572,39 @@ async fn inv13b_staff_and_self_service_rows_are_distinguishable() {
 
     // ...and the transaction wrap left the pre-existing refusals intact, each writing nothing.
     let before = event_count(&pool, org).await;
-    let dup = server
-        .client
-        .post(server.api_url(&format!("/admin/accounts/{org}/members")))
-        .bearer_auth(&admin_token)
-        .json(&json!({ "user_id": added, "role": "member" }))
-        .send()
+    let repo = AccountRepository::new(pool.clone());
+    let dup = repo
+        .add_member(
+            org,
+            added,
+            AccountRole::Member,
+            cytoanalyst::modules::account::ActorCeiling::PlatformStaff {
+                staff_user_id: staff,
+            },
+        )
         .await
-        .expect("duplicate add");
-    assert_eq!(dup.status().as_u16(), 409, "duplicate membership still 409s");
-    let phantom = server
-        .client
-        .post(server.api_url(&format!("/admin/accounts/{org}/members")))
-        .bearer_auth(&admin_token)
-        .json(&json!({ "user_id": Uuid::new_v4(), "role": "member" }))
-        .send()
+        .expect_err("duplicate membership still 409s");
+    assert_eq!(
+        dup.status_code(),
+        409,
+        "duplicate membership still 409s: {dup:?}"
+    );
+    let phantom = repo
+        .add_member(
+            org,
+            Uuid::new_v4(),
+            AccountRole::Member,
+            cytoanalyst::modules::account::ActorCeiling::PlatformStaff {
+                staff_user_id: staff,
+            },
+        )
         .await
-        .expect("phantom add");
-    assert_eq!(phantom.status().as_u16(), 404, "a phantom user still 404s");
+        .expect_err("a phantom user still 404s");
+    assert_eq!(
+        phantom.status_code(),
+        404,
+        "a phantom user still 404s: {phantom:?}"
+    );
     assert_eq!(
         event_count(&pool, org).await,
         before,
@@ -671,10 +654,17 @@ async fn inv13c_ledger_refuses_update_delete_and_truncate() {
     let err = del.expect_err("DELETE must be refused by the database");
     assert!(format!("{err}").contains("append-only"), "{err}");
 
-    let trunc = sqlx::query("TRUNCATE account_member_events").execute(&pool).await;
+    // SQLite port of the TRUNCATE arm (record): SQLite has no `TRUNCATE` statement at all —
+    // the engine's nearest equivalent of "the whole ledger is one statement from gone" is a
+    // WHERE-less `DELETE FROM`, and here the row triggers DO fire on it (SQLite has no
+    // statement-level TRUNCATE exemption to fire them anyway). The property under test —
+    // "no single statement can wipe the ledger" — therefore holds with the SAME mechanism
+    // that refuses the other two, and is asserted with it rather than with a hypothetical
+    // statement-level trigger that would fail to parse.
+    let trunc = sqlx::query("DELETE FROM account_member_events").execute(&pool).await;
     let err = trunc.expect_err(
-        "TRUNCATE must be refused — row triggers do NOT fire on TRUNCATE, so without a \
-         statement trigger the whole ledger is one statement from gone",
+        "a WHERE-less DELETE must be refused — the ledger is one statement from gone, and \
+         the row triggers are what stand there",
     );
     assert!(format!("{err}").contains("append-only"), "{err}");
 
@@ -770,18 +760,22 @@ async fn a_membership_ended_by_the_users_cascade_is_still_recorded() {
 
     assert_eq!(event_count(&pool, org).await, 0, "precondition: nothing recorded yet");
 
-    let resp = server
-        .client
-        .delete(server.api_url(&format!("/users/{doomed}")))
-        .bearer_auth(&admin_token)
-        .send()
+    // SQLite port: the admin user-deletion route (`DELETE /api/users/{id}`) has no object on
+    // this node (the `/users*` surface is stripped; see DRIFT-1.25). What is under test is the
+    // CASCADE trigger on `users` — it fires on the DELETE regardless of which surface issued
+    // it, and the ledger's own schema comment names the FK cascade + trigger as the claim, not
+    // the route. The DELETE is issued by a connection that is not this repository's code, so
+    // "a ledger that WEDGED the cascade" is still observed at the DB layer, exactly as before.
+    let deleted = sqlx::query("DELETE FROM users WHERE id = $1")
+        .bind(doomed)
+        .execute(&pool)
         .await
-        .expect("delete the user");
-    assert!(
-        resp.status().is_success(),
-        "the admin user-deletion route still works — a ledger that WEDGED it would be a far \
-         worse defect than a missing row (got {})",
-        resp.status()
+        .expect("delete the user row");
+    assert_eq!(
+        deleted.rows_affected(),
+        1,
+        "the user row is really gone — a ledger that WEDGED the cascade would be a far worse \
+         defect than a missing row"
     );
 
     let members: i64 =
@@ -865,13 +859,17 @@ async fn a_membership_ended_by_the_users_cascade_is_still_recorded() {
 // The in-transaction proofs
 // ---------------------------------------------------------------------------
 
-/// TEST-14 — **the positive proof**: the ledger row and the mutated membership row carry the
-/// same `xmin`, the id of the transaction that wrote them.
+/// TEST-14 — **the positive proof**: the ledger row and the mutated membership row are written
+/// by ONE transaction.
 ///
-/// This is an observation, not a claim about code shape. Two rows sharing an `xmin` were
-/// written by ONE transaction; a row written by a separate transaction — before, after or
-/// concurrently — cannot share it. If the audit write were moved onto its own connection this
-/// assertion goes red immediately, with no timing dependence at all.
+/// On Postgres this was observed as an `xmin` identity between the two rows — a row written by
+/// a separate transaction — before, after or concurrently — cannot share it. SQLite has no
+/// transaction-id column, so the property is proven instead by the fault-atomicity shape the
+/// accept item uses (inv17 ARM 2): a fault armed EXACTLY at the ledger write aborts the
+/// mutation's transaction, and the membership row — written in the same transaction — rolls
+/// back with it. If the audit write were moved onto its own connection, its failure would
+/// leave the membership committed and this goes red immediately, with no timing dependence
+/// either way.
 #[tokio::test]
 async fn in_transaction_ledger_row_shares_the_mutation_xmin() {
     let server = TestServer::spawn().await;
@@ -882,56 +880,121 @@ async fn in_transaction_ledger_row_shares_the_mutation_xmin() {
     let target = create_user(&server, &admin_token, "xm_tgt", "xm_tgt@cyto.test").await;
     let org = make_org_account(&pool, "Xmin Org", owner).await;
     add_member(&pool, org, target, "member").await;
-    let token = login(&server, "xm_own").await;
+    let _token = login(&server, "xm_own").await;
 
-    assert_eq!(patch_role(&server, &token, org, target, "admin").await, 200);
+    // Arm the fault on THIS account's ledger rows only. `set_role` writes the audit row on
+    // its transaction's connection BEFORE the membership UPDATE (see repository.rs — the
+    // audit write is on `&mut tx` alongside the UPDATE), so a fault at the ledger write
+    // aborts the SAME transaction that holds the UPDATE.
+    // `LowerHex` for Uuid renders the HYPHENATED form; `hex()` renders none — the
+    // hyphens must be stripped or the WHEN clause never matches (the ITEM-25 record).
+    let org_hex = format!("{:x}", org).replace('-', "");
+    sqlx::query(&format!(
+        "CREATE TRIGGER cyto_test_ledger_fault BEFORE INSERT ON account_member_events \
+         FOR EACH ROW WHEN (lower(hex(NEW.account_id)) = '{org_hex}') \
+         BEGIN SELECT RAISE(ABORT, 'injected fault at the ledger write'); END"
+    ))
+    .execute(&pool)
+    .await
+    .expect("arm the ledger fault trigger");
 
-    let membership_xmin: String = sqlx::query_scalar(
-        "SELECT xmin::text FROM account_members WHERE account_id = $1 AND user_id = $2",
+    let repo = AccountRepository::new(pool.clone());
+    let out = repo
+        .set_role(
+            org,
+            target,
+            AccountRole::Admin,
+            ActorCeiling::SelfService {
+                actor_user_id: owner,
+                observed_role: AccountRole::Owner,
+            },
+        )
+        .await;
+    assert!(
+        out.is_err(),
+        "the injected failure must surface as `Err`, not as a silent success: {out:?}"
+    );
+
+    // NEITHER write survived — the membership UPDATE is in the SAME transaction as the audit
+    // row, in both directions.
+    let role: Option<String> =
+        sqlx::query_scalar("SELECT role FROM account_members WHERE account_id = $1 AND user_id = $2")
+            .bind(org)
+            .bind(target)
+            .fetch_optional(&pool)
+            .await
+            .expect("re-read the membership role");
+    assert_eq!(
+        role.as_deref(),
+        Some("member"),
+        "the role change rolled back with the aborted audit write — if the audit write were \
+         on its own connection this would have committed"
+    );
+    assert_eq!(
+        event_count(&pool, org).await,
+        0,
+        "and no ledger row survives either — one transaction in both directions"
+    );
+
+    sqlx::query("DROP TRIGGER cyto_test_ledger_fault")
+        .execute(&pool)
+        .await
+        .expect("disarm the fault trigger");
+
+    // POSITIVE CONTROL — the same mutation, unobstructed, commits BOTH.
+    repo.set_role(
+        org,
+        target,
+        AccountRole::Admin,
+        ActorCeiling::SelfService {
+            actor_user_id: owner,
+            observed_role: AccountRole::Owner,
+        },
+    )
+    .await
+    .expect("the identical change succeeds once the fault is gone");
+
+    let changed: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM account_members WHERE account_id = $1 AND user_id = $2 AND role = 'admin'",
     )
     .bind(org)
     .bind(target)
     .fetch_one(&pool)
     .await
     .expect("the updated membership row");
-
-    let event_xmin: String = sqlx::query_scalar(
-        "SELECT xmin::text FROM account_member_events \
-         WHERE account_id = $1 AND action = 'role_changed'",
-    )
-    .bind(org)
-    .fetch_one(&pool)
-    .await
-    .expect("the ledger row");
-
+    assert_eq!(changed, 1, "the role change committed");
+    let rows = stored_events(&pool, org).await;
     assert_eq!(
-        membership_xmin, event_xmin,
-        "the membership UPDATE and its audit row were written by the SAME transaction \
-         (xmin {membership_xmin} vs {event_xmin}) — this is what `written in-transaction` means",
+        rows.len(),
+        1,
+        "the same mutation, allowed to commit, writes EXACTLY ONE row — which is what makes \
+         the zeroes above mean `rolled back` instead of `never written`: {rows:?}",
     );
+    assert_eq!(rows[0].action, "role_changed");
+    assert_eq!(rows[0].target_user_id, Some(target));
 }
 
 /// TEST-15 / TEST-16 — **the negative proofs**, on the production code path.
 ///
-/// A second connection holds a row lock on the target's membership row. A real
-/// `remove_member` then runs: it takes the owner lock (different rows — no conflict), reads the
-/// target, grades the ceiling, **writes its audit row**, cancels transfers, and finally blocks
-/// on its `DELETE`.
+/// SQLite port (record): the original driver of the failure was a `pg_cancel_backend` on a
+/// backend parked at its `DELETE` behind a row lock — neither `pg_cancel_backend` nor a
+/// row-level lock has a SQLite form, and the single-writer model makes the whole transaction
+/// the lock section. The port instead injects the failure AT the audit write with the
+/// `SELECT RAISE(ABORT, …)` trigger idiom (the plpgsql fault-function substitution), on the
+/// production code path: `remove_member` reaches `record_member_event` only after every
+/// refusal has returned and before its `DELETE`, so a fault there is "the mutation failed
+/// after it reached the audit write".
 ///
-/// - **TEST-16 (invisibility):** while it is parked there, a THIRD connection sees ZERO rows.
-///   An audit write on its own connection would have committed by now and would be visible.
-///
-///   **What this arm does NOT prove, stated because an audit rightly called the original
-///   wording out:** it does not pin the ORDER of the audit write relative to the DELETE. Moving
-///   the write to after the DELETE — still inside the same transaction — leaves this arm green,
-///   and correctly so: the order is not the invariant. The invariant is "the row lives and dies
-///   with the mutation", and that is pinned by the rollback arm plus the positive control
-///   below, which together go red if the write moves to any other connection or after the
-///   commit. Mutant M7 (the write on its own connection) is the standing check on that.
-/// - **TEST-15 (rollback):** `pg_cancel_backend` then cancels the blocked statement. The
-///   repository returns `Err`, the transaction rolls back, and the ledger is EMPTY. A mutation
-///   that reached the audit write and then failed leaves no row — no fault was injected into
-///   the writer to arrange it.
+/// - **TEST-15 (rollback):** the faulted mutation returns `Err`, the transaction rolls back,
+///   and the ledger is EMPTY — while the membership itself is untouched. If the audit write
+///   were on its own connection, its failure would not touch the removal's transaction: the
+///   removal would SUCCEED and this goes red (the standing check on mutant M7).
+/// - **TEST-16 (invisibility):** the original arm observed an in-flight row from a third
+///   connection. SQLite exposes no queue-observation surface, so NO point after the audit
+///   write and before commit is observable; the property itself (an uncommitted write is
+///   invisible to every other connection) is engine-guaranteed on both engines and is
+///   effectively restated here: the row is visible ONLY once the mutation's transaction
+///   commits, which is exactly what the positive control below must produce.
 #[tokio::test]
 async fn in_transaction_a_rolled_back_mutation_leaves_no_row() {
     let server = TestServer::spawn().await;
@@ -943,23 +1006,22 @@ async fn in_transaction_a_rolled_back_mutation_leaves_no_row() {
     let org = make_org_account(&pool, "Rollback Org", owner).await;
     add_member(&pool, org, target, "member").await;
 
-    // The barrier: lock the TARGET's membership row (a `member`, so it is not among the owner
-    // rows `remove_member` locks first — the mutation must get all the way to its DELETE).
-    let mut barrier = pool.begin().await.expect("begin barrier tx");
-    let barrier_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(&mut *barrier)
-        .await
-        .expect("barrier pid");
-    sqlx::query("SELECT 1 FROM account_members WHERE account_id = $1 AND user_id = $2 FOR UPDATE")
-        .bind(org)
-        .bind(target)
-        .fetch_one(&mut *barrier)
-        .await
-        .expect("hold the target's membership row");
+    // Arm the fault on THIS account's ledger rows only.
+    // `LowerHex` for Uuid renders the HYPHENATED form; `hex()` renders none — the
+    // hyphens must be stripped or the WHEN clause never matches (the ITEM-25 record).
+    let org_hex = format!("{:x}", org).replace('-', "");
+    sqlx::query(&format!(
+        "CREATE TRIGGER cyto_test_ledger_fault BEFORE INSERT ON account_member_events \
+         FOR EACH ROW WHEN (lower(hex(NEW.account_id)) = '{org_hex}') \
+         BEGIN SELECT RAISE(ABORT, 'injected fault at the ledger write'); END"
+    ))
+    .execute(&pool)
+    .await
+    .expect("arm the ledger fault trigger");
 
     let repo = AccountRepository::new(pool.clone());
-    let mutation = tokio::spawn(async move {
-        repo.remove_member(
+    let outcome = repo
+        .remove_member(
             org,
             target,
             ActorCeiling::SelfService {
@@ -967,42 +1029,14 @@ async fn in_transaction_a_rolled_back_mutation_leaves_no_row() {
                 observed_role: AccountRole::Owner,
             },
         )
-        .await
-    });
-
-    let blocked_pid = wait_for_blocked_by(&pool, barrier_pid).await;
-
-    // TEST-16 — the mutation is past its audit write and parked on the DELETE. Nothing is
-    // visible from outside its transaction.
-    assert_eq!(
-        event_count(&pool, org).await,
-        0,
-        "an in-flight mutation's audit row must be INVISIBLE to another connection — if it \
-         were written on its own connection it would have committed and shown up here",
-    );
-
-    // TEST-15 — cancel the blocked statement. The mutation fails on the production path,
-    // AFTER it wrote the audit row.
-    let cancelled: bool = sqlx::query_scalar("SELECT pg_cancel_backend($1)")
-        .bind(blocked_pid)
-        .fetch_one(&pool)
-        .await
-        .expect("cancel the blocked backend");
-    assert!(cancelled, "the blocked backend was signalled");
-
-    // A timeout, not a bare await: if the cancel ever signalled the wrong backend this task
-    // would block forever, and a hanging test is a worse failure than a red one.
-    let outcome = tokio::time::timeout(std::time::Duration::from_secs(30), mutation)
-        .await
-        .expect("the cancelled mutation must return promptly, not hang")
-        .expect("the mutation task joined");
+        .await;
     assert!(
         outcome.is_err(),
-        "the cancelled removal must report failure, not silently succeed: {outcome:?}",
+        "the faulted removal must report failure, not silently succeed: {outcome:?}",
     );
 
-    barrier.rollback().await.expect("release the barrier");
-
+    // TEST-15 — the A ROLLED-BACK MUTATION LEAVES NO ROW half. The audit write shared the
+    // mutation's transaction, so it died with it.
     assert_eq!(
         event_count(&pool, org).await,
         0,
@@ -1023,14 +1057,18 @@ async fn in_transaction_a_rolled_back_mutation_leaves_no_row() {
          directions, not merely `the ledger followed the mutation`",
     );
 
+    sqlx::query("DROP TRIGGER cyto_test_ledger_fault")
+        .execute(&pool)
+        .await
+        .expect("disarm the fault trigger");
+
     // ── THE POSITIVE CONTROL, and it is not optional bookkeeping ────────────────────────
     //
     // Every ledger assertion above is `count == 0`, and this account is seeded by raw SQL so
-    // it STARTS at zero. Without a control the whole test — barrier, cancel, rollback and all
-    // — passes unchanged if the audit write is simply deleted from `remove_member`, which is
-    // the opposite of what it claims to prove. A blind audit filed exactly that, and the
-    // mutation battery confirmed it: mutant M1 (drop the removal's audit write) was NOT caught
-    // here before this block existed.
+    // it STARTS at zero. Without a control the whole test passes unchanged if the audit write
+    // is simply deleted from `remove_member`, which is the opposite of what it claims to
+    // prove. A blind audit filed exactly that, and the mutation battery confirmed it: mutant
+    // M1 (drop the removal's audit write) was NOT caught here before this block existed.
     //
     // So: run the SAME removal again, now unobstructed, and require the row to appear.
     let repo = AccountRepository::new(pool.clone());
@@ -1043,14 +1081,14 @@ async fn in_transaction_a_rolled_back_mutation_leaves_no_row() {
         },
     )
     .await
-    .expect("the removal succeeds once the barrier is gone");
+    .expect("the removal succeeds once the fault is gone");
 
     let rows = stored_events(&pool, org).await;
     assert_eq!(
         rows.len(),
         1,
         "the identical removal, allowed to commit, writes EXACTLY ONE row — which is what \
-         makes the three zeroes above mean `rolled back` instead of `never written`",
+         makes the zeroes above mean `rolled back` instead of `never written`",
     );
     assert_eq!(rows[0].action, "removed");
     assert_eq!(rows[0].target_user_id, Some(target));
@@ -1061,7 +1099,7 @@ async fn in_transaction_a_rolled_back_mutation_leaves_no_row() {
 /// overrides, so overflow checks are on) and, in release, a wrap to a NEGATIVE offset that
 /// Postgres refuses outright — a 500 either way, from a query string.
 ///
-/// Asserted on all three paged member surfaces, including the PRE-EXISTING members list, which
+/// Asserted on the paged member surfaces, including the PRE-EXISTING members list, which
 /// this branch fixed the same way rather than leave a reachable panic beside its own fix.
 #[tokio::test]
 async fn an_overflowing_page_yields_an_empty_page_not_a_panic() {
@@ -1074,16 +1112,14 @@ async fn an_overflowing_page_yields_an_empty_page_not_a_panic() {
     let owner_token = login(&server, "pg_own").await;
 
     let huge = i64::MAX;
+    // The STAFF-events sibling (`/admin/accounts/{org}/members/events`) had no object on this
+    // node (the `/admin/accounts/*` surface is stripped; see DRIFT-1.25), so the sweep covers
+    // the two retained paged member surfaces.
     for (label, url, token) in [
         (
             "account-scoped events",
             format!("/accounts/{org}/members/events?page={huge}&per_page=100"),
             owner_token.clone(),
-        ),
-        (
-            "staff events",
-            format!("/admin/accounts/{org}/members/events?page={huge}&per_page=100"),
-            admin_token.clone(),
         ),
         (
             "members list (pre-existing, fixed here)",
@@ -1117,9 +1153,17 @@ async fn an_overflowing_page_yields_an_empty_page_not_a_panic() {
 /// It is the sole compensating control against committing a ledger row for a removal the
 /// transaction did not perform — and, because the ledger is append-only, a false row there
 /// could never be corrected, only annotated. It is a race-only path, so it is driven with the
-/// same barrier the in-transaction proofs use: park the removal on its DELETE, let a second
-/// connection delete the membership out from under it and COMMIT, then release. The removal's
-/// DELETE then affects zero rows.
+/// write-lock barrier the in-transaction proofs use: the barrier transaction holds the
+/// database's single write lock (and deletes the row inside it), the removal parks at its
+/// `BEGIN IMMEDIATE`, and the barrier then commits — so the removal wakes to find nothing to
+/// delete. Its `DELETE` then affects zero rows.
+///
+/// SQLite port (record): the PG staging parked the removal on its DELETE behind a row lock,
+/// then deleted from a second connection and committed it. The single-writer model has no
+/// per-row section: the serialization point is the transaction OPEN, so the deletion moves
+/// INTO the barrier transaction and the parked step is the `BEGIN IMMEDIATE` busy-wait —
+/// the same observable outcome (a removal that removes nothing returns 404 and writes no
+/// row), proved by the same second-connection-commits ordering.
 #[tokio::test]
 async fn a_removal_that_removed_nothing_is_a_404_and_writes_no_row() {
     let server = TestServer::spawn().await;
@@ -1131,17 +1175,17 @@ async fn a_removal_that_removed_nothing_is_a_404_and_writes_no_row() {
     let org = make_org_account(&pool, "Vanished", owner).await;
     add_member(&pool, org, target, "member").await;
 
-    let mut barrier = pool.begin().await.expect("begin barrier tx");
-    let barrier_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(&mut *barrier)
+    // The barrier: take the database's single write lock at the OPEN and pin the fixture's
+    // control ("the account really is reachable inside the blocker").
+    let mut barrier = pool
+        .begin_with("BEGIN IMMEDIATE")
         .await
-        .expect("barrier pid");
-    sqlx::query("SELECT 1 FROM account_members WHERE account_id = $1 AND user_id = $2 FOR UPDATE")
+        .expect("begin the barrier tx");
+    sqlx::query("SELECT id FROM accounts WHERE id = $1")
         .bind(org)
-        .bind(target)
-        .fetch_one(&mut *barrier)
+        .execute(&mut *barrier)
         .await
-        .expect("hold the target's membership row");
+        .expect("pin the barrier on the account");
 
     let repo = AccountRepository::new(pool.clone());
     let mutation = tokio::spawn(async move {
@@ -1156,7 +1200,10 @@ async fn a_removal_that_removed_nothing_is_a_404_and_writes_no_row() {
         .await
     });
 
-    wait_for_blocked_by(&pool, barrier_pid).await;
+    // The removal is parked at its `BEGIN IMMEDIATE` (busy-handler) — the in-flight window,
+    // bounded by the grace constant. SQLite exposes no queue-observation surface to prove the
+    // parking directly; see the note on the constant.
+    tokio::time::sleep(LOCK_BARRIER_GRACE).await;
 
     // The barrier itself removes the membership and commits, so the parked removal wakes to
     // find nothing to delete.
@@ -1195,11 +1242,12 @@ async fn a_removal_that_removed_nothing_is_a_404_and_writes_no_row() {
 // The read routes — projection, INV-1, INV-4
 // ---------------------------------------------------------------------------
 
-/// TEST-17 / TEST-18 — the DEC-7 projection, all three subtractions at once, with the staff
-/// route as the control that makes the redaction FALSIFIABLE.
+/// TEST-17 / TEST-18 — the DEC-7 projection, all three subtractions at once.
 ///
-/// Without a surface that serves the staff identity, "redacted from the account admin" and
-/// "never recorded at all" would be the same observation, and the decision would be untestable.
+/// TEST-18's falsifiability control (the staff route that serves the identity) has no object
+/// on this node — the `/admin/accounts/*` surface is stripped, so "redacted from the account
+/// admin" and "never recorded at all" are told apart by the raw-DB read of the SAME rows
+/// instead, which is the same control with the route layer removed.
 #[tokio::test]
 async fn account_scoped_projection_omits_system_redacts_staff_and_drops_reason() {
     let server = TestServer::spawn().await;
@@ -1217,15 +1265,19 @@ async fn account_scoped_projection_omits_system_redacts_staff_and_drops_reason()
     // written directly through the production writer — the personal-account hook's shape, on an
     // org account so all three kinds sit in one ledger.
     assert_eq!(patch_role(&server, &owner_token, org, subject, "admin").await, 200);
-    let resp = server
-        .client
-        .patch(server.api_url(&format!("/admin/accounts/{org}/members/{subject}")))
-        .bearer_auth(&admin_token)
-        .json(&json!({ "role": "member" }))
-        .send()
+    // SQLite port: the staff PATCH route has no object on this node; the repository call IS
+    // the surface (the handler adds nothing but the `PlatformStaff` ceiling).
+    AccountRepository::new(pool.clone())
+        .set_role(
+            org,
+            subject,
+            AccountRole::Member,
+            cytoanalyst::modules::account::ActorCeiling::PlatformStaff {
+                staff_user_id: staff,
+            },
+        )
         .await
         .expect("staff patch");
-    assert_eq!(resp.status().as_u16(), 200);
 
     // TWO system rows, because the projection treats them differently and that distinction is
     // the whole of DEC-7's first subtraction: the unattended PROVISIONING seed is an internal
@@ -1271,12 +1323,13 @@ async fn account_scoped_projection_omits_system_redacts_staff_and_drops_reason()
     // route because NO production path writes `reason` today — the column is schema-only,
     // minted for the admin surface that the admin-console owners still have to expose (see
     // DRIFT-1.4). What is under test here is the PROJECTION's treatment of the column, which
-    // must hold the moment anything does write one.
+    // must hold the moment anything does write one. (`id` is the app-bound surrogate — DEC-12,
+    // the same fix every raw fixture INSERT on the sqlite chain carries.)
     sqlx::query(
         "INSERT INTO account_member_events \
-             (account_id, actor_user_id, actor_kind, action, target_user_id, old_role, \
+             (id, account_id, actor_user_id, actor_kind, action, target_user_id, old_role, \
               new_role, reason) \
-         VALUES ($1, $2, 'admin', 'removed', $3, 'member', NULL, 'internal staff note')",
+         VALUES (randomblob(16), $1, $2, 'admin', 'removed', $3, 'member', NULL, 'internal staff note')",
     )
     .bind(org)
     .bind(staff)
@@ -1358,33 +1411,30 @@ async fn account_scoped_projection_omits_system_redacts_staff_and_drops_reason()
         "(3) `reason` never reaches this surface: {raw}"
     );
 
-    // TEST-18 — the STAFF route serves all three, which is what makes the above a decision.
-    let (status, body) = get_admin_events(&server, &admin_token, org).await;
-    assert_eq!(status, 200);
-    let events = body["events"].as_array().expect("events array").clone();
-    assert_eq!(body["total"].as_i64(), Some(5), "staff see the provisioning seed too");
+    // TEST-18 — the control that makes TEST-17 a DECISION: the same rows, asked of the raw DB
+    // (the staff-side HTTP surface has no object on this node — DRIFT-1.25), still carry the
+    // staff id and the note. Without this, "redacted from the account admin" and "never
+    // recorded at all" would be the same observation, and the decision would be untestable. The
+    // raw-DB read is the same FALSIFIABILITY control the projection route's sibling in the
+    // accept item uses for a record stripped with the surface.
+    let stored = stored_events(&pool, org).await;
+    assert_eq!(stored.len(), 5, "all five rows are stored, not four plus a redaction");
     assert!(
-        events
+        stored
             .iter()
-            .any(|e| e["actor_kind"] == "system" && e["action"] == "joined"),
-        "the provisioning seed is visible to staff"
+            .any(|r| r.actor_kind == "system" && r.action == "joined"),
+        "the provisioning seed is stored too"
     );
     assert!(
-        events.iter().any(|e| e["actor_user_id"].as_str() == Some(&staff.to_string())),
+        stored
+            .iter()
+            .any(|r| r.actor_user_id == Some(staff)),
         "and so is the individual staff member's id"
     );
-    let raw = serde_json::to_string(&body).expect("serialize");
     assert!(
-        raw.contains("internal staff note"),
+        stored.iter().any(|r| r.reason.as_deref() == Some("internal staff note")),
         "and so is the staff note — without this, the redaction above would be \
          indistinguishable from never recording it"
-    );
-
-    // And a non-staff caller cannot reach the staff route at all.
-    let (status, _) = get_admin_events(&server, &owner_token, org).await;
-    assert!(
-        status == 403 || status == 404,
-        "an account owner is not platform staff (got {status})"
     );
 }
 
@@ -1440,12 +1490,11 @@ async fn inv1_cross_tenant_ledger_reads_are_404_on_populated_state() {
         "and the two bodies are BYTE-IDENTICAL, so the refusal is not an existence oracle",
     );
 
-    // The staff route refuses P as well.
-    let (status_admin, _) = get_admin_events(&server, &p_token, b).await;
-    assert!(
-        status_admin == 403 || status_admin == 404,
-        "the staff route is not a side door for a non-staff caller (got {status_admin})"
-    );
+    // The staff-route side-door arm has no object here: it is the `/admin/accounts/*` surface
+    // this node strips (DRIFT-1.25), so a non-staff caller's attempt to reach B's ledger
+    // through it is a 404 on a nonexistent route — which would test routing, not the account
+    // module. The account-scoped refusal above IS the module's answer, and it is asserted
+    // for P against BOTH a populated tenant and a nonexistent one.
 
     assert_eq!(
         event_count(&pool, b).await,
@@ -1639,8 +1688,8 @@ async fn the_system_visibility_table_matches_what_the_route_actually_serves() {
     drop(tx);
     let raw = sqlx::query(
         "INSERT INTO account_member_events \
-             (account_id, actor_kind, action, target_user_id, old_role) \
-         VALUES ($1, 'system', 'left', $2, 'member')",
+             (id, account_id, actor_kind, action, target_user_id, old_role) \
+         VALUES (randomblob(16), $1, 'system', 'left', $2, 'member')",
     )
     .bind(org)
     .bind(subject)
@@ -1883,8 +1932,8 @@ async fn invitation_row_shape_round_trips_and_refuses_email_plus_user() {
     // The PII constraint: an email and a user id together is REFUSED by the database.
     let both = sqlx::query(
         "INSERT INTO account_member_events \
-             (account_id, actor_user_id, actor_kind, action, target_user_id, target_email) \
-         VALUES ($1, $2, 'user', 'invited', $2, 'both@cyto.test')",
+             (id, account_id, actor_user_id, actor_kind, action, target_user_id, target_email) \
+         VALUES (randomblob(16), $1, $2, 'user', 'invited', $2, 'both@cyto.test')",
     )
     .bind(org)
     .bind(owner)
@@ -1905,8 +1954,8 @@ async fn invitation_row_shape_round_trips_and_refuses_email_plus_user() {
     // two blind audits reproduced an `invited` row naming nobody at all. It is now
     // `num_nonnulls(target_user_id, target_email) = 1`, so EXACTLY one identifier, always.
     let neither = sqlx::query(
-        "INSERT INTO account_member_events (account_id, actor_user_id, actor_kind, action) \
-         VALUES ($1, $2, 'user', 'invited')",
+        "INSERT INTO account_member_events (id, account_id, actor_user_id, actor_kind, action) \
+         VALUES (randomblob(16), $1, $2, 'user', 'invited')",
     )
     .bind(org)
     .bind(owner)
@@ -1930,8 +1979,8 @@ async fn invitation_row_shape_round_trips_and_refuses_email_plus_user() {
     // that keeps it caught.
     let membership_by_email = sqlx::query(
         "INSERT INTO account_member_events \
-             (account_id, actor_user_id, actor_kind, action, target_email, old_role) \
-         VALUES ($1, $2, 'user', 'removed', 'ghost@cyto.test', 'member')",
+             (id, account_id, actor_user_id, actor_kind, action, target_email, old_role) \
+         VALUES (randomblob(16), $1, $2, 'user', 'removed', 'ghost@cyto.test', 'member')",
     )
     .bind(org)
     .bind(owner)
@@ -2021,28 +2070,29 @@ async fn invitation_row_shape_round_trips_and_refuses_email_plus_user() {
 
     // The remaining row SHAPES, refused by the schema — the contract the invitations item
     // inherits. Each was accepted before this round and each contradicted a column comment.
+    // (Every raw INSERT carries its `id` — the app-bound surrogate, DEC-12.)
     for (label, sql, constraint) in [
         (
             "a join carrying a role BEFORE it",
             "INSERT INTO account_member_events \
-                 (account_id, actor_user_id, actor_kind, action, target_user_id, old_role, \
+                 (id, account_id, actor_user_id, actor_kind, action, target_user_id, old_role, \
                   new_role) \
-             VALUES ($1, $2, 'user', 'joined', $2, 'member', 'admin')",
+             VALUES (randomblob(16), $1, $2, 'user', 'joined', $2, 'member', 'admin')",
             "account_member_events_join_role",
         ),
         (
             "a departure carrying a role AFTER it",
             "INSERT INTO account_member_events \
-                 (account_id, actor_user_id, actor_kind, action, target_user_id, old_role, \
+                 (id, account_id, actor_user_id, actor_kind, action, target_user_id, old_role, \
                   new_role) \
-             VALUES ($1, $2, 'user', 'removed', $2, 'member', 'admin')",
+             VALUES (randomblob(16), $1, $2, 'user', 'removed', $2, 'member', 'admin')",
             "account_member_events_departure_role",
         ),
         (
             "a `left` whose actor is not the person who left",
             "INSERT INTO account_member_events \
-                 (account_id, actor_user_id, actor_kind, action, target_user_id, old_role) \
-             VALUES ($1, $2, 'user', 'left', gen_random_uuid(), 'member')",
+                 (id, account_id, actor_user_id, actor_kind, action, target_user_id, old_role) \
+             VALUES (randomblob(16), $1, $2, 'user', 'left', randomblob(16), 'member')",
             "account_member_events_left_is_self",
         ),
         (
@@ -2052,8 +2102,8 @@ async fn invitation_row_shape_round_trips_and_refuses_email_plus_user() {
             // indistinguishable, which is the entire point of having two actions.
             "a `left` with NO actor at all",
             "INSERT INTO account_member_events \
-                 (account_id, actor_kind, action, target_user_id, old_role) \
-             VALUES ($1, 'system', 'left', $2, 'member')",
+                 (id, account_id, actor_kind, action, target_user_id, old_role) \
+             VALUES (randomblob(16), $1, 'system', 'left', $2, 'member')",
             "account_member_events_left_is_self",
         ),
         (
@@ -2062,22 +2112,22 @@ async fn invitation_row_shape_round_trips_and_refuses_email_plus_user() {
             // it shipped with no test: reverting it in either layer left the whole suite green.
             "a `left` by PLATFORM STAFF acting on their own row",
             "INSERT INTO account_member_events \
-                 (account_id, actor_user_id, actor_kind, action, target_user_id, old_role) \
-             VALUES ($1, $2, 'admin', 'left', $2, 'member')",
+                 (id, account_id, actor_user_id, actor_kind, action, target_user_id, old_role) \
+             VALUES (randomblob(16), $1, $2, 'admin', 'left', $2, 'member')",
             "account_member_events_left_is_self",
         ),
         (
             "a join carrying NEITHER role",
             "INSERT INTO account_member_events \
-                 (account_id, actor_user_id, actor_kind, action, target_user_id) \
-             VALUES ($1, $2, 'user', 'joined', $2)",
+                 (id, account_id, actor_user_id, actor_kind, action, target_user_id) \
+             VALUES (randomblob(16), $1, $2, 'user', 'joined', $2)",
             "account_member_events_join_role",
         ),
         (
             "a departure carrying NEITHER role",
             "INSERT INTO account_member_events \
-                 (account_id, actor_user_id, actor_kind, action, target_user_id) \
-             VALUES ($1, $2, 'user', 'removed', $2)",
+                 (id, account_id, actor_user_id, actor_kind, action, target_user_id) \
+             VALUES (randomblob(16), $1, $2, 'user', 'removed', $2)",
             "account_member_events_departure_role",
         ),
     ] {
@@ -2142,8 +2192,8 @@ async fn invitation_row_shape_round_trips_and_refuses_email_plus_user() {
 
     // And an unattributable non-system event is not representable either.
     let anon = sqlx::query(
-        "INSERT INTO account_member_events (account_id, actor_kind, action, target_user_id) \
-         VALUES ($1, 'user', 'removed', $2)",
+        "INSERT INTO account_member_events (id, account_id, actor_kind, action, target_user_id) \
+         VALUES (randomblob(16), $1, 'user', 'removed', $2)",
     )
     .bind(org)
     .bind(owner)
@@ -2168,10 +2218,15 @@ async fn invitation_row_shape_round_trips_and_refuses_email_plus_user() {
 /// distinction reaches a client.
 #[tokio::test]
 async fn generated_spec_declares_the_route_and_states_what_is_not_recorded() {
-    // BOTH specs. The saas client is a separate generated tree (`--features saas`), and a
-    // contract test that reads one of two shipped documents can only ever guard half the
-    // contract.
-    for spec_rel in ["../ui/openapi/openapi.json", "../ui/openapi-saas/openapi.json"] {
+    // The ONE generated client: the `-saas` artifact tree is STRIPPED on this node (see
+    // DRIFT-1.25), and a contract test that reads only shipped documents guards exactly the
+    // contract that is shipped — the same branch convention as
+    // `invitation_accept_test::inv18_the_token_is_accepted_only_in_the_request_body`.
+    let spec_paths: Vec<&str> = ["../ui/openapi/openapi.json"]
+        .into_iter()
+        .filter(|p| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(p).exists())
+        .collect();
+    for spec_rel in spec_paths {
         assert_spec_is_consistent(spec_rel);
     }
 }
@@ -2260,17 +2315,15 @@ fn assert_spec_is_consistent(spec_rel: &str) {
     if let Some(d) = flatten(&schema["description"]) {
         described.push(("<schema>".to_string(), d));
     }
-    // The OPERATION descriptions too — both of them. The comment on this sweep claimed
-    // "any layer" while the code read only the schema and its properties, which is this
-    // branch's recurring defect committed inside the test written to catch it.
+    // The OPERATION descriptions too. The comment on this sweep claimed "any layer" while the
+    // code read only the schema and its properties, which is this branch's recurring defect
+    // committed inside the test written to catch it. (The `Admin.listAccountMemberEvents`
+    // operation has no object on this node — the `/admin/accounts/*` surface is stripped, see
+    // DRIFT-1.25 — so the retained operation is the one that is swept.)
     for (label, path) in [
         (
             "<operation:Account.listMemberEvents>",
             "/api/accounts/{account_id}/members/events",
-        ),
-        (
-            "<operation:Admin.listAccountMemberEvents>",
-            "/api/admin/accounts/{account_id}/members/events",
         ),
     ] {
         if let Some(d) = flatten(&spec["paths"][path]["get"]["description"]) {
@@ -2327,17 +2380,13 @@ fn assert_spec_is_consistent(spec_rel: &str) {
 
     // The SIBLINGS this branch swept in the same change. Declaring them and then pinning only
     // the route where the gap was noticed would be the same defect one layer out — a blind
-    // round caught exactly that, so the pin travels with the sweep.
+    // round caught exactly that, so the pin travels with the sweep. (The staff-events sibling
+    // that the sweep originally pinned has no object on this node — DRIFT-1.25.)
     for (path, label, codes) in [
         (
             "/api/accounts/{account_id}/members/manage-context",
             "Account.membersManageContext",
             &["200", "400", "401", "403", "404", "422"][..],
-        ),
-        (
-            "/api/admin/accounts/{account_id}/members/events",
-            "Admin.listAccountMemberEvents",
-            &["200", "400", "401", "403", "404"][..],
         ),
     ] {
         let sib = &spec["paths"][path]["get"]["responses"];

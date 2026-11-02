@@ -193,12 +193,14 @@ fn the_denylist_still_covers_the_families_the_design_names() {
 /// A fixture holding the real guards + the committed manifest, so the tamper is done on a
 /// COPY and the working tree is never dirtied.
 ///
-/// **The extension set here must equal `check-guard-integrity.sh`'s `GUARD_GLOBS`.** It read
-/// `.sh` only, so when the globs widened to cover `scripts/check-*.mjs` (a guard is worth
-/// nothing if it can be gutted in a diff nobody reads, whatever language it is written in)
-/// every clean copy was missing three pinned files and read as three DELETED guards. The
-/// fixture is what tells this suite what "the real set" is, so a fixture that models a
-/// narrower set than the guard does is the same hard-coded-list mistake one layer down.
+/// **The extension set here must equal `check-guard-integrity.sh`'s `GUARD_GLOBS`**
+/// (`scripts/check-*.sh`, `scripts/check-*.mjs`, `scripts/lib/*`,
+/// `scripts/coercion-parity*`). It used to read `.sh` only, so when the globs widened
+/// (a guard is worth nothing if it can be gutted in a diff nobody reads, whatever
+/// language it is written in) every clean copy was missing pinned files and read as
+/// DELETED guards. The fixture is what tells this suite what "the real set" is, so a
+/// fixture that models a narrower set than the guard does is the same hard-coded-list
+/// mistake one layer down.
 fn integrity_fixture() -> (TmpRepo, Vec<String>) {
     let repo = TmpRepo::new("guard-integrity");
     let src_scripts = repo_root().join("scripts");
@@ -206,9 +208,18 @@ fn integrity_fixture() -> (TmpRepo, Vec<String>) {
     for e in fs::read_dir(&src_scripts).expect("scripts/ readable") {
         let e = e.expect("dir entry");
         let name = e.file_name().to_string_lossy().into_owned();
-        if name.starts_with("check-") && (name.ends_with(".sh") || name.ends_with(".mjs")) {
+        if (name.starts_with("check-") && (name.ends_with(".sh") || name.ends_with(".mjs")))
+            || name.starts_with("coercion-parity")
+        {
             repo.copy_in(&e.path(), &format!("scripts/{name}"));
             names.push(name);
+        } else if name == "lib" {
+            for f in fs::read_dir(&e.path()).expect("scripts/lib readable") {
+                let f = f.expect("lib entry");
+                let lname = f.file_name().to_string_lossy().into_owned();
+                repo.copy_in(&f.path(), &format!("scripts/lib/{lname}"));
+                names.push(format!("lib/{lname}"));
+            }
         }
     }
     repo.copy_in(&repo_root().join(MANIFEST), MANIFEST);

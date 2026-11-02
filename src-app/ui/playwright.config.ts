@@ -7,15 +7,15 @@ import { writeDerivedConfig } from './scripts/e2e-config-derive.mjs'
 import { resolvedOnce } from './scripts/resolved-once.mjs'
 import { narrowedOut, narrowingBanner } from './scripts/tag-narrowing.mjs'
 
-// CytoAnalyst E2E (Layer-B). CytoAnalyst's web model is TWO servers: the backend
-// (external docker Postgres on :54321 — the embedded PG's subprocess is SIGKILLed
-// as exit-144 in the process-killing harness) + `vite preview` proxying `/api` →
-// the backend. Neither @ziee/test-e2e preset fits that exactly (the full-stack
-// preset assumes a per-run Postgres DOCKER container; the desktop preset assumes
-// a SINGLE webServer), so this is a native Playwright config that still reuses
-// the package's i18n-safe selectors + testid attribute. Logged as an
-// @ziee/test-e2e dogfooding gap in SDK_GAPS (an "embedded-PG two-server web"
-// preset would remove this bespoke config).
+// TxResBench E2E (Layer-B). The web model is TWO servers: the backend — on this
+// node the SQLite store, ONE local file per run, no server process and no cluster
+// to provision — + `vite preview` proxying `/api` → the backend. Neither
+// @ziee/test-e2e preset fits that exactly (the full-stack preset assumes a
+// per-run Postgres DOCKER container; the desktop preset assumes a SINGLE
+// webServer), so this is a native Playwright config that still reuses the
+// package's i18n-safe selectors + testid attribute. Logged as an @ziee/test-e2e
+// dogfooding gap in SDK_GAPS (an "embedded-two-server web" preset would remove
+// this bespoke config).
 //
 // ── TEST ROUTING — four configs, four DISJOINT testDirs ──────────────────────────
 //
@@ -71,7 +71,7 @@ import { narrowedOut, narrowingBanner } from './scripts/tag-narrowing.mjs'
 // ── ONE SOURCE FOR THE PORT/DB FACTS ─────────────────────────────────────────────
 //
 // The previous config CROSS-CHECKED four sources for two facts (the committed YAML's
-// `server.port` + `postgresql.database`, `E2E_DB`, `E2E_BACKEND`, `E2E_BACKEND_PORT`)
+// `server.port` + `database.path`, `E2E_DB_FILE`, `E2E_BACKEND`, `E2E_BACKEND_PORT`)
 // and threw when they diverged. That check was correct and it is why this rewrite is
 // not simply "derive the ports": the moment a port is derived, a COMMITTED yaml can
 // never match it, so the check would fail every run. The answer is to remove the
@@ -113,14 +113,15 @@ const APP_URL = `http://localhost:${APP_PORT}`
 // worktree non-destructive, which a per-worktree key alone can never do. That was the
 // whole lesson of the incident this mechanism came from.
 const RUN_TAG = `${BACKEND_PORT}`
-/** Overridable, but DERIVED by default — the committed `cytoanalyst_e2e` was shared by
- *  every worktree and every run, and this suite DROPs it with `(FORCE)`. */
-const E2E_DB = process.env.E2E_DB ?? `cytoanalyst_e2e_${RUN_TAG}`
+/** Overridable, but DERIVED by default — the SQLite store: one file per run, deleted
+ *  before boot (fresh DB → repeatable first-run setup; the real `cytoanalyst_e2e_*`
+ *  files the PG era shared across worktrees are gone with the cluster). */
+const E2E_DB_FILE = process.env.E2E_DB_FILE ?? `${tmpdir()}/cyto-e2e-${RUN_TAG}.sqlite`
 /** The BASE config the per-run file is derived FROM (not the file the backend boots). */
 const E2E_BASE_CONFIG = process.env.E2E_CONFIG_FILE ?? 'config/e2e.yaml'
 /** The e2e backend's app-data dir — ISOLATED from the developer's. See the note on `command`
  *  below: sharing it let the workstore GC delete real user data. */
-const E2E_DATA_DIR = process.env.CYTO_APP_DATA_DIR ?? `${tmpdir()}/cyto-e2e-data-${E2E_DB}`
+const E2E_DATA_DIR = process.env.CYTO_APP_DATA_DIR ?? `${tmpdir()}/cyto-e2e-data-${RUN_TAG}`
 // …and the TEST process must see the same value the server is given. It is passed to the
 // backend inline on `command` below, which puts it in that child's environment and nowhere
 // else — so a spec reading `process.env.CYTO_APP_DATA_DIR` saw nothing, and
@@ -167,9 +168,9 @@ process.env.E2E_APP_PORT = APP_PORT
 // replaced the four-source cross-check.
 const DERIVED_CONFIG = writeDerivedConfig({
   basePath: resolve(serverDir, E2E_BASE_CONFIG),
-  outPath: `${tmpdir()}/cyto-e2e-${E2E_DB}.yaml`,
+  outPath: `${tmpdir()}/cyto-e2e-${RUN_TAG}.yaml`,
   port: BACKEND_PORT,
-  database: E2E_DB,
+  dbPath: E2E_DB_FILE,
 })
 
 // The origins the pre-flight + the mid-run watchdog assert. BOTH legs are listed: the
@@ -228,7 +229,7 @@ console.warn(
   `[playwright] e2e origins — backend :${BACKEND_PORT}` +
     `${PORTS.appE2eBackend.pinned ? ' (pinned)' : ''}${PORTS.appE2eBackend.reused ? ' REUSED' : ''}` +
     `, app :${APP_PORT}${PORTS.appE2ePreview.pinned ? ' (pinned)' : ''}` +
-    `${PORTS.appE2ePreview.reused ? ' REUSED' : ''}; db ${E2E_DB}; config ${DERIVED_CONFIG}`,
+    `${PORTS.appE2ePreview.reused ? ' REUSED' : ''}; db ${E2E_DB_FILE}; config ${DERIVED_CONFIG}`,
 )
 
 export default defineConfig({
@@ -265,11 +266,11 @@ export default defineConfig({
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: [
     {
-      // Build the binary, DROP+CREATE the external e2e DB on :54321 (fresh DB →
-      // repeatable first-run setup; the backend migrates it on boot), then boot
-      // the backend on the RESOLVED port with the DERIVED config. External docker PG
-      // (not embedded) so the process-killing harness can't SIGKILL a PG subprocess
-      // (the exit-144 friction). `CYTO_APP_DATA_DIR` is LOAD-BEARING, and its absence
+      // Build the binary, DELETE the per-run SQLite file (fresh DB → repeatable
+      // first-run setup; the backend migrates it on boot), then boot the backend
+      // on the RESOLVED port with the DERIVED config — which carries this run's
+      // `database.path`. One local file, no server process, no cluster to
+      // provision. `CYTO_APP_DATA_DIR` is LOAD-BEARING, and its absence
       // destroyed real data.
       //
       // The e2e backend gets its own DATABASE (dropped + recreated above) but used to inherit
@@ -286,7 +287,7 @@ export default defineConfig({
       //
       // Per RUN, not a fixed path — and now genuinely per-run, because the name is keyed on
       // the RESOLVED port rather than on a literal every worktree shared.
-      command: `bash -c 'cargo build --bin cytoanalyst && PGPASSWORD=password psql -h 127.0.0.1 -p 54321 -U postgres -c "DROP DATABASE IF EXISTS ${E2E_DB} WITH (FORCE)" -c "CREATE DATABASE ${E2E_DB}" && CYTO_APP_DATA_DIR="${E2E_DATA_DIR}" CONFIG_FILE="${DERIVED_CONFIG}" "${bin}"'`,
+      command: `bash -c 'cargo build --bin cytoanalyst && rm -f "${E2E_DB_FILE}" "${E2E_DB_FILE}-wal" "${E2E_DB_FILE}-shm" && CYTO_APP_DATA_DIR="${E2E_DATA_DIR}" CONFIG_FILE="${DERIVED_CONFIG}" "${bin}"'`,
       cwd: serverDir,
       url: `${BACKEND_URL}/api/app/setup/status`,
       timeout: 180_000,

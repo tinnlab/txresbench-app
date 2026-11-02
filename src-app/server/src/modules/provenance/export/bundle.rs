@@ -7,7 +7,7 @@ use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 use ziee_core::AppError;
 
@@ -92,7 +92,7 @@ impl Drop for TempDir {
 /// Build a reproducibility bundle for a scope and stash it under a fresh
 /// `export_id`. Returns the id for the download route.
 pub async fn build_bundle(
-    pool: &PgPool,
+    pool: &SqlitePool,
     project_id: Uuid,
     target: Option<Uuid>,
     scope_str: &str,
@@ -565,7 +565,7 @@ pub async fn build_bundle(
     // on them, assembled by ONE function so a test can drive the whole data flow with
     // a failing reader and read the emitted member BYTES. See [`assemble_readiness`]
     // for what the members are, why a read failure is recorded rather than fatal, and
-    // (ROUND-19) what it cost to have that flow inline in a `PgPool`-bound async fn.
+    // (ROUND-19) what it cost to have that flow inline in a `SqlitePool`-bound async fn.
     let assembled = assemble_readiness(
         &repro.steps,
         &crate::modules::sandbox::processors::staged_python_helpers,
@@ -1418,7 +1418,7 @@ fn input_subpaths_from_rerun(rerun: &Option<serde_json::Value>) -> Vec<(String, 
 /// loads the bytes). Consulted BEFORE `fetch_dataset_file_bytes` so the export cap
 /// is enforced without materializing an oversize root in memory (OOM guard).
 /// `Ok(None)` = the file row is gone.
-async fn dataset_file_size(pool: &PgPool, file_id: Uuid) -> Result<Option<u64>, AppError> {
+async fn dataset_file_size(pool: &SqlitePool, file_id: Uuid) -> Result<Option<u64>, AppError> {
     Ok(ziee_file::FileRepository::new(pool.clone())
         .get_by_id(file_id)
         .await?
@@ -1428,7 +1428,7 @@ async fn dataset_file_size(pool: &PgPool, file_id: Uuid) -> Result<Option<u64>, 
 /// Load a Dataset file's bytes from ziee-file (mirrors `sandbox/inputs.rs`'s
 /// `stage_dataset_file`) — the byte source for a `data/<hash>` dataset root on
 /// export (ITEM-21).
-async fn fetch_dataset_file_bytes(pool: &PgPool, file_id: Uuid) -> Result<Vec<u8>, AppError> {
+async fn fetch_dataset_file_bytes(pool: &SqlitePool, file_id: Uuid) -> Result<Vec<u8>, AppError> {
     let file = ziee_file::FileRepository::new(pool.clone())
         .get_by_id(file_id)
         .await?

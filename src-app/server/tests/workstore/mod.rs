@@ -9,8 +9,8 @@
 use std::collections::HashSet;
 
 use serde_json::{json, Value};
-use sqlx::postgres::PgPoolOptions;
-use sqlx::PgPool;
+use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::workstore::catalog::models::NewArtifact;
@@ -171,7 +171,7 @@ mod range_block_alignment_test;
 async fn setup_admin(server: &TestServer) -> String {
     let resp = server
         .client
-        .post(server.api_url("/app/setup/admin"))
+        .post(server.api_url("/session/local"))
         .json(&json!({
             "username": "admin", "email": "admin@cyto.test",
             "password": "adminPassw0rd!", "display_name": "Admin"
@@ -179,7 +179,7 @@ async fn setup_admin(server: &TestServer) -> String {
         .send()
         .await
         .expect("setup/admin");
-    assert_eq!(resp.status().as_u16(), 201);
+    assert_eq!(resp.status().as_u16(), 200);
     let body: Value = resp.json().await.expect("setup json");
     body["access_token"]
         .as_str()
@@ -192,7 +192,7 @@ async fn setup_admin(server: &TestServer) -> String {
 async fn create_member_token(server: &TestServer, admin: &str, username: &str) -> (Uuid, String) {
     let r = server
         .client
-        .post(server.api_url("/users"))
+        .post(server.api_url("/auth/register"))
         .bearer_auth(admin)
         .json(&json!({ "username": username, "email": format!("{username}@cyto.test"), "password": "memberPassw0rd!" }))
         .send()
@@ -200,7 +200,7 @@ async fn create_member_token(server: &TestServer, admin: &str, username: &str) -
         .expect("create user");
     assert!(r.status().is_success(), "create member: {}", r.status());
     let created: Value = r.json().await.expect("user json");
-    let uid = Uuid::parse_str(created["id"].as_str().expect("user id")).unwrap();
+    let uid = Uuid::parse_str(created["user"]["id"].as_str().expect("user id")).unwrap();
     let login = server
         .client
         .post(server.api_url("/auth/login"))
@@ -227,8 +227,8 @@ async fn create_project(server: &TestServer, token: &str, name: &str) -> Uuid {
     Uuid::parse_str(s["id"].as_str().expect("project id")).unwrap()
 }
 
-async fn pool_for(server: &TestServer) -> PgPool {
-    PgPoolOptions::new()
+async fn pool_for(server: &TestServer) -> SqlitePool {
+    SqlitePoolOptions::new()
         .max_connections(2)
         .connect(server.database_url())
         .await
@@ -699,23 +699,23 @@ async fn test9_axis_entry_table_is_gone_and_axes_derive_from_declarations() {
 
     // POSITIVE CONTROL: `artifacts` is still here, so a `to_regclass` of NULL below
     // means "that table is gone", not "this query does not work".
-    let artifacts_present: Option<String> =
-        sqlx::query_scalar("SELECT to_regclass('public.artifacts')::text")
+    let artifacts_present: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='artifacts')")
             .fetch_one(&pool)
             .await
             .unwrap();
     assert!(
-        artifacts_present.is_some(),
+        artifacts_present,
         "the catalog table vanished — the absence check below would be vacuous"
     );
 
-    let axis_table: Option<String> =
-        sqlx::query_scalar("SELECT to_regclass('public.workstore_axis_entry')::text")
+    let axis_table: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='workstore_axis_entry')")
             .fetch_one(&pool)
             .await
             .unwrap();
     assert!(
-        axis_table.is_none(),
+        !axis_table,
         "`workstore_axis_entry` is back. Its PRIMARY KEY and all three of its indexes \
          were keyed on `axis_name`, i.e. the schema asserted that an axis's identity IS \
          its name — the exact inverse of INV-3."

@@ -14,8 +14,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use sqlx::postgres::PgPoolOptions;
-use sqlx::PgPool;
+use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::jobs::models::Job;
@@ -31,10 +31,22 @@ use crate::common::TestServer;
 
 // ─────────────────────────────── infra ───────────────────────────────
 
+/// Serialize a `uuid[]` batch into the JSON-hex form the SQLite membership
+/// predicates consume (`IN (SELECT unhex(j.value) FROM json_each($1) AS j)` —
+/// the ITEM-15/19 convention; a hyphenated TEXT list never matches a BLOB).
+pub fn uuid_list_json(ids: &[Uuid]) -> String {
+    serde_json::to_string(
+        &ids.iter()
+            .map(|id| id.simple().to_string())
+            .collect::<Vec<String>>(),
+    )
+    .expect("Vec<String> is JSON-serializable")
+}
+
 /// A pool against the spawned server's per-test DB (for direct catalog/provenance
 /// seeding + row-level assertions the REST surface has no endpoint for).
-pub async fn pool_for(server: &TestServer) -> PgPool {
-    PgPoolOptions::new()
+pub async fn pool_for(server: &TestServer) -> SqlitePool {
+    SqlitePoolOptions::new()
         .max_connections(4)
         .connect(server.database_url())
         .await
@@ -178,7 +190,7 @@ pub fn used_edge(slot: &str, kind: &str, ref_id: Option<Uuid>, content_hash: &st
 }
 
 /// Insert a run node.
-pub async fn insert_run(pool: &PgPool, run: &NewRun) {
+pub async fn insert_run(pool: &SqlitePool, run: &NewRun) {
     ProvenanceRepository::new(pool.clone())
         .insert_run(run)
         .await
@@ -187,7 +199,7 @@ pub async fn insert_run(pool: &PgPool, run: &NewRun) {
 
 /// Store an emitted source as a `provenance_code_blobs` row (dedup by sha256),
 /// returning its sha256. Mirrors `capture::store_code`.
-pub async fn store_code(pool: &PgPool, source: &str, language: &str) -> String {
+pub async fn store_code(pool: &SqlitePool, source: &str, language: &str) -> String {
     let sha = sha256_hex(source.as_bytes());
     ProvenanceRepository::new(pool.clone())
         .insert_code_blob(&sha, language, source, source.len() as i64)
@@ -201,7 +213,7 @@ pub async fn store_code(pool: &PgPool, source: &str, language: &str) -> String {
 /// tests). Returns the artifact id.
 #[allow(clippy::too_many_arguments)]
 pub async fn seed_artifact(
-    pool: &PgPool,
+    pool: &SqlitePool,
     project_id: Option<Uuid>,
     dataset_id: Option<Uuid>,
     run_id: Option<Uuid>,
@@ -325,7 +337,7 @@ impl OutSpec {
 /// can assert workspace-preservation.
 pub async fn ingest_manifest(
     server: &TestServer,
-    pool: &PgPool,
+    pool: &SqlitePool,
     project_id: Option<Uuid>,
     dataset_id: Option<Uuid>,
     run_id: Uuid,
@@ -558,7 +570,7 @@ pub async fn get_job(server: &TestServer, token: &str, id: Uuid) -> Value {
 
 /// The `(status, started_at.is_some, finished_at.is_some, error)` of a job row —
 /// read straight from the DB for precise scheduler assertions.
-pub async fn job_row(pool: &PgPool, id: Uuid) -> (String, bool, bool, Option<String>) {
+pub async fn job_row(pool: &SqlitePool, id: Uuid) -> (String, bool, bool, Option<String>) {
     let row: (
         String,
         Option<chrono::DateTime<chrono::Utc>>,
@@ -573,7 +585,7 @@ pub async fn job_row(pool: &PgPool, id: Uuid) -> (String, bool, bool, Option<Str
 }
 
 /// The started_at timestamp of a job (None until claimed).
-pub async fn job_started_at(pool: &PgPool, id: Uuid) -> Option<chrono::DateTime<chrono::Utc>> {
+pub async fn job_started_at(pool: &SqlitePool, id: Uuid) -> Option<chrono::DateTime<chrono::Utc>> {
     sqlx::query_scalar("SELECT started_at FROM jobs WHERE id = $1")
         .bind(id)
         .fetch_one(pool)
@@ -582,7 +594,7 @@ pub async fn job_started_at(pool: &PgPool, id: Uuid) -> Option<chrono::DateTime<
 }
 
 /// Count of currently-`running` jobs (the concurrency-cap probe).
-pub async fn count_running(pool: &PgPool) -> i64 {
+pub async fn count_running(pool: &SqlitePool) -> i64 {
     sqlx::query_scalar("SELECT count(*) FROM jobs WHERE status = 'running'")
         .fetch_one(pool)
         .await
@@ -614,7 +626,7 @@ pub async fn set_job_settings(
 
 /// Poll a job row until `status` is terminal (completed|failed|stopped) or timeout.
 /// Returns the terminal status (panics on timeout).
-pub async fn wait_terminal(pool: &PgPool, id: Uuid, timeout: Duration) -> String {
+pub async fn wait_terminal(pool: &SqlitePool, id: Uuid, timeout: Duration) -> String {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         let (status, ..) = job_row(pool, id).await;
@@ -674,7 +686,7 @@ pub async fn poll_job_terminal_api(
 
 /// Poll until a job's `started_at` is set (it was claimed) or timeout. Returns
 /// whether it started within the window.
-pub async fn wait_started(pool: &PgPool, id: Uuid, timeout: Duration) -> bool {
+pub async fn wait_started(pool: &SqlitePool, id: Uuid, timeout: Duration) -> bool {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         if job_started_at(pool, id).await.is_some() {
@@ -693,7 +705,7 @@ pub async fn wait_started(pool: &PgPool, id: Uuid, timeout: Duration) -> bool {
 /// which the test process lacks). Exercises the SAME ingest the production sink
 /// calls, so idempotency + no-double-insert are proven for real.
 pub struct RealIngest {
-    pub pool: PgPool,
+    pub pool: SqlitePool,
     pub store_root: PathBuf,
     pub project_id: Option<Uuid>,
     pub dataset_id: Option<Uuid>,
@@ -733,7 +745,7 @@ pub const PEAK_NONE: PeakMetrics = PeakMetrics {
 };
 
 /// The user id of the first-run admin (owner of raw-inserted jobs).
-pub async fn admin_user_id(pool: &PgPool) -> Uuid {
+pub async fn admin_user_id(pool: &SqlitePool) -> Uuid {
     sqlx::query_scalar("SELECT id FROM users WHERE username = 'admin'")
         .fetch_one(pool)
         .await
@@ -745,7 +757,7 @@ pub async fn admin_user_id(pool: &PgPool) -> Uuid {
 /// A `dataset_id` scope lands as a `job_scope` row (ITEM-68 — the jobs table is
 /// scope-agnostic; a dataset-scoped run's scope lives in `job_scope`).
 pub async fn insert_running_job(
-    pool: &PgPool,
+    pool: &SqlitePool,
     owner_id: Uuid,
     job_type: &str,
     dataset_id: Option<Uuid>,
@@ -753,7 +765,7 @@ pub async fn insert_running_job(
     let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO jobs (id, owner_id, job_type, name, status, params, priority_class, resource_class, created_at, started_at)
-         VALUES ($1, $2, $3, 'reconcile-seed', 'running', '{}'::jsonb, 'normal', 'cpu-sandbox', now(), now())",
+         VALUES ($1, $2, $3, 'reconcile-seed', 'running', '{}', 'normal', 'cpu-sandbox', strftime('%Y-%m-%dT%H:%M:%fZ','now'), strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
     )
     .bind(id)
     .bind(owner_id)
@@ -1311,7 +1323,7 @@ pub fn skip_no_rootfs(test: &str) {
 /// self-skips with the actionable fix named, never a false PASS and never the
 /// compile-time ignore attribute. The skip is written to the SKIP LEDGER (see
 /// [`record_skip`]) so it can be counted without `--nocapture`.
-pub async fn pinned_env_digest(pool: &PgPool, run_id: Uuid, test: &str) -> Option<String> {
+pub async fn pinned_env_digest(pool: &SqlitePool, run_id: Uuid, test: &str) -> Option<String> {
     let digest: Option<String> =
         sqlx::query_scalar("SELECT env_rootfs_sha256 FROM provenance_run_repro WHERE run_id = $1")
             .bind(run_id)
@@ -1344,7 +1356,7 @@ pub async fn pinned_env_digest(pool: &PgPool, run_id: Uuid, test: &str) -> Optio
 pub async fn run_real_analysis(
     server: &TestServer,
     token: &str,
-    pool: &PgPool,
+    pool: &SqlitePool,
     project_id: Option<Uuid>,
     dataset_id: Option<Uuid>,
     name: &str,
@@ -1784,7 +1796,7 @@ pub async fn upload_fixture(server: &TestServer, token: &str, name: &str, bytes:
 pub async fn process_and_wait(
     server: &TestServer,
     token: &str,
-    pool: &PgPool,
+    pool: &SqlitePool,
     dataset_id: Uuid,
     spec: Value,
 ) -> (Uuid, Vec<(String, String)>) {

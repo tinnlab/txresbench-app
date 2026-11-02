@@ -3,13 +3,21 @@
 //! against the build DB schema at `cargo check`). The `kind`/`role` text columns
 //! are decoded through [`AccountKind::from_str`]/[`AccountRole::from_str`] (never
 //! `unwrap` on a DB enum string — guideline §6). All account SQL lives here
-//! (handlers-free — guideline §9); `timestamptz` columns take the
-//! `col as "col: DateTime<Utc>"` override (ziee-auth pulls sqlx's `time` feature,
-//! whose default is `OffsetDateTime`).
+//! (handlers-free — guideline §9).
+//!
+//! SQLite driver (sqlite-store DEC-1: the app's modules are single-driver):
+//! `uuid` columns are 16-byte BLOBs and `timestamptz` columns are canonical
+//! RFC3339-UTC TEXT, so the plugin `<ident: Type>` overrides the PG macro
+//! inference cannot produce are written out explicitly everywhere the DB type
+//! differs from the Rust type — `id as "id: Uuid"`, `created_at as
+//! "created_at: DateTime<Utc>"` (DEC-8's map). The serialization-substitution
+//! note (PG row locks → `BEGIN IMMEDIATE`) is at [`lock_account_row`]; the
+//! `now()`/`interval` → `strftime` rewrite convention is at
+//! [`enforce_invitation_mint_budget`]; the app-side-Uuid rule (no
+//! `gen_random_uuid()` on SQLite) is at [`ensure_personal_account_in_tx`].
 
 use chrono::{DateTime, Utc};
-use sqlx::postgres::types::PgInterval;
-use sqlx::{PgConnection, PgPool};
+use sqlx::{SqliteConnection, SqlitePool};
 use uuid::Uuid;
 
 use ziee_core::AppError;
@@ -36,18 +44,25 @@ use super::accept::{
 };
 
 pub struct AccountRepository {
-    pool: PgPool,
+    pool: SqlitePool,
 }
 
 /// Map an `account_members` INSERT error to a clean API error: a `user_id`
-/// foreign-key violation (`23503` on `account_members_user_id_fkey`) means the
-/// target user does not exist ⇒ 404, instead of a generic 500. Any other DB error
-/// falls through to `database_error`. Used by the member INSERTs, whose account is
-/// already resolved to exist, so the only user-FK that can fire is the target user.
+/// foreign-key violation means the target user does not exist ⇒ 404, instead
+/// of a generic 500. Any other DB error falls through to `database_error`. Used
+/// by the member INSERTs, whose account is already resolved to exist, so the only
+/// user-FK that can fire is the target user.
+///
+/// SQLite port: PG identified the violation as `23503` on the named constraint
+/// `account_members_user_id_fkey`. SQLite reports `SQLITE_CONSTRAINT_FOREIGNKEY`
+/// (787) with the message `FOREIGN KEY constraint failed` and — in sqlx's sqlite
+/// driver — NO constraint name (`DatabaseError::constraint()` is the PG-typed
+/// default of `None`), so the discriminator is the error KIND. Because every
+/// call site's account is already proven to exist, a foreign-key violation on
+/// this statement can only be the `user_id` FK.
 fn map_member_user_fk(err: sqlx::Error) -> AppError {
     if let Some(db) = err.as_database_error() {
-        let is_user_fk = db.code().as_deref() == Some("23503")
-            && db.constraint() == Some("account_members_user_id_fkey");
+        let is_user_fk = db.kind() == sqlx::error::ErrorKind::ForeignKeyViolation;
         if is_user_fk {
             return AppError::not_found("User");
         }
@@ -84,30 +99,25 @@ pub const ROLE_ABOVE_ACTOR: &str = "ROLE_ABOVE_ACTOR";
 //
 // # Expressed in MICROSECONDS, deliberately
 //
-// `PgInterval`'s `days` field is calendar-sensitive: verified on this project's cluster at
-// `TimeZone='America/New_York'`, `now() - interval '2 days'` spans 47 hours across
-// spring-forward and 49 across fall-back, while the microsecond form is invariant. An
-// earlier version used `days: 2` and asserted `microseconds == 0` on the grounds that
-// sub-day precision would be "a false suggestion of tuning" — which rejected the one
-// formulation that is not DST-sensitive. The deployment cluster runs `Etc/UTC` so nothing
-// was broken, but a horizon that changes length twice a year is not a horizon.
+// The windows are bound into the SQLite port's `strftime` cut-offs as whole
+// SECONDS (micros / 1_000_000), so the past-DST debate that shaped the
+// `PgInterval` version does not apply: the SQLite clock is
+// `strftime(...,'now')` = UTC, and a numeric `-N seconds` modifier is
+// DST-invariant by construction. The microsecond unit is kept anyway — it is
+// the invariant unit across the two engines (the PG leg converted the same
+// numbers through `PgInterval`), and an integer microsecond count is the
+// honest way to state "one hour" once, instead of repeating the magic number
+// per call site. The INTEGER division to seconds is lossless for the three
+// windows below (each is a whole number of seconds).
 
 /// Microseconds in an hour — the unit every window below is expressed in.
 const MICROS_PER_HOUR: i64 = 3_600_000_000;
 
 /// One hour, the short rate-limit window.
-const RATE_WINDOW_HOUR: PgInterval = PgInterval {
-    months: 0,
-    days: 0,
-    microseconds: MICROS_PER_HOUR,
-};
+const RATE_WINDOW_HOUR: i64 = MICROS_PER_HOUR;
 
 /// One day, the long rate-limit window — and the value [`MINT_RETENTION`] must exceed.
-const RATE_WINDOW_DAY: PgInterval = PgInterval {
-    months: 0,
-    days: 0,
-    microseconds: 24 * MICROS_PER_HOUR,
-};
+const RATE_WINDOW_DAY: i64 = 24 * MICROS_PER_HOUR;
 
 /// How long a mint record is kept before the opportunistic prune removes it.
 ///
@@ -115,11 +125,7 @@ const RATE_WINDOW_DAY: PgInterval = PgInterval {
 /// still counting and the per-day ceiling silently becomes a shorter one. Pinned by
 /// `mint_retention_dominates_the_longest_rate_limit_window`, which compares the two CONSTS
 /// — not a copy of one of them.
-const MINT_RETENTION: PgInterval = PgInterval {
-    months: 0,
-    days: 0,
-    microseconds: 48 * MICROS_PER_HOUR,
-};
+const MINT_RETENTION: i64 = 48 * MICROS_PER_HOUR;
 
 /// The authority ONE membership mutation is graded against — the R-1 role-escalation
 /// guard (#142), and the thing this repository could not express before it.
@@ -449,7 +455,8 @@ impl NewMemberEvent {
 ///
 /// # The signature is the guarantee
 ///
-/// It takes `&mut PgConnection`, never a `PgPool`. That is not a style choice: a pool would let
+/// It takes `&mut SqliteConnection`, never a pool/`SqlitePool`. That is not a style choice:
+/// a pool would let
 /// this write open its OWN transaction and commit independently of the mutation it records —
 /// and a row that can be written after the mutation commits is a row that can be MISSING when
 /// it matters, while the ledger still looks complete. With a caller-owned connection the write
@@ -468,7 +475,7 @@ impl NewMemberEvent {
 /// is not an option this table has: it is excluded by the same property that makes it
 /// trustworthy (#148 DEC-1).
 pub async fn record_member_event(
-    conn: &mut PgConnection,
+    conn: &mut SqliteConnection,
     ev: NewMemberEvent,
 ) -> Result<(), AppError> {
     // NORMALIZE AND REFUSE HERE, not at the statement. `NewMemberEvent`'s fields are public
@@ -612,19 +619,31 @@ pub async fn record_member_event(
         }
     }
 
+    // DEC-12: the PG chain's `id DEFAULT gen_random_uuid()` has no SQLite
+    // equivalent — the id is bound app-side (the one write-once field of an
+    // append-only row, so a `Uuid::new_v4()` per call cannot collide).
+    let event_id = Uuid::new_v4();
+    // let-bound: the sqlx bind is borrowed across the statement, so fn-call
+    // temporaries would drop before the execute (E0716 class).
+    let actor_user_id = ev.actor.user_id();
+    let actor_kind = ev.actor.kind_str();
+    let action = ev.action.as_str();
+    let old_role = ev.old_role.map(|r| r.as_str());
+    let new_role = ev.new_role.map(|r| r.as_str());
     sqlx::query!(
         r#"INSERT INTO account_member_events
-               (account_id, actor_user_id, actor_kind, action,
+               (id, account_id, actor_user_id, actor_kind, action,
                 target_user_id, target_email, old_role, new_role, invitation_id, reason)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"#,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"#,
+        event_id,
         ev.account_id,
-        ev.actor.user_id(),
-        ev.actor.kind_str(),
-        ev.action.as_str(),
+        actor_user_id,
+        actor_kind,
+        action,
         ev.target_user_id,
         target_email,
-        ev.old_role.map(|r| r.as_str()),
-        ev.new_role.map(|r| r.as_str()),
+        old_role,
+        new_role,
         ev.invitation_id,
         reason,
     )
@@ -752,61 +771,41 @@ struct ResolvedCeiling {
 /// So locking it makes the serialization point non-empty **by construction** rather than by
 /// an invariant nothing enforces.
 ///
-/// # `FOR NO KEY UPDATE`, not `FOR UPDATE` — this is the whole design of this function
+/// # `FOR NO KEY UPDATE` (PG) → `BEGIN IMMEDIATE` (SQLite) — this is the whole design
+/// of this function
 ///
-/// The first version said `FOR UPDATE`, and that was a real defect rather than a stylistic
-/// choice. Postgres takes a `FOR KEY SHARE` lock on a PARENT row for every INSERT or UPDATE
-/// of any row referencing it, and `FOR UPDATE` conflicts with `FOR KEY SHARE`. `accounts`
-/// has **eleven** FK children today, spread across the account, project, dataset, metering
-/// and billing modules — regenerate the set with
-/// `grep -rn 'REFERENCES.*accounts(id)' src-app/server/src/modules/*/migrations/`, or read it
-/// off `pg_constraint` where `confrelid = 'public.accounts'::regclass`. A hand-copied list is
-/// deliberately NOT given: two earlier versions of this sentence said "eight", one of them
-/// naming two MIGRATION FILES as if they were tables, and both omitting
-/// `account_invitation_mints` — the child this very item added, written and pruned inside the
-/// exact transaction this lock exists for. The count is the load-bearing quantity (it is the
-/// blast radius of the implicit `FOR KEY SHARE`), and it only grows. So a
-/// `FOR UPDATE` here would have blocked EVERY concurrent write to any of them for that
-/// account, for the whole life of the transaction, and conversely would have been blocked
-/// by any of them. `billing::fold_account` opens with an `INSERT INTO usage_rollup` and
-/// then does a full-period recompute, so it would have blocked all membership
-/// administration for that account for its entire duration. `project/repository.rs` records
-/// that `lock_timeout`, `statement_timeout` and `idle_in_transaction_session_timeout` are
-/// all `0` in this deployment, so those waits would have been UNBOUNDED and able to drain
-/// the connection pool.
+/// On Postgres the first version said `FOR UPDATE`, then settled on `FOR NO KEY
+/// UPDATE`: PG's implicit `FOR KEY SHARE` on FK-child writes made `FOR UPDATE`
+/// block every concurrent write to any of the account's eleven FK children.
+/// SQLite has NO row-locking, so that choice does not exist — the serialization
+/// point is the DATABASE write lock taken at transaction open. The port keeps
+/// the discipline by opening every membership-mutating transaction with
+/// `BEGIN IMMEDIATE` (the pool `begin_with` at each mutation site below), which
+/// acquires the engine's write lock BEFORE the first read, and this statement
+/// becomes what it always partly was: the absent-account 404 check (it is a
+/// plain `SELECT`, the lock is already held by the transaction). Two
+/// consequences, both stated:
 ///
-/// `FOR NO KEY UPDATE` does not conflict with `FOR KEY SHARE`, and it DOES conflict with
-/// itself — which is exactly and only what this function needs: the module's own paths
-/// exclude each other, and nothing else is disturbed. Verified empirically against this
-/// project's own build cluster in both directions (a held `FOR UPDATE` blocked a child
-/// INSERT to `lock_timeout`; `FOR NO KEY UPDATE` did not, and still serialized two holders
-/// against each other).
+/// * the lock granularity is the whole database, not one row — the finer PG
+///   grain is not expressible on SQLite (same trade `ziee-file`'s quota leg
+///   records), and the membership mutation paths are short + write-rare, so the
+///   coarser grain is the right trade;
+/// * the two statements that follow every `lock_account_row` call (the
+///   owner-row `SELECT … FOR UPDATE`) lose their locking job too and become
+///   plain reads — the lock is `BEGIN IMMEDIATE`, taken earlier and held for
+///   the whole transaction.
 ///
-/// # Lock ordering
+/// # The owner-row lock is KEPT alongside this one rather than replaced
 ///
-/// This is taken FIRST, before the owner rows, in every path — so the order is
-/// `accounts` → `account_members`, identically everywhere, and no cycle is expressible
-/// among these five paths.
-///
-/// **The honest scope of that claim**, because the first version of this comment
-/// overstated it by surveying only the tree's EXPLICIT `accounts … FOR UPDATE` statements:
-/// with `FOR NO KEY UPDATE` the implicit `FOR KEY SHARE` that every FK-child write takes is
-/// no longer in the conflict set at all, which is what makes the survey sufficient rather
-/// than merely convenient. The one other explicit accounts-row lock in the tree
-/// (`billing/repository.rs::apply_transition`, a `FOR UPDATE`) does conflict with this, and
-/// takes no `account_members` lock, so it can queue against these paths but cannot close a
-/// cycle with them.
-///
-/// The owner-row lock is KEPT alongside this one rather than replaced: it is what the
-/// `LAST_OWNER` guard counts under, and narrowing it would change that guard's meaning.
-async fn lock_account_row(conn: &mut PgConnection, account_id: Uuid) -> Result<(), AppError> {
-    let row = sqlx::query_scalar!(
-        r#"SELECT id FROM accounts WHERE id = $1 FOR NO KEY UPDATE"#,
-        account_id,
-    )
-    .fetch_optional(&mut *conn)
-    .await
-    .map_err(AppError::database_error)?;
+/// The owner-row reads still COUNT owners (`LAST_OWNER`), still run behind the
+/// write lock, and the comment at their call sites explains that the `FOR
+/// UPDATE` clause itself is PG-only syntax — the serialization they provided is
+/// the transaction's.
+async fn lock_account_row(conn: &mut SqliteConnection, account_id: Uuid) -> Result<(), AppError> {
+    let row = sqlx::query_scalar!(r#"SELECT id FROM accounts WHERE id = $1"#, account_id,)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(AppError::database_error)?;
     // An ABSENT row is refused, not ignored. The first version discarded the `Option` and
     // returned `Ok(())`, which made this function's whole purpose — "the serialization
     // point is non-empty BY CONSTRUCTION" — evaporate silently for a nonexistent id: the
@@ -825,11 +824,11 @@ async fn lock_account_row(conn: &mut PgConnection, account_id: Uuid) -> Result<(
 }
 
 /// Resolve the EFFECTIVE ceiling for `actor`, on the mutation's own transaction
-/// connection and AFTER the `FOR UPDATE` statement the two mutating functions run first.
+/// connection and AFTER the write-lock-taking statement the mutating functions run first.
 /// `Ok(None)` means "no ceiling" ([`ActorCeiling::PlatformStaff`]).
 ///
 /// **What that lock does and does not do — stated precisely, because an earlier version
-/// of this comment overclaimed it.** The statement is
+/// of this comment overclaimed it.** On Postgres the statement is
 /// `SELECT user_id FROM account_members WHERE account_id = $1 AND role = 'owner' FOR
 /// UPDATE`: it locks the account's OWNER rows only, so an `admin` actor's own membership
 /// row is NOT locked and the read below is an ordinary READ COMMITTED read. What
@@ -841,6 +840,14 @@ async fn lock_account_row(conn: &mut PgConnection, account_id: Uuid) -> Result<(
 /// set were ever empty the `FOR UPDATE` would lock nothing and the serialization would
 /// evaporate silently. `LAST_OWNER` plus `create_organization`'s seeded owner keep it
 /// non-empty today; nothing in the schema enforces it.
+///
+/// On SQLite the owner-row statement has no `FOR UPDATE` clause at all: the
+/// serialization is the database WRITE lock, taken by `BEGIN IMMEDIATE` when the
+/// mutation's transaction opens (see `lock_account_row`). The read below therefore
+/// observes every transaction that committed before the write lock was acquired — the
+/// same "past it at a time" property, enforced by the engine rather than by a row lock,
+/// and sound for every account including an ownerless one (the invariant concern above is
+/// PG-specific: the write lock cannot be empty).
 ///
 /// # Why the role is re-read here rather than trusted from the extractor
 ///
@@ -872,7 +879,7 @@ async fn lock_account_row(conn: &mut PgConnection, account_id: Uuid) -> Result<(
 /// false). A security claim that outruns its code is the kind that survives a refactor of
 /// the guard beneath it.
 async fn resolve_ceiling(
-    conn: &mut PgConnection,
+    conn: &mut SqliteConnection,
     account_id: Uuid,
     actor: ActorCeiling,
 ) -> Result<Option<ResolvedCeiling>, AppError> {
@@ -955,7 +962,7 @@ impl AccountRepository {
     /// not cosmetic; it was unreachable only because `create_invitation` refuses personal
     /// accounts, i.e. because of a guard on a different function.
     async fn refuse_if_personal_on(
-        conn: &mut PgConnection,
+        conn: &mut SqliteConnection,
         account_id: Uuid,
     ) -> Result<(), AppError> {
         let kind = sqlx::query_scalar!("SELECT kind FROM accounts WHERE id = $1", account_id)
@@ -975,7 +982,7 @@ impl AccountRepository {
         }
     }
 
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
 
@@ -1023,7 +1030,7 @@ impl AccountRepository {
     /// (a user created before A5's signup hook + before any lazy-ensure).
     pub async fn personal_account_of(&self, user_id: Uuid) -> Result<Option<Uuid>, AppError> {
         let row = sqlx::query!(
-            r#"SELECT id FROM accounts WHERE kind = 'personal' AND personal_user_id = $1"#,
+            r#"SELECT id as "id: Uuid" FROM accounts WHERE kind = 'personal' AND personal_user_id = $1"#,
             user_id,
         )
         .fetch_optional(&self.pool)
@@ -1033,11 +1040,21 @@ impl AccountRepository {
     }
 
     /// Batched form of [`personal_account_of`](Self::personal_account_of): resolve the personal
-    /// account id for a SET of users in ONE query (`= ANY($1)`), returned as a `user_id → account_id`
+    /// account id for a SET of users in ONE query (`= ANY($1)` on PG; the DEC-12
+    /// JSON1-membership port on SQLite), returned as a `user_id → account_id`
     /// map. A user with no personal account is simply ABSENT from the map. This is what lets the
     /// admin user-list projection attach `personal_account_id` for a whole page with a single
     /// round-trip instead of an N+1 fan-out. Read-only (never ensures/creates — a GET must not
     /// mutate).
+    ///
+    /// # The membership port (SQLite)
+    ///
+    /// `personal_user_id` is a 16-byte BLOB (DEC-8), so the array bind is
+    /// serialized as JSON lowercase-hex strings (`uuid_list_json`, square brackets
+    /// per the `*[]` → TEXT JSON-array map) and compared through
+    /// `unhex()` — `id IN (SELECT unhex(j.value) FROM json_each($1) AS j)`. A
+    /// TEXT-vs-BLOB `=` would never match (SQLite orders storage classes; the
+    /// comparison is not equality).
     pub async fn personal_accounts_of(
         &self,
         user_ids: &[Uuid],
@@ -1045,11 +1062,14 @@ impl AccountRepository {
         if user_ids.is_empty() {
             return Ok(std::collections::HashMap::new());
         }
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let json = uuid_list_json(user_ids);
         let rows = sqlx::query!(
-            r#"SELECT personal_user_id AS "user_id!", id
+            r#"SELECT personal_user_id AS "user_id!: Uuid", id as "id: Uuid"
                FROM accounts
-               WHERE kind = 'personal' AND personal_user_id = ANY($1)"#,
-            user_ids,
+               WHERE kind = 'personal'
+                 AND personal_user_id IN (SELECT unhex(j.value) FROM json_each($1) AS j)"#,
+            json,
         )
         .fetch_all(&self.pool)
         .await
@@ -1072,7 +1092,14 @@ impl AccountRepository {
         user_id: Uuid,
         name: &str,
     ) -> Result<Uuid, AppError> {
-        let mut tx = self.pool.begin().await.map_err(AppError::database_error)?;
+        // SQLite port: `BEGIN IMMEDIATE`, so racing callers converge through the
+        // write lock instead of one of them losing the INSERT to `SQLITE_BUSY`
+        // (the account-baseline doc promises convergence, INV-2).
+        let mut tx = self
+            .pool
+            .begin_with("BEGIN IMMEDIATE")
+            .await
+            .map_err(AppError::database_error)?;
         let account_id = Self::ensure_personal_account_in_tx(&mut tx, user_id, name).await?;
         tx.commit().await.map_err(AppError::database_error)?;
         Ok(account_id)
@@ -1091,26 +1118,34 @@ impl AccountRepository {
     /// Both share the same race-safe upsert, so a hook creation and a later backstop
     /// ensure for the same user converge on one account (INV-2).
     pub async fn ensure_personal_account_in_tx(
-        conn: &mut PgConnection,
+        conn: &mut SqliteConnection,
         user_id: Uuid,
         name: &str,
     ) -> Result<Uuid, AppError> {
         // Insert the personal account, or resolve the existing one — in ONE
-        // statement, race-safe at ANY isolation level. The partial-unique conflict
+        // statement, race-safe under the engine's single-writer model. The partial-unique conflict
         // target serializes racing callers (a loser's INSERT blocks on the winner's
-        // tuple, then takes the ON CONFLICT path once the winner commits). We use
+        // tuple, then takes the ON CONFLICT path once the winner commits — on SQLite
+        // the block is the write-lock contention `busy_timeout` resolves; see
+        // `ensure_personal_account`'s doc). We use
         // `DO UPDATE SET name = accounts.name` — a deliberate NO-OP write to the
         // row's own value — rather than `DO NOTHING`, because `DO NOTHING` returns
         // NO row on conflict, which would force a follow-up SELECT whose snapshot
         // could predate the winner's commit under REPEATABLE READ / SERIALIZABLE.
         // `DO UPDATE` RETURNs the conflicting row's id directly — no second read,
         // no isolation-level assumption (blind-audit finding AUD-1 → DRIFT-1.3).
-        let account_id = sqlx::query!(
+        //
+        // DEC-12: the `gen_random_uuid()` SQL default does not exist on SQLite —
+        // the id is bound app-side (`Uuid::new_v4()`), the same rule every other
+        // write in the ported surface follows.
+        let account_id = Uuid::new_v4();
+        let account_id_row = sqlx::query!(
             r#"INSERT INTO accounts (id, kind, name, personal_user_id)
-               VALUES (gen_random_uuid(), 'personal', $1, $2)
+               VALUES ($1, 'personal', $2, $3)
                ON CONFLICT (personal_user_id) WHERE kind = 'personal'
                    DO UPDATE SET name = accounts.name
-               RETURNING id"#,
+               RETURNING id as "id: Uuid""#,
+            account_id,
             name,
             user_id,
         )
@@ -1124,7 +1159,7 @@ impl AccountRepository {
             r#"INSERT INTO account_members (account_id, user_id, role)
                VALUES ($1, $2, 'owner')
                ON CONFLICT (account_id, user_id) DO NOTHING"#,
-            account_id,
+            account_id_row,
             user_id,
         )
         .execute(&mut *conn)
@@ -1146,7 +1181,7 @@ impl AccountRepository {
             record_member_event(
                 &mut *conn,
                 NewMemberEvent::about(
-                    account_id,
+                    account_id_row,
                     AuditActor::System,
                     MemberEventAction::Joined,
                     user_id,
@@ -1156,13 +1191,14 @@ impl AccountRepository {
             .await?;
         }
 
-        Ok(account_id)
+        Ok(account_id_row)
     }
 
     /// Every account `user_id` is a member of — the account-switcher list (A4).
     pub async fn list_user_accounts(&self, user_id: Uuid) -> Result<Vec<Account>, AppError> {
         let rows = sqlx::query!(
-            r#"SELECT a.id, a.kind, a.name, a.personal_user_id,
+            r#"SELECT a.id as "id: Uuid", a.kind, a.name,
+                      a.personal_user_id as "personal_user_id: Uuid",
                       a.created_at as "created_at: DateTime<Utc>",
                       a.updated_at as "updated_at: DateTime<Utc>"
                FROM accounts a
@@ -1192,7 +1228,7 @@ impl AccountRepository {
     /// Every membership of `account_id` — the fan-out audience source (A4).
     pub async fn list_members(&self, account_id: Uuid) -> Result<Vec<AccountMember>, AppError> {
         let rows = sqlx::query!(
-            r#"SELECT m.account_id, m.user_id, m.role,
+            r#"SELECT m.account_id as "account_id: Uuid", m.user_id as "user_id: Uuid", m.role,
                       m.created_at as "created_at: DateTime<Utc>",
                       u.username, u.email, u.display_name
                FROM account_members m
@@ -1242,7 +1278,7 @@ impl AccountRepository {
         offset: i64,
     ) -> Result<Vec<AccountMember>, AppError> {
         let rows = sqlx::query!(
-            r#"SELECT m.account_id, m.user_id, m.role,
+            r#"SELECT m.account_id as "account_id: Uuid", m.user_id as "user_id: Uuid", m.role,
                       m.created_at as "created_at: DateTime<Utc>",
                       u.username, u.email, u.display_name
                FROM account_members m
@@ -1283,8 +1319,8 @@ impl AccountRepository {
         let row = sqlx::query!(
             r#"SELECT COUNT(*) as "count!"
                FROM accounts
-               WHERE ($1::text IS NULL OR kind = $1)"#,
-            kind_s as Option<&str>,
+               WHERE ($1 IS NULL OR kind = $1)"#,
+            kind_s,
         )
         .fetch_one(&self.pool)
         .await
@@ -1305,7 +1341,8 @@ impl AccountRepository {
     ) -> Result<Vec<AdminAccountSummary>, AppError> {
         let kind_s = kind.map(|k| k.as_str());
         let rows = sqlx::query!(
-            r#"SELECT a.id, a.kind, a.name, a.personal_user_id,
+            r#"SELECT a.id as "id: Uuid", a.kind, a.name,
+                      a.personal_user_id as "personal_user_id: Uuid",
                       a.created_at as "created_at: DateTime<Utc>",
                       a.updated_at as "updated_at: DateTime<Utc>",
                       (SELECT COUNT(*) FROM account_members m WHERE m.account_id = a.id)
@@ -1313,7 +1350,7 @@ impl AccountRepository {
                       (SELECT m2.user_id FROM account_members m2
                        WHERE m2.account_id = a.id AND m2.role = 'owner'
                        ORDER BY m2.created_at ASC, m2.user_id ASC LIMIT 1)
-                          as "owner_user_id?",
+                          as "owner_user_id?: Uuid",
                       (SELECT COALESCE(u.display_name, u.username)
                        FROM account_members m3
                        JOIN users u ON u.id = m3.user_id
@@ -1321,10 +1358,10 @@ impl AccountRepository {
                        ORDER BY m3.created_at ASC, m3.user_id ASC LIMIT 1)
                           as "owner_label?"
                FROM accounts a
-               WHERE ($1::text IS NULL OR a.kind = $1)
+               WHERE ($1 IS NULL OR a.kind = $1)
                ORDER BY a.created_at ASC, a.id ASC
                LIMIT $2 OFFSET $3"#,
-            kind_s as Option<&str>,
+            kind_s,
             limit,
             offset,
         )
@@ -1371,14 +1408,22 @@ impl AccountRepository {
         owner_id: Uuid,
         actor: AuditActor,
     ) -> Result<Account, AppError> {
-        let mut tx = self.pool.begin().await.map_err(AppError::database_error)?;
+        let mut tx = self
+            .pool
+            .begin_with("BEGIN IMMEDIATE")
+            .await
+            .map_err(AppError::database_error)?;
 
+        // DEC-12: no `gen_random_uuid()` on SQLite — the id is bound app-side.
+        let account_id = Uuid::new_v4();
         let row = sqlx::query!(
             r#"INSERT INTO accounts (id, kind, name, personal_user_id)
-               VALUES (gen_random_uuid(), 'organization', $1, NULL)
-               RETURNING id, kind, name, personal_user_id,
+               VALUES ($1, 'organization', $2, NULL)
+               RETURNING id as "id: Uuid", kind, name,
+                         personal_user_id as "personal_user_id?: Uuid",
                          created_at as "created_at: DateTime<Utc>",
                          updated_at as "updated_at: DateTime<Utc>""#,
+            account_id,
             name,
         )
         .fetch_one(&mut *tx)
@@ -1492,7 +1537,14 @@ impl AccountRepository {
         // `accounts.kind` is write-once, so the two reads cannot disagree.
         self.refuse_if_personal(account_id).await?;
 
-        let mut tx = self.pool.begin().await.map_err(AppError::database_error)?;
+        // SQLite port: `BEGIN IMMEDIATE` — the transaction takes the database
+        // write lock at open, which is what the PG owner-row `FOR UPDATE`s
+        // provided (see `lock_account_row` for the full substitution note).
+        let mut tx = self
+            .pool
+            .begin_with("BEGIN IMMEDIATE")
+            .await
+            .map_err(AppError::database_error)?;
         let member =
             Self::add_member_in_tx(&mut tx, account_id, user_id, role, actor, None).await?;
         tx.commit().await.map_err(AppError::database_error)?;
@@ -1545,7 +1597,7 @@ impl AccountRepository {
     /// lost independently of the membership it records — the exact property
     /// `record_member_event`'s signature exists to make impossible.
     pub async fn add_member_in_tx(
-        conn: &mut PgConnection,
+        conn: &mut SqliteConnection,
         account_id: Uuid,
         user_id: Uuid,
         role: AccountRole,
@@ -1561,12 +1613,17 @@ impl AccountRepository {
         // account with no owner rows. See `lock_account_row`.
         lock_account_row(&mut *conn, account_id).await?;
 
-        // Then the account's owner rows — the same lock every other membership-mutating
-        // path takes, in the same order, so no cycle is expressible.
+        // Then the account's owner rows — the lock every other membership-mutating
+        // path takes first, in the same order, so no cycle is expressible. On SQLite
+        // the clause is gone: the rows' read is the `LAST_OWNER` counting read (below),
+        // and what they used to LOCK is the transaction's `BEGIN IMMEDIATE` write
+        // lock (see `lock_account_row`). The read is kept for its own value here:
+        // it proves the caller's account has an owner row set (the invariant the
+        // `resolve_ceiling` doc records as PG-specific) and the two reads stay
+        // ordered behind the lock.
         sqlx::query!(
             r#"SELECT user_id FROM account_members
-               WHERE account_id = $1 AND role = 'owner'
-               FOR UPDATE"#,
+               WHERE account_id = $1 AND role = 'owner'"#,
             account_id,
         )
         .fetch_all(&mut *conn)
@@ -1603,8 +1660,10 @@ impl AccountRepository {
         // is not a second source of truth.
         //
         // POSITION IS LOAD-BEARING, in three ways:
-        //  * AFTER `lock_account_row` + the owner-row `FOR UPDATE` above, so the count is
-        //    taken behind the serialization point every membership mutation takes first.
+        //  * AFTER `lock_account_row` + the owner-row read above (behind the
+        //    transaction's write lock — `BEGIN IMMEDIATE` on SQLite, the owner-row
+        //    `FOR UPDATE` on PG), so the count is taken behind the serialization point
+        //    every membership mutation takes first.
         //    Two concurrent adds against the last free seat therefore cannot both pass —
         //    the second blocks until the first commits and then counts the committed row.
         //    A count taken before the lock, or on a pooled connection, is the check-then-act
@@ -1637,25 +1696,24 @@ impl AccountRepository {
         // `ActorCeiling::PlatformStaff` carries no actor id, so #148 must widen it (or
         // pass the staff actor separately) before it can attribute a staff add.
 
-        // A RETURNING clause cannot JOIN, so wrap the INSERT in a CTE and JOIN the
-        // freshly-inserted row against `users` for the member's human identity
-        // (#51). `ON CONFLICT DO NOTHING` still yields zero `ins` rows on a duplicate
-        // → the JOIN produces no row → `None ⇒ 409`, exactly as before.
+        // A RETURNING clause cannot JOIN (and SQLite does not allow data-modifying
+        // statements in a CTE at all — the PG `WITH ins AS (INSERT … RETURNING …)`
+        // shape is not a SQLite construct), so the INSERT … RETURNING and the
+        // `users` identity lookup are TWO statements on the same connection, inside
+        // the same transaction. `ON CONFLICT DO NOTHING` still yields zero rows on a
+        // duplicate → `None ⇒ 409`, exactly as before.
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let role_str = role.as_str();
         let row = match sqlx::query!(
-            r#"WITH ins AS (
-                   INSERT INTO account_members (account_id, user_id, role)
-                   VALUES ($1, $2, $3)
-                   ON CONFLICT (account_id, user_id) DO NOTHING
-                   RETURNING account_id, user_id, role,
-                             created_at as created_at
-               )
-               SELECT ins.account_id, ins.user_id, ins.role,
-                      ins.created_at as "created_at: DateTime<Utc>",
-                      u.username, u.email, u.display_name
-               FROM ins JOIN users u ON u.id = ins.user_id"#,
+            r#"INSERT INTO account_members (account_id, user_id, role)
+               VALUES ($1, $2, $3)
+               ON CONFLICT (account_id, user_id) DO NOTHING
+               RETURNING account_id as "account_id: Uuid",
+                         user_id as "user_id: Uuid", role,
+                         created_at as "created_at: DateTime<Utc>""#,
             account_id,
             user_id,
-            role.as_str(),
+            role_str,
         )
         .fetch_optional(&mut *conn)
         .await
@@ -1676,6 +1734,16 @@ impl AccountRepository {
         // guards (#148 DEC-1). The audit row is written only on the arm that returns Ok.
         match row {
             Some(r) => {
+                // The member's human identity, read separately on the same connection
+                // (#51 — the RETURNING did not join). The row exists (just inserted),
+                // so the lookup cannot miss under the transaction's write lock.
+                let identity = sqlx::query!(
+                    r#"SELECT username, email, display_name FROM users WHERE id = $1"#,
+                    r.user_id,
+                )
+                .fetch_one(&mut *conn)
+                .await
+                .map_err(AppError::database_error)?;
                 // #148 — on the CALLER'S connection, so the membership and its ledger row
                 // commit together whether the caller is `add_member`'s own transaction or
                 // #146's accept transaction. The actor is DERIVED from the ceiling, so the
@@ -1702,9 +1770,9 @@ impl AccountRepository {
                     user_id: r.user_id,
                     role: AccountRole::from_str(&r.role)?,
                     created_at: r.created_at,
-                    username: r.username,
-                    email: r.email,
-                    display_name: r.display_name,
+                    username: identity.username,
+                    email: identity.email,
+                    display_name: identity.display_name,
                 })
             }
             // No row ⇒ the (account,user) already existed — a duplicate membership.
@@ -1752,17 +1820,24 @@ impl AccountRepository {
         // account — and, since H-1 now requires membership on every creator branch,
         // would lock them out of everything they own.
         self.refuse_if_personal(account_id).await?;
-        let mut tx = self.pool.begin().await.map_err(AppError::database_error)?;
+        // SQLite port: `BEGIN IMMEDIATE` (see `add_member` — the PG row locks
+        // are the transaction's write lock on this engine).
+        let mut tx = self
+            .pool
+            .begin_with("BEGIN IMMEDIATE")
+            .await
+            .map_err(AppError::database_error)?;
 
         // FIX_ROUND-1 (F2): the account row first, so the serialization point cannot be
         // empty. See `lock_account_row`.
         lock_account_row(&mut tx, account_id).await?;
 
-        // Then the owner rows — what the `LAST_OWNER` guard counts under.
+        // Then the owner rows — what the `LAST_OWNER` guard counts under. The
+        // `FOR UPDATE` clause is gone (the lock is the transaction's, see
+        // `lock_account_row`); the read itself is unchanged.
         let owner_count = sqlx::query!(
             r#"SELECT user_id FROM account_members
-               WHERE account_id = $1 AND role = 'owner'
-               FOR UPDATE"#,
+               WHERE account_id = $1 AND role = 'owner'"#,
             account_id,
         )
         .fetch_all(&mut *tx)
@@ -1891,15 +1966,17 @@ impl AccountRepository {
         .map_err(AppError::database_error)?
         .rows_affected();
 
-        // #148 — the DELETE's own result, which nothing checked before. The owner-row
-        // `FOR UPDATE` above serializes the two repository mutators against each other, but it
-        // takes NO lock when the account has no owner rows, and it never locks a non-owner
-        // target — so the membership can vanish between the target SELECT and this statement
-        // (the `users` FK cascade does exactly that, at a layer this transaction does not
-        // serialize against). Without this check the transaction would commit an audit row
-        // recording a removal it did not perform, and the ledger is APPEND-ONLY: a false row
-        // cannot be corrected, only annotated. Returning the same 404 the target lookup would
-        // have returned rolls the audit row back with it.
+        // #148 — the DELETE's own result, which nothing checked before. The
+        // serialization above (the owner-row read behind the transaction's
+        // `BEGIN IMMEDIATE` write lock on SQLite; the `FOR UPDATE` owner rows on
+        // PG) serializes the two repository mutators against each other, but it
+        // never covers a non-owner target — so the membership can vanish between the
+        // target SELECT and this statement (the `users` FK cascade does exactly that, at
+        // a layer this transaction does not serialize against). Without this check the
+        // transaction would commit an audit row recording a removal it did not perform,
+        // and the ledger is APPEND-ONLY: a false row cannot be corrected, only annotated.
+        // Returning the same 404 the target lookup would have returned rolls the audit
+        // row back with it.
         if removed == 0 {
             return Err(AppError::not_found("Membership"));
         }
@@ -1922,15 +1999,19 @@ impl AccountRepository {
         // H-2 (#144): refuse on a PERSONAL account — nothing should be re-roling the
         // sole personal owner.
         self.refuse_if_personal(account_id).await?;
-        let mut tx = self.pool.begin().await.map_err(AppError::database_error)?;
+        // SQLite port: `BEGIN IMMEDIATE` (see `add_member`).
+        let mut tx = self
+            .pool
+            .begin_with("BEGIN IMMEDIATE")
+            .await
+            .map_err(AppError::database_error)?;
 
         // FIX_ROUND-1 (F2): the account row first — see `lock_account_row`.
         lock_account_row(&mut tx, account_id).await?;
 
         let owner_count = sqlx::query!(
             r#"SELECT user_id FROM account_members
-               WHERE account_id = $1 AND role = 'owner'
-               FOR UPDATE"#,
+               WHERE account_id = $1 AND role = 'owner'"#,
             account_id,
         )
         .fetch_all(&mut *tx)
@@ -1992,22 +2073,30 @@ impl AccountRepository {
         )
         .await?;
 
-        // Wrap the UPDATE ... RETURNING in a CTE to JOIN `users` for the member's
-        // human identity (a RETURNING cannot JOIN) — the membership is guaranteed to
-        // exist here (checked above), so the JOIN yields exactly one row (#51).
+        // The UPDATE ... RETURNING cannot JOIN (and SQLite has no data-modifying
+        // CTE — same split as `add_member_in_tx`), so the member's human identity
+        // is read in a second statement on the same connection. The membership is
+        // guaranteed to exist here (checked above), so the UPDATE returns exactly
+        // one row (#51).
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let new_role = new_role.as_str();
         let row = sqlx::query!(
-            r#"WITH upd AS (
-                   UPDATE account_members SET role = $3
-                   WHERE account_id = $1 AND user_id = $2
-                   RETURNING account_id, user_id, role, created_at as created_at
-               )
-               SELECT upd.account_id, upd.user_id, upd.role,
-                      upd.created_at as "created_at: DateTime<Utc>",
-                      u.username, u.email, u.display_name
-               FROM upd JOIN users u ON u.id = upd.user_id"#,
+            r#"UPDATE account_members SET role = $3
+               WHERE account_id = $1 AND user_id = $2
+               RETURNING account_id as "account_id: Uuid",
+                         user_id as "user_id: Uuid", role,
+                         created_at as "created_at: DateTime<Utc>""#,
             account_id,
             user_id,
-            new_role.as_str(),
+            new_role,
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(AppError::database_error)?;
+
+        let identity = sqlx::query!(
+            r#"SELECT username, email, display_name FROM users WHERE id = $1"#,
+            row.user_id,
         )
         .fetch_one(&mut *tx)
         .await
@@ -2020,9 +2109,9 @@ impl AccountRepository {
             user_id: row.user_id,
             role: AccountRole::from_str(&row.role)?,
             created_at: row.created_at,
-            username: row.username,
-            email: row.email,
-            display_name: row.display_name,
+            username: identity.username,
+            email: identity.email,
+            display_name: identity.display_name,
         })
     }
 
@@ -2075,7 +2164,7 @@ impl AccountRepository {
         offset: i64,
     ) -> Result<Vec<AccountMemberEvent>, AppError> {
         let rows = sqlx::query!(
-            r#"SELECT id, created_at as "created_at: DateTime<Utc>", action, actor_kind,
+            r#"SELECT id as "id: Uuid", created_at as "created_at: DateTime<Utc>", action, actor_kind,
                       CASE WHEN actor_kind = 'admin' THEN NULL ELSE actor_user_id END
                           as "actor_user_id?: Uuid",
                       target_user_id as "target_user_id?: Uuid",
@@ -2139,7 +2228,7 @@ impl AccountRepository {
         offset: i64,
     ) -> Result<Vec<AccountMemberEvent>, AppError> {
         let rows = sqlx::query!(
-            r#"SELECT id, created_at as "created_at: DateTime<Utc>", action, actor_kind,
+            r#"SELECT id as "id: Uuid", created_at as "created_at: DateTime<Utc>", action, actor_kind,
                       actor_user_id as "actor_user_id?: Uuid",
                       target_user_id as "target_user_id?: Uuid",
                       target_email, old_role, new_role,
@@ -2178,7 +2267,8 @@ impl AccountRepository {
     /// Fetch one account by id, or `None` if absent.
     pub async fn get(&self, id: Uuid) -> Result<Option<Account>, AppError> {
         let row = sqlx::query!(
-            r#"SELECT id, kind, name, personal_user_id,
+            r#"SELECT id as "id: Uuid", kind, name,
+                      personal_user_id as "personal_user_id?: Uuid",
                       created_at as "created_at: DateTime<Utc>",
                       updated_at as "updated_at: DateTime<Utc>"
                FROM accounts WHERE id = $1"#,
@@ -2209,7 +2299,7 @@ impl AccountRepository {
         id: Uuid,
     ) -> Result<Option<AccountAdminStatus>, AppError> {
         let row = sqlx::query!(
-            r#"SELECT admin_suspended,
+            r#"SELECT admin_suspended as "admin_suspended: bool",
                       admin_suspended_at as "admin_suspended_at?: DateTime<Utc>",
                       admin_suspended_by as "admin_suspended_by?: Uuid",
                       admin_suspend_reason
@@ -2229,7 +2319,8 @@ impl AccountRepository {
     }
 
     /// Set or clear an account's admin-suspension (#37, DEC-3/DEC-13/DEC-17). On
-    /// suspend (`suspended = true`) it stamps `admin_suspended_at = now()` +
+    /// suspend (`suspended = true`) it stamps `admin_suspended_at` (the SQLite
+    /// canonical `strftime('%Y-%m-%dT%H:%M:%fZ','now')` — the PG `now()` port) +
     /// `admin_suspended_by` + the optional `reason`; on reactivate (`false`) it clears
     /// all three audit columns (the columns describe the CURRENT hold). Idempotent — a
     /// re-suspend/re-reactivate simply re-writes the same target state (each write
@@ -2251,10 +2342,10 @@ impl AccountRepository {
         sqlx::query!(
             r#"UPDATE accounts
                SET admin_suspended = $1,
-                   admin_suspended_at = CASE WHEN $1 THEN now() ELSE NULL END,
+                   admin_suspended_at = CASE WHEN $1 THEN strftime('%Y-%m-%dT%H:%M:%fZ','now') ELSE NULL END,
                    admin_suspended_by = $2,
                    admin_suspend_reason = $3,
-                   updated_at = now()
+                   updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
                WHERE id = $4"#,
             suspended,
             at_by,
@@ -2353,13 +2444,17 @@ impl AccountRepository {
             ActorCeiling::PlatformStaff { .. } => None,
         };
 
-        // 2. The transaction and BOTH locks, in the module's fixed order.
-        let mut tx = self.pool.begin().await.map_err(AppError::database_error)?;
+        // 2. The transaction and the LOCK, in the module's fixed order.
+        // (SQLite port: `BEGIN IMMEDIATE` — see `add_member`.)
+        let mut tx = self
+            .pool
+            .begin_with("BEGIN IMMEDIATE")
+            .await
+            .map_err(AppError::database_error)?;
         lock_account_row(&mut tx, account_id).await?;
         sqlx::query!(
             r#"SELECT user_id FROM account_members
-               WHERE account_id = $1 AND role = 'owner'
-               FOR UPDATE"#,
+               WHERE account_id = $1 AND role = 'owner'"#,
             account_id,
         )
         .fetch_all(&mut *tx)
@@ -2433,12 +2528,12 @@ impl AccountRepository {
         // #148 should record this transition as its own `invite_expired` action.
         sqlx::query!(
             r#"UPDATE account_invitations
-                  SET revoked_at = now(), revoked_by = $3
+                  SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), revoked_by = $3
                 WHERE account_id = $1
                   AND email = $2
                   AND accepted_at IS NULL
                   AND revoked_at IS NULL
-                  AND expires_at <= now()"#,
+                  AND expires_at <= strftime('%Y-%m-%dT%H:%M:%fZ','now')"#,
             account_id,
             email,
             actor_user_id,
@@ -2468,7 +2563,7 @@ impl AccountRepository {
                   AND email = $2
                   AND accepted_at IS NULL
                   AND revoked_at IS NULL
-                  AND expires_at > now()"#,
+                  AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')"#,
             account_id,
             email,
         )
@@ -2482,20 +2577,30 @@ impl AccountRepository {
         // that a `409 ALREADY_A_MEMBER` tells the caller both that the address is
         // registered AND that it is in this account.
         //
-        // Compared against a normalized address on both sides. `btrim` with no second
-        // argument strips ASCII spaces only, so the explicit character set is given — it is
-        // the set Rust's `str::trim` removes that can plausibly appear in a stored address.
+        // Compared against a normalized address on both sides. The SQLite port of
+        // `btrim(u.email, E' \t\n\r\f\v')` is `trim(u.email, char(32)||char(9)||
+        // char(10)||char(13)||char(12)||char(11))` — the same six ASCII
+        // whitespace characters `str::trim` removes here (SQLite's `trim` takes a
+        // character-set argument, not a single cut char; `char()` builds the
+        // printable-escaped set). The comparison stays `lower(...) = $2` with
+        // `$2` already normalized in Rust, with the DEC-11 caveat instead of the
+        // PG one: SQLite's `lower()` folds ASCII only (the bundled build has no
+        // ICU), while Rust's `to_lowercase` is full-Unicode — so a stored
+        // non-ASCII address whose case differs is checked by the ASCII-folded
+        // SQL only and could miss; recorded as a documented limitation, the
+        // same one DEC-11 records for the `instr` search rewrites.
+        //
         // A residual remains and is stated rather than hidden: `users.email` is written
-        // unvalidated by registration, PG `lower()` is collation-driven where Rust's is
-        // full-Unicode, and `users_email_key` is CASE-SENSITIVE — so two principals can
-        // differ only by case. A miss here does not grant anything; it merely creates an
-        // invitation for someone who is already a member, which is inert (accepting it is
-        // idempotent, per #146). The identity-strength question belongs to #143.
+        // unvalidated by registration and `users_email_key` is CASE-SENSITIVE — so two
+        // principals can differ only by case. A miss here does not grant anything; it
+        // merely creates an invitation for someone who is already a member, which is
+        // inert (accepting it is idempotent, per #146). The identity-strength question
+        // belongs to #143.
         let already_member = sqlx::query_scalar!(
             r#"SELECT m.user_id FROM account_members m
                  JOIN users u ON u.id = m.user_id
                 WHERE m.account_id = $1
-                  AND lower(btrim(u.email, E' \t\n\r\f\v')) = $2"#,
+                  AND lower(trim(u.email, char(32) || char(9) || char(10) || char(13) || char(12) || char(11))) = $2"#,
             account_id,
             email,
         )
@@ -2519,19 +2624,33 @@ impl AccountRepository {
         // TTL policy change does not re-interpret rows already written (the
         // `mcp_pairing_codes` posture).
         //
+        // The bind is the canonical RFC3339-UTC TEXT form
+        // (`%Y-%m-%dT%H:%M:%S%.3fZ` — the DEC-8 column format), NOT
+        // `DateTime<Utc>`'s own sqlx encoding: that encodes with `AutoSi`
+        // precision, which OMITS the `.SSS` fraction when it is zero, and a
+        // bound "…00Z" does NOT sort lexicographically against a stored
+        // "…00.000Z" at the same instant (the 'Z' > '.' bytes compare). The
+        // canonical-format bind (the ITEM-14 `ziee-auth` precedent) keeps
+        // lexicographic == chronological exactly.
         let expires_at = Utc::now() + limits.ttl;
-        let expires_at_pg = to_pg_timestamptz(expires_at)?;
+        let expires_at_sqlite = expires_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        // DEC-12: no `gen_random_uuid()` on SQLite — the row id is bound
+        // app-side (the INSERT's column list must name it explicitly).
+        let invitation_row_id = Uuid::new_v4();
+        // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+        let role_str = role.as_str();
         let inserted = sqlx::query!(
             r#"INSERT INTO account_invitations
-                   (account_id, email, role, token_sha256, invited_by, expires_at)
-               VALUES ($1, $2, $3, $4, $5, $6)
-               RETURNING id"#,
+                   (id, account_id, email, role, token_sha256, invited_by, expires_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)
+               RETURNING id as "id: Uuid""#,
+            invitation_row_id,
             account_id,
             email,
-            role.as_str(),
+            role_str,
             token_hash,
             actor_user_id,
-            expires_at_pg,
+            expires_at_sqlite,
         )
         .fetch_one(&mut *tx)
         .await
@@ -2662,7 +2781,7 @@ impl AccountRepository {
     /// surface's floor below `admin`, or removes `email` from the member DTO, that premise
     /// is false and this must become an attempts counter incremented on every call.**
     async fn enforce_invitation_mint_budget(
-        conn: &mut PgConnection,
+        conn: &mut SqliteConnection,
         account_id: Uuid,
         actor_user_id: Option<Uuid>,
         limits: InvitationLimits,
@@ -2672,29 +2791,40 @@ impl AccountRepository {
             return Ok(());
         };
 
+        // SQLite port: `COUNT(*) FILTER (WHERE …)` is not SQLite syntax — the
+        // DEC-12 `SUM(CASE WHEN … THEN 1 ELSE 0 END)` pivot, wrapped in
+        // `COALESCE(…, 0)` because a bare `SUM` over zero rows is NULL while
+        // the PG `count(*)` never is (the ITEM-16 notification rewrite
+        // convention). The `now() - $N::interval` cut-offs become the
+        // canonical-`strftime` form with numeric `-N seconds` modifiers from
+        // the microsecond consts (whole seconds for all three windows — see
+        // the const block; the SQLite `'now'` clock is UTC and the modifier is
+        // DST-invariant).
         let row = sqlx::query!(
             r#"SELECT
-                 COUNT(*) FILTER (
-                     WHERE actor_user_id = $2 AND created_at > now() - $3::interval)
+                 COALESCE(SUM(CASE WHEN actor_user_id = $2
+                                 AND created_at > strftime('%Y-%m-%dT%H:%M:%fZ','now','-' || ($3 / 1000000) || ' seconds')
+                            THEN 1 ELSE 0 END), 0)
                      AS "actor_hour!",
-                 COUNT(*) FILTER (
-                     WHERE actor_user_id = $2 AND created_at > now() - $4::interval)
+                 COALESCE(SUM(CASE WHEN actor_user_id = $2
+                                 AND created_at > strftime('%Y-%m-%dT%H:%M:%fZ','now','-' || ($4 / 1000000) || ' seconds')
+                            THEN 1 ELSE 0 END), 0)
                      AS "actor_day!",
-                 COUNT(*) FILTER (
-                     WHERE account_id = $1 AND actor_user_id IS NOT NULL
-                       AND created_at > now() - $3::interval)
+                 COALESCE(SUM(CASE WHEN account_id = $1 AND actor_user_id IS NOT NULL
+                                 AND created_at > strftime('%Y-%m-%dT%H:%M:%fZ','now','-' || ($3 / 1000000) || ' seconds')
+                            THEN 1 ELSE 0 END), 0)
                      AS "account_hour!",
-                 COUNT(*) FILTER (
-                     WHERE account_id = $1 AND actor_user_id IS NOT NULL
-                       AND created_at > now() - $4::interval)
+                 COALESCE(SUM(CASE WHEN account_id = $1 AND actor_user_id IS NOT NULL
+                                 AND created_at > strftime('%Y-%m-%dT%H:%M:%fZ','now','-' || ($4 / 1000000) || ' seconds')
+                            THEN 1 ELSE 0 END), 0)
                      AS "account_day!"
                FROM account_invitation_mints
                WHERE (actor_user_id = $2 OR account_id = $1)
-                 AND created_at > now() - $4::interval"#,
+                 AND created_at > strftime('%Y-%m-%dT%H:%M:%fZ','now','-' || ($4 / 1000000) || ' seconds')"#,
             account_id,
             actor_user_id,
-            RATE_WINDOW_HOUR as _,
-            RATE_WINDOW_DAY as _,
+            RATE_WINDOW_HOUR,
+            RATE_WINDOW_DAY,
         )
         .fetch_one(&mut *conn)
         .await
@@ -2781,26 +2911,32 @@ impl AccountRepository {
     /// couples every tenant to every other. The `mcp_pairing_codes` precedent prunes a
     /// table with no tenant dimension at all, so its posture transfers only once scoped.
     async fn record_invitation_mint(
-        conn: &mut PgConnection,
+        conn: &mut SqliteConnection,
         account_id: Uuid,
         actor_user_id: Option<Uuid>,
         invitation_id: Uuid,
     ) -> Result<(), AppError> {
+        // SQLite port: `now() - $2::interval` → the canonical-`strftime` form
+        // with the numeric `-N seconds` modifier (see the const block).
         sqlx::query!(
             r#"DELETE FROM account_invitation_mints
                 WHERE account_id = $1
-                  AND created_at <= now() - $2::interval"#,
+                  AND created_at <= strftime('%Y-%m-%dT%H:%M:%fZ','now','-' || ($2 / 1000000) || ' seconds')"#,
             account_id,
-            MINT_RETENTION as _,
+            MINT_RETENTION,
         )
         .execute(&mut *conn)
         .await
         .map_err(AppError::database_error)?;
 
+        // DEC-12: no `gen_random_uuid()` on SQLite — the row id is bound
+        // app-side.
+        let mint_id = Uuid::new_v4();
         sqlx::query!(
             r#"INSERT INTO account_invitation_mints
-                   (account_id, actor_user_id, invitation_id)
-               VALUES ($1, $2, $3)"#,
+                   (id, account_id, actor_user_id, invitation_id)
+               VALUES ($1, $2, $3, $4)"#,
+            mint_id,
             account_id,
             actor_user_id,
             invitation_id,
@@ -2819,7 +2955,7 @@ impl AccountRepository {
                 WHERE account_id = $1
                   AND accepted_at IS NULL
                   AND revoked_at IS NULL
-                  AND expires_at > now()"#,
+                  AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')"#,
             account_id,
         )
         .fetch_one(&self.pool)
@@ -2844,15 +2980,15 @@ impl AccountRepository {
         offset: i64,
     ) -> Result<Vec<InvitationSummary>, AppError> {
         let rows = sqlx::query!(
-            r#"SELECT id, email, role,
+            r#"SELECT id as "id: Uuid", email, role,
                       created_at as "created_at: DateTime<Utc>",
                       expires_at as "expires_at: DateTime<Utc>",
-                      invited_by
+                      invited_by as "invited_by?: Uuid"
                  FROM account_invitations
                 WHERE account_id = $1
                   AND accepted_at IS NULL
                   AND revoked_at IS NULL
-                  AND expires_at > now()
+                  AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')
                 ORDER BY created_at DESC, id ASC
                 LIMIT $2 OFFSET $3"#,
             account_id,
@@ -2913,12 +3049,15 @@ impl AccountRepository {
             // carry it is #145's call, not this item's.
             ActorCeiling::PlatformStaff { .. } => None,
         };
-        let mut tx = self.pool.begin().await.map_err(AppError::database_error)?;
+        let mut tx = self
+            .pool
+            .begin_with("BEGIN IMMEDIATE")
+            .await
+            .map_err(AppError::database_error)?;
         lock_account_row(&mut tx, account_id).await?;
         sqlx::query!(
             r#"SELECT user_id FROM account_members
-               WHERE account_id = $1 AND role = 'owner'
-               FOR UPDATE"#,
+               WHERE account_id = $1 AND role = 'owner'"#,
             account_id,
         )
         .fetch_all(&mut *tx)
@@ -2933,19 +3072,21 @@ impl AccountRepository {
         // the transaction and after the locks.
         Self::enforce_invitation_mint_budget(&mut tx, account_id, actor_user_id, limits).await?;
 
-        // Read the row (and lock it) before grading, because R-1 grades the invitation's
-        // FROZEN role — which is only knowable from the row.
+        // Read the row before grading, because R-1 grades the invitation's
+        // FROZEN role — which is only knowable from the row. (SQLite port: the
+        // `FOR UPDATE` is gone — the row's lock is the transaction's
+        // `BEGIN IMMEDIATE` write lock, see `lock_account_row`.)
         let existing = sqlx::query!(
             // `email` is selected for the #148 ledger row below, on the row this statement
-            // already locks — every event names a principal, and an invitee has no user id,
-            // so the address is the only identifier an `invite_resent` row can carry.
+            // reads behind the write lock — every event names a principal, and an invitee
+            // has no user id, so the address is the only identifier an `invite_resent` row
+            // can carry.
             r#"SELECT role, email FROM account_invitations
                 WHERE account_id = $1
                   AND id = $2
                   AND accepted_at IS NULL
                   AND revoked_at IS NULL
-                  AND expires_at > now()
-                FOR UPDATE"#,
+                  AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')"#,
             account_id,
             invitation_id,
         )
@@ -2964,12 +3105,12 @@ impl AccountRepository {
         let token = mint_token()?;
         let token_hash = token_sha256(&token).to_vec();
         let expires_at = Utc::now() + limits.ttl;
-        let expires_at_pg = to_pg_timestamptz(expires_at)?;
+        let expires_at_sqlite = expires_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
 
         // #148 — the `invite_resent` audit row belongs here, on `&mut tx`.
         //
         // The UPDATE repeats the full PENDING predicate (FIX_ROUND-1, F7). It is redundant
-        // today — the row is held by the `FOR UPDATE` above, in this same transaction — but
+        // today — the row was just read behind the transaction's write lock — but
         // that is a NON-LOCAL invariant: move or drop that lock in a later refactor and an
         // unguarded UPDATE would happily re-arm a live token on an accepted or revoked
         // invitation. `revoke_invitation` already carries the safe shape; this now matches
@@ -2986,17 +3127,17 @@ impl AccountRepository {
                   SET token_sha256   = $3,
                       expires_at     = $4,
                       resend_count   = resend_count + 1,
-                      last_resent_at = now(),
+                      last_resent_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
                       last_resent_by = $5
                 WHERE account_id = $1
                   AND id = $2
                   AND accepted_at IS NULL
                   AND revoked_at IS NULL
-                  AND expires_at > now()"#,
+                  AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')"#,
             account_id,
             invitation_id,
             token_hash,
-            expires_at_pg,
+            expires_at_sqlite,
             actor_user_id,
         )
         .execute(&mut *tx)
@@ -3120,7 +3261,7 @@ impl AccountRepository {
         let mut tx = self.pool.begin().await.map_err(AppError::database_error)?;
         let revoked = sqlx::query!(
             r#"UPDATE account_invitations
-                  SET revoked_at = now(), revoked_by = $3
+                  SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), revoked_by = $3
                 WHERE account_id = $1
                   AND id = $2
                   AND accepted_at IS NULL
@@ -3171,11 +3312,11 @@ impl AccountRepository {
     /// This doc used to call itself *"the redemption primitive #146 consumes"*. It is not,
     /// and leaving that claim standing would send the next reader looking for a caller that
     /// does not exist. [`AccountRepository::accept_invitation`] cannot use it: it reads on
-    /// the POOL, with no lock and no `FOR UPDATE`, so redeeming through it would be exactly
-    /// the read-then-unconditional-UPDATE TOCTOU that #146's own INV-17 forbids (and which
-    /// point 3 below warns against). Accept issues the predicate itself, twice — once on an
-    /// unlocked discovery read that decides nothing, and once `FOR UPDATE` inside the
-    /// transaction, which is the one anything is decided on.
+    /// the POOL, with no lock and no write-lock-held read, so redeeming through it would be
+    /// exactly the read-then-unconditional-UPDATE TOCTOU that #146's own INV-17 forbids (and
+    /// which point 3 below warns against). Accept issues the predicate itself, twice — once
+    /// on an unlocked discovery read that decides nothing, and once inside the transaction
+    /// behind the write lock, which is the one anything is decided on.
     ///
     /// So the predicate now appears in FOUR places (here, accept's two reads, and accept's
     /// stamp) and they must be kept in step. What keeps them honest is
@@ -3290,18 +3431,20 @@ impl AccountRepository {
         token_hash: &[u8],
     ) -> Result<Option<AccountInvitation>, AppError> {
         let row = sqlx::query!(
-            r#"SELECT id, account_id, email, role, token_sha256, invited_by,
+            r#"SELECT id as "id: Uuid", account_id as "account_id: Uuid", email, role,
+                      token_sha256,
+                      invited_by as "invited_by?: Uuid",
                       created_at as "created_at: DateTime<Utc>",
                       expires_at as "expires_at: DateTime<Utc>",
                       accepted_at as "accepted_at: DateTime<Utc>",
-                      accepted_by,
+                      accepted_by as "accepted_by?: Uuid",
                       revoked_at as "revoked_at: DateTime<Utc>",
-                      revoked_by
+                      revoked_by as "revoked_by?: Uuid"
                  FROM account_invitations
                 WHERE token_sha256 = $1
                   AND accepted_at IS NULL
                   AND revoked_at IS NULL
-                  AND expires_at > now()"#,
+                  AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')"#,
             token_hash,
         )
         .fetch_optional(&self.pool)
@@ -3447,13 +3590,13 @@ impl AccountRepository {
         .map_err(AppError::database_error)?;
 
         let discovered = sqlx::query!(
-            r#"SELECT account_id, email
+            r#"SELECT account_id as "account_id: Uuid", email
                  FROM account_invitations
                 WHERE token_sha256 = $1
                   AND accepted_at IS NULL
                   AND revoked_at IS NULL
-                  AND expires_at > now()"#,
-            &token_hash,
+                  AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')"#,
+            token_hash,
         )
         .fetch_optional(&self.pool)
         .await
@@ -3469,7 +3612,11 @@ impl AccountRepository {
         };
         let account_id = discovered.account_id;
 
-        let mut tx = self.pool.begin().await.map_err(AppError::database_error)?;
+        let mut tx = self
+            .pool
+            .begin_with("BEGIN IMMEDIATE")
+            .await
+            .map_err(AppError::database_error)?;
 
         // The account row first — the serialization point EVERY membership-mutating path in
         // this module takes before anything else.
@@ -3490,9 +3637,10 @@ impl AccountRepository {
             .await
             .map_err(collapse_absent_account)?;
 
-        // Then the account's OWNER rows — the same lock, in the same order,
+        // Then the account's OWNER rows — the same read, in the same order,
         // `create_invitation` / `resend_invitation` / `set_role` / `remove_member` /
-        // `add_member_in_tx` all take (FIX_ROUND-1, R1-3).
+        // `add_member_in_tx` all take (FIX_ROUND-1, R1-3). (SQLite port: the
+        // `FOR UPDATE` clause is gone — the lock is the transaction's.)
         //
         // Taken HERE, before the invitation row, rather than left to `add_member_in_tx`
         // further down. A blind concurrency audit established that leaving it there put this
@@ -3508,27 +3656,28 @@ impl AccountRepository {
         // order. It did not — the audit was right and the code is now what the comment said.)
         sqlx::query!(
             r#"SELECT user_id FROM account_members
-               WHERE account_id = $1 AND role = 'owner'
-               FOR UPDATE"#,
+               WHERE account_id = $1 AND role = 'owner'"#,
             account_id,
         )
         .fetch_all(&mut *tx)
         .await
         .map_err(AppError::database_error)?;
 
-        // ── STEP 1b — the AUTHORITATIVE lookup, `FOR UPDATE`, re-evaluating the full claim
-        // predicate under the lock. This is the row everything below is decided on, and the
-        // row a competing accept must wait for.
+        // ── STEP 1b — the AUTHORITATIVE lookup behind the write lock, re-evaluating the
+        // full claim predicate. This is the row everything below is decided on, and the
+        // row a competing accept must wait for (on SQLite the wait is the engine's
+        // write-lock contention — the `FOR UPDATE` of the PG leg is the transaction's
+        // `BEGIN IMMEDIATE` lock).
         let invitation = sqlx::query!(
-            r#"SELECT id, email, role, invited_by
+            r#"SELECT id as "id: Uuid", email, role,
+                      invited_by as "invited_by?: Uuid"
                  FROM account_invitations
                 WHERE token_sha256 = $1
                   AND account_id = $2
                   AND accepted_at IS NULL
                   AND revoked_at IS NULL
-                  AND expires_at > now()
-                FOR UPDATE"#,
-            &token_hash,
+                  AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')"#,
+            token_hash,
             account_id,
         )
         .fetch_optional(&mut *tx)
@@ -3662,12 +3811,12 @@ impl AccountRepository {
         // INSERT back with it. Both, or neither.
         let stamped = sqlx::query_scalar!(
             r#"UPDATE account_invitations
-                  SET accepted_at = now(), accepted_by = $3
+                  SET accepted_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), accepted_by = $3
                 WHERE id = $1
                   AND account_id = $2
                   AND accepted_at IS NULL
                   AND revoked_at IS NULL
-                  AND expires_at > now()
+                  AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')
               RETURNING id"#,
             invitation.id,
             account_id,
@@ -3729,20 +3878,20 @@ pub struct AcceptedInvitation {
     pub already_member: bool,
 }
 
-/// Bind a `chrono` instant to a `timestamptz` parameter.
-///
-/// `ziee-auth` pulls sqlx's `time` feature, so sqlx's default `timestamptz` type in a
-/// PARAMETER position is `OffsetDateTime`, not `chrono::DateTime<Utc>` — the mirror image
-/// of the `col as "col: DateTime<Utc>"` override this file uses on every SELECT. The same
-/// conversion is done inline by `mcp/pairing.rs`; it is a named function here because
-/// `create_invitation` and `resend_invitation` both need it and two copies of a
-/// timestamp conversion is two chances to lose sub-second precision differently.
-///
-/// Second precision is sufficient and deliberate: these values are 7-day expiries, and
-/// the claim predicate compares them against `now()` with days of slack.
-fn to_pg_timestamptz(ts: DateTime<Utc>) -> Result<sqlx::types::time::OffsetDateTime, AppError> {
-    sqlx::types::time::OffsetDateTime::from_unix_timestamp(ts.timestamp())
-        .map_err(|e| AppError::internal_error(format!("invalid expires_at: {e}")))
+/// Serialize a `uuid[]` batch into the JSON-hex form the SQLite membership
+/// predicates consume: a JSON array of 32-char lowercase hex strings (the
+/// `uuid::Uuid::simple()` form), compared against a 16-byte BLOB column
+/// through `unhex()` — `id IN (SELECT unhex(j.value) FROM json_each($1) AS j)`.
+/// This is the ITEM-15 `ziee-file` convention (its `uuid_list_json`), kept
+/// local here because the app's modules are single-driver (DEC-1) and beside
+/// the one `= ANY(uuid[])` site it serves no other surface.
+fn uuid_list_json(ids: &[Uuid]) -> String {
+    serde_json::to_string(
+        &ids.iter()
+            .map(|id| id.simple().to_string())
+            .collect::<Vec<String>>(),
+    )
+    .expect("a Vec<String> is always JSON-serializable")
 }
 
 /// An account's admin-suspension status (#37) — the reader shape the admin status /
@@ -4193,23 +4342,20 @@ mod tests {
     /// comparison below is against it.
     #[test]
     fn mint_retention_dominates_the_longest_rate_limit_window() {
-        // Everything is expressed in microseconds so the comparison is exact and, more
-        // importantly, DST-invariant. `PgInterval`'s `days` field is calendar-sensitive:
-        // at `TimeZone='America/New_York'`, `now() - interval '2 days'` spans 47 hours
-        // across spring-forward and 49 across fall-back. A horizon that changes length
-        // twice a year is not a horizon, so `days` and `months` must both be zero here.
+        // Everything is expressed in MICROSECONDS so the comparison is exact and, more
+        // importantly, DST-invariant. The pre-SQLite consts were `PgInterval` values whose
+        // `days`/`months` fields were calendar-sensitive — at `TimeZone='America/New_York'`,
+        // `now() - interval '2 days'` spanned 47 hours across spring-forward and 49 across
+        // fall-back — so this test used to have to assert the calendar fields were zero.
+        // ITEM-17's sqlite port retyped the consts to plain `i64` microseconds (there is no
+        // interval type on the sqlite store), and with the split gone the DST-invariance is
+        // BY CONSTRUCTION; what remains to pin is that the windows are positive.
         for (name, iv) in [
             ("RATE_WINDOW_HOUR", RATE_WINDOW_HOUR),
             ("RATE_WINDOW_DAY", RATE_WINDOW_DAY),
             ("MINT_RETENTION", MINT_RETENTION),
         ] {
-            assert_eq!(iv.months, 0, "{name}: months are calendar-dependent");
-            assert_eq!(
-                iv.days, 0,
-                "{name}: PgInterval `days` is calendar-dependent too — it spans 47 or 49 \
-                 hours across a DST boundary. Express these in microseconds"
-            );
-            assert!(iv.microseconds > 0, "{name}: a non-positive window is meaningless");
+            assert!(iv > 0, "{name}: a non-positive window is meaningless");
         }
 
         // ABSOLUTE values, not just ordering. A blind audit showed that ordering plus
@@ -4229,37 +4375,37 @@ mod tests {
         // thing this suite can have. So these absolute pins are the only guard for the day
         // window in either direction, and for the hour window in the shrinking direction.
         assert_eq!(
-            RATE_WINDOW_HOUR.microseconds, 3_600_000_000,
+            RATE_WINDOW_HOUR, 3_600_000_000,
             "RATE_WINDOW_HOUR must be exactly one hour"
         );
         assert_eq!(
-            RATE_WINDOW_DAY.microseconds, 86_400_000_000,
+            RATE_WINDOW_DAY, 86_400_000_000,
             "RATE_WINDOW_DAY must be exactly twenty-four hours — the refusal message says \
              the word `day` and `InvitationLimits`' fields say `per_..._per_day`"
         );
         assert_eq!(
-            MINT_RETENTION.microseconds, 172_800_000_000,
+            MINT_RETENTION, 172_800_000_000,
             "MINT_RETENTION must be exactly forty-eight hours"
         );
 
         assert!(
-            RATE_WINDOW_DAY.microseconds > RATE_WINDOW_HOUR.microseconds,
+            RATE_WINDOW_DAY > RATE_WINDOW_HOUR,
             "the day window must be longer than the hour window, or one of the two \
              ceilings can never fire"
         );
         assert!(
-            MINT_RETENTION.microseconds > RATE_WINDOW_DAY.microseconds,
+            MINT_RETENTION > RATE_WINDOW_DAY,
             "the retention horizon ({} µs) must be STRICTLY greater than the longest \
              rate-limit window ({} µs). Equal would make the prune and the window race at \
              the boundary; shorter would let the prune delete rows the ceiling was still \
              counting, silently converting the per-day ceiling into a shorter one",
-            MINT_RETENTION.microseconds,
-            RATE_WINDOW_DAY.microseconds
+            MINT_RETENTION,
+            RATE_WINDOW_DAY
         );
         // And with real headroom rather than by a microsecond, so a future tweak to either
         // has to be deliberate rather than accidentally fatal.
         assert!(
-            MINT_RETENTION.microseconds >= 2 * RATE_WINDOW_DAY.microseconds,
+            MINT_RETENTION >= 2 * RATE_WINDOW_DAY,
             "keep at least a full extra window of headroom"
         );
     }

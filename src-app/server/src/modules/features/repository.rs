@@ -5,20 +5,26 @@
 //! default row (`account_id IS NULL`) and a PER-ACCOUNT override — each an idempotent
 //! UPSERT keyed by a distinct unique index, so setting one never disturbs the other
 //! (INV-3) and a repeat write UPDATEs rather than inserting a duplicate (INV-5).
+//! Single-driver SQLite (sqlite-store, ITEM-23): the DEC-8 map applies (uuid →
+//! BLOB, `timestamptz` → RFC3339-UTC TEXT via the canonical `strftime` clock, the
+//! `id` bind replaces the dropped `gen_random_uuid()` default); the partial-index
+//! `ON CONFLICT (flag_key) WHERE account_id IS NULL` target is kept VERBATIM —
+//! SQLite 3.46 accepts conflict targets with a predicate (the account port's
+//! `ON CONFLICT (personal_user_id) WHERE kind = 'personal'` precedent, probed there).
 
 use chrono::{DateTime, Utc};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 use ziee_core::AppError;
 
 use super::models::FeatureFlagRow;
 
 pub struct FeatureFlagRepository {
-    pool: PgPool,
+    pool: SqlitePool,
 }
 
 impl FeatureFlagRepository {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
 
@@ -26,7 +32,7 @@ impl FeatureFlagRepository {
     /// exists. `None` ⇒ no global row → the compiled registry default applies.
     pub async fn global_enabled(&self, flag_key: &str) -> Result<Option<bool>, AppError> {
         sqlx::query_scalar!(
-            r#"SELECT enabled FROM feature_flags
+            r#"SELECT enabled as "enabled: bool" FROM feature_flags
                WHERE flag_key = $1 AND account_id IS NULL"#,
             flag_key
         )
@@ -42,7 +48,7 @@ impl FeatureFlagRepository {
         account_id: Uuid,
     ) -> Result<Option<bool>, AppError> {
         sqlx::query_scalar!(
-            r#"SELECT enabled FROM feature_flags
+            r#"SELECT enabled as "enabled: bool" FROM feature_flags
                WHERE flag_key = $1 AND account_id = $2"#,
             flag_key,
             account_id
@@ -60,18 +66,20 @@ impl FeatureFlagRepository {
         flag_key: &str,
         enabled: bool,
     ) -> Result<FeatureFlagRow, AppError> {
+        let id = Uuid::new_v4();
         sqlx::query_as!(
             FeatureFlagRow,
             r#"INSERT INTO feature_flags (id, flag_key, account_id, enabled)
-               VALUES (gen_random_uuid(), $1, NULL, $2)
+               VALUES ($1, $2, NULL, $3)
                ON CONFLICT (flag_key) WHERE account_id IS NULL
-               DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = now()
-               RETURNING id,
+               DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+               RETURNING id as "id: Uuid",
                          flag_key,
                          account_id as "account_id: Uuid",
-                         enabled,
+                         enabled as "enabled: bool",
                          created_at as "created_at: DateTime<Utc>",
                          updated_at as "updated_at: DateTime<Utc>""#,
+            id,
             flag_key,
             enabled
         )
@@ -89,18 +97,20 @@ impl FeatureFlagRepository {
         account_id: Uuid,
         enabled: bool,
     ) -> Result<FeatureFlagRow, AppError> {
+        let id = Uuid::new_v4();
         sqlx::query_as!(
             FeatureFlagRow,
             r#"INSERT INTO feature_flags (id, flag_key, account_id, enabled)
-               VALUES (gen_random_uuid(), $1, $2, $3)
+               VALUES ($1, $2, $3, $4)
                ON CONFLICT (flag_key, account_id)
-               DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = now()
-               RETURNING id,
+               DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+               RETURNING id as "id: Uuid",
                          flag_key,
                          account_id as "account_id: Uuid",
-                         enabled,
+                         enabled as "enabled: bool",
                          created_at as "created_at: DateTime<Utc>",
                          updated_at as "updated_at: DateTime<Utc>""#,
+            id,
             flag_key,
             account_id,
             enabled
@@ -138,7 +148,7 @@ impl FeatureFlagRepository {
     /// error).
     pub async fn account_exists(&self, account_id: Uuid) -> Result<bool, AppError> {
         let exists = sqlx::query_scalar!(
-            r#"SELECT EXISTS(SELECT 1 FROM accounts WHERE id = $1) as "exists!""#,
+            r#"SELECT EXISTS(SELECT 1 FROM accounts WHERE id = $1) as "exists!: bool""#,
             account_id
         )
         .fetch_one(&self.pool)

@@ -3,12 +3,27 @@ name = "ziee-control-mcp"
 version = "0.0.0"
 edition.workspace = true
 
+[features]
+# Dual-driver selection (sqlite-store DEC-1 / DEC-21). OFF (default) = the PG
+# variant: the `ziee-framework` edge below is declared WITHOUT default features,
+# so this crate's own `embedded-pg` passthrough re-selects the byte-identical
+# pre-seam resolution. ON = the SQLite variant (`sqlite-backend`), which is
+# what the app's graph selects — the framework then installs no driver default
+# anywhere in the app graph, so `postgresql_embedded` leaves the app's BUILD
+# graph (TEST-1(a)'s prune; DRIFT-1 ITEM-16).
+default = ["embedded-pg"]
+embedded-pg = ["ziee-framework/embedded-pg"]
+sqlite-backend = ["ziee-framework/sqlite-backend"]
+
 [dependencies]
 # Dependency direction per plan §1.2 (framework + identity). The v1 tool-dispatch
 # core (catalog/policy/tools) is self-contained, but these are retained: the v1.5
 # handlers/permission-filter extraction needs the injected `IdentityResolver`
 # (ziee-framework) + the RBAC traits (ziee-identity).
-ziee-framework = { path = "../ziee-framework" }
+# `default-features = false` — see the feature block above: the framework's
+# driver variant is selected by THIS crate's embedded-pg / sqlite-backend
+# passthrough features, never by the framework's own defaults.
+ziee-framework = { path = "../ziee-framework", default-features = false }
 ziee-identity = { path = "../ziee-identity" }
 
 # `catalog::init_from_openapi` ingests the finished `aide::openapi::OpenApi`

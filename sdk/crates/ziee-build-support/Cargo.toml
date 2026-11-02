@@ -11,11 +11,12 @@ edition.workspace = true
 # connections). Re-exported by `ziee-framework` as `ziee_framework::build_support`.
 
 [dependencies]
-# Runtime Postgres connection for the build-DB provisioner. Feature set +
-# version mirror the ziee server catalog so the single src-app/Cargo.lock
-# unifies them without a duplicate build. No `macros` feature → no `query!` →
-# build-DB-free.
-sqlx = { version = "0.8.6", default-features = false, features = ["postgres", "runtime-tokio-rustls", "migrate"] }
+# Runtime connection for the build-DB provisioner — Postgres today, with the
+# `sqlite` driver feature enabled alongside so the same helper can provision a
+# sqlite build file. Feature set + version mirror the ziee server catalog so
+# the single src-app/Cargo.lock unifies them without a duplicate build. No
+# `macros` feature → no `query!` → build-DB-free.
+sqlx = { version = "0.8.6", default-features = false, features = ["postgres", "sqlite", "runtime-tokio-rustls", "migrate"] }
 tokio = { version = "1.47.1", features = ["rt", "rt-multi-thread"] }
 
 [dev-dependencies]

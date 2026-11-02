@@ -72,8 +72,9 @@
 //!
 //! # Freshness — the count rides the caller's transaction and lock
 //!
-//! [`enforce_member_seat`] takes `&mut PgConnection`, never a pool, and its caller has
-//! already taken `lock_account_row` (`accounts … FOR NO KEY UPDATE`) on that same
+//! [`enforce_member_seat`] takes `&mut SqliteConnection`, never a pool, and its caller has
+//! already taken `lock_account_row` (the account-row serialization read; the lock itself
+//! is the transaction's `BEGIN IMMEDIATE` write lock on SQLite) on that same
 //! connection — the serialization point EVERY membership mutation in this module takes
 //! first — so a concurrent add blocks until the first commits and then counts the committed
 //! row. This is the `min(observed, live)`-after-the-lock discipline #142 established and
@@ -83,18 +84,20 @@
 //! ([`assert_serializable_context`], FIX_ROUND-1 F1). Two blind audits independently found
 //! the same hole from opposite directions, and both are closed by the same assertion:
 //!
-//! * `&mut PgConnection` also accepts a bare pooled connection in AUTOCOMMIT. There, every
-//!   `FOR UPDATE` above releases at statement end, so the ceiling re-read, the seat count
+//! * `&mut SqliteConnection` also accepts a bare pooled connection in AUTOCOMMIT. There,
+//!   the write lock cannot persist, so the ceiling re-read, the seat count
 //!   and the INSERT all run unserialized and two callers could both take the last seat.
 //!   `add_member_in_tx` is `pub` and #146 will call it, so this is a reachable mistake, not
 //!   a hypothetical.
-//! * Under **REPEATABLE READ** — a plausible choice for a multi-step accept transaction —
-//!   the count is taken from a snapshot older than a competing committed add, and a
-//!   committed `FOR NO KEY UPDATE` row lock does NOT raise a serialization error for a
+//! * Under **REPEATABLE READ** (PG) — a plausible choice for a multi-step accept
+//!   transaction — the count is taken from a snapshot older than a competing committed add,
+//!   and a committed `FOR NO KEY UPDATE` row lock does NOT raise a serialization error for a
 //!   repeatable-read locker. Both accepts would pass, silently, with no error anywhere.
+//!   (SQLite has no isolation-level knob; the engine serializes writers, so this arm is
+//!   PG-only — the port's note is in `assert_serializable_context`.)
 //!
-//! The assertion refuses both with [`SEAT_NO_TRANSACTION`] / [`SEAT_UNSERIALIZED_ISOLATION`] (500) rather than
-//! admitting a member on an unsound count. It is one extra `SELECT` on a path that already
+//! The assertion refuses with [`SEAT_NO_TRANSACTION`] (500) rather than
+//! admitting a member on an unsound count. It is one extra statement on a path that already
 //! runs four, and it converts an unwritten caller obligation into a failure the caller
 //! cannot miss.
 //!
@@ -130,79 +133,75 @@
 //! out. `tests/account/seat_allowance_test.rs` pins today's behaviour so making that
 //! change is deliberate and test-visible rather than silent.
 
-use sqlx::PgConnection;
+use libsqlite3_sys::sqlite3_get_autocommit;
+use sqlx::SqliteConnection;
 use uuid::Uuid;
 use ziee_core::AppError;
 
 /// Refusal code: the seat check was reached with **no open transaction** (autocommit), so
-/// the account-row lock cannot persist across the count and the INSERT it guards.
+/// the write lock cannot persist across the count and the INSERT it guards.
 ///
 /// A 500, not a 4xx: a SERVER wiring bug, never anything the client did. (The nearest
 /// precedent in this epic is [`AccountScope`](super::member_scope::AccountScope) step 3,
 /// which 500s when a route omits its path parameter — a wiring bug is not the caller's
 /// fault. It is NOT `lock_account_row`, which deliberately answers a missing account with
 /// 404 for a non-oracle reason; an earlier version of this doc cited it and was wrong.)
-///
-/// Named, and SEPARATE from [`SEAT_UNSERIALIZED_ISOLATION`], because "the guard refused" and
-/// "the guard refused for the RIGHT reason" are different claims and a test that cannot tell
-/// the two branches apart is not testing either (FIX_ROUND-2, R2-4).
 pub const SEAT_NO_TRANSACTION: &str = "SEAT_NO_TRANSACTION";
 
-/// Refusal code: the caller's transaction is at an isolation level whose snapshot can
-/// predate a competing committed add. See [`assert_serializable_context`].
-pub const SEAT_UNSERIALIZED_ISOLATION: &str = "SEAT_UNSERIALIZED_ISOLATION";
-
-/// Refuse unless this connection is inside a transaction at an isolation level under which
-/// the count that follows can see a competing committed add.
+/// Refuse unless this connection is inside a transaction.
 ///
 /// # Why an assertion and not a comment
 ///
-/// The soundness of the seat count is a CALLER obligation, and `&mut PgConnection` expresses
+/// The soundness of the seat count is a CALLER obligation, and `&mut SqliteConnection` expresses
 /// none of it — it accepts a bare pooled connection in autocommit just as happily. An
 /// obligation that lives only in prose is one an implementer can satisfy by accident and
 /// break by accident.
 ///
+/// # The SQLite port of the PG probe (sqlite-store ITEM-17)
+///
+/// Postgres asked two questions: *"has this transaction assigned an xid"* and *"at which
+/// isolation level is it"*. The first had a SQL-level answer
+/// (`pg_current_xact_id_if_assigned() IS NOT NULL`); the second drove the only-bless
+/// READ-COMMITTED rule, because PG's SERIALIZABLE mode does not serialize against READ
+/// COMMITTED transactions, so a SERIALIZABLE caller's snapshot could be stale without any
+/// error.
+///
+/// SQLite has ONE isolation model (the database file is the transaction unit; WAL frames
+/// the reader/writer protocol), so the second question has no object — the
+/// `SEAT_UNSERIALIZED_ISOLATION` refusal is gone with it (the PG-only condition it
+/// answered does not exist; the engine serializes writers and a deferred transaction
+/// whose snapshot is stale fails its write with `SQLITE_BUSY_SNAPSHOT` rather than
+/// silently passing — the stale-count failure mode the PG refusal existed to catch cannot
+/// happen silently here). The first question has NO SQL-level answer at all on SQLite —
+/// there is no `sqlite3_get_autocommit()` SQL function — so the probe goes through the
+/// connection handle sqlx exposes for direct API use
+/// (`SqliteConnection::lock_handle()` → `LockedSqliteHandle::as_raw_handle()` →
+/// `sqlite3_get_autocommit`), the same honest source the engine itself uses. This is why
+/// `libsqlite3-sys` is a REGULAR dependency of the server crate (see `Cargo.toml`), with
+/// sqlx 0.8.6 pinned per sqlx's semver-exempt note on the `sqlite3` type.
+///
 /// # It runs AFTER the account lock, and that ordering is the point (FIX_ROUND-3)
 ///
-/// The probe is `pg_current_xact_id_if_assigned() IS NOT NULL` — literally "has this
-/// transaction assigned an xid", which is not the same proposition as "a transaction is
-/// open". [`enforce_member_seat`] therefore takes the account row's lock FIRST and calls this
-/// SECOND, which makes the two propositions coincide: the lock statement assigns an xid, so
-/// inside a real transaction the answer is always yes, while in autocommit that statement was
-/// its own transaction and its xid is already gone. Ordered the other way round (as
-/// FIX_ROUND-2 had it) a perfectly correct caller that had not yet written anything would be
-/// refused. Asking the question must also not answer it: `pg_current_xact_id_if_assigned` is
-/// the NON-assigning variant.
-///
-/// # Only READ COMMITTED is accepted, and SERIALIZABLE is refused for a REAL reason
-///
-/// FIX_ROUND-2 accepted SERIALIZABLE, reasoning that it aborts on exactly the read-write
-/// conflict REPEATABLE READ hides. **That was wrong in this deployment, and the correction
-/// is the most important thing in this file.** PostgreSQL's SSI only serializes a
-/// transaction against OTHER SERIALIZABLE transactions. Nothing sets
-/// `default_transaction_isolation`, and the shipped caller (`AccountRepository::add_member`
-/// → `pool.begin()`) is READ COMMITTED. So a SERIALIZABLE caller — exactly the #146 accept
-/// this guard exists for — racing a READ COMMITTED admin add gets the failure verbatim: its
-/// snapshot predates the competing commit; re-acquiring `accounts … FOR NO KEY UPDATE`
-/// raises no `40001`, because a lock-only tuple was never *updated*; the member read then
-/// returns the stale snapshot and misses the committed row; and no SSI abort fires, because
-/// the counterparty is not serializable. **Both adds take the last seat.**
-///
-/// So the accepted set is exactly `read committed`. That is not caution about untested
-/// levels — it is the only level under which this count's freshness follows from anything.
-/// If a caller genuinely needs SERIALIZABLE, the fix is for EVERY membership-mutating
-/// transaction to become serializable, which is a deployment-wide decision this function
-/// must not make silently by accepting one.
-pub(crate) async fn assert_serializable_context(conn: &mut PgConnection) -> Result<(), AppError> {
-    let row = sqlx::query!(
-        r#"SELECT pg_current_xact_id_if_assigned() IS NOT NULL AS "in_tx!",
-                  current_setting('transaction_isolation') AS "isolation!""#
-    )
-    .fetch_one(&mut *conn)
-    .await
-    .map_err(AppError::database_error)?;
+/// On PG the probe is `pg_current_xact_id_if_assigned() IS NOT NULL` — literally "has this
+/// transaction assigned an xid"; [`enforce_member_seat`] takes the account row's lock FIRST
+/// and calls this SECOND, which makes the two propositions coincide: the lock statement
+/// assigns an xid, so inside a real transaction the answer is always yes, while in
+/// autocommit that statement was its own transaction and its xid is already gone. On
+/// SQLite the probe answers "is autocommit off" directly, and the sequencing no longer
+/// matters for the probe's validity — the write lock (the `BEGIN IMMEDIATE` at the
+/// mutation's open) is what the count needs to be behind, and the probe's job is solely
+/// to catch the caller that skipped the transaction.
+pub(crate) async fn assert_serializable_context(
+    conn: &mut SqliteConnection,
+) -> Result<(), AppError> {
+    // `lock_handle()` is async and briefly stops the connection's worker thread; the
+    // probe does NOT run any SQL so no statement interleaves.
+    let mut handle = conn.lock_handle().await.map_err(AppError::database_error)?;
+    // `sqlite3_get_autocommit` returns 0 inside a transaction (autocommit off),
+    // non-zero otherwise — the exact inverse of PG's `IS NOT NULL` probe.
+    let in_tx = unsafe { sqlite3_get_autocommit(handle.as_raw_handle().as_ptr()) == 0 };
 
-    if !row.in_tx {
+    if !in_tx {
         // Logged, not only returned: these 500s are declared to mean "a server wiring bug",
         // which is the one class an operator must be able to find in logs — and the previous
         // version recorded the event nowhere but in the client's response body (R3-5).
@@ -213,29 +212,9 @@ pub(crate) async fn assert_serializable_context(conn: &mut PgConnection) -> Resu
         return Err(AppError::new(
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
             SEAT_NO_TRANSACTION,
-            "a membership add reached a connection with no open transaction — the account \
+            "a membership add reached a connection with no open transaction — the write \
              lock cannot persist across the checks and the INSERT it guards. Call \
              `add_member_in_tx` inside the transaction that performs the membership INSERT.",
-        ));
-    }
-    if row.isolation != "read committed" {
-        tracing::error!(
-            isolation = %row.isolation,
-            "membership add reached a transaction at an unsupported isolation level — \
-             REFUSED rather than admitted on possibly-stale reads"
-        );
-        return Err(AppError::new(
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            SEAT_UNSERIALIZED_ISOLATION,
-            format!(
-                "a membership add reached a transaction at isolation level `{}` — its reads \
-                 could be taken from a snapshot predating a competing committed add, and \
-                 neither the account-row lock nor SSI would catch it (SSI only serializes \
-                 against other SERIALIZABLE transactions, and this deployment's membership \
-                 adds are READ COMMITTED). Open the membership transaction at READ \
-                 COMMITTED, the default.",
-                row.isolation
-            ),
         ));
     }
     Ok(())
@@ -288,7 +267,7 @@ pub(crate) async fn assert_serializable_context(conn: &mut PgConnection) -> Resu
 /// in both builds, because those protect R-1 rather than seats. What compiles out is the
 /// billing half — the plan lookup, the comp read and the limit decision.
 pub(crate) async fn enforce_member_seat(
-    conn: &mut PgConnection,
+    conn: &mut SqliteConnection,
     account_id: Uuid,
     joining_user_id: Uuid,
 ) -> Result<(), AppError> {
@@ -330,8 +309,11 @@ pub(crate) async fn enforce_member_seat(
     Ok(())
 }
 
-/// Take the account row's `FOR NO KEY UPDATE` lock — the serialization point EVERY
-/// membership-mutating path in this module takes first — on the caller's connection.
+/// Take the account row's serialization read — the read every membership-mutating path in
+/// this module performs first — on the caller's connection. (SQLite port: the PG
+/// `FOR NO KEY UPDATE` clause is gone — the lock is the transaction's `BEGIN IMMEDIATE`
+/// write lock; this statement keeps its existence-check job, see `repository.rs`'s
+/// `lock_account_row` for the full substitution note.)
 ///
 /// **Taken here rather than assumed (FIX_ROUND-2, R2-3).** `add_member_in_tx` already takes
 /// it before reaching the seat check, and re-acquiring a lock a transaction already holds
@@ -342,31 +324,26 @@ pub(crate) async fn enforce_member_seat(
 /// precondition beats testing a proxy for it, at the cost of one statement that is usually
 /// a no-op.
 ///
-/// The statement is `lock_account_row`'s, deliberately duplicated rather than made public:
-/// that function is the repository's own private serialization primitive, and widening it
-/// so a sibling module could call it would put the module's lock discipline on a public
-/// surface. A missing row is an absent account — 404, byte-identical to the extractor's
-/// non-member refusal — but it is unreachable here, because the caller has already taken
+/// A missing row is an absent account — 404, byte-identical to the extractor's
+/// non-member refusal — and it is unreachable here, because the caller has already taken
 /// this same lock and holds the row.
 async fn lock_account_for_seat_count(
-    conn: &mut PgConnection,
+    conn: &mut SqliteConnection,
     account_id: Uuid,
 ) -> Result<(), AppError> {
-    sqlx::query_scalar!(
-        r#"SELECT id FROM accounts WHERE id = $1 FOR NO KEY UPDATE"#,
-        account_id,
-    )
-    .fetch_optional(&mut *conn)
-    .await
-    .map_err(AppError::database_error)?
-    .map(|_| ())
-    .ok_or_else(|| AppError::not_found("Account"))
+    sqlx::query_scalar!(r#"SELECT id FROM accounts WHERE id = $1"#, account_id,)
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(AppError::database_error)?
+        .map(|_| ())
+        .ok_or_else(|| AppError::not_found("Account"))
 }
 
 // There is deliberately NO `count_members` here (FIX_ROUND-3, R3-6). One already exists —
 // `AccountRepository::count_members` — and it is what `billing::handlers::build_quota_state`
 // now calls for the "N of M seats" read surface. The first version of this module added a
-// byte-identical second one taking `&mut PgConnection`, which forced its caller to do a
+// byte-identical second one taking `&mut PgConnection` (today `&mut SqliteConnection`),
+// which forced its caller to do a
 // `pool.acquire()`/`drop` dance for a plain read AND put two public functions with the same
 // name and the same meaning in two modules of one crate. The enforcement path's counting
 // primitive is `member_ids` above, which is a different function answering a different
@@ -374,7 +351,7 @@ async fn lock_account_for_seat_count(
 
 // TEST-5 [acceptance, INV-3] — the desktop half of INV-3 ("the seat check compiles out and
 // `member_allowance` is unlimited") is proven BEHAVIOURALLY, not here: an in-crate unit test
-// cannot exercise these arms honestly, because they take a live `&mut PgConnection` and a
+// cannot exercise these arms honestly, because they take a live `&mut SqliteConnection` and a
 // unit test has no database to produce one. Faking it would be a test that asserts nothing.
 //
 // So it lives at `tests/account/seat_allowance_test.rs::test5_desktop_build_has_no_seat_limit`,

@@ -30,7 +30,7 @@ pub mod processor_manifest_lint;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use ziee_core::ServerConfig;
 use ziee_framework::app_builder::{
     apply_rate_limit_layer, build_api_router, create_cors_layer, create_modules, initialize_modules,
@@ -42,18 +42,21 @@ pub use ziee_auth::auth::JwtService;
 
 type BoxErr = Box<dyn std::error::Error + Send + Sync>;
 
-/// What a booted embedded server hands back: bound address + pool + JWT service.
+/// What a booted embedded server hands back: bound address + the app's SQLite
+/// pool + JWT service. `pool` is the `Arc<SqlitePool>` the store shim booted
+/// (PROV-sqlite-store-2: the desktop harness's `DbPool` seam materializes it
+/// as this app's sqlite store on ITEM-24's manifest flip).
 pub struct BootParts {
     pub addr: SocketAddr,
-    pub pool: Arc<PgPool>,
+    pub pool: Arc<SqlitePool>,
     pub jwt: Arc<JwtService>,
 }
 
-/// Assemble the full app router (embedded PG + migrations + modules + auth
+/// Assemble the full app router (SQLite store + migrations + modules + auth
 /// extensions + CORS + rate-limit) without serving. Shared by both entrypoints.
 async fn build_app(
     config: &ServerConfig,
-) -> Result<(axum::Router, Arc<PgPool>, Arc<JwtService>), BoxErr> {
+) -> Result<(axum::Router, Arc<SqlitePool>, Arc<JwtService>), BoxErr> {
     let pool = database::initialize_database(config).await?;
     let jwt = Arc::new(JwtService::try_new(config.jwt.clone())?);
 
@@ -152,7 +155,8 @@ async fn build_app(
 
     // The per-request handle the mountable `file_routes` handlers pull from
     // `Extension<FileContext>` (severs them from app globals). Installed as a
-    // global layer below (mirrors the framework's `Extension<PgPool>`). No-op
+    // global layer below (mirrors the framework's `Extension<DbPool>` — the
+    // `SqlitePool` on this build). No-op
     // events seam (no `SyncEntity::File` today); the download-token signer
     // shares the access-token JWT issuer/secret so a generated token verifies.
     let file_ctx = ziee_file::http::FileContext {
@@ -322,7 +326,7 @@ pub async fn serve_blocking(config: ServerConfig) -> Result<(), BoxErr> {
 }
 
 /// Worker entrypoint (T3 / ITEM-2 / §4.3): boot the SAME library assembly the CLI `serve`
-/// path boots — same `PgPool`, same module set (which builds the `BackendRegistry` + object
+/// path boots — same `SqlitePool`, same module set (which builds the `BackendRegistry` + object
 /// store), same scheduler loop — **minus the public router**. `cytoanalyst worker` is a MODE
 /// of the binary, not a second service (INV-1): it reuses `build_app` (so `JobsModule::init`
 /// runs verbatim) and never binds a listener. `set_worker_mode()` is set FIRST so the jobs
@@ -347,7 +351,7 @@ pub async fn run_worker(config: ServerConfig) -> Result<(), BoxErr> {
 /// In-pod ONE-SHOT job executor (ITEM-5 / #66) — the body of `cytoanalyst run-job --job-id X`.
 ///
 /// This is the entrypoint the job-per-run `KubernetesBackend` pod runs (its container command).
-/// It boots the SAME `build_app` assembly `serve`/`worker` boot — same `PgPool`, same module set
+/// It boots the SAME `build_app` assembly `serve`/`worker` boot — same `SqlitePool`, same module set
 /// (which builds the object store + the ingest/provenance/meter seams + the sandbox config) —
 /// but runs NO public router and, crucially, NO scheduler loop / boot reconcile: it sets
 /// `CYTO_SCHEDULER_ENABLED=off` and never enters worker mode, so `scheduler_should_spawn()` is
@@ -367,9 +371,9 @@ pub async fn run_job_once(config: ServerConfig, job_id: uuid::Uuid) -> Result<()
     std::env::set_var("CYTO_SCHEDULER_ENABLED", "off");
 
     let (_app, pool, _jwt) = build_app(&config).await?;
-    // `build_app` hands back an `Arc<PgPool>`; the jobs/sandbox APIs take a bare `PgPool` (itself
-    // an `Arc` internally — cloning is cheap).
-    let pool: PgPool = (*pool).clone();
+    // `build_app` hands back an `Arc<SqlitePool>`; the jobs/sandbox APIs take a bare
+    // `SqlitePool` (itself an `Arc` internally — cloning is cheap).
+    let pool: SqlitePool = (*pool).clone();
 
     let repo = crate::modules::jobs::repository::JobRepository::new(pool.clone());
     let job = repo
@@ -421,8 +425,8 @@ async fn worker_shutdown_signal() {
     }
 }
 
-/// Stop the embedded Postgres + close the pool. Idempotent. Used by the desktop
-/// harness `ServerBoot::shutdown`.
+/// Close the SQLite pool (WAL checkpoint TRUNCATE first). Idempotent. Used by
+/// the desktop harness `ServerBoot::shutdown`.
 pub async fn cleanup() {
     database::cleanup_database().await
 }

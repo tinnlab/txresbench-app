@@ -12,7 +12,7 @@
 
 use uuid::Uuid;
 
-use sqlx::PgPool;
+use ziee_core::DbPool;
 
 use ziee_core::AppError;
 use crate::auth::context::AuthEventSink;
@@ -47,7 +47,7 @@ impl ProbeResult {
 /// This is the single probe site for the manual Test endpoint and for
 /// the enable-transition enforcement below — a regression in one is a
 /// regression in the other.
-pub async fn probe_provider(provider: &AuthProvider, pool: &PgPool) -> ProbeResult {
+pub async fn probe_provider(provider: &AuthProvider, pool: &DbPool) -> ProbeResult {
     // Force-enable a local copy. `create_provider` refuses
     // `enabled=false` rows because the live login path needs that
     // guard, but for tests we want to verify the config independent
@@ -84,7 +84,7 @@ pub async fn probe_provider(provider: &AuthProvider, pool: &PgPool) -> ProbeResu
 pub async fn enforce_on_update_transition(
     persisted: AuthProvider,
     old_enabled: bool,
-    pool: &PgPool,
+    pool: &DbPool,
     events: &dyn AuthEventSink,
 ) -> Result<AuthProvider, AppError> {
     let transitioned_to_enabled = persisted.enabled && !old_enabled;
@@ -137,7 +137,7 @@ pub struct CreateOutcome {
 /// `connection_warning`.
 pub async fn enforce_on_create_with_enabled(
     row: AuthProvider,
-    pool: &PgPool,
+    pool: &DbPool,
     events: &dyn AuthEventSink,
 ) -> Result<CreateOutcome, AppError> {
     if !row.enabled {
@@ -191,7 +191,7 @@ pub async fn enforce_on_create_with_enabled(
 /// Returns `Some(disabled_reason)` when the row was auto-disabled —
 /// the handler can use it to enrich the response if it wants to.
 pub async fn record_test_outcome(
-    pool: &PgPool,
+    pool: &DbPool,
     events: &dyn AuthEventSink,
     provider_id: Uuid,
     was_enabled: bool,

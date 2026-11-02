@@ -74,8 +74,8 @@ async fn share_and_accept(
 async fn one_dataset_in_two_projects_then_detach() {
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
-    create_user(&server, &admin, "mo", "mo@x.test").await;
-    let mo = login(&server, "mo").await;
+    create_user(&server, &admin, "mem", "mo@x.test").await;
+    let mo = login(&server, "mem").await;
 
     let s1 = create_project(&server, &mo, "S1").await;
     let s2 = create_project(&server, &mo, "S2").await;

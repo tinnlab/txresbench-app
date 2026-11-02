@@ -94,7 +94,7 @@ pub use repository::{
     // #148: the membership audit ledger. `AuditActor` answers "who to attribute" and is
     // DERIVED from `ActorCeiling` (`ceiling.audit_actor()`) so authority and attribution
     // cannot disagree — which is why NO mutation takes both. `record_member_event` takes a
-    // caller-owned `&mut PgConnection`, never a pool, so the write cannot be anything but
+    // caller-owned `&mut SqliteConnection`, never a pool, so the write cannot be anything but
     // in-transaction.
     AuditActor, MemberEventAction, NewMemberEvent, record_member_event, removal_action,
     system_row_is_tenant_visible,

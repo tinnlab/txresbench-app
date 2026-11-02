@@ -9,13 +9,18 @@
 //! are a matched pair. They were not: the store root is
 //! `rootfs::data_root().join("workstore")`, and `data_root()` falls back to the
 //! SDK's single `~/.app` whenever `CYTO_APP_DATA_DIR` is unset — which is the
-//! case for every dev server. Each git worktree, meanwhile, runs its own
-//! embedded Postgres cluster (`postgresql.embedded.data_dir` is a path relative
-//! to the worktree). So N worktrees shared ONE blob store while holding N
-//! different catalogs, and booting worktree B unlinked every blob referenced
-//! only by worktree A. Content-addressing is what makes this silent: the two
-//! catalogs legitimately name blobs by the same hashes, so nothing about a
-//! foreign blob looks foreign.
+//! case for every dev server. Each git worktree, meanwhile, ran its own
+//! embedded Postgres cluster, so N worktrees shared ONE blob store while
+//! holding N different catalogs, and booting worktree B unlinked every blob
+//! referenced only by worktree A. Content-addressing is what makes this silent:
+//! the two catalogs legitimately name blobs by the same hashes, so nothing
+//! about a foreign blob looks foreign.
+//!
+//! The SQLite store (ITEM-26) has the same shape with the FILE as the engine's
+//! physical identity: worktrees that resolve distinct DB files (`database.path`
+//! per worktree, or a per-worktree app-data dir) are distinct catalogs over one
+//! shared data root — the identity below is the resolved DB file's absolute
+//! path, so the guard keeps doing the PG version's job.
 //!
 //! ## The rule
 //!
@@ -66,30 +71,35 @@ pub const DEFAULT_DIR: &str = "workstore";
 
 /// A stable, printable identity for the catalog a config binds the server to.
 ///
-/// * embedded Postgres with an explicit `data_dir` → the CLUSTER's absolute
-///   PGDATA path. That is the physical identity of the catalog and it is what
-///   actually differs between two worktrees (both copy `dev.example.yaml`, so
-///   both claim `127.0.0.1:54341/postgres` — the URL alone does NOT discriminate
-///   them, and a key built from it would have reproduced the bug exactly).
-/// * embedded without a `data_dir` → the connection triple. Such servers share
-///   the SDK's default `<app_data>/postgres-data` cluster, i.e. they genuinely
-///   share one catalog and SHOULD share one store.
-/// * external Postgres → the connection triple, for the same reason.
+/// The engine is SQLite (ITEM-26 — the postgres chain is gone), so the
+/// catalog's physical identity is the DB FILE: the resolved `database:`
+/// target (`CYTO_DATABASE_URL` > `database.url` > `database.path` >
+/// `<app-data-dir>/txresbench.db`), canonicalized exactly the way the runtime
+/// opens it. The property the blob-store guard needs is the one the old
+/// PGDATA identity had: two worktrees both copy `dev.example.yaml`, so the
+/// CONFIG does not discriminate them — but their DB files do when the config
+/// or the per-worktree app-data dir does, which is what makes two catalogs
+/// distinct; two configs resolving the SAME file genuinely share one catalog
+/// and SHOULD share one store (the single-root deployment, unchanged).
 pub fn catalog_identity(config: &ServerConfig) -> String {
-    let pg = &config.postgresql;
-    if pg.use_embedded {
-        if let Some(e) = pg.embedded.as_ref() {
-            if let Some(dir) = e.data_dir.as_ref().filter(|d| !d.trim().is_empty()) {
-                return format!("pgdata:{}", lexical_absolute(dir).display());
-            }
-            return format!("pg:{}:{}/{}", e.bind_address, e.port, e.database);
-        }
-    } else if let Some(x) = pg.external.as_ref() {
-        return format!("pg:{}:{}/{}", x.host, x.port, x.database);
-    }
-    // A config that names neither half cannot connect at all, so any stable
-    // value is fine; keep it distinct from every real identity above.
-    "pg:unconfigured".to_string()
+    let target =
+        crate::config::resolve_database_target(config, &crate::modules::rootfs::data_root());
+    let file = if target.starts_with("sqlite:") {
+        // Resolve the URL form through the framework's own parser so the
+        // identity can never disagree with the file the runtime actually opens
+        // (it is the caller's already-validated target — a parse failure here
+        // is the boot failure, just earlier).
+        ziee_framework::embedded_db::connect_options(
+            &target,
+            &ziee_core::config::DatabasePoolConfig::default(),
+        )
+        .expect("resolved database target must be a valid sqlite URL")
+        .get_filename()
+        .to_path_buf()
+    } else {
+        PathBuf::from(&target)
+    };
+    format!("sqlite:{}", lexical_absolute(&file).display())
 }
 
 /// The catalog's 8-hex partition key.
@@ -128,12 +138,12 @@ fn encode_identity(identity: &str) -> String {
 }
 
 /// Absolutize + normalize `.`/`..` LEXICALLY (never `canonicalize`, which
-/// requires the path to exist — on a first boot the cluster directory does not
-/// yet). A relative path is joined onto the process cwd, which is exactly how
-/// `postgresql_embedded` will resolve it, so the key names the cluster the
-/// server will actually open.
-fn lexical_absolute(input: &str) -> PathBuf {
-    let raw = PathBuf::from(input);
+/// requires the path to exist — on a first boot the DB file does not yet).
+/// A relative path is joined onto the process cwd, which is exactly how
+/// `embedded_db` will resolve it, so the key names the file the server will
+/// actually open.
+fn lexical_absolute(input: &Path) -> PathBuf {
+    let raw = input.to_path_buf();
     let joined = if raw.is_absolute() {
         raw
     } else {
@@ -369,28 +379,11 @@ mod tests {
         d
     }
 
-    fn cfg_yaml(data_dir: Option<&str>) -> String {
-        let dd = data_dir
-            .map(|d| format!("    data_dir: \"{d}\"\n"))
-            .unwrap_or_default();
+    fn cfg_yaml(db_path: &str) -> String {
         format!(
             r#"
-postgresql:
-  use_embedded: true
-  embedded:
-    version: "18.3.0"
-    port: 54341
-    bind_address: "127.0.0.1"
-    username: "postgres"
-    password: "password"
-    database: "postgres"
-{dd}    timezone: "UTC"
-    log_timezone: "UTC"
-    logging:
-      collector: true
-      directory: "log"
-      filename: "pg.log"
-      statement: "all"
+database:
+  path: "{db_path}"
 server:
   host: "127.0.0.1"
   port: 3100
@@ -405,8 +398,8 @@ jwt:
         )
     }
 
-    fn config_with_pgdata(data_dir: &str) -> ServerConfig {
-        serde_norway::from_str(&cfg_yaml(Some(data_dir))).expect("test config parses")
+    fn config_with_db_file(db_path: &str) -> ServerConfig {
+        serde_norway::from_str(&cfg_yaml(db_path)).expect("test config parses")
     }
 
     // ── THE DEFECT ──────────────────────────────────────────────────────────
@@ -418,13 +411,15 @@ jwt:
     ///
     /// This is the bug as it actually happened. Two git worktrees both fall
     /// back to `~/.app` (neither sets `CYTO_APP_DATA_DIR`) while each runs its
-    /// own embedded cluster, so B's boot-time sweep saw A's blobs as orphans —
-    /// they are, to B's catalog — and unlinked them.
+    /// own database — the pre-SQLite shape ran its own embedded cluster, the
+    /// SQLite shape resolves its own DB file (`database.path` per worktree) —
+    /// so B's boot-time sweep saw A's blobs as orphans — they are, to B's
+    /// catalog — and unlinked them.
     #[tokio::test]
     async fn a_second_catalog_sweep_never_frees_the_first_catalogs_live_blobs() {
         let data_root = tmp();
-        let a = config_with_pgdata(&data_root.join("worktree-a/pgdata").display().to_string());
-        let b = config_with_pgdata(&data_root.join("worktree-b/pgdata").display().to_string());
+        let a = config_with_db_file(&data_root.join("worktree-a/txresbench.db").display().to_string());
+        let b = config_with_db_file(&data_root.join("worktree-b/txresbench.db").display().to_string());
 
         // Catalog A: one live artifact.
         let claim_a = resolve_owned_root(&data_root, &catalog_key(&a));
@@ -456,8 +451,8 @@ jwt:
     #[test]
     fn distinct_catalogs_never_share_a_blob_store_root() {
         let data_root = tmp();
-        let a = config_with_pgdata("/srv/a/pgdata");
-        let b = config_with_pgdata("/srv/b/pgdata");
+        let a = config_with_db_file("/srv/a/txresbench.db");
+        let b = config_with_db_file("/srv/b/txresbench.db");
         let ra = resolve_owned_root(&data_root, &catalog_key(&a)).root;
         let rb = resolve_owned_root(&data_root, &catalog_key(&b)).root;
         assert_ne!(
@@ -468,16 +463,53 @@ jwt:
         let _ = std::fs::remove_dir_all(&data_root);
     }
 
-    /// The identity really is the CLUSTER, not the connection string: the dev
-    /// config is copied verbatim into every worktree, so both carry
-    /// `127.0.0.1:54341/postgres` and only `data_dir` differs. A key built from
-    /// the URL would collide and reproduce the bug.
+    /// The identity really is the DB FILE, not the config: the dev config is
+    /// copied verbatim into every worktree, so both carry the SAME `database:`
+    /// block (or none) — what differs per worktree is the resolved target (the
+    /// per-worktree app-data dir in the dev case). A key built from the config
+    /// alone would collide and reproduce the bug.
     #[test]
-    fn worktrees_sharing_a_url_but_not_a_cluster_get_distinct_keys() {
-        let a = config_with_pgdata("/wt/a/cytoanalyst-data/dev/postgres-data");
-        let b = config_with_pgdata("/wt/b/cytoanalyst-data/dev/postgres-data");
-        assert_eq!(a.database_url(), b.database_url(), "premise: same URL");
-        assert_ne!(catalog_key(&a), catalog_key(&b));
+    fn worktrees_sharing_a_config_but_not_a_db_file_get_distinct_keys() {
+        let dir_a = tmp();
+        let dir_b = tmp();
+        // Two "worktrees": identical config (no database block — the copied
+        // dev shape), per-worktree app-data dirs.
+        let cfg: ServerConfig = serde_norway::from_str(
+            "server:\n  host: \"127.0.0.1\"\n  port: 3100\n  api_prefix: \"/api\"\njwt:\n  secret: \"test-secret-key-for-jwt-tokens-min-32-chars-long\"\n  issuer: \"cytoanalyst\"\n  audience: \"cytoanalyst-api\"\n  access_token_expiry_hours: 24\n  refresh_token_expiry_days: 30\n",
+        )
+        .expect("identical mixed config parses");
+        let key_a = {
+            let _guard = crate::modules::rootfs::scoped_data_root(&dir_a);
+            catalog_key(&cfg)
+        };
+        let key_b = {
+            let _guard = crate::modules::rootfs::scoped_data_root(&dir_b);
+            catalog_key(&cfg)
+        };
+        assert_ne!(
+            key_a, key_b,
+            "identical configs in different app-data dirs must be distinct catalogs"
+        );
+        let _ = std::fs::remove_dir_all(&dir_a);
+        let _ = std::fs::remove_dir_all(&dir_b);
+    }
+
+    /// Two configs resolving THE SAME DB file (the `database.url` URL spelling
+    /// and the `database.path` path spelling of one file — the bootstrap
+    /// accepts both) are ONE catalog: they must get the same key, or the store
+    /// would silently move between boots that point at one file.
+    #[test]
+    fn one_file_two_spellings_yields_one_key() {
+        let url_cfg: ServerConfig = serde_norway::from_str(&format!(
+            "database:\n  url: \"sqlite:///srv/txr/app.db\"\nserver:\n  host: \"127.0.0.1\"\n  port: 3100\n  api_prefix: \"/api\"\njwt:\n  secret: \"test-secret-key-for-jwt-tokens-min-32-chars-long\"\n  issuer: \"cytoanalyst\"\n  audience: \"cytoanalyst-api\"\n  access_token_expiry_hours: 24\n  refresh_token_expiry_days: 30\n"
+        ))
+        .expect("url config parses");
+        let path_cfg = config_with_db_file("/srv/txr/app.db");
+        assert_eq!(
+            catalog_key(&url_cfg),
+            catalog_key(&path_cfg),
+            "the identity must be the FILE the runtime opens, not its spelling"
+        );
     }
 
     // ── DEFENCE IN DEPTH ────────────────────────────────────────────────────
@@ -518,7 +550,7 @@ jwt:
     #[test]
     fn a_single_catalog_keeps_the_default_root_and_adopts_existing_blobs() {
         let data_root = tmp();
-        let cfg = config_with_pgdata("/srv/only/pgdata");
+        let cfg = config_with_db_file("/srv/only/txresbench.db");
         let key = catalog_key(&cfg);
 
         // An existing, pre-partitioning store (the upgrade case).
@@ -543,25 +575,25 @@ jwt:
     /// silently move the store and 404 every artifact.
     #[test]
     fn the_key_is_stable_and_eight_hex() {
-        let cfg = config_with_pgdata("/srv/a/pgdata");
+        let cfg = config_with_db_file("/srv/a/txresbench.db");
         let k = catalog_key(&cfg);
         assert_eq!(k, catalog_key(&cfg));
         assert_eq!(k.len(), 8);
         assert!(k.bytes().all(|c| c.is_ascii_hexdigit()));
     }
 
-    /// A relative `data_dir` (what `config/dev.yaml` ships) is resolved against
-    /// the cwd, so it names the cluster the server will actually open — and two
-    /// worktrees running the same relative path get different keys.
+    /// A relative DB target (what `config/dev.yaml` ships for `database.path`)
+    /// is resolved against the cwd, so it names the file the server will
+    /// actually open — and two worktrees running the same relative path get
+    /// different keys.
     #[test]
-    fn a_relative_data_dir_is_absolutized() {
-        let id = catalog_identity(&config_with_pgdata(
-            "../../cytoanalyst-data/dev/postgres-data",
-        ));
+    fn a_relative_db_path_is_absolutized() {
+        let _guard = crate::modules::rootfs::scoped_data_root(&tmp());
+        let id = catalog_identity(&config_with_db_file("../../cytoanalyst-data/dev/app.db"));
         let cwd = std::env::current_dir().unwrap();
         assert!(
-            id.starts_with("pgdata:/"),
-            "a relative cluster path must absolutize: {id}"
+            id.starts_with("sqlite:/"),
+            "a relative DB path must absolutize: {id}"
         );
         assert!(!id.contains(".."), "and normalize: {id}");
         assert!(
@@ -583,8 +615,8 @@ jwt:
     /// two catalogs, which is the whole bug.
     #[test]
     fn identities_differing_below_a_src_app_component_do_not_collide() {
-        let a = stable_key("pgdata:/repo/src-app/a/pgdata");
-        let b = stable_key("pgdata:/repo/src-app/b/pgdata");
+        let a = stable_key("sqlite:/repo/src-app/a/txresbench.db");
+        let b = stable_key("sqlite:/repo/src-app/b/txresbench.db");
         assert_ne!(
             a, b,
             "the separator encoding must defeat the /src-app strip"
@@ -669,8 +701,8 @@ jwt:
     #[test]
     fn one_catalog_two_servers_share_one_store() {
         let data_root = tmp();
-        let a = config_with_pgdata("/srv/shared/pgdata");
-        let b = config_with_pgdata("/srv/shared/pgdata");
+        let a = config_with_db_file("/srv/shared/txresbench.db");
+        let b = config_with_db_file("/srv/shared/txresbench.db");
         assert_eq!(
             resolve_owned_root(&data_root, &catalog_key(&a)).root,
             resolve_owned_root(&data_root, &catalog_key(&b)).root

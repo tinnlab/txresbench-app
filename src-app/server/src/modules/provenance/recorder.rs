@@ -13,7 +13,7 @@
 //! swallowed, never panics, never fails the job.
 
 use async_trait::async_trait;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::modules::jobs::models::Job;
@@ -104,11 +104,11 @@ async fn read_run_environment(outputs: &[ProducedOutput]) -> Option<serde_json::
 
 /// The provenance recorder — holds the pool (baked in at install).
 pub struct ProvenanceRunRecorder {
-    pool: PgPool,
+    pool: SqlitePool,
 }
 
 impl ProvenanceRunRecorder {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
 
@@ -887,13 +887,14 @@ mod tests {
     #[tokio::test]
     async fn a_db_fault_resolving_inputs_propagates_instead_of_truncating_the_closure() {
         use crate::modules::sandbox::spec::InputDecl;
-        use sqlx::postgres::PgPoolOptions;
+        use sqlx::sqlite::SqlitePoolOptions;
 
-        // A lazily-connected pool at a closed port: the catalog lookup errors.
-        let unreachable = PgPoolOptions::new()
+        // A lazily-connected pool at a nonexistent path: the catalog lookup
+        // errors (the ITEM-19/20 convention — no "closed port" for sqlite).
+        let unreachable = SqlitePoolOptions::new()
             .max_connections(1)
             .acquire_timeout(std::time::Duration::from_secs(2))
-            .connect_lazy("postgres://nobody:nobody@127.0.0.1:1/nowhere")
+            .connect_lazy("sqlite:///data/pbya/txresbench-app-work/__no_such_dir__/offline.sqlite")
             .expect("build a lazy pool");
 
         let mut spec = sample_spec();

@@ -37,7 +37,7 @@ use cytoanalyst::modules::workstore::authz::{
     require_artifact_read, require_dataset_read, require_project_read,
 };
 use cytoanalyst::modules::workstore::catalog::{Artifact, CatalogRepository, NewArtifact};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use super::{
@@ -49,7 +49,7 @@ use crate::common::TestServer;
 /// The shared H-1 fixture. See the module docs for the principals and why dana
 /// exists.
 struct Fixture {
-    pool: PgPool,
+    pool: SqlitePool,
     /// the platform admin's bearer token (kept because `login()` uses the
     /// created-user password, which the setup admin does not have).
     admin_token: String,
@@ -139,20 +139,24 @@ impl Fixture {
         move_dataset_to_account(&pool, e, org).await;
 
         // A file linked to D — the thing a sandbox would stage.
-        let f: Uuid = sqlx::query_scalar(
-            "WITH nf AS (
-                 INSERT INTO files (id, user_id, filename, file_size, current_version_id, created_by)
-                 VALUES (gen_random_uuid(), $1, 'bob.csv', 10, gen_random_uuid(), 'user')
-                 RETURNING id
-             ), link AS (
-                 INSERT INTO dataset_files (dataset_id, file_id, ordinal, role)
-                 SELECT $2, id, 0, 'primary' FROM nf
-             )
-             SELECT id FROM nf",
+        let f = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO files (id, user_id, filename, file_size, current_version_id, created_by) \
+             VALUES ($1, $2, 'bob.csv', 10, $3, 'user')",
         )
+        .bind(f)
         .bind(bob)
+        .bind(Uuid::new_v4())
+        .execute(&pool)
+        .await
+        .expect("seed file");
+        sqlx::query(
+            "INSERT INTO dataset_files (dataset_id, file_id, ordinal, role) \
+             VALUES ($1, $2, 0, 'primary')",
+        )
         .bind(d)
-        .fetch_one(&pool)
+        .bind(f)
+        .execute(&pool)
         .await
         .expect("seed file linked to D");
 
@@ -164,7 +168,7 @@ impl Fixture {
         sqlx::query(
             "INSERT INTO jobs (id, owner_id, job_type, name, status, params, created_at, \
                                priority_class, resource_class) \
-             VALUES ($1, $2, 'stub', 'j', 'running', '{}'::jsonb, now(), 'normal', 'cpu-sandbox')",
+             VALUES ($1, $2, 'stub', 'j', 'running', '{}', strftime('%Y-%m-%dT%H:%M:%fZ','now'), 'normal', 'cpu-sandbox')",
         )
         .bind(job)
         .bind(alice)
@@ -188,7 +192,7 @@ impl Fixture {
         // is exactly the kind of fixture coupling a deny suite must avoid.
         sqlx::query(
             "INSERT INTO dataset_shares (id, dataset_id, principal_type, principal_id, role) \
-             VALUES (gen_random_uuid(), $1, 'user', $2, 'edit')",
+             VALUES (randomblob(16), $1, 'user', $2, 'edit')",
         )
         .bind(d)
         .bind(eve)
@@ -203,7 +207,7 @@ impl Fixture {
         sqlx::query(
             "INSERT INTO jobs (id, owner_id, job_type, name, status, params, created_at, \
                                priority_class, resource_class) \
-             VALUES ($1, $2, 'stub', 'pj', 'running', '{}'::jsonb, now(), 'normal', 'cpu-sandbox')",
+             VALUES ($1, $2, 'stub', 'pj', 'running', '{}', strftime('%Y-%m-%dT%H:%M:%fZ','now'), 'normal', 'cpu-sandbox')",
         )
         .bind(pjob)
         .bind(alice)
@@ -230,7 +234,7 @@ impl Fixture {
             sqlx::query(
                 "INSERT INTO jobs (id, owner_id, job_type, name, status, params, created_at, \
                                    priority_class, resource_class) \
-                 VALUES ($1, $2, 'stub', 'ctl', 'running', '{}'::jsonb, now(), 'normal', \
+                 VALUES ($1, $2, 'stub', 'ctl', 'running', '{}', strftime('%Y-%m-%dT%H:%M:%fZ','now'), 'normal', \
                          'cpu-sandbox')",
             )
             .bind(jid)
@@ -937,18 +941,24 @@ async fn removed_member_cannot_split_the_accounts_dataset() {
     // NOT_SPLITTABLE), so give D a second file — otherwise the 404 below could be
     // produced by the splittability check instead of the gate under test.
     for n in ["b.csv", "c.csv"] {
+        let fid = Uuid::new_v4();
         sqlx::query(
-            "WITH nf AS (
-                 INSERT INTO files (id, user_id, filename, file_size, current_version_id, created_by)
-                 VALUES (gen_random_uuid(), $1, $3, 10, gen_random_uuid(), 'user')
-                 RETURNING id
-             )
-             INSERT INTO dataset_files (dataset_id, file_id, ordinal, role)
-             SELECT $2, id, 1, 'primary' FROM nf",
+            "INSERT INTO files (id, user_id, filename, file_size, current_version_id, created_by) \
+             VALUES ($1, $2, $3, 10, $4, 'user')",
         )
+        .bind(fid)
         .bind(fx.bob)
-        .bind(fx.d)
         .bind(n)
+        .bind(Uuid::new_v4())
+        .execute(&fx.pool)
+        .await
+        .expect("seed file");
+        sqlx::query(
+            "INSERT INTO dataset_files (dataset_id, file_id, ordinal, role) \
+             VALUES ($1, $2, 1, 'primary')",
+        )
+        .bind(fx.d)
+        .bind(fid)
         .execute(&fx.pool)
         .await
         .expect("seed extra files so D is splittable");
@@ -1039,18 +1049,24 @@ async fn a_current_member_can_still_split_the_dataset_they_created() {
     let dana_token = super::login(&server, "dana").await;
 
     for n in ["e1.csv", "e2.csv"] {
+        let fid = Uuid::new_v4();
         sqlx::query(
-            "WITH nf AS (
-                 INSERT INTO files (id, user_id, filename, file_size, current_version_id, created_by)
-                 VALUES (gen_random_uuid(), $1, $3, 10, gen_random_uuid(), 'user')
-                 RETURNING id
-             )
-             INSERT INTO dataset_files (dataset_id, file_id, ordinal, role)
-             SELECT $2, id, 1, 'primary' FROM nf",
+            "INSERT INTO files (id, user_id, filename, file_size, current_version_id, created_by) \
+             VALUES ($1, $2, $3, 10, $4, 'user')",
         )
+        .bind(fid)
         .bind(fx.dana)
-        .bind(fx.e)
         .bind(n)
+        .bind(Uuid::new_v4())
+        .execute(&fx.pool)
+        .await
+        .expect("seed file");
+        sqlx::query(
+            "INSERT INTO dataset_files (dataset_id, file_id, ordinal, role) \
+             VALUES ($1, $2, 1, 'primary')",
+        )
+        .bind(fx.e)
+        .bind(fid)
         .execute(&fx.pool)
         .await
         .expect("seed files on E");
@@ -1104,7 +1120,7 @@ async fn a_removed_ex_owner_with_a_share_is_labelled_by_the_share_not_owner() {
     // bob owns P and also holds an ACCEPTED viewer share on it.
     sqlx::query(
         "INSERT INTO project_shares (id, project_id, owner_id, recipient_id, permission_level, status) \
-         VALUES (gen_random_uuid(), $1, $2, $3, 'viewer', 'accepted')",
+         VALUES (randomblob(16), $1, $2, $3, 'viewer', 'accepted')",
     )
     .bind(fx.p)
     .bind(fx.alice)
@@ -1629,7 +1645,7 @@ async fn a_removed_member_with_a_surviving_edit_share_may_watch_but_not_stop() {
     // orthogonal to membership and this branch does not narrow it).
     sqlx::query(
         "INSERT INTO dataset_shares (id, dataset_id, principal_type, principal_id, role) \
-         VALUES (gen_random_uuid(), $1, 'user', $2, 'edit')",
+         VALUES (randomblob(16), $1, 'user', $2, 'edit')",
     )
     .bind(fx.d)
     .bind(fx.bob)
@@ -1979,20 +1995,24 @@ async fn personal_account_owner_retains_every_access_they_had() {
         .await
         .unwrap()
         .id;
-    let f: Uuid = sqlx::query_scalar(
-        "WITH nf AS (
-             INSERT INTO files (id, user_id, filename, file_size, current_version_id, created_by)
-             VALUES (gen_random_uuid(), $1, 'solo.csv', 10, gen_random_uuid(), 'user')
-             RETURNING id
-         ), link AS (
-             INSERT INTO dataset_files (dataset_id, file_id, ordinal, role)
-             SELECT $2, id, 0, 'primary' FROM nf
-         )
-         SELECT id FROM nf",
+    let f = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO files (id, user_id, filename, file_size, current_version_id, created_by) \
+         VALUES ($1, $2, 'solo.csv', 10, $3, 'user')",
     )
+    .bind(f)
     .bind(solo)
+    .bind(Uuid::new_v4())
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO dataset_files (dataset_id, file_id, ordinal, role) \
+         VALUES ($1, $2, 0, 'primary')",
+    )
     .bind(d)
-    .fetch_one(&pool)
+    .bind(f)
+    .execute(&pool)
     .await
     .unwrap();
 
@@ -2280,7 +2300,7 @@ async fn the_two_filed_holes_are_closed() {
         sqlx::query(
             "INSERT INTO jobs (id, owner_id, job_type, name, status, params, created_at, \
                                priority_class, resource_class) \
-             VALUES ($1, $2, 'stub', 'j2', 'running', '{}'::jsonb, now(), 'normal', \
+             VALUES ($1, $2, 'stub', 'j2', 'running', '{}', strftime('%Y-%m-%dT%H:%M:%fZ','now'), 'normal', \
                      'cpu-sandbox')",
         )
         .bind(jid)
@@ -2403,12 +2423,12 @@ async fn the_two_filed_holes_are_closed() {
 /// Seed a `jobs` row owned by `owner`, optionally scoped. Returns its id.
 /// (Deliberately raw SQL, like the fixture's own jobs: the create ROUTE would apply
 /// its own admission gate and this suite is about the READ/CONTROL gates.)
-async fn seed_job(pool: &PgPool, owner: Uuid, scope: Option<(&str, Uuid)>) -> Uuid {
+async fn seed_job(pool: &SqlitePool, owner: Uuid, scope: Option<(&str, Uuid)>) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO jobs (id, owner_id, job_type, name, status, params, created_at, \
                            priority_class, resource_class) \
-         VALUES ($1, $2, 'stub', 'sc', 'running', '{}'::jsonb, now(), 'normal', 'cpu-sandbox')",
+         VALUES ($1, $2, 'stub', 'sc', 'running', '{}', strftime('%Y-%m-%dT%H:%M:%fZ','now'), 'normal', 'cpu-sandbox')",
     )
     .bind(id)
     .bind(owner)
@@ -2427,7 +2447,7 @@ async fn seed_job(pool: &PgPool, owner: Uuid, scope: Option<(&str, Uuid)>) -> Uu
     id
 }
 
-async fn load_job(pool: &PgPool, id: Uuid) -> cytoanalyst::modules::jobs::models::Job {
+async fn load_job(pool: &SqlitePool, id: Uuid) -> cytoanalyst::modules::jobs::models::Job {
     sqlx::query_as("SELECT * FROM jobs WHERE id = $1")
         .bind(id)
         .fetch_one(pool)
@@ -2437,10 +2457,10 @@ async fn load_job(pool: &PgPool, id: Uuid) -> cytoanalyst::modules::jobs::models
 
 /// Seed a `files` row uploaded by `uploader`, optionally linked into `dataset`.
 /// `files.user_id` is the UPLOADING ACTOR, which is the whole subject of #170.
-async fn seed_file(pool: &PgPool, uploader: Uuid, dataset: Option<Uuid>) -> Uuid {
+async fn seed_file(pool: &SqlitePool, uploader: Uuid, dataset: Option<Uuid>) -> Uuid {
     let id: Uuid = sqlx::query_scalar(
         "INSERT INTO files (id, user_id, filename, file_size, current_version_id, created_by) \
-         VALUES (gen_random_uuid(), $1, 'seed.csv', 10, gen_random_uuid(), 'user') RETURNING id",
+         VALUES (randomblob(16), $1, 'seed.csv', 10, randomblob(16), 'user') RETURNING id",
     )
     .bind(uploader)
     .fetch_one(pool)
@@ -2685,7 +2705,7 @@ async fn removed_member_leaves_the_project_sync_audience() {
     sqlx::query(
         "INSERT INTO project_shares (id, project_id, owner_id, recipient_id, \
                                      permission_level, status) \
-         VALUES (gen_random_uuid(), $1, $2, $3, 'editor', 'accepted')",
+         VALUES (randomblob(16), $1, $2, $3, 'editor', 'accepted')",
     )
     .bind(fx.p)
     .bind(fx.bob)
@@ -2892,7 +2912,7 @@ async fn an_edit_sharee_keeps_control_of_the_job_they_started() {
     // two dataset-scoped runs whose fates must differ.
     sqlx::query(
         "INSERT INTO dataset_shares (id, dataset_id, principal_type, principal_id, role) \
-         VALUES (gen_random_uuid(), $1, 'user', $2, 'edit')",
+         VALUES (randomblob(16), $1, 'user', $2, 'edit')",
     )
     .bind(fx.e)
     .bind(fx.eve)
@@ -3002,7 +3022,7 @@ async fn a_removed_members_surviving_share_still_grants_what_it_granted() {
     // bob gets an `edit` share on the dataset he created, which SURVIVES his removal.
     sqlx::query(
         "INSERT INTO dataset_shares (id, dataset_id, principal_type, principal_id, role) \
-         VALUES (gen_random_uuid(), $1, 'user', $2, 'edit')",
+         VALUES (randomblob(16), $1, 'user', $2, 'edit')",
     )
     .bind(fx.d)
     .bind(fx.bob)
@@ -3436,7 +3456,7 @@ async fn a_disabled_groups_member_cannot_stage_the_datasets_bytes() {
 
     let group: Uuid = sqlx::query_scalar(
         "INSERT INTO groups (id, name, description, permissions, is_active) \
-         VALUES (gen_random_uuid(), 'shared-170', '', '{}', true) RETURNING id",
+         VALUES (randomblob(16), 'shared-170', '', '{}', true) RETURNING id",
     )
     .fetch_one(&fx.pool)
     .await
@@ -3449,7 +3469,7 @@ async fn a_disabled_groups_member_cannot_stage_the_datasets_bytes() {
         .expect("assign to group");
     sqlx::query(
         "INSERT INTO dataset_shares (id, dataset_id, principal_type, principal_id, role) \
-         VALUES (gen_random_uuid(), $1, 'group', $2, 'view')",
+         VALUES (randomblob(16), $1, 'group', $2, 'view')",
     )
     .bind(fx.d)
     .bind(group)
@@ -3623,7 +3643,7 @@ async fn removed_member_receives_no_frames_from_the_project_and_dataset_routes()
     // its own inlined audience, on a path no owner-facing test reaches. Driven on a
     // second bob-created project so the owner-delete leg below still has one.
     let p2: Uuid = sqlx::query_scalar(
-        "INSERT INTO projects (id, owner_id, account_id, name, description)          VALUES (gen_random_uuid(), $1, $2, 'bobs-second', '') RETURNING id",
+        "INSERT INTO projects (id, owner_id, account_id, name, description)          VALUES (randomblob(16), $1, $2, 'bobs-second', '') RETURNING id",
     )
     .bind(fx.bob)
     .bind(fx.org)
@@ -3724,7 +3744,7 @@ async fn a_group_share_is_standing_for_the_creator_arm_in_all_three_graders() {
     let grouped = create_user(&server, &fx.admin_token, "grp167", "grp167@x.test").await;
     let group: Uuid = sqlx::query_scalar(
         "INSERT INTO groups (id, name, description, permissions, is_active) \
-         VALUES (gen_random_uuid(), 'shared-167', '', '{}', true) RETURNING id",
+         VALUES (randomblob(16), 'shared-167', '', '{}', true) RETURNING id",
     )
     .fetch_one(&fx.pool)
     .await
@@ -3743,7 +3763,7 @@ async fn a_group_share_is_standing_for_the_creator_arm_in_all_three_graders() {
     // creator arm would leave this test green: a confounded control proving nothing.
     sqlx::query(
         "INSERT INTO dataset_shares (id, dataset_id, principal_type, principal_id, role) \
-         VALUES (gen_random_uuid(), $1, 'group', $2, 'view')",
+         VALUES (randomblob(16), $1, 'group', $2, 'view')",
     )
     .bind(fx.d)
     .bind(group)
@@ -4137,7 +4157,7 @@ async fn the_share_unshare_and_split_routes_fan_to_the_account_audience() {
     // account owner does not watch the parent vanish and the children never appear.
     let multi: Uuid = sqlx::query_scalar(
         "INSERT INTO datasets (id, owner_id, account_id, name, metadata) \
-         VALUES (gen_random_uuid(), $1, $2, 'danas-multi', '{}'::jsonb) RETURNING id",
+         VALUES (randomblob(16), $1, $2, 'danas-multi', '{}') RETURNING id",
     )
     .bind(fx.dana)
     .bind(fx.org)

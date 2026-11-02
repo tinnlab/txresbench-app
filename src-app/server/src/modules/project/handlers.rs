@@ -5,7 +5,7 @@
 use axum::extract::{Path, Query};
 use axum::http::StatusCode;
 use axum::{Extension, Json};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use ziee_auth::auth::context::AuthContext;
@@ -123,7 +123,7 @@ async fn publish_project_audience(
 
 pub async fn list_projects(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Query(q): Query<ProjectListQuery>,
 ) -> ApiResult<Json<ProjectListResponse>> {
     let repo = ProjectRepository::new(pool);
@@ -148,7 +148,7 @@ pub async fn list_projects(
 pub async fn create_project(
     auth: RequirePermissions<(ProjectsUse,)>,
     active: crate::modules::account::ActiveAccount,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Json(req): Json<CreateProjectRequest>,
 ) -> ApiResult<Json<ProjectDto>> {
@@ -182,7 +182,7 @@ pub async fn create_project(
 
 pub async fn get_project(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<ProjectDto>> {
     let repo = ProjectRepository::new(pool);
@@ -201,7 +201,7 @@ pub async fn get_project(
 /// inner project role via `resolve_scope`).
 pub async fn get_project_access(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<ProjectAccessDto>> {
     let repo = ProjectRepository::new(pool);
@@ -230,7 +230,7 @@ pub async fn get_project_access(
 
 pub async fn update_project(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateProjectRequest>,
@@ -265,7 +265,7 @@ pub async fn update_project(
 
 pub async fn delete_project(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Path(id): Path<Uuid>,
 ) -> ApiResult<()> {
@@ -306,7 +306,7 @@ pub async fn delete_project(
 
 pub async fn duplicate_project(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<ProjectDto>> {
@@ -351,7 +351,7 @@ pub async fn duplicate_project(
 
 pub async fn attach_dataset(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Path((id, dataset_id)): Path<(Uuid, Uuid)>,
 ) -> ApiResult<Json<ProjectDto>> {
@@ -405,7 +405,7 @@ pub async fn attach_dataset(
 
 pub async fn detach_dataset(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Path((id, dataset_id)): Path<(Uuid, Uuid)>,
 ) -> ApiResult<Json<ProjectDto>> {
@@ -446,7 +446,7 @@ pub async fn detach_dataset(
 
 pub async fn list_project_datasets(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path(id): Path<Uuid>,
     Query(q): Query<ProjectListQuery>,
 ) -> ApiResult<Json<ProjectDatasetsResponse>> {
@@ -471,7 +471,7 @@ pub async fn list_project_datasets(
 
 pub async fn create_share(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Extension(ctx): Extension<AuthContext>,
     origin: SyncOrigin,
     Path(id): Path<Uuid>,
@@ -580,7 +580,7 @@ pub async fn create_share(
 
 pub async fn list_project_shares(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<ProjectSharesResponse>> {
     let repo = ProjectRepository::new(pool);
@@ -592,7 +592,7 @@ pub async fn list_project_shares(
 
 pub async fn accept_share(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Path(share_id): Path<Uuid>,
 ) -> ApiResult<Json<ProjectShare>> {
@@ -646,7 +646,7 @@ pub async fn accept_share(
 
 pub async fn decline_share(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Path(share_id): Path<Uuid>,
 ) -> ApiResult<Json<ProjectShare>> {
@@ -682,7 +682,7 @@ pub async fn decline_share(
 
 pub async fn revoke_share(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Path(share_id): Path<Uuid>,
 ) -> ApiResult<()> {
@@ -726,7 +726,7 @@ pub async fn revoke_share(
 
 pub async fn create_transfer(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Extension(ctx): Extension<AuthContext>,
     origin: SyncOrigin,
     Path(id): Path<Uuid>,
@@ -825,7 +825,7 @@ pub async fn create_transfer(
 
 pub async fn accept_transfer(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Path(transfer_id): Path<Uuid>,
 ) -> ApiResult<Json<ProjectTransfer>> {
@@ -874,7 +874,7 @@ pub async fn accept_transfer(
 
 pub async fn decline_transfer(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Path(transfer_id): Path<Uuid>,
 ) -> ApiResult<Json<ProjectTransfer>> {
@@ -918,7 +918,7 @@ pub async fn decline_transfer(
 /// project's transfer capability forever). Scoped to the from_user + pending.
 pub async fn cancel_transfer(
     auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Path(transfer_id): Path<Uuid>,
 ) -> ApiResult<()> {
@@ -961,7 +961,7 @@ pub async fn get_settings(
     // it so the client can correctly hide the Transfer affordance when it's off.
     // MANAGE (PUT) stays admin-only.
     _auth: RequirePermissions<(ProjectsUse,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
 ) -> ApiResult<Json<ProjectSettings>> {
     let repo = ProjectRepository::new(pool);
     let settings = repo.get_settings().await.map_err(e)?;
@@ -970,7 +970,7 @@ pub async fn get_settings(
 
 pub async fn update_settings(
     _auth: RequirePermissions<(super::permissions::ProjectSettingsManage,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     origin: SyncOrigin,
     Json(req): Json<UpdateProjectSettingsRequest>,
 ) -> ApiResult<Json<ProjectSettings>> {

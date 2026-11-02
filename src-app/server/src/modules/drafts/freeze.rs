@@ -17,7 +17,8 @@
 //! * **`POST /jobs` referencing an `open` draft** ([`resolve_draft_inputs_for_create`]):
 //!   in ONE short flow — validate EVERY input first (a partial failure enqueues
 //!   NOTHING), then for each open draft find-or-reuse an in-flight freeze job (dedup
-//!   under a per-draft advisory lock) and create the CONSUMER as `blocked` on those
+//!   under a per-draft write-lock (the `BEGIN IMMEDIATE` transaction, SQLite's
+//!   substitution for `pg_advisory_xact_lock` — ITEM-23) and create the CONSUMER as `blocked` on those
 //!   freeze jobs via `job_dependencies`. The consumer returns 202, pending. NO producer
 //!   run is awaited; NO connection / row lock is held across a run.
 //! * **Freeze-completion hook** ([`FreezeCompletion`]) — extends the jobs completion
@@ -41,7 +42,7 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use sqlx::PgPool;
+use sqlx::{SqliteConnection, SqlitePool};
 use uuid::Uuid;
 use ziee_core::AppError;
 
@@ -75,7 +76,7 @@ pub struct DraftResolution {
 ///
 /// The fast path clones unchanged when no input references a draft.
 pub async fn resolve_draft_inputs_for_create(
-    pool: &PgPool,
+    pool: &SqlitePool,
     params: &serde_json::Value,
     owner_id: Uuid,
 ) -> Result<DraftResolution, AppError> {
@@ -148,7 +149,7 @@ pub async fn resolve_draft_inputs_for_create(
 /// resolved edit access + handled the idempotent already-frozen case; this just
 /// find-or-creates the producer job (422 when the draft's `kind` names no producer).
 pub async fn enqueue_freeze_for_draft(
-    pool: &PgPool,
+    pool: &SqlitePool,
     draft: &Draft,
     actor_id: Uuid,
 ) -> Result<Uuid, AppError> {
@@ -179,7 +180,7 @@ pub fn assert_no_unresolved_draft_refs(spec: &AnalysisSpec) -> Result<(), String
 /// Load a draft the consuming/freezing actor may EDIT (freeze mutates its project). A
 /// nonexistent/foreign draft → 404 (INV-3), a viewer → 403.
 async fn load_editable_draft(
-    pool: &PgPool,
+    pool: &SqlitePool,
     draft_id: Uuid,
     owner_id: Uuid,
 ) -> Result<Draft, AppError> {
@@ -263,33 +264,37 @@ fn build_freeze_producer_params(draft: &Draft) -> Result<serde_json::Value, AppE
 }
 
 /// Find an in-flight freeze producer job for `draft`'s CURRENT content (content-aware
-/// dedup) or create one, returning its id. Serialized per-draft by a
-/// `pg_advisory_xact_lock` held ONLY across the find-or-create decision (never across the
-/// producer RUN — DEC-2), so two concurrent consumers of the same open draft at the same
-/// content share ONE freeze job.
+/// dedup) or create one, returning its id. Serialized per-draft by the transaction's
+/// WRITE LOCK (`BEGIN IMMEDIATE` — the SQLite substitution for the dropped
+/// `pg_advisory_xact_lock`, ITEM-19's doctrine: SQLite has no advisory locks, the
+/// single-writer transaction IS the lock) held ONLY across the find-or-create decision
+/// (never across the producer RUN — DEC-2), so two concurrent consumers of the same
+/// open draft at the same content share ONE freeze job.
 ///
 /// The job row AND its `draft_freeze_jobs` mapping are inserted in the SAME transaction
 /// (`lock_tx`): a mapping-insert failure rolls the producer job back with it, so a freeze
 /// producer can never run orphaned (unmapped → its completion hook would never resolve its
 /// draft). This also removes the earlier nested second-pool-connection acquire.
 async fn find_or_create_freeze_job(
-    pool: &PgPool,
+    pool: &SqlitePool,
     draft: &Draft,
     actor_id: Uuid,
 ) -> Result<Uuid, AppError> {
     // Build the producer params BEFORE taking the lock — a missing producer 422s here
-    // without ever holding the advisory lock.
+    // without ever holding the write lock.
     let params = build_freeze_producer_params(draft)?;
     // The content-aware dedup key: a stable hash of the draft's CURRENT `data`. Only an
     // in-flight freeze that captured THESE bytes may be reused.
     let content_hash = draft_content_hash(&draft.data);
 
-    let mut lock_tx = pool.begin().await.map_err(AppError::database_error)?;
-    sqlx::query_scalar!("SELECT pg_advisory_xact_lock($1)", advisory_key(draft.id))
-        .fetch_one(&mut *lock_tx)
+    // `BEGIN IMMEDIATE` acquires the SQLite reserved lock at the transaction's open, so
+    // exactly one find-or-create runs at a time: a concurrent consumer's transaction
+    // waits at its open (pool `busy_timeout`) and then sees the committed mapping —
+    // the ITEM-18/19 write-serialization substitution for the advisory lock.
+    let mut lock_tx = pool
+        .begin_with("BEGIN IMMEDIATE")
         .await
         .map_err(AppError::database_error)?;
-
     if let Some(existing) =
         DraftRepository::find_inflight_freeze_job(&mut lock_tx, draft.id, &content_hash).await?
     {
@@ -298,7 +303,7 @@ async fn find_or_create_freeze_job(
     }
 
     // None in-flight at this content → create the freeze producer job AND its mapping in
-    // THIS one transaction (atomic), so the mapping is visible the instant the advisory
+    // THIS one transaction (atomic), so the mapping is visible the instant the write
     // lock releases to a racing consumer and no orphan producer can exist.
     let create = CreateJobRequest {
         job_type: "analysis".to_string(),
@@ -324,17 +329,6 @@ async fn find_or_create_freeze_job(
         job.id,
     );
     Ok(job.id)
-}
-
-/// A stable per-draft advisory-lock key ('drafts.freeze' namespace ⊕ FNV-1a of the id).
-/// Collisions only cause extra serialization, never incorrectness.
-fn advisory_key(draft_id: Uuid) -> i64 {
-    let mut h: u64 = 0xcafe_f00d_c0ff_ee11; // namespace seed
-    for &b in draft_id.as_bytes() {
-        h ^= b as u64;
-        h = h.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    h as i64
 }
 
 /// A stable content hash of a draft's opaque `data` — the CONTENT-AWARE freeze-dedup key
@@ -413,11 +407,11 @@ fn substitute_draft_refs(
 /// The installed [`FreezeCompletionSink`] (pool baked in). Registered from
 /// `DraftsModule::init`; read by the jobs completion path.
 pub struct FreezeCompletion {
-    pool: PgPool,
+    pool: SqlitePool,
 }
 
 impl FreezeCompletion {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
 
@@ -427,7 +421,7 @@ impl FreezeCompletion {
     /// requested). Returns the frozen draft id(s) for the post-commit emit.
     async fn run_hook(
         &self,
-        conn: &mut sqlx::PgConnection,
+        conn: &mut SqliteConnection,
         completed_job_id: Uuid,
     ) -> Result<Vec<Uuid>, AppError> {
         // IDENTIFY with a PK-only lookup on `draft_freeze_jobs` — touching NO other table.
@@ -509,7 +503,7 @@ impl FreezeCompletion {
     /// when the draft vanished, the run id is unresolvable, or the producer minted no
     /// artifact.
     async fn resolve_freeze_artifact(
-        conn: &mut sqlx::PgConnection,
+        conn: &mut SqliteConnection,
         freeze_job_id: Uuid,
         draft_id: Uuid,
     ) -> Result<Option<Uuid>, AppError> {
@@ -531,7 +525,7 @@ impl FreezeCompletion {
     /// as the completion hook, so a non-freeze dep touches only `draft_freeze_jobs`.
     async fn substitute_completed(
         &self,
-        conn: &mut sqlx::PgConnection,
+        conn: &mut SqliteConnection,
         params: &serde_json::Value,
         completed_dep_ids: &[Uuid],
     ) -> Result<serde_json::Value, AppError> {
@@ -555,7 +549,7 @@ impl FreezeCompletion {
 impl FreezeCompletionSink for FreezeCompletion {
     async fn on_freeze_completed_in_tx(
         &self,
-        conn: &mut sqlx::PgConnection,
+        conn: &mut SqliteConnection,
         completed_job_id: Uuid,
     ) -> Result<Vec<Uuid>, String> {
         self.run_hook(conn, completed_job_id)
@@ -565,7 +559,7 @@ impl FreezeCompletionSink for FreezeCompletion {
 
     async fn substitute_completed_freeze_deps_in_tx(
         &self,
-        conn: &mut sqlx::PgConnection,
+        conn: &mut SqliteConnection,
         params: &serde_json::Value,
         completed_dep_ids: &[Uuid],
     ) -> Result<serde_json::Value, String> {
@@ -639,17 +633,6 @@ mod tests {
         assert_eq!(out, params);
     }
 
-    #[test]
-    fn advisory_key_is_stable_and_varies() {
-        let a = Uuid::new_v4();
-        let b = Uuid::new_v4();
-        assert_eq!(advisory_key(a), advisory_key(a), "stable per id");
-        assert_ne!(advisory_key(a), advisory_key(b), "varies by id");
-    }
-
-    // The content-aware dedup key (round-3): stable for identical content, invariant to
-    // object key ORDER (so a jsonb round-trip can't change it), and DIFFERENT for
-    // different content (so an edited draft does not reuse the stale freeze).
     #[test]
     fn content_hash_is_stable_order_invariant_and_content_sensitive() {
         let a = serde_json::json!({ "n": 1, "items": ["A", "B"], "meta": { "x": 1, "y": 2 } });

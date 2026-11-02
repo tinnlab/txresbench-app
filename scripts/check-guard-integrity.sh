@@ -119,7 +119,13 @@ GUARD_GLOBS=('scripts/check-*.sh' 'scripts/check-*.mjs' 'scripts/lib/*' 'scripts
 # controls are pinned for the reason `check-design-citations.test.mjs` and
 # `check-pub-orphans.test.mjs` are: they are the only thing that establishes the guard beside
 # them still BITES, so gutting them is gutting the guard one level up.
-MIN_GUARDS=31
+# App branch (4001939): 31 -> 32 with `scripts/check-network-allowlist.sh` and its controls
+# `scripts/check-network-allowlist.test.mjs`. Both entered the tree in that app-audit commit
+# (licence/network audit) and were never pinned — the two entries this branch's ITEM-27
+# re-pin adds. The pin-before-use rule applies to a guard the app SHIPS: the network
+# allowlist is the contract for "only method-env + update-check network use", and an
+# unpinned copy can be gutted in a diff nobody reads, exactly like any other guard.
+MIN_GUARDS=32
 
 MODE='verify'
 case "${1:-}" in

@@ -82,48 +82,42 @@ fn membership(aligned_to: &str, kind: &str, n: i64, bitmap: Option<&str>) -> Val
 // ── 1. the migration, and the two directives ──────────────────────────────────────────
 
 #[tokio::test]
-async fn test31_the_membership_index_exists_with_its_expression_and_opclass() {
+async fn test31_the_membership_index_migration_applies_and_is_documented_as_gone() {
     // The server SPAWNED, which means the migrator ran the whole chain against this test's own
-    // database. If `-- no-transaction` were missing, `CREATE INDEX CONCURRENTLY` would have
-    // aborted the migration and the server would not be here to answer.
+    // database. On the Postgres chain the load-bearing property is that the migration APPLIES:
+    // without the `-- no-transaction` directive `CREATE INDEX CONCURRENTLY` aborts at BOOT,
+    // and nothing at compile time sees that. The SQLite port of the migration is
+    // comments-only (see `src/modules/workstore/migrations/202608280001_artifact_membership_index.sql`):
+    // a GIN expression index has no SQLite form, so the ported file documents the divergence
+    // and the runtime containment behaviour is pinned by `test30_on_axis_returns_exactly_the_
+    // artifacts_declaring_that_axis` below.
     let server = TestServer::spawn().await;
     let pool = pool_for(&server).await;
 
-    let def: Option<String> = sqlx::query_scalar(
-        "SELECT indexdef::text FROM pg_indexes
-          WHERE schemaname = 'public' AND indexname = 'artifacts_membership_aligned_to_idx'",
+    let applied: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM _sqlx_migrations WHERE version = 202608280001)",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("read migration history");
+    assert!(
+        applied,
+        "the membership-index migration did not apply at boot — the `-- no-transaction` \
+         tripwire would have aborted the chain"
+    );
+
+    let staged: Option<String> = sqlx::query_scalar(
+        "SELECT sql FROM sqlite_master
+          WHERE type = 'index' AND name = 'artifacts_membership_aligned_to_idx'",
     )
     .fetch_optional(&pool)
     .await
-    .expect("pg_indexes");
-    let def = def.expect(
-        "the membership index is absent — either the migration did not apply, or \
-         `CREATE INDEX CONCURRENTLY` ran without sqlx's `-- no-transaction` directive and the \
-         migration aborted at boot",
-    );
-
-    // The EXPRESSION and the OPCLASS, not merely the name. An index on the whole `structure`
-    // column, or one under the default `jsonb_ops`, would satisfy a name check while indexing
-    // every leaf of every declaration (including ITEM-5's 64 KiB inline member sets) for a
-    // query that reads one key.
-    assert!(def.contains("gin"), "expected a GIN index, got: {def}");
+    .expect("sqlite_master");
     assert!(
-        def.contains("jsonb_path_query_array"),
-        "expected the projected EXPRESSION index, got: {def}"
-    );
-    assert!(
-        def.contains("memberships") && def.contains("aligned_to"),
-        "expected the digest projection, got: {def}"
-    );
-    assert!(
-        def.contains("jsonb_path_ops"),
-        "expected the `jsonb_path_ops` opclass (containment-only, one hash per leaf path), got: {def}"
-    );
-    // …and the blob is NOT in it. `bitmap` in the indexed expression is the write-cost defect
-    // this design note exists to prevent, and it is invisible to every functional assertion.
-    assert!(
-        !def.contains("bitmap"),
-        "the inline member set must not be indexed: {def}"
+        staged.is_none(),
+        "a SQLite form of the GIN member-set index exists ({staged:?}); the staged migration \
+         is comments-only and SQLite has no jsonb_path expression index — this would be an \
+         undocumented divergence from the staged port"
     );
 }
 
@@ -142,7 +136,7 @@ async fn test30_on_axis_returns_exactly_the_artifacts_declaring_that_axis() {
     // would pass a single-arm fixture and drop every imported artifact in production.
     let dataset_id: Uuid = sqlx::query_scalar(
         "INSERT INTO datasets (id, name, owner_id, account_id)
-         VALUES (gen_random_uuid(), 'attached', (SELECT id FROM users LIMIT 1),
+         VALUES (randomblob(16), 'attached', (SELECT id FROM users LIMIT 1),
                  (SELECT id FROM accounts WHERE kind = 'personal' AND personal_user_id = (SELECT id FROM users LIMIT 1)))
          RETURNING id",
     )

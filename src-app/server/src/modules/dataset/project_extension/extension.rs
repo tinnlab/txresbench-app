@@ -7,7 +7,7 @@
 use aide::axum::ApiRouter;
 use async_trait::async_trait;
 use linkme::distributed_slice;
-use sqlx::{PgPool, Postgres, Transaction};
+use sqlx::{Sqlite, SqlitePool, Transaction};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -21,11 +21,11 @@ use super::repository::{relink_datasets_to_project, summary_for_project};
 use super::routes::dataset_project_routes;
 
 pub struct DatasetProjectExtension {
-    pool: PgPool,
+    pool: SqlitePool,
 }
 
 impl DatasetProjectExtension {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
 }
@@ -43,7 +43,7 @@ impl ProjectExtension for DatasetProjectExtension {
     async fn on_project_deleted(
         &self,
         _project_id: Uuid,
-        _tx: &mut Transaction<'_, Postgres>,
+        _tx: &mut Transaction<'_, Sqlite>,
         _gc: &mut crate::modules::project::GcManifest,
     ) -> Result<(), AppError> {
         // Datasets are owner-scoped, shareable, and M:N to projects (they may
@@ -59,7 +59,7 @@ impl ProjectExtension for DatasetProjectExtension {
         &self,
         src_project_id: Uuid,
         dst_project_id: Uuid,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut Transaction<'_, Sqlite>,
     ) -> Result<(), AppError> {
         // M:N: a project duplicate SHARES (re-links) the same dataset rows, not a
         // deep copy — one dataset legitimately belongs to both projects.
@@ -93,7 +93,7 @@ impl ProjectExtension for DatasetProjectExtension {
     }
 }
 
-fn create(pool: PgPool) -> Arc<dyn ProjectExtension> {
+fn create(pool: SqlitePool) -> Arc<dyn ProjectExtension> {
     Arc::new(DatasetProjectExtension::new(pool))
 }
 

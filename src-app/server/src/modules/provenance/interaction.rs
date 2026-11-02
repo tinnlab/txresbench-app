@@ -7,7 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 use ziee_core::AppError;
 
@@ -150,7 +150,7 @@ fn selection_action_kind(recipe: &Value) -> Result<String, AppError> {
 /// `POST /provenance/selections` — capture a selection over an input's axis.
 /// Derives the `selection.*` action type from the recipe's `kind`.
 pub async fn capture_selection(
-    pool: &PgPool,
+    pool: &SqlitePool,
     project_id: Uuid,
     user_id: Uuid,
     input_id: Uuid,
@@ -165,7 +165,7 @@ pub async fn capture_selection(
 /// `POST /provenance/actions` — the generic interaction chokepoint. Only
 /// dispatchable `selection.*` actions are captured this round (ITEM-13).
 pub async fn capture_action(
-    pool: &PgPool,
+    pool: &SqlitePool,
     project_id: Uuid,
     user_id: Uuid,
     action_type: &str,
@@ -357,7 +357,7 @@ pub async fn capture_action(
         rerun_spec_json: None,
     };
     // One transaction: no compensating delete is needed (and none could have covered
-    // the cancellation case) — Postgres rolls both writes back together.
+    // the cancellation case) — the transaction rolls both writes back together.
     let (_artifact, row) = graph::write_capture_atomically(pool, &new_artifact, &new_run).await?;
 
     // 8. Fire the (noop this round) capture notify seam.

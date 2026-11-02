@@ -39,7 +39,7 @@
 use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::common::TestServer;
@@ -168,7 +168,7 @@ fn binding(slot: &str, artifact: Uuid) -> Value {
 }
 
 /// The virtual dataset this run created, if any.
-async fn virtual_dataset_for(pool: &PgPool, run_id: Uuid) -> Option<(Uuid, String, Value)> {
+async fn virtual_dataset_for(pool: &SqlitePool, run_id: Uuid) -> Option<(Uuid, String, Value)> {
     sqlx::query_as::<_, (Uuid, String, Value)>(
         "SELECT id, source, metadata FROM datasets
          WHERE source = 'integrate' AND metadata ->> 'alignment_run_id' = $1",
@@ -378,8 +378,8 @@ async fn a_real_integrate_run_creates_a_virtual_dataset_the_catalog_serves_with_
     // survives the alignment moving between project- and dataset-scope.
     let alignment_rows: Vec<(Uuid, Option<String>)> = sqlx::query_as(
         "SELECT id, structure ->> 'key_sequence_digest' FROM artifacts
-         WHERE run_id = $1 AND jsonb_typeof(meta -> 'sources') = 'array'
-           AND structure -> 'extents' ? 'segments'",
+         WHERE run_id = $1 AND json_type(meta, '$.sources') = 'array'
+           AND json_type(structure, '$.extents.segments') IS NOT NULL",
     )
     .bind(run_id)
     .fetch_all(&pool)
@@ -431,7 +431,7 @@ async fn a_real_integrate_run_creates_a_virtual_dataset_the_catalog_serves_with_
     // this field plus `structure.axis`; without it the virtual dataset's own row axis has no
     // discoverable key and the dataset cannot be an input to anything.
     let axis_flags: Vec<(String, Option<bool>)> = sqlx::query_as(
-        "SELECT output_id, (meta ->> 'is_axis_index')::bool FROM artifacts
+        "SELECT output_id, json_extract(meta, '$.is_axis_index') = 1 FROM artifacts
          WHERE dataset_id = $1 AND object_key IS NULL ORDER BY output_id",
     )
     .bind(virtual_id)

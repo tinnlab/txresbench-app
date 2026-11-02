@@ -10,7 +10,7 @@
 //! the desktop path (`desktop/tauri/tests`); TEST-11 (SDK_GAPS presence) is below.
 
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use super::{create_user, pool_for, setup_admin};
@@ -19,7 +19,7 @@ use crate::common::TestServer;
 // ------------------------------- helpers -------------------------------
 
 /// The admin owner's user id (the only user present right after setup).
-async fn admin_user_id(pool: &PgPool) -> Uuid {
+async fn admin_user_id(pool: &SqlitePool) -> Uuid {
     sqlx::query_scalar("SELECT id FROM users WHERE is_admin = true ORDER BY created_at ASC LIMIT 1")
         .fetch_one(pool)
         .await
@@ -27,7 +27,7 @@ async fn admin_user_id(pool: &PgPool) -> Uuid {
 }
 
 /// Exactly how many `personal` accounts `user_id` owns.
-async fn personal_count(pool: &PgPool, user_id: Uuid) -> i64 {
+async fn personal_count(pool: &SqlitePool, user_id: Uuid) -> i64 {
     sqlx::query_scalar(
         "SELECT count(*) FROM accounts WHERE kind = 'personal' AND personal_user_id = $1",
     )
@@ -38,7 +38,7 @@ async fn personal_count(pool: &PgPool, user_id: Uuid) -> i64 {
 }
 
 /// How many `owner` memberships back `user_id`'s personal account.
-async fn owner_membership_count(pool: &PgPool, user_id: Uuid) -> i64 {
+async fn owner_membership_count(pool: &SqlitePool, user_id: Uuid) -> i64 {
     sqlx::query_scalar(
         "SELECT count(*) FROM account_members m
          JOIN accounts a ON a.id = m.account_id
@@ -54,7 +54,7 @@ async fn owner_membership_count(pool: &PgPool, user_id: Uuid) -> i64 {
 /// Delete `user_id`'s personal account (+ its memberships cascade), simulating a
 /// user who exists WITHOUT a personal account — a pre-existing/backfill-missed user,
 /// or one provisioned by a turnkey path the app has no synchronous seam to wrap.
-async fn delete_personal_account(pool: &PgPool, user_id: Uuid) {
+async fn delete_personal_account(pool: &SqlitePool, user_id: Uuid) {
     sqlx::query("DELETE FROM accounts WHERE kind = 'personal' AND personal_user_id = $1")
         .bind(user_id)
         .execute(pool)
@@ -207,7 +207,7 @@ async fn backstop_is_noop_without_valid_identity() {
     // A PUBLIC route with no bearer — succeeds, creates no account.
     let public = server
         .client
-        .get(server.api_url("/app/setup/status"))
+        .get(server.api_url("/health"))
         .send()
         .await
         .expect("public request");

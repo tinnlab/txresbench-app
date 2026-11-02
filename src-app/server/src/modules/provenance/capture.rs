@@ -1,7 +1,7 @@
 //! Content-addressed code-blob store (ITEM-2) + env digest helpers. The real
 //! capture write path; the seam in `seams.rs` is only the notify hook.
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use ziee_core::AppError;
 
 use crate::modules::workstore::object_store::sha256_hex;
@@ -16,7 +16,7 @@ pub fn code_sha256(source: &str) -> String {
 
 /// Store an emitted code blob, deduped by sha256. Returns the content hash; a
 /// second store of identical source is a no-op returning the same hash.
-pub async fn store_code(pool: &PgPool, source: &str, language: &str) -> Result<String, AppError> {
+pub async fn store_code(pool: &SqlitePool, source: &str, language: &str) -> Result<String, AppError> {
     let sha = code_sha256(source);
     ProvenanceRepository::new(pool.clone())
         .insert_code_blob(&sha, language, source, source.len() as i64)

@@ -94,7 +94,7 @@ fn opaque_structure() -> Value {
 
 #[allow(clippy::too_many_arguments)]
 async fn insert_artifact(
-    pool: &sqlx::PgPool,
+    pool: &sqlx::SqlitePool,
     project_id: Uuid,
     output_id: &str,
     datatype: &str,
@@ -169,7 +169,7 @@ fn inputs_json_slot_map(inputs_dir: &Path) -> BTreeMap<String, String> {
 /// differ ONLY in the declared `sandbox_subpath`s.
 async fn stage(
     server: &TestServer,
-    pool: &sqlx::PgPool,
+    pool: &sqlx::SqlitePool,
     store: &LocalFsStore,
     owner: Uuid,
     inputs: Value,

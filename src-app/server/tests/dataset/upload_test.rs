@@ -42,8 +42,8 @@ async fn upload(server: &TestServer, token: &str, form: Form) -> (u16, Value) {
 async fn large_single_file_upload_sniffs_and_hashes() {
     let server = TestServer::spawn().await;
     let admin = setup_admin(&server).await;
-    create_user(&server, &admin, "up", "up@x.test").await;
-    let up = login(&server, "up").await;
+    create_user(&server, &admin, "upl", "up@x.test").await;
+    let up = login(&server, "upl").await;
 
     // A >2 MB file — proves the raised body limit (axum default is 2 MB).
     let mut big = String::from("cell,gene_a,gene_b\n");

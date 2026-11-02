@@ -9,7 +9,7 @@ use super::{account_body, features_put, global_body, DEMO_FLAG};
 use crate::account::{pool_for, setup_admin};
 use crate::common::TestServer;
 
-async fn row_count(pool: &sqlx::PgPool, flag: &str, account: Option<Uuid>) -> i64 {
+async fn row_count(pool: &sqlx::SqlitePool, flag: &str, account: Option<Uuid>) -> i64 {
     match account {
         Some(a) => sqlx::query_scalar::<_, i64>(
             "SELECT count(*) FROM feature_flags WHERE flag_key = $1 AND account_id = $2",
@@ -35,12 +35,12 @@ async fn repeated_writes_update_one_row_not_duplicate() {
     let admin = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let account: Uuid = sqlx::query_scalar::<_, Uuid>(
-        "INSERT INTO accounts (kind, name) VALUES ('organization', 'acct') RETURNING id",
-    )
-    .fetch_one(&pool)
-    .await
-    .expect("insert account");
+    let account = Uuid::new_v4();
+    sqlx::query("INSERT INTO accounts (id, kind, name) VALUES ($1, 'organization', 'acct')")
+        .bind(account)
+        .execute(&pool)
+        .await
+        .expect("insert account");
     let account_s = account.to_string();
 
     // Two GLOBAL writes → exactly ONE global row (the second UPDATEs).

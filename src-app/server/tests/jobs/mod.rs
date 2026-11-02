@@ -8,8 +8,8 @@
 use std::time::Duration;
 
 use serde_json::{json, Value};
-use sqlx::postgres::PgPoolOptions;
-use sqlx::PgPool;
+use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::common::TestServer;
@@ -66,7 +66,7 @@ fn token_of(body: &Value) -> String {
 async fn setup_admin(server: &TestServer) -> String {
     let resp = server
         .client
-        .post(server.api_url("/app/setup/admin"))
+        .post(server.api_url("/session/local"))
         .json(&json!({
             "username": "itadmin",
             "email": "it@cyto.test",
@@ -76,7 +76,7 @@ async fn setup_admin(server: &TestServer) -> String {
         .send()
         .await
         .expect("setup/admin request");
-    assert_eq!(resp.status().as_u16(), 201, "setup/admin creates the owner");
+    assert_eq!(resp.status().as_u16(), 200, "setup/admin creates the owner");
     token_of(&resp.json().await.expect("setup/admin json"))
 }
 
@@ -112,33 +112,18 @@ async fn register_user(server: &TestServer, username: &str) -> (String, String) 
 
 /// A user that LACKS `jobs::use`: register (gets the Users group + jobs::use),
 /// then have the admin remove them from the Users group so no group grants it.
-async fn restricted_user(server: &TestServer, admin_token: &str, username: &str) -> String {
+/// The `/groups` HTTP surface is stripped on this node, so the removal goes
+/// through the SDK user repository over the per-test DB pool.
+async fn restricted_user(server: &TestServer, _admin_token: &str, username: &str) -> String {
     let (token, user_id) = register_user(server, username).await;
-    let groups: Value = server
-        .client
-        .get(server.api_url("/groups"))
-        .bearer_auth(admin_token)
-        .send()
+    let pool = sqlx::SqlitePool::connect(server.database_url())
         .await
-        .expect("/groups")
-        .json()
-        .await
-        .expect("/groups json");
-    let users_group_id = groups["groups"]
-        .as_array()
-        .expect("groups array")
-        .iter()
-        .find(|g| g["name"] == "Users")
-        .and_then(|g| g["id"].as_str())
-        .expect("Users group present");
-    let removed = server
-        .client
-        .delete(server.api_url(&format!("/groups/{user_id}/{users_group_id}/remove")))
-        .bearer_auth(admin_token)
-        .send()
-        .await
-        .expect("remove-from-group");
-    assert_eq!(removed.status().as_u16(), 204, "admin removes user from Users group");
+        .expect("connect restricted-user pool");
+    crate::common::group_remove_from_users(
+        &pool,
+        Uuid::parse_str(&user_id).expect("user id is a uuid"),
+    )
+    .await;
     token
 }
 
@@ -399,7 +384,7 @@ async fn boot_reconcile_fails_orphan_without_manifest() {
 
     // Connect our own pool to this test's DB and insert an orphaned running job
     // (as if the server had died mid-run).
-    let pool = sqlx::PgPool::connect(server.database_url())
+    let pool = sqlx::SqlitePool::connect(server.database_url())
         .await
         .expect("connect test db");
     let owner: Uuid = sqlx::query_scalar("SELECT id FROM users LIMIT 1")
@@ -409,7 +394,7 @@ async fn boot_reconcile_fails_orphan_without_manifest() {
     let orphan = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO jobs (id, owner_id, job_type, name, status, started_at) \
-         VALUES ($1, $2, 'stub', 'orphan', 'running', now())",
+         VALUES ($1, $2, 'stub', 'orphan', 'running', strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
     )
     .bind(orphan)
     .bind(owner)
@@ -906,7 +891,7 @@ async fn boot_reconcile_finalizes_uningested_and_fails_midrun() {
 
     let server = TestServer::spawn().await;
     setup_admin(&server).await;
-    let pool = sqlx::PgPool::connect(server.database_url())
+    let pool = sqlx::SqlitePool::connect(server.database_url())
         .await
         .expect("connect test db");
     let owner: Uuid = sqlx::query_scalar("SELECT id FROM users LIMIT 1")
@@ -945,7 +930,7 @@ async fn boot_reconcile_finalizes_uningested_and_fails_midrun() {
         .unwrap();
     sqlx::query(
         "INSERT INTO jobs (id, owner_id, job_type, name, status, started_at, run_id) \
-         VALUES ($1, $2, 'analysis', 'uningested', 'running', now(), $3)",
+         VALUES ($1, $2, 'analysis', 'uningested', 'running', strftime('%Y-%m-%dT%H:%M:%fZ','now'), $3)",
     )
     .bind(job1)
     .bind(owner)
@@ -964,7 +949,7 @@ async fn boot_reconcile_finalizes_uningested_and_fails_midrun() {
     tokio::fs::write(stg2.join("outputs").join("partial.tmp"), b"half").await.unwrap();
     sqlx::query(
         "INSERT INTO jobs (id, owner_id, job_type, name, status, started_at) \
-         VALUES ($1, $2, 'analysis', 'midrun', 'running', now())",
+         VALUES ($1, $2, 'analysis', 'midrun', 'running', strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
     )
     .bind(job2)
     .bind(owner)
@@ -1105,7 +1090,7 @@ async fn job_logs_paging_bounded_pages_and_stable_cursor() {
 
     // Append a controlled batch so the log is comfortably multi-page + deterministic,
     // independent of the stub's exact line count (mirrors TEST-14's direct-DB seed).
-    let pool = sqlx::PgPool::connect(server.database_url()).await.expect("db");
+    let pool = sqlx::SqlitePool::connect(server.database_url()).await.expect("db");
     let job_uuid = Uuid::parse_str(&id).unwrap();
     let max_seq: i32 = sqlx::query_scalar("SELECT COALESCE(MAX(seq), 0) FROM job_logs WHERE job_id = $1")
         .bind(job_uuid)
@@ -1175,8 +1160,8 @@ async fn job_logs_paging_bounded_pages_and_stable_cursor() {
 
 /// A pool onto the SAME per-test DB the spawned server uses (lets a test drive the
 /// library authz/ingest chokepoints directly).
-async fn pool_for(server: &TestServer) -> PgPool {
-    PgPoolOptions::new()
+async fn pool_for(server: &TestServer) -> SqlitePool {
+    SqlitePoolOptions::new()
         .max_connections(4)
         .connect(server.database_url())
         .await
@@ -1467,10 +1452,15 @@ async fn test317_migration_backfill_idempotent_and_preserves_scope() {
 
     // Re-create the PRE-migration scope columns (the two the migration dropped) so
     // the backfill statement — which reads them — can run against seeded rows.
-    sqlx::query("ALTER TABLE jobs ADD COLUMN project_id uuid, ADD COLUMN dataset_id uuid")
+    // (Two statements: SQLite permits one ADD COLUMN per ALTER TABLE.)
+    sqlx::query("ALTER TABLE jobs ADD COLUMN project_id uuid")
         .execute(&pool)
         .await
-        .expect("re-add pre-migration scope columns");
+        .expect("re-add project_id");
+    sqlx::query("ALTER TABLE jobs ADD COLUMN dataset_id uuid")
+        .execute(&pool)
+        .await
+        .expect("re-add dataset_id");
 
     let project = Uuid::new_v4();
     let dataset = Uuid::new_v4();
@@ -1854,7 +1844,7 @@ async fn stalled_staging_phase_reaches_terminal_failed() {
 
     let server = TestServer::spawn().await;
     setup_admin(&server).await;
-    let pool = sqlx::PgPool::connect(server.database_url())
+    let pool = sqlx::SqlitePool::connect(server.database_url())
         .await
         .expect("connect test db");
     let owner: Uuid = sqlx::query_scalar("SELECT id FROM users LIMIT 1")
@@ -1918,7 +1908,7 @@ async fn stalled_staging_phase_reaches_terminal_failed() {
         let job_id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO jobs (id, owner_id, job_type, name, status, started_at, params) \
-             VALUES ($1, $2, 'analysis', $3, 'running', now(), '{}'::jsonb)",
+             VALUES ($1, $2, 'analysis', $3, 'running', strftime('%Y-%m-%dT%H:%M:%fZ','now'), '{}')",
         )
         .bind(job_id)
         .bind(owner)

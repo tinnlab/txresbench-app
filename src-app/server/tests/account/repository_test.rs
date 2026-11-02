@@ -6,6 +6,7 @@ use cytoanalyst::modules::account::{AccountKind, AccountRepository, AccountRole}
 
 use super::{create_user, pool_for, setup_admin};
 use crate::common::TestServer;
+use uuid::Uuid;
 
 // TEST-6 [acceptance, PROV-A1-5] (covers ITEM-7): ensure_personal_account creates
 // one personal account + one owner membership; personal_account_of returns it;
@@ -95,8 +96,9 @@ async fn ensure_is_idempotent_one_personal_per_user() {
 
     // A DIRECT second personal insert is rejected by the DB (partial unique index).
     let dup = sqlx::query(
-        "INSERT INTO accounts (kind, name, personal_user_id) VALUES ('personal', 'x', $1)",
+        "INSERT INTO accounts (id, kind, name, personal_user_id) VALUES ($1, 'personal', 'x', $2)",
     )
+    .bind(Uuid::new_v4())
     .bind(alice)
     .execute(&pool)
     .await;

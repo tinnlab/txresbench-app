@@ -212,7 +212,7 @@ mod remote_skip {
             let child = tokio::process::Command::new("true")
                 .kill_on_drop(true)
                 .spawn()
-                .map_err(|e| AppError::internal_error(format!("spawn true: {e}")))?;
+                .map_err(|e| AppErrorernal_error(format!("spawn true: {e}")))?;
             Ok(LaunchedCompute {
                 child,
                 guards: Box::new(()),

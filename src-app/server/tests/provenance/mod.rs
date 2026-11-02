@@ -9,18 +9,14 @@
 //! repository. Everything else drives the real REST surface.
 
 use serde_json::{json, Value};
-use sqlx::postgres::PgPoolOptions;
-use sqlx::PgPool;
+use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::workstore::catalog::models::NewArtifact;
 use cytoanalyst::modules::workstore::catalog::repository::CatalogRepository;
 
 use crate::common::TestServer;
-
-/// The seeded Users group id (holds `provenance::read`/`export` via the grant
-/// migration). Stripping a user from it removes those perms (A9 deny path).
-const USERS_GROUP_ID: &str = "79668b78-16ff-4d3f-80e6-afdbb3236dc9";
 
 // ------------------------------- auth helpers -------------------------------
 
@@ -29,7 +25,7 @@ const USERS_GROUP_ID: &str = "79668b78-16ff-4d3f-80e6-afdbb3236dc9";
 async fn setup_admin(server: &TestServer) -> String {
     let resp = server
         .client
-        .post(server.api_url("/app/setup/admin"))
+        .post(server.api_url("/session/local"))
         .json(&json!({
             "username": "admin",
             "email": "admin@cyto.test",
@@ -39,7 +35,7 @@ async fn setup_admin(server: &TestServer) -> String {
         .send()
         .await
         .expect("setup/admin");
-    assert_eq!(resp.status().as_u16(), 201, "setup/admin creates the owner");
+    assert_eq!(resp.status().as_u16(), 200, "setup/admin creates the owner");
     token_of(resp.json().await.expect("setup json"))
 }
 
@@ -56,7 +52,7 @@ fn token_of(body: Value) -> String {
 async fn create_user(server: &TestServer, admin: &str, username: &str, email: &str) -> String {
     let resp = server
         .client
-        .post(server.api_url("/users"))
+        .post(server.api_url("/auth/register"))
         .bearer_auth(admin)
         .json(&json!({
             "username": username,
@@ -66,9 +62,9 @@ async fn create_user(server: &TestServer, admin: &str, username: &str, email: &s
         .send()
         .await
         .expect("create user");
-    assert_eq!(resp.status().as_u16(), 201, "create user {username}");
+    assert!(resp.status().is_success(), "create user {username}: {}", resp.status());
     let body: Value = resp.json().await.expect("user json");
-    body["id"].as_str().expect("user id").to_string()
+    body["user"]["id"].as_str().expect("user id").to_string()
 }
 
 /// Log in → an access token.
@@ -93,14 +89,14 @@ async fn create_user_without_provenance(
     email: &str,
 ) -> String {
     let id = create_user(server, admin, username, email).await;
-    let resp = server
-        .client
-        .delete(server.api_url(&format!("/groups/{id}/{USERS_GROUP_ID}/remove")))
-        .bearer_auth(admin)
-        .send()
-        .await
-        .expect("remove from group");
-    assert!(resp.status().is_success(), "strip group: {}", resp.status());
+    // The `/groups` HTTP surface is stripped on this node; the removal goes
+    // through the SDK user repository over the per-test DB pool.
+    let pool = pool_for(server).await;
+    crate::common::group_remove_from_users(
+        &pool,
+        Uuid::parse_str(&id).expect("user id is a uuid"),
+    )
+    .await;
     login(server, username).await
 }
 
@@ -123,8 +119,8 @@ async fn create_project(server: &TestServer, token: &str, name: &str) -> Uuid {
 
 /// A pool against the spawned server's per-test DB (for direct catalog/provenance
 /// seeding the REST surface has no endpoint for).
-async fn pool_for(server: &TestServer) -> PgPool {
-    PgPoolOptions::new()
+async fn pool_for(server: &TestServer) -> SqlitePool {
+    SqlitePoolOptions::new()
         .max_connections(2)
         .connect(server.database_url())
         .await
@@ -133,7 +129,7 @@ async fn pool_for(server: &TestServer) -> PgPool {
 
 /// Seed a ROOT input artifact (run_id NULL — a source/upload root) into P1's
 /// catalog. Returns its id. `content_hash` becomes the pinned closure terminus.
-async fn seed_root_artifact(pool: &PgPool, project_id: Uuid, content_hash: &str) -> Uuid {
+async fn seed_root_artifact(pool: &SqlitePool, project_id: Uuid, content_hash: &str) -> Uuid {
     let catalog = CatalogRepository::new(pool.clone());
     let art = catalog
         .insert_artifact(&NewArtifact {
@@ -163,7 +159,7 @@ async fn seed_root_artifact(pool: &PgPool, project_id: Uuid, content_hash: &str)
 /// upload actually produces, and the shape a workbench run over an attached dataset
 /// consumes. Distinct from [`seed_root_artifact`], which seeds the project-scoped shape.
 async fn seed_dataset_scoped_artifact(
-    pool: &PgPool,
+    pool: &SqlitePool,
     dataset_id: Uuid,
     content_hash: &str,
 ) -> Uuid {
@@ -288,7 +284,7 @@ fn filter_run_params() -> Value {
 }
 
 /// The first-run admin's user id (a real FK target for a seeded `jobs.owner_id`).
-async fn admin_user_id(pool: &PgPool) -> Uuid {
+async fn admin_user_id(pool: &SqlitePool) -> Uuid {
     sqlx::query_scalar("SELECT id FROM users WHERE username = 'admin'")
         .fetch_one(pool)
         .await
@@ -299,7 +295,7 @@ async fn admin_user_id(pool: &PgPool) -> Uuid {
 /// (`ProvenanceRunRecorder::record_run`) over the seeded root artifact — so the
 /// promoted `params` + the stashed `rerun_spec_json` are written by the very code
 /// the app runs, not by a fixture row. Returns the run id.
-async fn record_filter_run(pool: &PgPool, project_id: Uuid, root_artifact_id: Uuid) -> Uuid {
+async fn record_filter_run(pool: &SqlitePool, project_id: Uuid, root_artifact_id: Uuid) -> Uuid {
     use cytoanalyst::modules::jobs::models::Job;
     use cytoanalyst::modules::jobs::seams::{PeakMetrics, RunRecorder};
     use cytoanalyst::modules::provenance::recorder::ProvenanceRunRecorder;

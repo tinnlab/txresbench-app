@@ -24,7 +24,7 @@ use aide::transform::TransformOperation;
 use axum::http::StatusCode;
 use axum::routing::post;
 use axum::{Extension, Json};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 
 use ziee_core::ApiResult;
 
@@ -127,7 +127,7 @@ pub fn workstore_routes() -> ApiRouter {
 
 async fn get_settings(
     _auth: RequirePermissions<(WorkstoreSettingsRead,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
 ) -> ApiResult<Json<WorkstoreSettings>> {
     let row = WorkstoreSettingsRepository::new(pool)
         .get()
@@ -146,7 +146,7 @@ fn get_settings_docs(op: TransformOperation) -> TransformOperation {
 
 async fn update_settings(
     auth: RequirePermissions<(WorkstoreSettingsManage,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Json(body): Json<UpdateWorkstoreSettings>,
 ) -> ApiResult<Json<WorkstoreSettings>> {
     let repo = WorkstoreSettingsRepository::new(pool);

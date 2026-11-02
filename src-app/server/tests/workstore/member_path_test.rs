@@ -38,7 +38,7 @@
 //! difference between a composite that can drift and one that cannot.
 
 use serde_json::{json, Value};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::workstore::catalog::models::Artifact;
@@ -112,7 +112,7 @@ fn composite_structure() -> Value {
 /// Ingest `members` as ONE directory artifact and return its row.
 async fn ingest_dir(
     server: &TestServer,
-    pool: &PgPool,
+    pool: &SqlitePool,
     store: &LocalFsStore,
     project: Uuid,
     output_id: &str,

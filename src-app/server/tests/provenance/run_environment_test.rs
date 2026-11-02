@@ -63,14 +63,14 @@ fn analysis_job(owner: Uuid, root_id: Uuid) -> Job {
     }
 }
 
-async fn admin_id(pool: &PgPool) -> Uuid {
+async fn admin_id(pool: &SqlitePool) -> Uuid {
     sqlx::query_scalar("SELECT id FROM users WHERE username = 'admin'")
         .fetch_one(pool)
         .await
         .expect("admin user id")
 }
 
-async fn seed_job_scope(pool: &PgPool, job: &Job, project: Uuid) {
+async fn seed_job_scope(pool: &SqlitePool, job: &Job, project: Uuid) {
     sqlx::query("INSERT INTO jobs (id, owner_id, job_type, name, status) VALUES ($1, $2, $3, $4, $5)")
         .bind(job.id)
         .bind(job.owner_id)

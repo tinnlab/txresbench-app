@@ -49,7 +49,7 @@ fn analysis_job(owner: Uuid, run_id: Option<Uuid>, root_id: Uuid) -> Job {
 }
 
 /// The first-run admin's user id (a real FK target for a seeded `jobs.owner_id`).
-async fn admin_id(pool: &PgPool) -> Uuid {
+async fn admin_id(pool: &SqlitePool) -> Uuid {
     sqlx::query_scalar("SELECT id FROM users WHERE username = 'admin'")
         .fetch_one(pool)
         .await
@@ -58,7 +58,7 @@ async fn admin_id(pool: &PgPool) -> Uuid {
 
 /// Seed the synthetic job's `jobs` row + (when `project` is `Some`) a project-scoped
 /// `job_scope` row, so the recorder resolves the run's scope from the table (ITEM-68).
-async fn seed_job_scope(pool: &PgPool, job: &Job, project: Option<Uuid>) {
+async fn seed_job_scope(pool: &SqlitePool, job: &Job, project: Option<Uuid>) {
     sqlx::query("INSERT INTO jobs (id, owner_id, job_type, name, status) VALUES ($1, $2, $3, $4, $5)")
         .bind(job.id)
         .bind(job.owner_id)
@@ -177,12 +177,33 @@ async fn a_run_does_not_pin_an_artifact_from_a_dataset_its_owner_cannot_read() {
     // The ADMIN's private dataset + one dataset-scoped artifact, ATTACHED to the project.
     let dataset_id = Uuid::new_v4();
     let secret_hash = format!("sha256:{}", "d".repeat(64));
-    sqlx::query("WITH a AS (INSERT INTO accounts (id, kind, name, personal_user_id) VALUES (gen_random_uuid(), 'personal', 'seed', (SELECT id FROM users WHERE username = 'admin')) ON CONFLICT (personal_user_id) WHERE kind='personal' DO UPDATE SET name = accounts.name RETURNING id) INSERT INTO datasets (id, name, owner_id, account_id) SELECT $1, $2, (SELECT id FROM users WHERE username = 'admin'), a.id FROM a")
-        .bind(dataset_id)
-        .bind("recorder-private-dataset")
-        .execute(&pool)
-        .await
-        .expect("seed dataset");
+    let seed_acct = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO accounts (id, kind, name, personal_user_id) \
+         VALUES ($1, 'personal', 'seed', (SELECT id FROM users WHERE username = 'admin')) \
+         ON CONFLICT (personal_user_id) WHERE kind='personal' DO UPDATE SET name = accounts.name",
+    )
+    .bind(seed_acct)
+    .execute(&pool)
+    .await
+    .expect("seed personal account");
+    let admin_account_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM accounts WHERE kind='personal' AND personal_user_id = \
+         (SELECT id FROM users WHERE username = 'admin')",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("personal account id");
+    sqlx::query(
+        "INSERT INTO datasets (id, name, owner_id, account_id) \
+         VALUES ($1, $2, (SELECT id FROM users WHERE username = 'admin'), $3)",
+    )
+    .bind(dataset_id)
+    .bind("recorder-private-dataset")
+    .bind(admin_account_id)
+    .execute(&pool)
+    .await
+    .expect("seed dataset");
     let art_id = seed_dataset_scoped_artifact(&pool, dataset_id, &secret_hash).await;
     sqlx::query("INSERT INTO project_datasets (project_id, dataset_id) VALUES ($1, $2)")
         .bind(project_id)
@@ -244,7 +265,7 @@ async fn a_run_does_not_pin_an_artifact_from_a_dataset_its_owner_cannot_read() {
     // CONTROL: once the dataset is SHARED with the editor, his run pins it too.
     sqlx::query(
         "INSERT INTO dataset_shares (id, dataset_id, principal_type, principal_id, role) \
-         VALUES (gen_random_uuid(), $1, 'user', $2, 'view')",
+         VALUES (randomblob(16), $1, 'user', $2, 'view')",
     )
     .bind(dataset_id)
     .bind(editor_id)
@@ -308,12 +329,32 @@ async fn every_repository_path_returns_the_rerun_envelope() {
     // (e) runs_for_dataset + (f) promote_runs_for_user — the dataset-scoped paths.
     // A `promote` node is dataset-scoped and acted by the user, so ONE inserted row
     // exercises both reads.
-    let dataset_id = sqlx::query_scalar::<_, Uuid>(
-        "WITH a AS (INSERT INTO accounts (id, kind, name, personal_user_id) VALUES (gen_random_uuid(), 'personal', 'seed', $2) ON CONFLICT (personal_user_id) WHERE kind='personal' DO UPDATE SET name = accounts.name RETURNING id) INSERT INTO datasets (id, owner_id, name, account_id) SELECT $1, $2, 'row widening ds', a.id FROM a RETURNING id",
+    let dataset_id = Uuid::new_v4();
+    let seed_acct = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO accounts (id, kind, name, personal_user_id) \
+         VALUES ($1, 'personal', 'seed', $2) \
+         ON CONFLICT (personal_user_id) WHERE kind='personal' DO UPDATE SET name = accounts.name",
     )
-    .bind(Uuid::new_v4())
+    .bind(seed_acct)
+    .bind(owner)
+    .execute(&pool)
+    .await
+    .expect("seed personal account");
+    let owner_account_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM accounts WHERE kind='personal' AND personal_user_id = $1",
+    )
     .bind(owner)
     .fetch_one(&pool)
+    .await
+    .expect("personal account id");
+    sqlx::query(
+        "INSERT INTO datasets (id, owner_id, name, account_id) VALUES ($1, $2, 'row widening ds', $3)",
+    )
+    .bind(dataset_id)
+    .bind(owner)
+    .bind(owner_account_id)
+    .execute(&pool)
     .await
     .expect("seed dataset");
 
@@ -665,7 +706,7 @@ fn analysis_job_with_inputs(owner: Uuid, inputs: Value) -> Job {
 
 /// Record `job` through the REAL recorder (project-scoped) and return the
 /// `inputs_json` array it persisted.
-async fn recorded_edges(pool: &PgPool, job: &Job, project_id: Uuid) -> Vec<Value> {
+async fn recorded_edges(pool: &SqlitePool, job: &Job, project_id: Uuid) -> Vec<Value> {
     seed_job_scope(pool, job, Some(project_id)).await;
     ProvenanceRunRecorder::new(pool.clone())
         .record_run(job, &[], 0, PeakMetrics::default(), &std::env::temp_dir())
@@ -793,19 +834,39 @@ async fn the_origin_reaches_every_used_edge_arm() {
     // (b) A dataset file → `dataset_edge`. The dataset needs a merkle content hash
     //     (the provenance link key) or the arm degrades to `unresolved`.
     let dataset_id = Uuid::new_v4();
+    let seed_acct = Uuid::new_v4();
     sqlx::query(
-        "WITH a AS (INSERT INTO accounts (id, kind, name, personal_user_id) VALUES (gen_random_uuid(), 'personal', 'seed', $3) ON CONFLICT (personal_user_id) WHERE kind='personal' DO UPDATE SET name = accounts.name RETURNING id) INSERT INTO datasets (id, name, owner_id, content_hash, account_id) SELECT $1, $2, $3, $4, a.id FROM a",
+        "INSERT INTO accounts (id, kind, name, personal_user_id) \
+         VALUES ($1, 'personal', 'seed', $2) \
+         ON CONFLICT (personal_user_id) WHERE kind='personal' DO UPDATE SET name = accounts.name",
+    )
+    .bind(seed_acct)
+    .bind(owner)
+    .execute(&pool)
+    .await
+    .expect("seed personal account");
+    let owner_account_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM accounts WHERE kind='personal' AND personal_user_id = $1",
+    )
+    .bind(owner)
+    .fetch_one(&pool)
+    .await
+    .expect("personal account id");
+    sqlx::query(
+        "INSERT INTO datasets (id, name, owner_id, content_hash, account_id) \
+         VALUES ($1, $2, $3, $4, $5)",
     )
     .bind(dataset_id)
     .bind("every-arm-dataset")
     .bind(owner)
     .bind(format!("sha256:{}", "f".repeat(64)))
+    .bind(owner_account_id)
     .execute(&pool)
     .await
     .expect("seed dataset");
     let file_id: Uuid = sqlx::query_scalar(
         "INSERT INTO files (id, user_id, filename, file_size, current_version_id, created_by) \
-         VALUES (gen_random_uuid(), $1, 'arm.csv', 10, gen_random_uuid(), 'user') RETURNING id",
+         VALUES (randomblob(16), $1, 'arm.csv', 10, randomblob(16), 'user') RETURNING id",
     )
     .bind(owner)
     .fetch_one(&pool)

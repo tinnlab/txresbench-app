@@ -8,11 +8,12 @@
 //! byte-identical (INV-1). The `usize`-typed caps are stored `bigint`/`i64` and
 //! read via saturating `*_usize` accessors (DEC-5). Repository uses
 //! `sqlx::query_as!` (build-DB checked — `build.rs::provision_build_db`
-//! auto-migrates the `:54321` cluster).
+//! auto-migrates the sqlite build file; the `WHERE id = TRUE` singleton
+//! predicate and the canonical `strftime` write clock are the DEC-8 port).
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 use ziee_core::AppError;
 
@@ -132,11 +133,11 @@ pub struct UpdateMcpSettings {
 }
 
 pub struct McpSettingsRepository {
-    pool: PgPool,
+    pool: SqlitePool,
 }
 
 impl McpSettingsRepository {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
     }
 
@@ -171,7 +172,7 @@ impl McpSettingsRepository {
                     action_wall_clock_secs = COALESCE($4, action_wall_clock_secs),
                     max_list_results = COALESCE($5, max_list_results),
                     max_result_bytes = COALESCE($6, max_result_bytes),
-                    updated_at = NOW(),
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
                     updated_by = $7
                WHERE id = TRUE
                RETURNING max_control_sessions, max_inflight_per_user, pairing_ttl_secs,

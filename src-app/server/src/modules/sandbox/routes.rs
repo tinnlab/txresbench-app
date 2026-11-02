@@ -12,7 +12,7 @@ use axum::http::StatusCode;
 use axum::{Extension, Json};
 use schemars::JsonSchema;
 use serde::Serialize;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use ziee_core::ApiResult;
@@ -79,7 +79,7 @@ fn get_status_docs(op: TransformOperation) -> TransformOperation {
 
 async fn get_settings(
     _auth: RequirePermissions<(SandboxSettingsRead,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
 ) -> ApiResult<Json<SandboxResourceLimits>> {
     let row = SandboxSettingsRepository::new(pool)
         .get()
@@ -98,7 +98,7 @@ fn get_settings_docs(op: TransformOperation) -> TransformOperation {
 
 async fn update_settings(
     auth: RequirePermissions<(SandboxSettingsManage,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Json(body): Json<UpdateSandboxResourceLimits>,
 ) -> ApiResult<Json<SandboxResourceLimits>> {
     let repo = SandboxSettingsRepository::new(pool);
@@ -108,7 +108,12 @@ async fn update_settings(
     let current = repo.get().await.map_err(|e| e.to_api_error())?;
     let merged = SandboxSettingsRepository::merge(&current, &body);
     merged.validate().map_err(|e| e.to_api_error())?;
-    let row = repo.update(&body, auth.user.id).await.map_err(|e| e.to_api_error())?;
+    repo.update(&body, auth.user.id).await.map_err(|e| e.to_api_error())?;
+    // Re-read (not the UPDATE's RETURNING row): the sqlite driver returns the
+    // bound value of a NULL written through the CASE "clear" expression as an
+    // empty string, while the row itself is NULL (a GET right after shows null).
+    // The response must never lie about a clear.
+    let row = repo.get().await.map_err(|e| e.to_api_error())?;
     settings_cache::invalidate(row.clone());
     // Realtime cross-device sync is wired at merge (DEC-4) — no-op seam today.
     super::emit_settings_changed();
@@ -157,7 +162,7 @@ fn update_settings_docs(op: TransformOperation) -> TransformOperation {
 /// one.
 async fn execute(
     auth: RequirePermissions<(SandboxExecute,)>,
-    Extension(pool): Extension<PgPool>,
+    Extension(pool): Extension<SqlitePool>,
     Json(req): Json<AnalysisRequest>,
 ) -> ApiResult<Json<AnalysisResult>> {
     let job_id = Uuid::new_v4();

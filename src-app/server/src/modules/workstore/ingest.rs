@@ -26,7 +26,7 @@
 
 use std::path::{Path, PathBuf};
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 use ziee_core::AppError;
 
@@ -54,7 +54,7 @@ pub type ArtifactRef = Artifact;
 /// dataset-scoped processing run tags them with `dataset_id`. Callers must pass at
 /// least one scope (the ingest sink guards this before calling).
 pub async fn ingest_run_outputs(
-    pool: &PgPool,
+    pool: &SqlitePool,
     store: &dyn ObjectStore,
     project_id: Option<Uuid>,
     dataset_id: Option<Uuid>,

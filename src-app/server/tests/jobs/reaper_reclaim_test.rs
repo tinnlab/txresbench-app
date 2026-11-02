@@ -5,7 +5,7 @@
 //! DB-level (no k8s): stage `running` rows with controlled `claim_heartbeat`
 //! ages + `claimed_by`, call the repo primitives directly.
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use cytoanalyst::modules::jobs::repository::JobRepository;
@@ -15,11 +15,11 @@ use crate::common::{TestOptions, TestServer};
 
 /// Insert a `running` row `claimed_by = worker`, with `claim_heartbeat` set
 /// `age_secs` in the PAST (0 = now / fresh). Returns its id.
-async fn insert_running(pool: &PgPool, owner: Uuid, worker: &str, age_secs: i64) -> Uuid {
+async fn insert_running(pool: &SqlitePool, owner: Uuid, worker: &str, age_secs: i64) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO jobs (id, owner_id, job_type, name, status, started_at, claimed_by, claim_heartbeat) \
-         VALUES ($1, $2, 'stub', 'r', 'running', now(), $3, now() - make_interval(secs => $4::double precision))",
+         VALUES ($1, $2, 'stub', 'r', 'running', strftime('%Y-%m-%dT%H:%M:%fZ','now'), $3, strftime('%Y-%m-%dT%H:%M:%fZ','now', printf('-%d seconds', $4)))",
     )
     .bind(id)
     .bind(owner)
@@ -31,7 +31,7 @@ async fn insert_running(pool: &PgPool, owner: Uuid, worker: &str, age_secs: i64)
     id
 }
 
-async fn status_of(pool: &PgPool, id: Uuid) -> String {
+async fn status_of(pool: &SqlitePool, id: Uuid) -> String {
     sqlx::query_scalar("SELECT status FROM jobs WHERE id = $1")
         .bind(id)
         .fetch_one(pool)
@@ -39,7 +39,7 @@ async fn status_of(pool: &PgPool, id: Uuid) -> String {
         .expect("status")
 }
 
-async fn claimed_by_of(pool: &PgPool, id: Uuid) -> Option<String> {
+async fn claimed_by_of(pool: &SqlitePool, id: Uuid) -> Option<String> {
     sqlx::query_scalar("SELECT claimed_by FROM jobs WHERE id = $1")
         .bind(id)
         .fetch_one(pool)
@@ -47,7 +47,7 @@ async fn claimed_by_of(pool: &PgPool, id: Uuid) -> Option<String> {
         .expect("claimed_by")
 }
 
-async fn reclaim_count_of(pool: &PgPool, id: Uuid) -> i32 {
+async fn reclaim_count_of(pool: &SqlitePool, id: Uuid) -> i32 {
     sqlx::query_scalar("SELECT reclaim_count FROM jobs WHERE id = $1")
         .bind(id)
         .fetch_one(pool)
@@ -55,7 +55,7 @@ async fn reclaim_count_of(pool: &PgPool, id: Uuid) -> i32 {
         .expect("reclaim_count")
 }
 
-async fn heartbeat_of(pool: &PgPool, id: Uuid) -> chrono::DateTime<chrono::Utc> {
+async fn heartbeat_of(pool: &SqlitePool, id: Uuid) -> chrono::DateTime<chrono::Utc> {
     sqlx::query_scalar("SELECT claim_heartbeat FROM jobs WHERE id = $1")
         .bind(id)
         .fetch_one(pool)

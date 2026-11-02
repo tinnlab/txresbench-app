@@ -21,26 +21,47 @@ async fn account_id_columns_are_not_null_and_fk_no_action() {
     let pool = pool_for(&server).await;
 
     for table in ["projects", "datasets"] {
-        let is_nullable: String = sqlx::query_scalar(
-            "SELECT is_nullable FROM information_schema.columns \
-             WHERE table_schema='public' AND table_name=$1 AND column_name='account_id'",
+        // SQLite port (record): `ALTER TABLE … ADD COLUMN account_id … CHECK (account_id
+        // IS NOT NULL)` is the sqlite expression of the PG `NOT NULL` (a plain
+        // `NOT NULL` cannot be added via ADD COLUMN unless it has a non-NULL default,
+        // and the column is populated by the same migration's backfill). The schema
+        // claim is therefore enforced + asserted at the behavioural level: the
+        // column definition carries the CHECK, and a write with a NULL account_id is
+        // refused — the exact claim the PG test made via `notnull`.
+        let definition: String = sqlx::query_scalar(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = $1",
         )
         .bind(table)
         .fetch_one(&pool)
         .await
-        .unwrap_or_else(|_| panic!("{table}.account_id must exist"));
-        assert_eq!(is_nullable, "NO", "{table}.account_id must be NOT NULL");
+        .unwrap_or_else(|_| panic!("{table} must exist"));
+        assert!(
+            definition.contains("account_id IS NOT NULL"),
+            "{table}.account_id must be explicitly NOT NULL (CHECK form): {definition}"
+        );
+        let refused = sqlx::query(&format!(
+            "INSERT INTO {} (id, owner_id, account_id, name) \
+             VALUES (randomblob(16), $1, NULL, 'null-account-id-probe')",
+            table
+        ))
+        .bind(alice)
+        .execute(&pool)
+        .await;
+        assert!(
+            refused.is_err(),
+            "{table}: a row with NULL account_id must be refused by the schema"
+        );
 
         let (del_type, referenced): (String, String) = sqlx::query_as(
-            "SELECT confdeltype::text, confrelid::regclass::text \
-             FROM pg_constraint WHERE conname = $1",
+            "SELECT on_delete, \"table\" \
+             FROM pragma_foreign_key_list($1) WHERE \"from\" = 'account_id'",
         )
-        .bind(format!("{table}_account_id_fkey"))
+        .bind(table)
         .fetch_one(&pool)
         .await
         .unwrap_or_else(|_| panic!("{table}_account_id_fkey must exist"));
-        // 'a' = NO ACTION (Postgres pg_constraint.confdeltype).
-        assert_eq!(del_type, "a", "{table} FK must be NO ACTION");
+        // SQLite reports the ON DELETE action in full ('NO ACTION').
+        assert_eq!(del_type, "NO ACTION", "{table} FK must be NO ACTION");
         assert_eq!(
             referenced, "accounts",
             "{table}.account_id references accounts"
@@ -80,7 +101,7 @@ async fn account_id_indexes_exist() {
         ("idx_datasets_account_created", "datasets"),
     ] {
         let def: String = sqlx::query_scalar(
-            "SELECT indexdef FROM pg_indexes WHERE schemaname='public' AND indexname=$1",
+            "SELECT sql FROM sqlite_master WHERE type='index' AND name=$1",
         )
         .bind(idx)
         .fetch_one(&pool)
@@ -120,7 +141,7 @@ async fn backfill_is_idempotent_and_zero_orphan_gate_fires() {
     // Re-apply the exact repoint UPDATE twice — idempotent (WHERE account_id IS NULL).
     for _ in 0..2 {
         sqlx::query(
-            "UPDATE projects p SET account_id = a.id FROM accounts a \
+            "UPDATE projects AS p SET account_id = a.id FROM accounts AS a \
              WHERE a.kind='personal' AND a.personal_user_id = p.owner_id AND p.account_id IS NULL",
         )
         .execute(&pool)
@@ -133,34 +154,61 @@ async fn backfill_is_idempotent_and_zero_orphan_gate_fires() {
         .unwrap();
     assert_eq!(before, after, "re-applying the backfill is a no-op");
 
-    // Zero-orphan gate: force a residual NULL and prove the DO-block RAISEs.
-    sqlx::query("ALTER TABLE projects ALTER COLUMN account_id DROP NOT NULL")
+    // Zero-orphan gate (SQLite port, record): the PG gate was a plpgsql DO-block
+    // raising on a residual NULL. The PORTED migration expresses the same gate as a
+    // CHECK-trap table (`account_backfill_zero_orphan_gate`: INSERT ... SELECT over
+    // the orphan queries into a `CHECK (probe = -1)` table — an orphan aborts the
+    // statement), and the live schema's `account_id` CHECK makes a residual NULL
+    // unrepresentable on a write. The gate's RAISE semantics are therefore proven
+    // against an unconstrained copy of the same table (`CREATE TABLE AS` copies no
+    // constraints): the exact gate construct must abort on a forced orphan.
+    let gate_sql = "CREATE TABLE account_backfill_zero_orphan_gate (\
+         probe INTEGER CONSTRAINT account_backfill_zero_orphan_gate CHECK (probe = -1)\
+     ); \
+         INSERT INTO account_backfill_zero_orphan_gate (probe) \
+         SELECT 1 FROM {t} WHERE account_id IS NULL \
+         UNION ALL \
+         SELECT 1 FROM datasets WHERE account_id IS NULL; \
+         DROP TABLE account_backfill_zero_orphan_gate;";
+    sqlx::query("DROP TABLE IF EXISTS projects_trap")
         .execute(&pool)
         .await
-        .expect("drop not null (test-local, disposable DB)");
+        .expect("drop trap");
+    sqlx::query("CREATE TABLE projects_trap AS SELECT * FROM projects")
+        .execute(&pool)
+        .await
+        .expect("trap table (constraint-free copy)");
     sqlx::query(
-        "INSERT INTO projects (id, owner_id, account_id, name, description) \
-         VALUES (gen_random_uuid(), $1, NULL, 'orphan', '')",
+        "INSERT INTO projects_trap (id, owner_id, account_id, name, description) \
+         VALUES (randomblob(16), $1, NULL, 'orphan', '')",
     )
     .bind(alice)
     .execute(&pool)
     .await
-    .expect("insert an orphan row");
+    .expect("insert an orphan row into the trap");
 
-    let gate = sqlx::query(
-        "DO $$ BEGIN \
-           IF EXISTS (SELECT 1 FROM public.projects WHERE account_id IS NULL) \
-              OR EXISTS (SELECT 1 FROM public.datasets WHERE account_id IS NULL) THEN \
-             RAISE EXCEPTION 'account backfill left orphaned rows'; \
-           END IF; \
-         END $$;",
-    )
-    .execute(&pool)
-    .await;
+    let gate = sqlx::query(&gate_sql.replace("{t}", "projects_trap"))
+        .execute(&pool)
+        .await;
     let err = gate.expect_err("the zero-orphan gate must RAISE on a residual NULL");
     assert!(
-        err.to_string().contains("orphaned rows"),
+        err.to_string().contains("CHECK")
+            && err.to_string().contains("account_backfill_zero_orphan_gate"),
         "gate must fail loudly, not silently ship a NULL: {err}"
+    );
+
+    // …and the unconstrained copy is only the staging vehicle: the LIVE tables refuse
+    // the residual state outright, so the gate never sees one (the truth-table's
+    // negative control).
+    let live_orphans: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM projects WHERE account_id IS NULL")
+            .fetch_one(&pool)
+            .await
+            .expect("read the live orphan census");
+    assert_eq!(
+        live_orphans, 0,
+        "the live schema's account_id CHECK is the gate's write-time half — a NULL is \
+         unrepresentable, so the trap-table gate has nothing to abort over"
     );
 }
 
@@ -184,7 +232,7 @@ async fn no_null_account_id_and_artifacts_have_no_owner_columns() {
 
     for table in ["projects", "datasets"] {
         let nulls: i64 = sqlx::query_scalar(&format!(
-            "SELECT count(*) FROM public.{table} WHERE account_id IS NULL"
+            "SELECT count(*) FROM {table} WHERE account_id IS NULL"
         ))
         .fetch_one(&pool)
         .await
@@ -195,8 +243,7 @@ async fn no_null_account_id_and_artifacts_have_no_owner_columns() {
     // artifacts carries NO account_id / owner_id column — the account is transitive.
     for col in ["account_id", "owner_id"] {
         let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM information_schema.columns \
-             WHERE table_schema='public' AND table_name='artifacts' AND column_name=$1)",
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('artifacts') WHERE name = $1)",
         )
         .bind(col)
         .fetch_one(&pool)
@@ -209,12 +256,14 @@ async fn no_null_account_id_and_artifacts_have_no_owner_columns() {
     }
 
     // Transitive resolution via a dataset_id back-pointer.
+    // The sqlite chain has no uuid default (DEC-12): the id is an app-side
+    // `randomblob(16)` literal (the `account_of_test` idiom).
     let artifact_id: Uuid = sqlx::query_scalar(
         "INSERT INTO artifacts \
-           (dataset_id, output_id, datatype, object_key, is_multifile, content_hash, \
+           (id, dataset_id, output_id, datatype, object_key, is_multifile, content_hash, \
             structure, meta, role, status, stored_bytes, hidden) \
-         VALUES ($1, 'out-1', 'data/opaque', 'k/1', false, $2, \
-                 '{}'::jsonb, '{}'::jsonb, 'artifact', 'ready', 1, false) \
+         VALUES (randomblob(16), $1, 'out-1', 'data/opaque', 'k/1', false, $2, \
+                 '{}', '{}', 'artifact', 'ready', 1, false) \
          RETURNING id",
     )
     .bind(dataset.id)

@@ -1,4 +1,6 @@
--- Raise the sandbox RLIMIT_FSIZE default 2 GiB -> 64 GiB (#185 §4, owner ruling 2).
+-- Raise the sandbox RLIMIT_FSIZE default 2 GiB -> 64 GiB (#185 §4, owner
+-- ruling 2) — SQLite dialect port (ITEM-8) of
+-- `src/modules/sandbox/migrations/202609020020_sandbox_fsize_default.sql`.
 --
 -- `fsize_bytes` caps every file written INSIDE a sandbox, including the archive
 -- extraction the importer uses to expand a vendor bundle. At 2 GiB it is what
@@ -7,45 +9,96 @@
 -- write.
 --
 -- The number is derived from measured file sizes, not taste (DEC-6 /
--- docs/design/upload-limits-policy.md):
---   Xenium morphology.ome.tif, XOA 1.0.1 breast rep1   5,179 MB  (largest measured)
---   Xenium morphology.ome.tif, XOA 3.0.0 Prime 5K      3,078 MB
---   Xenium whole bundle per region                     7.56 / 9.86 GB
---   morphology OME-TIFF, design/#161 framing           5-50 GB
---   STARmap image deposit                              14.2 GB
--- 64 GiB clears the largest measured member by ~12.6x and the 50 GB design framing
--- by ~37%, and sits INSIDE the existing 1 MiB..256 GiB CHECK, so no bound moves and
--- sandbox_settings_fsize_bytes_check is untouched. The bound deliberately survives:
--- RLIMIT_FSIZE still stops a runaway analysis filling a >64 GiB volume with one
--- appending file, and an operator can still lower it at /settings/sandbox.
+-- docs/design/upload-limits-policy.md).
+--
+-- SQLite port note — the one construct change: SQLite has no
+-- `ALTER TABLE … ALTER COLUMN … SET DEFAULT`, so this file follows the
+-- SQLite-documented rebuild procedure (create the new table with the full
+-- column list — the same order the chain produces — copy, drop, rename).
+-- The rebuild is safe here: nothing references `sandbox_settings` (it is a
+-- settings singleton with no inbound FKs, verified over the whole PG chain),
+-- the table carries no triggers in this chain, and the copy is positional
+-- (column ORDER preserved). The rebuild also folds ALL eighteen bounds
+-- CHECKs (the eleven baseline + the seven per-class + the env-id grammar
+-- from 202608290010) INLINE with their Postgres constraint names — the
+-- final schema is fully declarative, where the incremental port used the
+-- anonymous inline forms.
+--
+-- The conditional UPDATE below is the Postgres file's rule verbatim
+-- (only rows still holding the OLD SHIPPED DEFAULT are raised; an operator
+-- who deliberately chose another value keeps it — `fsize_bytes =
+-- 2147483648` alone is not the discriminator, `updated_by IS NULL` is:
+-- the settings idiom stamps it on every admin PUT, so NULL means no human
+-- has ever written this row and the value present is the seed). `updated_at`
+-- is stamped so the change is visible in the audit column; `updated_by`
+-- stays NULL because no admin did this — the migration did.
 
-ALTER TABLE public.sandbox_settings
-    ALTER COLUMN fsize_bytes SET DEFAULT 68719476736;
+CREATE TABLE sandbox_settings_new (
+    id INTEGER NOT NULL DEFAULT 1,
+    memory_max_bytes INTEGER NOT NULL DEFAULT 8589934592,
+    memory_swap_max_bytes INTEGER NOT NULL DEFAULT 8589934592,
+    pids_max INTEGER NOT NULL DEFAULT 512,
+    cpu_max TEXT NOT NULL DEFAULT '200000 100000',
+    address_space_bytes INTEGER NOT NULL DEFAULT 68719476736,
+    fsize_bytes INTEGER NOT NULL DEFAULT 68719476736,
+    nproc_max INTEGER NOT NULL DEFAULT 512,
+    nofile_max INTEGER NOT NULL DEFAULT 4096,
+    cpu_secs_max INTEGER NOT NULL DEFAULT 600,
+    timeout_secs INTEGER NOT NULL DEFAULT 600,
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    staging_timeout_secs INTEGER NOT NULL DEFAULT 900,
+    interactive_cpu_cores INTEGER NOT NULL DEFAULT 2,
+    interactive_mem_bytes INTEGER NOT NULL DEFAULT 4294967296,
+    normal_cpu_cores INTEGER NOT NULL DEFAULT 2,
+    normal_mem_bytes INTEGER NOT NULL DEFAULT 4294967296,
+    batch_cpu_cores INTEGER NOT NULL DEFAULT 4,
+    batch_mem_bytes INTEGER NOT NULL DEFAULT 8589934592,
+    default_env_id TEXT,
+    updated_by BLOB,
+    CONSTRAINT sandbox_settings_address_space_bytes_check CHECK (address_space_bytes BETWEEN 134217728 AND 549755813888),
+    CONSTRAINT sandbox_settings_batch_cpu_bounds CHECK (batch_cpu_cores BETWEEN 1 AND 256),
+    CONSTRAINT sandbox_settings_batch_mem_bounds CHECK (batch_mem_bytes BETWEEN 67108864 AND 274877906944),
+    CONSTRAINT sandbox_settings_cpu_secs_max_check CHECK (cpu_secs_max BETWEEN 1 AND 86400),
+    CONSTRAINT sandbox_settings_default_env_id_grammar CHECK (default_env_id IS NULL
+        OR (length(default_env_id) BETWEEN 1 AND 255
+            AND default_env_id NOT GLOB '*[^a-z0-9._-]*')),
+    CONSTRAINT sandbox_settings_fsize_bytes_check CHECK (fsize_bytes BETWEEN 1048576 AND 274877906944),
+    CONSTRAINT sandbox_settings_id_check CHECK (id = 1),
+    CONSTRAINT sandbox_settings_interactive_cpu_bounds CHECK (interactive_cpu_cores BETWEEN 1 AND 256),
+    CONSTRAINT sandbox_settings_interactive_mem_bounds CHECK (interactive_mem_bytes BETWEEN 67108864 AND 274877906944),
+    CONSTRAINT sandbox_settings_memory_max_bytes_check CHECK (memory_max_bytes BETWEEN 67108864 AND 274877906944),
+    CONSTRAINT sandbox_settings_memory_swap_max_bytes_check CHECK (memory_swap_max_bytes BETWEEN 0 AND 274877906944),
+    CONSTRAINT sandbox_settings_nofile_max_check CHECK (nofile_max BETWEEN 64 AND 1048576),
+    CONSTRAINT sandbox_settings_normal_cpu_bounds CHECK (normal_cpu_cores BETWEEN 1 AND 256),
+    CONSTRAINT sandbox_settings_normal_mem_bounds CHECK (normal_mem_bytes BETWEEN 67108864 AND 274877906944),
+    CONSTRAINT sandbox_settings_nproc_max_check CHECK (nproc_max BETWEEN 16 AND 100000),
+    CONSTRAINT sandbox_settings_pids_max_check CHECK (pids_max BETWEEN 16 AND 100000),
+    CONSTRAINT sandbox_settings_staging_timeout_secs_check CHECK (staging_timeout_secs BETWEEN 5 AND 86400),
+    CONSTRAINT sandbox_settings_timeout_secs_check CHECK (timeout_secs BETWEEN 1 AND 86400),
+    CONSTRAINT sandbox_settings_pkey PRIMARY KEY (id)
+);
 
--- Raise EXISTING deployments too -- a column default alone would leave every
--- already-migrated database (including every dev DB in this repo) stuck at 2 GiB,
--- so the ruling would ship without taking effect anywhere it matters.
---
--- Conditional ON PURPOSE (DEC-7): only rows still holding the OLD SHIPPED DEFAULT
--- are raised. An operator who deliberately chose some other value keeps it -- an
--- unconditional UPDATE silently overwriting an admin's choice is the one thing a
--- settings migration must never do.
---
--- `fsize_bytes = 2147483648` is NOT sufficient on its own, though, and that was a
--- real hole: 2 GiB is a legal value inside the unchanged 1 MiB..256 GiB CHECK, so an
--- operator who deliberately pinned RLIMIT_FSIZE at exactly the old default is
--- indistinguishable from one who never touched it -- and would have had their choice
--- silently raised 32x, which is precisely what the paragraph above promises not to
--- do. `updated_by IS NULL` is the discriminator that actually separates the two: the
--- settings idiom stamps it on every admin PUT (added by 202608290010), so a NULL
--- means no human has ever written this row and the value present is the seed.
---
--- `updated_at` is stamped so the change is visible in the audit column rather than
--- the row claiming to be untouched since seeding while its effective per-file write
--- ceiling moved. `updated_by` stays NULL because no admin did this -- the migration
--- did.
-UPDATE public.sandbox_settings
+INSERT INTO sandbox_settings_new (id, memory_max_bytes, memory_swap_max_bytes,
+    pids_max, cpu_max, address_space_bytes, fsize_bytes, nproc_max, nofile_max,
+    cpu_secs_max, timeout_secs, updated_at, staging_timeout_secs,
+    interactive_cpu_cores, interactive_mem_bytes, normal_cpu_cores,
+    normal_mem_bytes, batch_cpu_cores, batch_mem_bytes, default_env_id,
+    updated_by)
+SELECT id, memory_max_bytes, memory_swap_max_bytes,
+    pids_max, cpu_max, address_space_bytes, fsize_bytes, nproc_max, nofile_max,
+    cpu_secs_max, timeout_secs, updated_at, staging_timeout_secs,
+    interactive_cpu_cores, interactive_mem_bytes, normal_cpu_cores,
+    normal_mem_bytes, batch_cpu_cores, batch_mem_bytes, default_env_id,
+    updated_by
+FROM sandbox_settings;
+
+DROP TABLE sandbox_settings;
+
+ALTER TABLE sandbox_settings_new RENAME TO sandbox_settings;
+
+-- Raise EXISTING deployments too (see the header — the discriminator rule).
+UPDATE sandbox_settings
    SET fsize_bytes = 68719476736,
-       updated_at  = now()
+       updated_at  = strftime('%Y-%m-%dT%H:%M:%fZ','now')
  WHERE fsize_bytes = 2147483648
    AND updated_by IS NULL;

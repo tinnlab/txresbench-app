@@ -1,7 +1,9 @@
--- MCP admin settings singleton (issue #54): agent/tool caps + pairing-TTL.
+-- MCP admin settings singleton (issue #54): agent/tool caps + pairing-TTL —
+-- SQLite dialect port (ITEM-8, sqlite-store) of
+-- `src/modules/mcp/migrations/202608290040_mcp_settings.sql`.
 --
 -- Mirrors `workstore_settings` / `sandbox_settings` / `billing_settings`: ONE row,
--- `id boolean` PK with a CHECK(id = true) so a second row is impossible, per-column
+-- `id integer` PK with a CHECK(id = 1) so a second row is impossible, per-column
 -- bounds CHECKs (the safety bound — DEC-3: an OOM/DoS cap is NEVER admin-raisable
 -- unbounded), and an `updated_by` audit column.
 --
@@ -16,17 +18,25 @@
 --
 -- Admin-only (admins hold `*`), so NO group-grant statement — mirrors the
 -- workstore settings migration (DEC-4).
-CREATE TABLE IF NOT EXISTS public.mcp_settings (
-    id                     boolean     PRIMARY KEY DEFAULT true,
-    max_control_sessions   bigint      NOT NULL DEFAULT 1024,
-    max_inflight_per_user  bigint      NOT NULL DEFAULT 16,
-    pairing_ttl_secs       bigint      NOT NULL DEFAULT 300,
-    action_wall_clock_secs bigint      NOT NULL DEFAULT 900,
-    max_list_results       bigint      NOT NULL DEFAULT 200,
-    max_result_bytes       bigint      NOT NULL DEFAULT 1048576,
-    updated_at             timestamptz NOT NULL DEFAULT now(),
-    updated_by             uuid,
-    CONSTRAINT mcp_settings_singleton_check        CHECK (id = true),
+--
+-- SQLite port notes (ITEM-8, DEC-8 type map): `bigint` -> INTEGER, `boolean`
+-- -> INTEGER 0/1 (the singleton `id` keeps `DEFAULT 1`), `timestamptz
+-- DEFAULT now()` -> TEXT RFC3339 UTC with
+-- `strftime('%Y-%m-%dT%H:%M:%fZ','now')`, `uuid` -> BLOB, no `public.`
+-- prefix, no `::` casts. The Postgres table was ALREADY created with all
+-- constraints INLINE (a `CREATE TABLE IF NOT EXISTS` file), so the port is a
+-- dialect change only — names preserved verbatim.
+CREATE TABLE IF NOT EXISTS mcp_settings (
+    id                     INTEGER     PRIMARY KEY DEFAULT 1,
+    max_control_sessions   INTEGER     NOT NULL DEFAULT 1024,
+    max_inflight_per_user  INTEGER     NOT NULL DEFAULT 16,
+    pairing_ttl_secs       INTEGER     NOT NULL DEFAULT 300,
+    action_wall_clock_secs INTEGER     NOT NULL DEFAULT 900,
+    max_list_results       INTEGER     NOT NULL DEFAULT 200,
+    max_result_bytes       INTEGER     NOT NULL DEFAULT 1048576,
+    updated_at             TEXT        NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_by             BLOB,
+    CONSTRAINT mcp_settings_singleton_check        CHECK (id = 1),
     -- Agent session cap (OOM guard, DEC-3): 16 .. 16384.
     CONSTRAINT mcp_settings_control_sessions_bounds CHECK (max_control_sessions BETWEEN 16 AND 16384),
     -- Per-user in-flight cap (DoS guard, DEC-3): 1 .. 256.
@@ -41,4 +51,4 @@ CREATE TABLE IF NOT EXISTS public.mcp_settings (
     CONSTRAINT mcp_settings_result_bytes_bounds     CHECK (max_result_bytes BETWEEN 1024 AND 67108864)
 );
 
-INSERT INTO public.mcp_settings (id) VALUES (true) ON CONFLICT (id) DO NOTHING;
+INSERT INTO mcp_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;

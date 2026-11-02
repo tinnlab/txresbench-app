@@ -36,7 +36,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use ziee_core::AppError;
@@ -236,7 +236,7 @@ pub struct InputDerivation {
 }
 
 async fn dataset_inputs_of_run(
-    pool: &PgPool,
+    pool: &SqlitePool,
     inputs_json: &Value,
 ) -> Result<InputDerivation, AppError> {
     let mut direct: BTreeSet<Uuid> = BTreeSet::new();
@@ -264,9 +264,11 @@ async fn dataset_inputs_of_run(
 
     let mut missing_artifacts = 0usize;
     if !artifact_refs.is_empty() {
+        let artifact_ref_json = super::catalog::repository::uuid_list_json(&artifact_refs);
         let rows = sqlx::query!(
-            "SELECT id, dataset_id FROM artifacts WHERE id = ANY($1)",
-            &artifact_refs,
+            r#"SELECT id as "id: Uuid", dataset_id as "dataset_id?: Uuid" FROM artifacts
+             WHERE id IN (SELECT unhex(j.value) FROM json_each($1) AS j)"#,
+            artifact_ref_json,
         )
         .fetch_all(pool)
         .await
@@ -292,9 +294,9 @@ async fn dataset_inputs_of_run(
 }
 
 /// **The backfill.** `write = false` is the dry run; everything else is identical.
-pub async fn run_backfill(pool: &PgPool, write: bool) -> Result<BackfillReport, AppError> {
+pub async fn run_backfill(pool: &SqlitePool, write: bool) -> Result<BackfillReport, AppError> {
     let candidates = sqlx::query!(
-        r#"SELECT a.id, a.datatype, a.output_id, a.project_id, a.run_id,
+        r#"SELECT a.id as "id: Uuid", a.datatype, a.output_id, a.project_id as "project_id: Uuid", a.run_id as "run_id: Uuid",
                   r.inputs_json as "inputs_json?: Value",
                   r.dataset_id  as "run_scope_dataset?: Uuid"
            FROM artifacts a
@@ -331,13 +333,13 @@ pub async fn run_backfill(pool: &PgPool, write: bool) -> Result<BackfillReport, 
         // the dry-run reports an assignment it could not actually make.
         if let Decision::Assign(dataset_id) = decision {
             let occupied = sqlx::query_scalar!(
-                r#"SELECT id FROM artifacts
+                r#"SELECT id as "id: Uuid" FROM artifacts
                    WHERE id <> $1
-                     AND COALESCE(project_id, '00000000-0000-0000-0000-000000000000'::uuid)
-                         = COALESCE($2, '00000000-0000-0000-0000-000000000000'::uuid)
-                     AND COALESCE(dataset_id, '00000000-0000-0000-0000-000000000000'::uuid) = $3
-                     AND COALESCE(run_id, '00000000-0000-0000-0000-000000000000'::uuid)
-                         = COALESCE($4, '00000000-0000-0000-0000-000000000000'::uuid)
+                     AND COALESCE(project_id, X'00000000000000000000000000000000')
+                         = COALESCE($2, X'00000000000000000000000000000000')
+                     AND COALESCE(dataset_id, X'00000000000000000000000000000000') = $3
+                     AND COALESCE(run_id, X'00000000000000000000000000000000')
+                         = COALESCE($4, X'00000000000000000000000000000000')
                      AND output_id = $5
                    LIMIT 1"#,
                 c.id,
@@ -366,7 +368,7 @@ pub async fn run_backfill(pool: &PgPool, write: bool) -> Result<BackfillReport, 
                     // second run of this function reports the same decisions with `written`
                     // at 0. Never widens — it only ever fills a NULL.
                     let done = sqlx::query!(
-                        "UPDATE artifacts SET dataset_id = $1, updated_at = now()
+                        "UPDATE artifacts SET dataset_id = $1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
                          WHERE id = $2 AND dataset_id IS NULL",
                         dataset_id,
                         c.id,
@@ -409,7 +411,7 @@ pub async fn run_backfill(pool: &PgPool, write: bool) -> Result<BackfillReport, 
 /// a fabricated or always-zero count is worse than no warning, because a user acts on it. The
 /// caller must render "cannot determine", never `0`.
 pub async fn dependent_analysis_count(
-    pool: &PgPool,
+    pool: &SqlitePool,
     project_id: Uuid,
     dataset_id: Uuid,
 ) -> Result<Option<usize>, AppError> {
@@ -421,14 +423,13 @@ pub async fn dependent_analysis_count(
     )
     .fetch_one(pool)
     .await
-    .map_err(AppError::database_error)?
-    .unwrap_or(0);
+    .map_err(AppError::database_error)?;
     if recorded == 0 {
         return Ok(None);
     }
 
     let runs = sqlx::query!(
-        r#"SELECT run_id, inputs_json as "inputs_json: Value"
+        r#"SELECT run_id as "run_id: Uuid", inputs_json as "inputs_json: Value"
            FROM provenance_run_repro WHERE project_id = $1"#,
         project_id,
     )

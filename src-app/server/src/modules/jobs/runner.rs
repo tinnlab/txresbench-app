@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 
 use super::models::Job;
 use super::seams::PeakMetrics;
@@ -105,7 +105,7 @@ impl JobRunner for StubJobRunner {
 /// replay), so the sink carries a pool for the fire-and-forget insert.
 struct JobProgressSink {
     job_id: uuid::Uuid,
-    pool: PgPool,
+    pool: SqlitePool,
     // The sandbox invokes `progress`/`milestone` from a SYNCHRONOUS (non-Tokio)
     // callback thread, so `tokio::spawn` there panics ("no reactor running").
     // Capture the runtime handle at construction (which runs on a Tokio thread)
@@ -144,13 +144,13 @@ impl ProgressSink for JobProgressSink {
 /// The analysis runner: decodes the analysis spec, stages code + inputs, resolves
 /// caps, and delegates to the selected `ComputeBackend`.
 pub struct SandboxJobRunner {
-    pool: PgPool,
+    pool: SqlitePool,
     registry: Arc<crate::modules::sandbox::backend::local_bwrap::BackendRegistry>,
 }
 
 impl SandboxJobRunner {
     pub fn new(
-        pool: PgPool,
+        pool: SqlitePool,
         registry: Arc<crate::modules::sandbox::backend::local_bwrap::BackendRegistry>,
     ) -> Self {
         Self { pool, registry }
@@ -979,7 +979,7 @@ pub async fn finalize_analysis_with(
 /// this returns 0.
 pub async fn execute_job_in_pod(
     job: &Job,
-    pool: PgPool,
+    pool: SqlitePool,
     registry: Arc<crate::modules::sandbox::backend::local_bwrap::BackendRegistry>,
 ) -> Result<i32, String> {
     let runner = SandboxJobRunner::new(pool, registry);
@@ -1522,7 +1522,7 @@ mod tests {
     /// plainly rather than dressed up.** The behavioural test would drive
     /// `stage_and_launch` / `launch_remote` with a recording backend and assert the
     /// `ComputeSpec` handed over; both are private `async fn`s on a runner that owns a
-    /// `PgPool` and does real filesystem staging, so exercising them needs the
+    /// `SqlitePool` and does real filesystem staging, so exercising them needs the
     /// integration harness plus a fake `ComputeBackend`, which is a larger piece of test
     /// scaffolding than this branch should introduce into a shared runner.
     ///

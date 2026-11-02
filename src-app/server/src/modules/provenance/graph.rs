@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use sqlx::PgPool;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 use ziee_core::AppError;
 
@@ -464,15 +464,21 @@ fn roots_have_provenance_flag(root_nodes: &[ArtifactNodeDto]) -> bool {
 /// that would have avoided it is an N+1 on a UI endpoint, which is worse. Move it
 /// to `ProvenanceRepository` (as `code_blob_lens`) when that file is next touched.
 async fn code_blob_lens(
-    pool: &PgPool,
+    pool: &SqlitePool,
     shas: &[String],
 ) -> Result<HashMap<String, usize>, AppError> {
     if shas.is_empty() {
         return Ok(HashMap::new());
     }
+    // (DEC-12: `sha256 = ANY($1)` has no SQLite form — the TEXT-array batch is
+    // JSON1 membership over a JSON array of plain strings, the workstore
+    // `text_list_json` convention: `col IN (SELECT j.value FROM json_each($1) AS j)`.)
+    // let-bound: the sqlx bind is borrowed across the statement (E0716 class).
+    let json = serde_json::to_string(shas).expect("a Vec<String> is always JSON-serializable");
     let rows = sqlx::query!(
-        r#"SELECT sha256, byte_len FROM provenance_code_blobs WHERE sha256 = ANY($1)"#,
-        shas,
+        r#"SELECT sha256, byte_len FROM provenance_code_blobs
+           WHERE sha256 IN (SELECT j.value FROM json_each($1) AS j)"#,
+        json,
     )
     .fetch_all(pool)
     .await
@@ -555,7 +561,7 @@ impl WalkContext {
 /// owner-scoped processing lineage (ITEM-20). Bounded: a fixpoint over the
 /// dataset ids reachable through the project's attach list + `dataset` used-edges.
 pub(crate) async fn load_project_walk_context(
-    pool: &PgPool,
+    pool: &SqlitePool,
     project_id: Uuid,
     caller_id: Uuid,
     group_ids: &[Uuid],
@@ -647,7 +653,7 @@ fn dataset_root_node(dn: &DatasetNode) -> ArtifactNodeDto {
 /// the chain traces final-output → … → dataset → promote-run → source artifact →
 /// … → an uploaded-dataset root (ITEM-20).
 pub async fn read_graph(
-    pool: &PgPool,
+    pool: &SqlitePool,
     project_id: Uuid,
     target: Option<Uuid>,
     caller_id: Uuid,
@@ -756,7 +762,7 @@ pub async fn read_graph(
 /// forward walk therefore filters per dataset; it does not authorize once at the
 /// start and then trust the whole downstream closure.
 pub async fn read_forward_graph(
-    pool: &PgPool,
+    pool: &SqlitePool,
     dataset_id: Uuid,
     caller_id: Uuid,
     group_ids: &[Uuid],
@@ -864,7 +870,7 @@ pub async fn read_forward_graph(
 /// catalog with `run_id` naming a run that was never inserted and never would be,
 /// and `artifacts.run_id` has no FK, so nothing reclaimed it: the graph walk saw a
 /// cell-set produced by a nonexistent run. Inside one transaction, a dropped future
-/// drops the connection and Postgres rolls the whole capture back.
+/// drops the connection and the transaction rolls the whole capture back.
 ///
 /// The object-store `put` still happens before this (no transaction can span it),
 /// which is fine and unchanged: the recipe blob is content-addressed, so a retry
@@ -878,7 +884,7 @@ pub async fn read_forward_graph(
 /// build rather than letting them silently diverge. Fold them into a single
 /// `ProvenanceRepository::insert_run_in_tx` when `repository.rs` is next touched.
 pub async fn write_capture_atomically(
-    pool: &PgPool,
+    pool: &SqlitePool,
     artifact: &NewArtifact,
     run: &super::repository::NewRun,
 ) -> Result<(Artifact, RunReproRow), AppError> {
@@ -891,14 +897,14 @@ pub async fn write_capture_atomically(
               code_sha256, env_rootfs_sha256, lockfile_json, seed, params,
               inputs_json, acting_user, rerun_spec_json)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
-           RETURNING run_id, project_id, dataset_id, kind, status, generator_id, generator_version,
+           RETURNING run_id as "run_id: Uuid", project_id as "project_id: Uuid", dataset_id as "dataset_id: Uuid", kind, status, generator_id, generator_version,
                      code_sha256, env_rootfs_sha256,
                      lockfile_json as "lockfile_json?: serde_json::Value",
                      seed,
                      params as "params: serde_json::Value",
                      inputs_json as "inputs_json: serde_json::Value",
                      rerun_spec_json as "rerun_spec_json?: serde_json::Value",
-                     acting_user,
+                     acting_user as "acting_user?: Uuid",
                      started_at as "started_at?: chrono::DateTime<chrono::Utc>",
                      finished_at as "finished_at?: chrono::DateTime<chrono::Utc>",
                      captured_at as "captured_at: chrono::DateTime<chrono::Utc>""#,
@@ -930,7 +936,7 @@ pub async fn write_capture_atomically(
 /// a parallel catalog table.
 #[allow(clippy::too_many_arguments)]
 pub async fn write_generated_artifact(
-    pool: &PgPool,
+    pool: &SqlitePool,
     project_id: Uuid,
     run_id: Option<Uuid>,
     output_id: &str,

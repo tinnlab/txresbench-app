@@ -15,12 +15,12 @@ async fn global_and_per_account_are_independent() {
     let admin = setup_admin(&server).await;
     let pool = pool_for(&server).await;
 
-    let account: Uuid = sqlx::query_scalar::<_, Uuid>(
-        "INSERT INTO accounts (kind, name) VALUES ('organization', 'acct') RETURNING id",
-    )
-    .fetch_one(&pool)
-    .await
-    .expect("insert account");
+    let account = Uuid::new_v4();
+    sqlx::query("INSERT INTO accounts (id, kind, name) VALUES ($1, 'organization', 'acct')")
+        .bind(account)
+        .execute(&pool)
+        .await
+        .expect("insert account");
     let account_s = account.to_string();
 
     // Set the GLOBAL default true.

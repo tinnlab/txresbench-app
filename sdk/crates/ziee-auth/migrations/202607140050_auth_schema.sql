@@ -1,215 +1,246 @@
--- Squashed module baseline (MIGRATE-squash / N3.1 / N7).
+-- Squashed module baseline (MIGRATE-squash / N3.1 / N7) — SQLite dialect.
 -- Auth structural tables (ziee-auth owns identity schema).
+--
+-- SQLite port notes (the engine swap, DEC-8 type map):
+--   * uuid -> BLOB (16 raw bytes; sqlx's sqlite `Uuid` mapping encodes/decodes
+--     blobs, so `X'…'` hex literals appear in seeds and the app binds
+--     `Uuid::new_v4()` values — there is no SQL-side `gen_random_uuid()`).
+--   * text[] -> TEXT holding a JSON array (JSON1 `json_each` does membership);
+--     the two GIN indexes on `permissions` have no SQLite equivalent (JSON1 has
+--     no GIN) and are omitted — permission membership is read through `json_each`,
+--     not an indexed containment operator.
+--   * jsonb -> TEXT JSON text; `timestamp with time zone` -> TEXT RFC3339 UTC
+--     (`strftime('%Y-%m-%dT%H:%M:%fZ','now')` keeps lexicographic ==
+--     chronological); boolean -> INTEGER 0/1; bytea -> BLOB.
+--   * SQLite has no ALTER TABLE ADD CONSTRAINT: primary/unique/FK/CHECK
+--     constraints are declared INLINE with the same names the Postgres chain
+--     assigned by ALTER (see 202607144000_auth_fkeys.sql for the note).
+--   * The `update_updated_at_column()` plpgsql function + BEFORE UPDATE
+--     triggers become per-table AFTER UPDATE triggers that re-write the row's
+--     `updated_at` (SQLite triggers cannot assign NEW columns; recursive
+--     triggers are off by default, so the re-write does not re-fire).
 
--- Shared trigger fn (also defined by the framework bootstrap; repeated
--- here idempotently so the auth-only migrator is self-contained).
-CREATE OR REPLACE FUNCTION update_updated_at_column() RETURNS trigger
-    LANGUAGE plpgsql AS $$
+CREATE TABLE auth_providers (
+    id BLOB NOT NULL,
+    name TEXT NOT NULL,
+    provider_type TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    config TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    last_test_at TEXT,
+    last_test_ok INTEGER,
+    last_test_message TEXT,
+    client_secret_encrypted BLOB,
+    CONSTRAINT auth_providers_name_key UNIQUE (name),
+    CONSTRAINT auth_providers_pkey PRIMARY KEY (id)
+);
+
+CREATE TABLE groups (
+    id BLOB NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    permissions TEXT NOT NULL DEFAULT '[]',
+    is_system INTEGER NOT NULL DEFAULT 0,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    is_default INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    CONSTRAINT groups_name_key UNIQUE (name),
+    CONSTRAINT groups_pkey PRIMARY KEY (id)
+);
+
+CREATE TABLE oauth_sessions (
+    id BLOB NOT NULL,
+    state TEXT NOT NULL,
+    provider_id BLOB NOT NULL,
+    pkce_verifier TEXT,
+    nonce TEXT,
+    redirect_uri TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    expires_at TEXT NOT NULL,
+    return_to TEXT,
+    CONSTRAINT oauth_sessions_pkey PRIMARY KEY (id),
+    CONSTRAINT oauth_sessions_state_key UNIQUE (state),
+    CONSTRAINT oauth_sessions_provider_id_fkey FOREIGN KEY (provider_id)
+        REFERENCES auth_providers(id) ON DELETE CASCADE
+);
+
+CREATE TABLE pending_account_links (
+    link_token TEXT NOT NULL,
+    provider_id BLOB NOT NULL,
+    target_user_id BLOB NOT NULL,
+    external_id TEXT NOT NULL,
+    external_email TEXT,
+    external_data TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    expires_at TEXT NOT NULL,
+    CONSTRAINT pending_account_links_pkey PRIMARY KEY (link_token),
+    CONSTRAINT pending_account_links_provider_id_fkey FOREIGN KEY (provider_id)
+        REFERENCES auth_providers(id) ON DELETE CASCADE,
+    CONSTRAINT pending_account_links_target_user_id_fkey FOREIGN KEY (target_user_id)
+        REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE refresh_tokens (
+    jti BLOB NOT NULL,
+    user_id BLOB NOT NULL,
+    issued_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    expires_at TEXT NOT NULL,
+    revoked_at TEXT,
+    rotated_to BLOB,
+    CONSTRAINT refresh_tokens_pkey PRIMARY KEY (jti),
+    CONSTRAINT refresh_tokens_user_id_fkey FOREIGN KEY (user_id)
+        REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE session_settings (
+    id INTEGER NOT NULL DEFAULT 1,
+    access_token_expiry_hours INTEGER NOT NULL DEFAULT 24,
+    refresh_token_expiry_days INTEGER NOT NULL DEFAULT 30,
+    seeded_from_config INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    CONSTRAINT access_token_expiry_hours_range CHECK (
+        access_token_expiry_hours >= 1 AND access_token_expiry_hours <= 8760
+    ),
+    CONSTRAINT refresh_token_expiry_days_range CHECK (
+        refresh_token_expiry_days >= 1 AND refresh_token_expiry_days <= 3650
+    ),
+    CONSTRAINT session_settings_id_check CHECK (id = 1),
+    CONSTRAINT session_settings_pkey PRIMARY KEY (id)
+);
+
+CREATE TABLE user_auth_links (
+    id BLOB NOT NULL,
+    user_id BLOB NOT NULL,
+    provider_id BLOB NOT NULL,
+    external_id TEXT NOT NULL,
+    external_email TEXT,
+    external_data TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    last_login_at TEXT,
+    CONSTRAINT user_auth_links_pkey PRIMARY KEY (id),
+    CONSTRAINT user_auth_links_provider_id_external_id_key UNIQUE (provider_id, external_id),
+    CONSTRAINT user_auth_links_provider_id_fkey FOREIGN KEY (provider_id)
+        REFERENCES auth_providers(id) ON DELETE CASCADE,
+    CONSTRAINT user_auth_links_user_id_fkey FOREIGN KEY (user_id)
+        REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE user_groups (
+    user_id BLOB NOT NULL,
+    group_id BLOB NOT NULL,
+    assigned_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    assigned_by BLOB,
+    CONSTRAINT user_groups_pkey PRIMARY KEY (user_id, group_id),
+    CONSTRAINT user_groups_assigned_by_fkey FOREIGN KEY (assigned_by)
+        REFERENCES users(id) ON DELETE SET NULL,
+    CONSTRAINT user_groups_group_id_fkey FOREIGN KEY (group_id)
+        REFERENCES groups(id) ON DELETE CASCADE,
+    CONSTRAINT user_groups_user_id_fkey FOREIGN KEY (user_id)
+        REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE users (
+    id BLOB NOT NULL,
+    username TEXT NOT NULL,
+    email TEXT NOT NULL,
+    email_verified INTEGER NOT NULL DEFAULT 0,
+    password_hash TEXT,
+    display_name TEXT,
+    avatar_url TEXT,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    is_admin INTEGER NOT NULL DEFAULT 0,
+    permissions TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    last_login_at TEXT,
+    password_changed_at TEXT,
+    CONSTRAINT users_email_key UNIQUE (email),
+    CONSTRAINT users_pkey PRIMARY KEY (id),
+    CONSTRAINT users_username_key UNIQUE (username)
+);
+
+CREATE INDEX idx_auth_providers_enabled ON auth_providers (enabled);
+
+CREATE INDEX idx_groups_name ON groups (name);
+
+CREATE INDEX idx_oauth_sessions_expires_at ON oauth_sessions (expires_at);
+
+CREATE INDEX idx_oauth_sessions_state ON oauth_sessions (state);
+
+CREATE INDEX idx_pending_links_expires_at ON pending_account_links (expires_at);
+
+CREATE INDEX idx_pending_links_target_user_id ON pending_account_links (target_user_id);
+
+CREATE INDEX idx_refresh_tokens_expires_at ON refresh_tokens (expires_at);
+
+CREATE INDEX idx_refresh_tokens_user_active ON refresh_tokens (user_id)
+    WHERE revoked_at IS NULL;
+
+CREATE INDEX idx_user_auth_links_external_id ON user_auth_links (provider_id, external_id);
+
+CREATE INDEX idx_user_auth_links_provider_id ON user_auth_links (provider_id);
+
+CREATE INDEX idx_user_auth_links_user_id ON user_auth_links (user_id);
+
+CREATE INDEX idx_user_groups_group_id ON user_groups (group_id);
+
+CREATE INDEX idx_user_groups_user_id ON user_groups (user_id);
+
+CREATE INDEX idx_users_created_at ON users (created_at);
+
+CREATE INDEX idx_users_email ON users (email);
+
+CREATE INDEX idx_users_is_active ON users (is_active);
+
+CREATE INDEX idx_users_last_login_at ON users (last_login_at);
+
+CREATE INDEX idx_users_lower_email ON users (lower(email));
+
+CREATE INDEX idx_users_username ON users (username);
+
+CREATE UNIQUE INDEX unique_root_admin ON users (is_admin) WHERE is_admin = 1;
+
+-- SQLite port notes: the plpgsql BEFORE UPDATE trigger function is replaced by
+-- an AFTER UPDATE trigger on each table that re-writes the row's `updated_at`
+-- (SQLite triggers cannot assign NEW columns). The stamp is applied to every
+-- UPDATE, matching the Postgres semantics of the original BEFORE trigger; the
+-- re-write runs outside trigger activation, so it does not re-fire.
+CREATE TRIGGER update_auth_providers_updated_at
+AFTER UPDATE ON auth_providers
+FOR EACH ROW
 BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
+    UPDATE auth_providers
+       SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+     WHERE id = OLD.id;
 END;
-$$;
 
-CREATE TABLE public.auth_providers (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    name character varying(100) NOT NULL,
-    provider_type character varying(50) NOT NULL,
-    enabled boolean DEFAULT true NOT NULL,
-    config jsonb NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    last_test_at timestamp with time zone,
-    last_test_ok boolean,
-    last_test_message text,
-    client_secret_encrypted bytea
-);
+CREATE TRIGGER update_groups_updated_at
+AFTER UPDATE ON groups
+FOR EACH ROW
+BEGIN
+    UPDATE groups
+       SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+     WHERE id = OLD.id;
+END;
 
-CREATE TABLE public.groups (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    name character varying(100) NOT NULL,
-    description text,
-    permissions text[] DEFAULT '{}'::text[] NOT NULL,
-    is_system boolean DEFAULT false NOT NULL,
-    is_active boolean DEFAULT true NOT NULL,
-    is_default boolean DEFAULT false NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
-);
+CREATE TRIGGER update_user_auth_links_updated_at
+AFTER UPDATE ON user_auth_links
+FOR EACH ROW
+BEGIN
+    UPDATE user_auth_links
+       SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+     WHERE id = OLD.id;
+END;
 
-CREATE TABLE public.oauth_sessions (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    state character varying(255) NOT NULL,
-    provider_id uuid NOT NULL,
-    pkce_verifier character varying(255),
-    nonce character varying(255),
-    redirect_uri text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    expires_at timestamp with time zone NOT NULL,
-    return_to text
-);
-
-CREATE TABLE public.pending_account_links (
-    link_token character varying(255) NOT NULL,
-    provider_id uuid NOT NULL,
-    target_user_id uuid NOT NULL,
-    external_id character varying(255) NOT NULL,
-    external_email character varying(255),
-    external_data jsonb,
-    attempts integer DEFAULT 0 NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    expires_at timestamp with time zone NOT NULL
-);
-
-CREATE TABLE public.refresh_tokens (
-    jti uuid NOT NULL,
-    user_id uuid NOT NULL,
-    issued_at timestamp with time zone DEFAULT now() NOT NULL,
-    expires_at timestamp with time zone NOT NULL,
-    revoked_at timestamp with time zone,
-    rotated_to uuid
-);
-
-CREATE TABLE public.session_settings (
-    id boolean DEFAULT true NOT NULL,
-    access_token_expiry_hours integer DEFAULT 24 NOT NULL,
-    refresh_token_expiry_days integer DEFAULT 30 NOT NULL,
-    seeded_from_config boolean DEFAULT false NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT access_token_expiry_hours_range CHECK (((access_token_expiry_hours >= 1) AND (access_token_expiry_hours <= 8760))),
-    CONSTRAINT refresh_token_expiry_days_range CHECK (((refresh_token_expiry_days >= 1) AND (refresh_token_expiry_days <= 3650))),
-    CONSTRAINT session_settings_id_check CHECK ((id = true))
-);
-
-CREATE TABLE public.user_auth_links (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    user_id uuid NOT NULL,
-    provider_id uuid NOT NULL,
-    external_id character varying(255) NOT NULL,
-    external_email character varying(255),
-    external_data jsonb,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    last_login_at timestamp with time zone
-);
-
-CREATE TABLE public.user_groups (
-    user_id uuid NOT NULL,
-    group_id uuid NOT NULL,
-    assigned_at timestamp with time zone DEFAULT now() NOT NULL,
-    assigned_by uuid
-);
-
-CREATE TABLE public.users (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    username character varying(100) NOT NULL,
-    email character varying(255) NOT NULL,
-    email_verified boolean DEFAULT false NOT NULL,
-    password_hash character varying(255),
-    display_name character varying(255),
-    avatar_url text,
-    is_active boolean DEFAULT true NOT NULL,
-    is_admin boolean DEFAULT false NOT NULL,
-    permissions text[] DEFAULT '{}'::text[] NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    last_login_at timestamp with time zone,
-    password_changed_at timestamp with time zone
-);
-
-ALTER TABLE ONLY public.auth_providers
-    ADD CONSTRAINT auth_providers_name_key UNIQUE (name);
-
-ALTER TABLE ONLY public.auth_providers
-    ADD CONSTRAINT auth_providers_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY public.groups
-    ADD CONSTRAINT groups_name_key UNIQUE (name);
-
-ALTER TABLE ONLY public.groups
-    ADD CONSTRAINT groups_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY public.oauth_sessions
-    ADD CONSTRAINT oauth_sessions_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY public.oauth_sessions
-    ADD CONSTRAINT oauth_sessions_state_key UNIQUE (state);
-
-ALTER TABLE ONLY public.pending_account_links
-    ADD CONSTRAINT pending_account_links_pkey PRIMARY KEY (link_token);
-
-ALTER TABLE ONLY public.refresh_tokens
-    ADD CONSTRAINT refresh_tokens_pkey PRIMARY KEY (jti);
-
-ALTER TABLE ONLY public.session_settings
-    ADD CONSTRAINT session_settings_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY public.user_auth_links
-    ADD CONSTRAINT user_auth_links_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY public.user_auth_links
-    ADD CONSTRAINT user_auth_links_provider_id_external_id_key UNIQUE (provider_id, external_id);
-
-ALTER TABLE ONLY public.user_groups
-    ADD CONSTRAINT user_groups_pkey PRIMARY KEY (user_id, group_id);
-
-ALTER TABLE ONLY public.users
-    ADD CONSTRAINT users_email_key UNIQUE (email);
-
-ALTER TABLE ONLY public.users
-    ADD CONSTRAINT users_pkey PRIMARY KEY (id);
-
-ALTER TABLE ONLY public.users
-    ADD CONSTRAINT users_username_key UNIQUE (username);
-
-CREATE INDEX idx_auth_providers_enabled ON public.auth_providers USING btree (enabled);
-
-CREATE INDEX idx_groups_name ON public.groups USING btree (name);
-
-CREATE INDEX idx_groups_permissions ON public.groups USING gin (permissions);
-
-CREATE INDEX idx_oauth_sessions_expires_at ON public.oauth_sessions USING btree (expires_at);
-
-CREATE INDEX idx_oauth_sessions_state ON public.oauth_sessions USING btree (state);
-
-CREATE INDEX idx_pending_links_expires_at ON public.pending_account_links USING btree (expires_at);
-
-CREATE INDEX idx_pending_links_target_user_id ON public.pending_account_links USING btree (target_user_id);
-
-CREATE INDEX idx_refresh_tokens_expires_at ON public.refresh_tokens USING btree (expires_at);
-
-CREATE INDEX idx_refresh_tokens_user_active ON public.refresh_tokens USING btree (user_id) WHERE (revoked_at IS NULL);
-
-CREATE INDEX idx_user_auth_links_external_id ON public.user_auth_links USING btree (provider_id, external_id);
-
-CREATE INDEX idx_user_auth_links_provider_id ON public.user_auth_links USING btree (provider_id);
-
-CREATE INDEX idx_user_auth_links_user_id ON public.user_auth_links USING btree (user_id);
-
-CREATE INDEX idx_user_groups_group_id ON public.user_groups USING btree (group_id);
-
-CREATE INDEX idx_user_groups_user_id ON public.user_groups USING btree (user_id);
-
-CREATE INDEX idx_users_created_at ON public.users USING btree (created_at);
-
-CREATE INDEX idx_users_email ON public.users USING btree (email);
-
-CREATE INDEX idx_users_is_active ON public.users USING btree (is_active);
-
-CREATE INDEX idx_users_last_login_at ON public.users USING btree (last_login_at);
-
-CREATE INDEX idx_users_lower_email ON public.users USING btree (lower((email)::text));
-
-CREATE INDEX idx_users_permissions ON public.users USING gin (permissions);
-
-CREATE INDEX idx_users_username ON public.users USING btree (username);
-
-CREATE UNIQUE INDEX unique_root_admin ON public.users USING btree (is_admin) WHERE (is_admin = true);
-
-CREATE TRIGGER update_auth_providers_updated_at BEFORE UPDATE ON public.auth_providers FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
-
-CREATE TRIGGER update_groups_updated_at BEFORE UPDATE ON public.groups FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
-
-CREATE TRIGGER update_user_auth_links_updated_at BEFORE UPDATE ON public.user_auth_links FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
-
-CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON public.users FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+CREATE TRIGGER update_users_updated_at
+AFTER UPDATE ON users
+FOR EACH ROW
+BEGIN
+    UPDATE users
+       SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+     WHERE id = OLD.id;
+END;

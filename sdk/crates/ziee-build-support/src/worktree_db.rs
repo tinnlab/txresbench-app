@@ -12,6 +12,11 @@
 //! worktree root path so each worktree gets its own build database and its own
 //! template database — no manual `DATABASE_URL` per worktree, no CI wiring.
 //!
+//! The same isolation problem exists for the sqlite build-DB (one FILE per
+//! worktree under `<worktree-root>/target/sqlx-build/`), and the same key
+//! derivation solves it: [`sqlite_build_path`] puts the per-worktree file
+//! under `target/` (gitignored) keyed by the identical FNV-1a suffix.
+//!
 //! ## The sentinel
 //!
 //! `src-app/.cargo/config.toml` unconditionally sets `DATABASE_URL` to the
@@ -22,6 +27,9 @@
 //!
 //!   * `DATABASE_URL == DEFAULT_BUILD_DB_URL` (or genuinely unset)  → derive a
 //!     per-worktree database on the same cluster.
+//!   * `DATABASE_URL == DEFAULT_SQLITE_BUILD_URL` (the sqlite counterpart,
+//!     `.cargo/config.toml` after the app's ITEM-12 flip) → derive a
+//!     per-worktree sqlite build FILE under `target/sqlx-build/`.
 //!   * any OTHER `DATABASE_URL`  → a deliberate operator/CI override; honored
 //!     byte-for-byte, behavior unchanged.
 //!
@@ -46,6 +54,14 @@ pub const DEFAULT_BUILD_DB_URL: &str =
 /// via `cargo:rustc-env`, so the runtime value is no longer the literal
 /// sentinel).
 pub const LOCAL_BUILD_CLUSTER: &str = "127.0.0.1:54321";
+
+/// The committed sqlite build-DB sentinel — the `.cargo/config.toml`
+/// `DATABASE_URL` value the app flips to in ITEM-12 (DEC-14). Like the PG
+/// sentinel, it is NEVER opened directly: the relative path would resolve
+/// against the build script's CWD (the package root), not the worktree root.
+/// It only marks "no explicit override → auto-isolate per worktree into
+/// `target/sqlx-build/`".
+pub const DEFAULT_SQLITE_BUILD_URL: &str = "sqlite://target/sqlx-build/cytoanalyst_build.sqlite";
 
 /// FNV-1a 64-bit hash → first 8 hex chars. Stable across processes,
 /// platforms, and rebuilds (no `Hash`/`DefaultHasher` randomization).
@@ -116,6 +132,12 @@ pub fn port_base(key: &str, floor: u16, span: u16) -> u16 {
 
 /// True when `DATABASE_URL` is the committed sentinel (or unset) AND the
 /// dev hasn't opted out — i.e. it is safe to auto-isolate per worktree.
+///
+/// The sqlite sentinel participates: `sqlite:` URLs are auto-isolated ONLY
+/// when they are exactly [`DEFAULT_SQLITE_BUILD_URL`] (the committed marker);
+/// any other sqlite URL (relative or absolute) is an operator override and is
+/// honored byte-for-byte — there is no "shared sqlite build cluster" whose
+/// host:port could rescue a stray value, so the match stays literal.
 pub fn should_auto_isolate(database_url: &Option<String>) -> bool {
     if std::env::var("ZIEE_BUILD_DB_PERWORKTREE").as_deref() == Ok("0") {
         return false;
@@ -123,6 +145,8 @@ pub fn should_auto_isolate(database_url: &Option<String>) -> bool {
     match database_url {
         // Unset → auto-isolate (the bare-default case).
         None => true,
+        // The committed sqlite sentinel → derive a per-worktree build file.
+        Some(url) if is_sqlite_url(url) => url == DEFAULT_SQLITE_BUILD_URL,
         // Auto-isolate whenever we're pointed at the shared LOCAL build
         // cluster — that covers both the literal sentinel AND the
         // `ziee_build_<key>` URL the build rewrites itself to (which then
@@ -131,6 +155,99 @@ pub fn should_auto_isolate(database_url: &Option<String>) -> bool {
         // local cluster, so it's honored unchanged (no suffix).
         Some(url) => url == DEFAULT_BUILD_DB_URL || url.contains(LOCAL_BUILD_CLUSTER),
     }
+}
+
+/// True when the URL names the sqlite driver (scheme `sqlite://` or
+/// `sqlite:` — the two spellings sqlx accepts).
+pub fn is_sqlite_url(url: &str) -> bool {
+    url.starts_with("sqlite:")
+}
+
+/// True when a sqlite URL names THIS worktree's resolved per-worktree build
+/// file — the URL the build script rewrites the committed sentinel to and then
+/// hands the test harness at runtime via `cargo:rustc-env` (the sqlite
+/// counterpart of the PG leg's `ziee_build_<key>` URL matching the
+/// `LOCAL_BUILD_CLUSTER` arm of [`should_auto_isolate`]: the resolved form of
+/// the sentinel is the sentinel's own resolution, not an operator override).
+///
+/// The match is exact on BOTH name and directory: under
+/// `<worktree>/target/sqlx-build/` and stem `*_<key>`. A genuine override that
+/// names a file anywhere else (OR this worktree's default `cytoanalyst_build`
+/// file without the key) is honored byte-for-byte.
+pub fn sqlite_url_is_this_worktree_build_file(url: &str, manifest_dir: &str) -> bool {
+    if !is_sqlite_url(url) {
+        return false;
+    }
+    let path = sqlite_url_to_path(url);
+    let root = std::path::PathBuf::from(worktree_root(manifest_dir));
+    let expected_dir = root.join("target").join("sqlx-build");
+    let in_expected_dir = path.parent().map(|p| p == expected_dir).unwrap_or(false);
+    let key = worktree_key(manifest_dir);
+    let keyed_stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .is_some_and(|stem| stem.ends_with(&format!("_{key}")));
+    in_expected_dir && keyed_stem
+}
+
+/// The per-worktree sqlite build-DB file: `<worktree-root>/target/sqlx-build/
+/// <db_name>.sqlite`. `manifest_dir` is `CARGO_MANIFEST_DIR`; the root is
+/// derived by the same [`worktree_root`] strip as `worktree_key`, so the
+/// server and desktop crates of ONE worktree resolve the SAME file (mirroring
+/// their shared `cytoanalyst_build_<key>` PG database) and two worktrees
+/// never collide. The built-in `**/target` gitignore covers the dir.
+pub fn sqlite_build_path(manifest_dir: &str, db_name: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from(worktree_root(manifest_dir))
+        .join("target")
+        .join("sqlx-build")
+        .join(format!("{db_name}.sqlite"))
+}
+
+/// The per-worktree build-file path derived from the CURRENT WORKING
+/// DIRECTORY (for callers that are NOT a build.rs and have no
+/// `CARGO_MANIFEST_DIR`), mirroring [`worktree_key_for_cwd`].
+pub fn sqlite_build_path_for_cwd(db_name: &str) -> std::path::PathBuf {
+    let cwd = std::env::current_dir()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    sqlite_build_path(&cwd, db_name)
+}
+
+/// The file a sqlite URL names, decoded exactly as sqlx decodes it (`sqlx`
+/// `SqliteConnectOptions::from_str` semantics: strip `sqlite://` then
+/// `sqlite:`, split query params off, percent-decode). Falls back to the
+/// raw URL string (as a path) when the URL does not parse — the legs then
+/// surface the real sqlx error at connect time, not here.
+pub fn sqlite_url_to_path(url: &str) -> std::path::PathBuf {
+    match url.parse::<sqlx::sqlite::SqliteConnectOptions>() {
+        Ok(opts) => opts.get_filename().to_path_buf(),
+        Err(_) => std::path::PathBuf::from(url),
+    }
+}
+
+/// The sqlite URL for a build file: `sqlite://<path>` (an absolute path
+/// yields the `sqlite:///…` spelling sqlx parses back to the same file).
+/// Bytes that sqlx necessarily percent-encodes when re-emitting a URL are
+/// encoded here too, so the URL round-trips through
+/// `SqliteConnectOptions::from_str` to the SAME filename.
+pub fn sqlite_file_url(path: &std::path::Path) -> String {
+    let mut encoded = String::with_capacity(path.as_os_str().len() + 9);
+    for b in path.to_string_lossy().as_bytes() {
+        // `%` first: from_str percent-DECODES, so a literal `%` in the path
+        // must be escaped or a `%3F` in the name would decode to `?`.
+        let needs_escape = *b < 0x20
+            || matches!(
+                *b,
+                b'%' | b' ' | b'"' | b'#' | b'<' | b'>' | b'?' | b'`' | b'{' | b'}'
+            );
+        if needs_escape {
+            use std::fmt::Write;
+            let _ = write!(encoded, "%{b:02X}");
+        } else {
+            encoded.push(*b as char);
+        }
+    }
+    format!("sqlite://{encoded}")
 }
 
 /// Replace the database/path component of a postgres URL, keeping the
@@ -249,6 +366,129 @@ mod tests {
                 "postgres"
             ),
             "postgresql://u:p@db.example:6543/postgres"
+        );
+    }
+
+    // ── sqlite build-DB leg (ITEM-3) ────────────────────────────────────────
+
+    #[test]
+    fn sqlite_sentinel_is_auto_isolated() {
+        // The committed `.cargo/config.toml` sqlite marker is the "please
+        // auto-isolate" sentinel, exactly like `DEFAULT_BUILD_DB_URL`.
+        assert!(should_auto_isolate(&Some(
+            DEFAULT_SQLITE_BUILD_URL.to_string()
+        )));
+    }
+
+    #[test]
+    fn sqlite_operator_override_is_honored_byte_for_byte() {
+        // Any OTHER sqlite URL (absolute or relative) names a deliberate
+        // override — the sqlite world has no "shared cluster" host:port that
+        // could vouch for a stray value, so the match stays literal.
+        assert!(!should_auto_isolate(&Some(
+            "sqlite:///data/op/txr-build.sqlite".to_string()
+        )));
+        assert!(!should_auto_isolate(&Some(
+            "sqlite://custom/relative.sqlite".to_string()
+        )));
+        assert!(!should_auto_isolate(&Some(
+            "sqlite:plain.sqlite".to_string()
+        )));
+    }
+
+    #[test]
+    fn pg_sentinel_and_local_cluster_still_auto_isolate_after_the_split() {
+        assert!(should_auto_isolate(&Some(DEFAULT_BUILD_DB_URL.to_string())));
+        assert!(should_auto_isolate(&Some(
+            "postgresql://postgres:password@127.0.0.1:54321/ziee_build_958d7dd6".to_string()
+        )));
+        assert!(!should_auto_isolate(&Some(
+            "postgresql://u:p@db.prod:5432/real".to_string()
+        )));
+    }
+
+    #[test]
+    fn is_sqlite_url_variants() {
+        assert!(is_sqlite_url(DEFAULT_SQLITE_BUILD_URL));
+        assert!(is_sqlite_url("sqlite:///data/abs.sqlite"));
+        assert!(is_sqlite_url("sqlite:plain.sqlite"));
+        assert!(!is_sqlite_url(""));
+        assert!(!is_sqlite_url(DEFAULT_BUILD_DB_URL));
+        assert!(!is_sqlite_url("postgresql://u:p@h:5432/db"));
+    }
+
+    #[test]
+    fn sqlite_build_path_is_stable_and_under_worktree_target() {
+        let m = "/data/pbya/ziee/tmp/xwt-a/src-app/server";
+        let a = sqlite_build_path(m, "cytoanalyst_build_12080097");
+        let b = sqlite_build_path(m, "cytoanalyst_build_12080097");
+        assert_eq!(a, b, "same args → same path (stable across calls)");
+        assert_eq!(
+            a,
+            std::path::PathBuf::from(
+                "/data/pbya/ziee/tmp/xwt-a/target/sqlx-build/cytoanalyst_build_12080097.sqlite"
+            ),
+            "<repo>/target/sqlx-build/<key>.sqlite"
+        );
+        // Server + desktop of ONE worktree share the file (their PG build DB
+        // is shared today; the file mirrors that).
+        assert_eq!(
+            sqlite_build_path("/data/pbya/ziee/tmp/xwt-a/src-app/server", "k"),
+            sqlite_build_path("/data/pbya/ziee/tmp/xwt-a/src-app/desktop/tauri", "k")
+        );
+        // Different worktrees never collide.
+        assert_ne!(
+            sqlite_build_path("/data/pbya/ziee/tmp/xwt-a/src-app/server", "k"),
+            sqlite_build_path("/data/pbya/ziee/tmp/xwt-b/src-app/server", "k")
+        );
+        // The SDK (no `/src-app` marker) keys on its own crate dir — per-crate
+        // isolation, matching the per-crate PG db names.
+        assert_eq!(
+            sqlite_build_path("/r/sdk/crates/ziee-auth", "ziee_auth_build_k"),
+            std::path::PathBuf::from(
+                "/r/sdk/crates/ziee-auth/target/sqlx-build/ziee_auth_build_k.sqlite"
+            )
+        );
+    }
+
+    #[test]
+    fn sqlite_url_to_path_matches_sqlx_decoding() {
+        assert_eq!(
+            sqlite_url_to_path("sqlite:///data/a.sqlite"),
+            std::path::PathBuf::from("/data/a.sqlite")
+        );
+        assert_eq!(
+            sqlite_url_to_path("sqlite://rel/x.sqlite?mode=ro"),
+            std::path::PathBuf::from("rel/x.sqlite"),
+            "query params are decoded by the same rules as sqlx"
+        );
+        assert_eq!(
+            sqlite_url_to_path("sqlite:a%20b.sqlite"),
+            std::path::PathBuf::from("a b.sqlite"),
+            "percent-encoding is decoded like sqlx"
+        );
+    }
+
+    #[test]
+    fn sqlite_file_url_round_trips_through_sqlx() {
+        // Any path the legs build (incl. weird bytes) must come back IDENTICAL
+        // from sqlx's own parser — the DB URL is what the sqlx macros read.
+        for p in [
+            "/data/pbya/txr worktree/target/sqlx-build/a_b.sqlite",
+            "/data/tmp/db%40?.sqlite",
+            "/data/tmp/plain.sqlite",
+        ] {
+            let url = sqlite_file_url(std::path::Path::new(p));
+            assert_eq!(
+                sqlite_url_to_path(&url),
+                std::path::PathBuf::from(p),
+                "round-trip: {p} → {url}"
+            );
+        }
+        // An absolute path renders as the `sqlite:///…` spelling.
+        assert_eq!(
+            sqlite_file_url(std::path::Path::new("/data/tmp/plain.sqlite")),
+            "sqlite:///data/tmp/plain.sqlite"
         );
     }
 }

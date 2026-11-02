@@ -18,13 +18,13 @@ use crate::common::TestServer;
 /// Insert a real account row and return its id as a string.
 async fn make_account(server: &TestServer, name: &str) -> String {
     let pool = pool_for(server).await;
-    let id: Uuid = sqlx::query_scalar::<_, Uuid>(
-        "INSERT INTO accounts (kind, name) VALUES ('organization', $1) RETURNING id",
-    )
-    .bind(name)
-    .fetch_one(&pool)
-    .await
-    .expect("insert account");
+    let id = Uuid::new_v4();
+    sqlx::query("INSERT INTO accounts (id, kind, name) VALUES ($1, 'organization', $2)")
+        .bind(id)
+        .bind(name)
+        .execute(&pool)
+        .await
+        .expect("insert account");
     id.to_string()
 }
 
