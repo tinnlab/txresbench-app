@@ -1232,6 +1232,93 @@ mod tests {
         // (has_detection_companion) — asserted by the engine test below.
     }
 
+    /// The row-status rule of the port: only rows whose FIRST status word is
+    /// `mapped`/`partly` belong to the unit. A row carrying the same standard
+    /// id but a status that says the curated marker was NOT mapped is not a
+    /// match (data.py skips it the same way — the row is not evidence the
+    /// unit measures the marker). The fixture is a ONE-marker required list
+    /// (`match: all`), so a single row decides the verdict.
+    #[test]
+    fn required_match_skips_rows_that_are_not_mapped() {
+        fn one_req() -> RequiredMarkers {
+            RequiredMarkers {
+                markers: vec![RequiredMarker {
+                    name: "EYA4 cfDNA methylation (%)".to_string(),
+                    id_system: "HGNC".to_string(),
+                    id: "EYA4".to_string(),
+                }],
+                match_mode: MatchMode::All,
+                min_fraction: 0.0,
+                list_source: "test".to_string(),
+            }
+        }
+        let rows = vec![asm_row(
+            "EYA4 cfDNA methylation (%)",
+            "EYA4",
+            "EYA4_methylation_percent",
+            "not mapped",
+        )];
+        let r = required_marker_match(&rows, &feats(&["EYA4_methylation_percent"]), &one_req());
+        assert!(!r.ok);
+        assert!(r.matched_ids.is_empty());
+        assert_eq!(r.missing_ids, vec!["eya4"]);
+        assert_eq!(r.fraction, 0.0);
+        assert_eq!(r.reason.as_deref(), Some(REQUIRED_MARKERS_NOT_MEASURED));
+        // "partly mapped" IS a unit row (the reference keeps it); the first
+        // status word is the discriminator, not the whole string.
+        let partly = vec![asm_row(
+            "EYA4 cfDNA methylation (%)",
+            "EYA4",
+            "EYA4_methylation_percent",
+            "partly mapped",
+        )];
+        let r2 = required_marker_match(&partly, &feats(&["EYA4_methylation_percent"]), &one_req());
+        assert!(r2.ok, "a partly-mapped row is a unit row");
+    }
+
+    /// The empty-required rule of the port: a method whose required list
+    /// resolves to no ids is NOT ok (data.py returns
+    /// `{ok: false, reason: "required markers not measured"}` — a "no required
+    /// markers measured" verdict, never a vacuous pass). The caller rule is
+    /// `not m.id` (data.py's `if not m or not m.get("id")`), so an EMPTY id
+    /// (not a blank-string one) triggers it.
+    #[test]
+    fn required_match_empty_required_is_not_measured() {
+        let req = RequiredMarkers {
+            markers: vec![RequiredMarker {
+                name: "no id".to_string(),
+                id_system: "HGNC".to_string(),
+                id: String::new(),
+            }],
+            match_mode: MatchMode::All,
+            min_fraction: 0.0,
+            list_source: "test".to_string(),
+        };
+        let r = required_marker_match(&asm_rows(), &feats(&["EYA4_methylation_percent"]), &req);
+        assert!(!r.ok);
+        assert!(r.matched_ids.is_empty());
+        assert!(r.missing_ids.is_empty());
+        assert_eq!(r.fraction, 0.0);
+        assert_eq!(r.reason.as_deref(), Some(REQUIRED_MARKERS_NOT_MEASURED));
+        // The engine's inventory resolution carries the same empty-id rule:
+        // an all-empty required list is a hard cannot-run, not a vacuous pass.
+        let cat = one_method_catalogue(method_json(
+            "fx-empty-req",
+            &[(
+                "required_markers",
+                serde_json::json!({
+                    "markers": [{"name": "x", "id_system": "HGNC", "id": ""}],
+                    "match": "all", "min_fraction": 0.0, "list_source": "t"}),
+            )],
+        ));
+        let v = verdict_of(&cat, &inventory_req(1, vec![], vec![]), "fx-empty-req");
+        assert_eq!(v.status, EligibilityStatus::CannotRun);
+        assert!(v
+            .reasons
+            .iter()
+            .any(|r| r.code == ReasonCode::RequiredMarkerMissing));
+    }
+
     // ---- catalogue + inventory builders -----------------------------------
 
     fn groups_json() -> serde_json::Value {
@@ -1603,6 +1690,129 @@ mod tests {
         let v = verdict_of(&cat, &req, "fx-not-runnable");
         assert_eq!(v.status, EligibilityStatus::CannotRun);
         assert!(v.reasons.iter().any(|r| r.code == ReasonCode::NotRunnable));
+    }
+
+    /// The engine's OWN min_fraction resolution (TEST-MC-3's engine half; the
+    /// row-port case above is the data.py-shape seam): a method declaring
+    /// `match: "min_fraction"` with 2 required markers is runnable when the
+    /// file carries 1 of them (fraction 0.5 ≥ 0.5) — the verdict is the draw
+    /// coverage, not a marker failure.
+    #[test]
+    fn engine_min_fraction_partial_set_is_ok() {
+        let m = method_json("fx-panel-minfrac", &[
+            ("required_markers", serde_json::json!({
+                "markers": [
+                    {"name": "EYA4 cfDNA methylation (%)", "id_system": "HGNC", "id": "EYA4"},
+                    {"name": "GRIA4 cfDNA methylation (%)", "id_system": "HGNC", "id": "GRIA4"}
+                ],
+                "match": "min_fraction", "min_fraction": 0.5, "list_source": "t"})),
+        ]);
+        let markers = serde_json::json!([
+            vocab_json("EYA4", "HGNC", "percent", &["methylation-sequencing"])
+        ]);
+        let cat = catalogue_with(serde_json::json!([m]), markers.clone());
+        let entries = vec![pat("p0", 1, 1)];
+        let req = inventory_req(
+            1,
+            vec![inv_marker("EYA4", "percent", vec![sid("HGNC", "EYA4")], Some(entries))],
+            vec![],
+        );
+        let v = verdict_of(&cat, &req, "fx-panel-minfrac");
+        assert_eq!(v.status, EligibilityStatus::CanRun);
+        assert!(
+            !v.reasons.iter().any(|r| r.code == ReasonCode::RequiredMarkerMissing),
+            "min_fraction 0.5 with 1-of-2 present is ok: {:?}",
+            v.reasons
+        );
+        // The same method with `match: "all"` fails on the missing second.
+        let m2 = method_json("fx-panel-all", &[
+            ("required_markers", serde_json::json!({
+                "markers": [
+                    {"name": "EYA4 cfDNA methylation (%)", "id_system": "HGNC", "id": "EYA4"},
+                    {"name": "GRIA4 cfDNA methylation (%)", "id_system": "HGNC", "id": "GRIA4"}
+                ],
+                "match": "all", "min_fraction": 0.0, "list_source": "t"})),
+        ]);
+        let cat2 = catalogue_with(serde_json::json!([m2]), markers);
+        let req2 = inventory_req(
+            1,
+            vec![inv_marker("EYA4", "percent", vec![sid("HGNC", "EYA4")], Some(vec![pat("p0", 1, 1)]))],
+            vec![],
+        );
+        let v2 = verdict_of(&cat2, &req2, "fx-panel-all");
+        assert_eq!(v2.status, EligibilityStatus::CannotRun);
+        assert!(v2.reasons.iter().any(|r| r.code == ReasonCode::RequiredMarkerMissing));
+    }
+
+    /// The engine's `other`-system name/alias fallback (TEST-MC-2's engine
+    /// half): a required marker with an assay-defined id (`id_system: "other"`)
+    /// is answered by a file marker whose RESOLVED VOCABULARY entry carries the
+    /// required id as an ALIAS — the column name and id alone do not match.
+    #[test]
+    fn engine_other_system_fallback_uses_vocabulary_aliases() {
+        let m = method_json("fx-other", &[
+            ("required_markers", serde_json::json!({
+                "markers": [{"name": "maximum mutant allele fraction",
+                             "id_system": "other", "id": "max_maf"}],
+                "match": "all", "min_fraction": 0.0, "list_source": "t"})),
+        ]);
+        // The vocabulary entry's id is the canonical feature name; the
+        // REQUIRED id is only one of its aliases (the join-offer surface).
+        let markers = serde_json::json!([{
+            "id": "cfTL_max_maf",
+            "system": "OTHER",
+            "display_name": "maximum mutant allele fraction",
+            "aliases": ["max_maf", "cfTL_max_maf"],
+            "groups": ["ctdna"],
+            "unit_family": "percent",
+            "canonical_unit": "%",
+            "n_methods": 1
+        }]);
+        let cat = catalogue_with(serde_json::json!([m]), markers);
+        // The file marker is named nothing like the required id and its own
+        // standard id is the canonical name (not the alias): only the alias
+        // surface of the vocabulary entry answers the required id.
+        let marker = InventoryMarker {
+            key: "mut_af".to_string(),
+            display_name: "mutant allele fraction".to_string(),
+            unit_family: UnitFamily::Percent,
+            standard_ids: vec![sid("OTHER", "cfTL_max_maf")],
+            is_detection_call: false,
+            has_detection_companion: false,
+            n_patients_with_value: 1,
+            n_patients_with_baseline: 1,
+            n_patients_with_ontreatment: 1,
+            per_patient: Some(vec![pat("p0", 1, 1)]),
+        };
+        let req = inventory_req(1, vec![marker], vec![]);
+        let v = verdict_of(&cat, &req, "fx-other");
+        assert_eq!(
+            v.status,
+            EligibilityStatus::CanRun,
+            "the vocabulary alias resolves the other-system id: {:?}",
+            v.reasons
+        );
+        // Without the vocabulary entry (no alias to resolve) the same column
+        // is NOT a match — the required id never appears in any name set.
+        let cat2 = one_method_catalogue(m);
+        let req2 = inventory_req(1, vec![InventoryMarker {
+            key: "mut_af".to_string(),
+            display_name: "mutant allele fraction".to_string(),
+            unit_family: UnitFamily::Percent,
+            standard_ids: vec![sid("OTHER", "cfTL_max_maf")],
+            is_detection_call: false,
+            has_detection_companion: false,
+            n_patients_with_value: 1,
+            n_patients_with_baseline: 1,
+            n_patients_with_ontreatment: 1,
+            per_patient: Some(vec![pat("p0", 1, 1)]),
+        }], vec![]);
+        let v2 = verdict_of(&cat2, &req2, "fx-other");
+        assert_eq!(v2.status, EligibilityStatus::CannotRun);
+        assert!(v2
+            .reasons
+            .iter()
+            .any(|r| r.code == ReasonCode::RequiredMarkerMissing));
     }
 
     // ---- preview (screen B) -------------------------------------------------

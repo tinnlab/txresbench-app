@@ -392,6 +392,14 @@ def read_method_json(registry, method_id):
     return json.loads(p.read_text(encoding="utf-8"))
 
 
+def _needs_detection_call(rm_markers):
+    """The needs_detection_call rule: a required marker whose NAME names
+    detection/detectability is a call marker (the method consumes the call
+    status, not a measured level — marker-type detection, not a value)."""
+    return any(re.search(r"detection|detectability", str(m.get("name") or ""), re.I)
+               for m in rm_markers)
+
+
 def _marker_kind(markers_n, required):
     """markers.kind mapping: 'single' | 'panel' (fixed named list) | 'multi' | 'any'."""
     if isinstance(markers_n, int):
@@ -649,8 +657,7 @@ def build_catalogue(registry, marker_groups_tsv, model_warnings_tsv):
         }
         required_keyed = [(str(m.get("id_system") or "other").lower(), str(m.get("id") or "").strip().lower())
                           for m in rm_markers]
-        needs_detection = any(re.search(r"detection|detectability", str(m.get("name") or ""), re.I)
-                              for m in rm_markers)
+        needs_detection = _needs_detection_call(rm_markers)
         groups_required = _marker_groups_required(mj, md, required_keyed, group_map)
         min_draws = md.get("technical_min_draws")
         if not isinstance(min_draws, int):
@@ -781,6 +788,10 @@ def selftest(fixtures_dir):
           and fx["fx-baseline-cox"]["markers"]["kind"] == "any")
     check("fixture detection call is false (no detection-named required marker)",
           all(not m["needs_detection_call"] for m in catalogue["methods"]))
+    check("detection-named required markers set needs_detection_call",
+          _needs_detection_call([{"name": "ctDNA detection status call"}]) is True
+          and _needs_detection_call([{"name": "marker detectability level"}]) is True
+          and _needs_detection_call([{"name": "CEA concentration (ng/mL)"}]) is False)
     doc = sanitize_value(catalogue)
     check("sanitized catalogue is free of urls/stud/status tokens",
           hygiene_scan(doc) == [], " ".join(hygiene_scan(doc))[:300])

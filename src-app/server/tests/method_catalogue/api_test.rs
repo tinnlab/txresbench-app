@@ -147,6 +147,24 @@ async fn method_catalogue_list_returns_the_full_set_with_the_named_fields() {
         .await
         .expect("bad group");
     assert_eq!(bad.status().as_u16(), 400);
+
+    // The boolean filters are TYPED the same way: an unparseable bool is a
+    // 400, never a silently-ignored filter (the ITEM-6 breadth of the
+    // closed-validation surface; see DRIFT-1 ITEM-5 #4).
+    for bad_q in ["runnable=maybe", "frozen=0x1"] {
+        let resp = server
+            .client
+            .get(server.api_url(&format!("/methods?{bad_q}")))
+            .bearer_auth(&token)
+            .send()
+            .await
+            .expect("bad bool filter");
+        assert_eq!(
+            resp.status().as_u16(),
+            400,
+            "{bad_q} must be rejected, not silently ignored"
+        );
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

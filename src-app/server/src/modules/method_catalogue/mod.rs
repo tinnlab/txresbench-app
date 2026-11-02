@@ -79,3 +79,42 @@ static METHOD_CATALOGUE: ModuleEntry = ModuleEntry {
     description: "App-owned method catalogue + eligibility/time estimates (TxResBench).",
     constructor: || Box::new(MethodCatalogueModule),
 };
+
+// The PROV-MC-8 registration invariant, pinned HERE so the node owns its half
+// of the check: `modules/mod.rs::module_order_is_unique` (the framework test)
+// is red on a PRE-EXISTING order-4 tie (`health` + `localsession`) at the
+// branch base, so the node's own acceptance is asserted locally and the
+// framework tie stays an epic-level finding (DRIFT-1).
+#[cfg(test)]
+mod tests {
+    use ziee_framework::{AppModule, MODULE_ENTRIES};
+
+    use super::METHOD_CATALOGUE;
+
+    /// TEST-MC-20 (node half): `method_catalogue` is registered under
+    /// `MODULE_ENTRIES` exactly once, with the declared order 47, and no OTHER
+    /// module occupies 47 — `order` uniqueness for THIS node. The framework
+    /// test's global tie (health+localsession at 4) is not this node's; it is
+    /// recorded in DRIFT-1 as an epic-level finding.
+    #[test]
+    fn method_catalogue_registers_once_at_unique_order_47() {
+        let me: Vec<_> = MODULE_ENTRIES
+            .iter()
+            .filter(|e| e.name == "method_catalogue")
+            .collect();
+        assert_eq!(me.len(), 1, "exactly one method_catalogue registration: {me:?}");
+        assert_eq!(me[0].order, 47, "the declared integration order");
+
+        let order47: Vec<_> = MODULE_ENTRIES
+            .iter()
+            .filter(|e| e.order == 47)
+            .map(|e| e.name)
+            .collect();
+        assert_eq!(order47, vec!["method_catalogue"], "no other module at order 47");
+
+        // The module instance builds through the constructor (the boot path's
+        // own API — a constructor won't change shape without failing here).
+        let built = (me[0].constructor)();
+        assert_eq!(built.name(), "method_catalogue");
+    }
+}
