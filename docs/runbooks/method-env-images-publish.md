@@ -47,7 +47,7 @@ via a new app build that embeds the regenerated manifest (see §6).
 | the env manifest (the contract) | `src-app/server/data/method-env-images.json` (+ `.schema.json`) | the runtime's fetch/verify source; generated, never hand-edited (INV-5) |
 | the manifest guard | `scripts/check-method-env-images.sh` | schema + structural validation + regen parity |
 | the publisher | `scripts/publish-method-env-images.sh` | verify the staged bytes → login → push → verify the digest → sign |
-| the behavioral verifier | `scripts/lib/method-env-verify.sh` (ITEM-7) | runs the layer contract under the stacked base (equivalence, EX-7) |
+| the behavioral verifier | `scripts/lib/method-env-verify.sh` (ITEM-7) | extracts the staged layer and verifies its artifact contract (marker, wrapper, modes, entries, `usr/` sentinel); EX-7's stacked equivalence is the Rust test's arbiter |
 | the artifact contract (the design) | `docs/design/method-env-layer-artifacts.md` | delta semantics, trim rules, layer filesystem contract, the pinned OCI manifest bytes (§6/§6.1) |
 
 ---
@@ -121,8 +121,15 @@ required — nothing defaults across ~95 methods, and publishing the wrong
 2. The manifest satisfies the repo's own guard **including the regen-parity
    leg against the same staging dir** — a manifest whose records no longer
    reassemble is not published from.
-3. The behavioral verifier (`scripts/lib/method-env-verify.sh`) runs when it
-   is present; a failure refuses the publish.
+3. The behavioral verifier (`scripts/lib/method-env-verify.sh`) runs: it
+   extracts the staged `layer.squashfs` and verifies the artifact's own
+   contract — schema marker, `/code` payload (method.json + exactly one run
+   file), the wrapper hash (design §2.2), modes (never a 0600 wrapper), the
+   layer-manifest rules + record equality, and the `usr/` mount-readiness
+   sentinel — a failure refuses the publish. The stacked-equivalence claim
+   (layer + base == the full method image, EX-7) is the
+   `tests/sandbox/method_env_layer_test.rs` arbiter, not part of the publish
+   gate.
 4. The version tag does not already hold **different bytes** — version tags
    are immutable (DEC-2), so a conflict refuses, naming both digests. An
    existing identical digest is a safe no-op republish.

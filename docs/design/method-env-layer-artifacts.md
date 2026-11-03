@@ -201,6 +201,17 @@ contains:
   mirrored in the manifest entry (`layer_schema` = integer `1`) and in the
   artifact annotation (`com.txr.layer_schema` = `"1"`); the runtime compares
   the marker to the manifest value and refuses a mismatch;
+- a root-level `usr/` **directory** — the mount-readiness sentinel. The
+  runtime's shared rootfs mount primitive probes `usr/ present == mounted`
+  for EVERY artifact it mounts (the base and the layer alike — `mount_at`'s
+  readiness wait), so a layer whose content lives only under `/code` (the
+  rule wrappers) must still present a `usr/` at its root or it is never
+  considered mounted and every stacked run refuses
+  (ROOTFS_MOUNT_FAILED). Measured by TEST-7 (ITEM-7): without it the
+  equivalence run refused before any bind. The sentinel is NEVER a
+  layer-manifest entry, never bound, and carries no content (it is empty for
+  a code-only layer; a layer with `/usr/local` entries has it filled by the
+  real materialized subtree);
 - `/layer-manifest.json` — a JSON array of the layer's mount entries
   (reconcile-grown; bound by `sandbox-stacked` PROV-SS-2): each entry an
   absolute, `..`-free path under `/usr/local`, `/opt` or `/code`; `/code` must
@@ -458,7 +469,8 @@ fixture base, the pipeline's built layer, and a loopback `registry:2`
 1. the artifact is pulled by digest; `layer_sha256` and `size_bytes` match the
    manifest;
 2. the schema marker reads `1` and matches the manifest's `layer_schema`; all
-   wrapper files are `>= 0644`;
+   wrapper files are `>= 0644`; the root-level `usr/` mount-readiness
+   sentinel (§5) is present;
 3. the stacked layer (squashfuse + overlay union over the base) runs the
    contract fit/predict, and the **full fixture image** runs the same contract;
    `predictions.csv` is byte-identical, and the layer contains no 0600 wrapper.

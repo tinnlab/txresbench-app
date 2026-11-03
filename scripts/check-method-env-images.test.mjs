@@ -45,6 +45,12 @@
 //   TEST-11  every entry carries the non-empty identity + provenance triplet
 //            and the licence VERBATIM from method.json; a licence change is a
 //            regeneration event, never an edit
+//   TEST-8   the behavioral verifier (scripts/lib/method-env-verify.sh):
+//            green on a REAL squashfs layer, then each contract violation
+//            (absent layer.squashfs, sha256 mismatch, no /code/run.py) refuses
+//            with a named cause, and the publisher refuses to push on that
+//            failure — the artifact-level checks read the built bytes and
+//            therefore need REAL mksquashfs/unsquashfs (the layer fixtures).
 //
 //   node --test scripts/check-method-env-images.test.mjs
 
@@ -145,40 +151,92 @@ const INDEX = {
 /** methodsDir + stagingDir with two staged records; the manifest is written by
  *  the real generator's --fixture mode and returned as its path.
  *
- *  The staged layer.squashfs bytes are written FIRST and the record's
- *  `layer_sha256`/`size_bytes` are then set to THEIR REAL hash/size — the
- *  generator's --fixture mode trusts the record, but the publisher (ITEM-5)
- *  re-hashes the staged file and refuses a mismatch, so the fixture byte
- *  contract must be truthful for the publisher to be the thing under test. */
+ *  The staged layer.squashfs is a REAL squashfs (mksquashfs over a fixture
+ *  layer root carrying the schema marker, /code payload and the bind
+ *  manifest), and the record's `layer_sha256`/`size_bytes`/`wrapper_code_sha256`
+ *  are set to THEIR REAL values — the generator's --fixture mode trusts the
+ *  record, but the publisher (ITEM-5) re-hashes the staged file and ITEM-7's
+ *  behavioral verifier EXTRACTS it, so the fixture byte contract must be
+ *  truthful for the publisher / verifier to be the thing under test. */
+function writeLayerRoot(root, { id, licence, run, language, withRun = true }) {
+  fs.mkdirSync(path.join(root, 'code'), { recursive: true });
+  fs.writeFileSync(
+    path.join(root, 'code', 'method.json'),
+    JSON.stringify({ id, licence, language }),
+  );
+  if (withRun) {
+    fs.writeFileSync(
+      path.join(root, 'code', run),
+      `#!/usr/bin/env ${run === 'run.py' ? 'python3' : 'Rscript'}\n# fixture wrapper\n`,
+    );
+  }
+  fs.writeFileSync(path.join(root, '.txr-method-env-layer-schema'), '1');
+  fs.writeFileSync(path.join(root, 'layer-manifest.json'), JSON.stringify(['/code']));
+  // The root-level usr/ sentinel (design §5): the runtime's shared mount
+  // readiness probe is `usr/ present == mounted` for every artifact; the
+  // generator emits it, and the fixture layers must carry it too.
+  fs.mkdirSync(path.join(root, 'usr'));
+}
+
+/** mksquashfs a fixture layer root (the ARTIFACT shape, host tool). */
+function squashLayer(root, out) {
+  const r = spawnSync('mksquashfs', [
+    root, out, '-comp', 'zstd', '-b', '1M', '-noappend', '-no-progress', '-all-root',
+  ], { encoding: 'utf8' });
+  assert.equal(r.status, 0, `mksquashfs failed: ${r.stderr}\n${r.stdout}`);
+}
+
+/** sha256(method.json bytes ‖ run-file bytes) — the design §2.2 convention the
+ *  record must carry and the ITEM-7 verifier re-derives from the layer. */
+function wrapperSha(root, run) {
+  const mj = fs.readFileSync(path.join(root, 'code', 'method.json'));
+  const rf = fs.readFileSync(path.join(root, 'code', run));
+  return createHash('sha256').update(Buffer.concat([mj, rf])).digest('hex');
+}
+
+function stagedLayerRecord(dir, rec, root, run, { withRun = true } = {}) {
+  const squashfs = path.join(dir, 'layer.squashfs');
+  squashLayer(root, squashfs);
+  const bytes = fs.readFileSync(squashfs);
+  // The wrapper hash is design §2.2's convention over the layer's own payload;
+  // a wrapper-less layer (TEST-8's broken artifact) honestly hashes only the
+  // bytes it carries — the verifier refuses it at the run-file check before
+  // this field could matter.
+  const wrapper = withRun
+    ? wrapperSha(root, run)
+    : createHash('sha256').update(fs.readFileSync(path.join(root, 'code', 'method.json'))).digest('hex');
+  fs.writeFileSync(path.join(dir, 'artifact.json'), JSON.stringify({
+    ...rec,
+    layer_sha256: createHash('sha256').update(bytes).digest('hex'),
+    size_bytes: bytes.length,
+    wrapper_code_sha256: wrapper,
+  }, null, 2));
+}
+
 function fixture() {
   const base = mkdtemp('mei-fixture-');
   const methodsDir = path.join(base, 'methods');
   const staging = path.join(base, 'staged');
   const manifestPath = path.join(base, 'manifest.json');
-  for (const id of ['fixture-a', 'fixture-b']) {
-    fs.mkdirSync(path.join(methodsDir, 'methods', id), { recursive: true });
+  const spec = [
+    ['fixture-a', 'Python', 'run.py', RECORD_A],
+    ['fixture-b', 'R', 'run.R', RECORD_B],
+  ];
+  for (const [id, language, run] of spec) {
+    const d = path.join(methodsDir, 'methods', id);
+    fs.mkdirSync(d, { recursive: true });
+    const licence = `verbatim-licence-of-${id}-LLC`;
     fs.writeFileSync(
-      path.join(methodsDir, 'methods', id, 'method.json'),
-      JSON.stringify({ id, licence: `verbatim-licence-of-${id}-LLC` }),
+      path.join(d, 'method.json'),
+      JSON.stringify({ id, licence, language }),
     );
-  }
-  fs.writeFileSync(path.join(methodsDir, 'index.json'), JSON.stringify(INDEX));
-  for (const [id, rec] of [['fixture-a', RECORD_A], ['fixture-b', RECORD_B]]) {
     const dir = path.join(staging, 'layers', `${id}-amd64`);
     fs.mkdirSync(dir, { recursive: true });
-    const squashfs = path.join(dir, 'layer.squashfs');
-    fs.writeFileSync(squashfs, Buffer.alloc(4096, 1));
-    const bytes = fs.readFileSync(squashfs);
-    const record = {
-      ...rec,
-      layer_sha256: createHash('sha256').update(bytes).digest('hex'),
-      size_bytes: bytes.length,
-    };
-    // The writer derives the manifest entry digest from the record, and the
-    // oci-manifest.json digest depends on layer_sha256 — recompute the record
-    // field the manifest digests but keep the file the publisher verifies.
-    fs.writeFileSync(path.join(dir, 'artifact.json'), JSON.stringify(record, null, 2));
+    const root = path.join(base, `${id}-root`);
+    writeLayerRoot(root, { id, licence, run, language });
+    stagedLayerRecord(dir, id === 'fixture-a' ? RECORD_A : RECORD_B, root, run);
   }
+  fs.writeFileSync(path.join(methodsDir, 'index.json'), JSON.stringify(INDEX));
   const r = gen(['--fixture', staging, '--methods-dir', methodsDir, '--manifest', manifestPath]);
   assert.equal(r.status, 0, `fixture manifest did not assemble: ${r.stderr}`);
   return { base, methodsDir, staging, manifestPath };
@@ -218,20 +276,16 @@ function fixtureFull() {
   fs.writeFileSync(path.join(methodsDir, 'index.json'), JSON.stringify(INDEX_FULL));
   const dMethods = path.join(methodsDir, 'methods', 'fixture-d');
   fs.mkdirSync(dMethods, { recursive: true });
+  const dLicence = 'verbatim-licence-of-fixture-d-LLC';
   fs.writeFileSync(
     path.join(dMethods, 'method.json'),
-    JSON.stringify({ id: 'fixture-d', licence: 'verbatim-licence-of-fixture-d-LLC' }),
+    JSON.stringify({ id: 'fixture-d', licence: dLicence, language: 'Python' }),
   );
   const dir = path.join(staging, 'layers', 'fixture-d-arm64');
   fs.mkdirSync(dir, { recursive: true });
-  const squashfs = path.join(dir, 'layer.squashfs');
-  fs.writeFileSync(squashfs, Buffer.alloc(2048, 3));
-  const bytes = fs.readFileSync(squashfs);
-  fs.writeFileSync(path.join(dir, 'artifact.json'), JSON.stringify({
-    ...RECORD_D,
-    layer_sha256: createHash('sha256').update(bytes).digest('hex'),
-    size_bytes: bytes.length,
-  }, null, 2));
+  const dRoot = path.join(base, 'fixture-d-root');
+  writeLayerRoot(dRoot, { id: 'fixture-d', licence: dLicence, run: 'run.py', language: 'Python' });
+  stagedLayerRecord(dir, RECORD_D, dRoot, 'run.py');
   const r = gen(['--fixture', staging, '--methods-dir', methodsDir, '--manifest', manifestPath]);
   assert.equal(r.status, 0, `ITEM-6 fixture manifest did not assemble: ${r.stderr}`);
   return { base, methodsDir, staging, manifestPath };
@@ -606,6 +660,11 @@ test('TEST-9e the full stubbed sequence publishes and verifies the digest', (t) 
   ], { ...env, GHCR_TOKEN: 'stub-token', GHCR_USER: 'stub-user' });
   assert.equal(r.status, 0, `${r.stderr}\n${r.stdout}`);
   assert.match(r.stdout + r.stderr, new RegExp(`published.*${entry.digest}`));
+  assert.match(
+    r.stdout + r.stderr,
+    /\[method-env\] verified/,
+    'the full sequence must pass ITEM-7\'s behavioral verifier on the real staged layer',
+  );
   const c = calls(log);
   assert.deepEqual(c, [
     `oras login ghcr.io -u stub-user --password-stdin`,
@@ -722,4 +781,131 @@ test('TEST-11 every entry carries the provenance triplet and the verbatim licenc
   assert.equal(r.status, 0, `regeneration refused: ${r.stderr}`);
   const m2 = JSON.parse(fs.readFileSync(regenerated, 'utf8'));
   assert.equal(m2.envs.find((e) => e.env_id === 'fixture-a').licence, revised);
+});
+
+// ── TEST-8: the behavioral verifier (ITEM-7) ─────────────────────────────────
+// `scripts/lib/method-env-verify.sh` is the publisher's pre-push gate (PLAN
+// note u: `txr_method_env_verify_layer LAYER_DIR RECORD`, non-zero refuses).
+// These assertions drive the REAL library over REAL squashfs bytes; the layer
+// fixtures are built with mksquashfs, so a source-side drift can never satisfy
+// them (a comment does not put a marker in a squashfs).
+const VERIFY_LIB = path.join(SCRIPTS_DIR, 'lib', 'method-env-verify.sh');
+
+function verifyLayer(layerDir, recordFile) {
+  return spawnSync('bash', [
+    '-c', '. "$1"; txr_method_env_verify_layer "$2" "$3"', 'verify-driver',
+    VERIFY_LIB, layerDir, recordFile,
+  ], { cwd: REPO, encoding: 'utf8' });
+}
+
+/** A one-method fixture (env id `fixture-v`) whose staged layer is REAL;
+ *  `withRun: false` builds the layer without /code/run.py (TEST-8's broken
+ *  artifact) while the record still hashes the real bytes. */
+function verifyFixture({ withRun = true } = {}) {
+  const base = mkdtemp('mei-ver-');
+  const methodsDir = path.join(base, 'methods');
+  const staging = path.join(base, 'staged');
+  const manifestPath = path.join(base, 'manifest.json');
+  const id = 'fixture-v';
+  const licence = 'verbatim-licence-of-fixture-v-LLC';
+  const d = path.join(methodsDir, 'methods', id);
+  fs.mkdirSync(d, { recursive: true });
+  fs.writeFileSync(path.join(d, 'method.json'), JSON.stringify({ id, licence, language: 'Python' }));
+  fs.writeFileSync(path.join(methodsDir, 'index.json'), JSON.stringify({
+    index_version: '2026.10.0',
+    contract_versions: ['2.0'],
+    methods: [
+      { id, version: '1.0.0', language: 'Python', contract: '2.0', runnable: true },
+    ],
+  }));
+  const dir = path.join(staging, 'layers', `${id}-amd64`);
+  fs.mkdirSync(dir, { recursive: true });
+  const root = path.join(base, `${id}-root`);
+  writeLayerRoot(root, { id, licence, run: 'run.py', language: 'Python', withRun });
+  stagedLayerRecord(dir, {
+    ...RECORD_A,
+    env_id: id,
+    method_id: id,
+    method_version: '1.0.0',
+    oci_ref: 'ghcr.io/tinnlab/txr-method-env-layers/fixture-v',
+    tag: '1.0.0-amd64',
+  }, root, 'run.py', { withRun });
+  const r = gen(['--fixture', staging, '--methods-dir', methodsDir, '--manifest', manifestPath]);
+  assert.equal(r.status, 0, `TEST-8 fixture manifest did not assemble: ${r.stderr}`);
+  return { base, methodsDir, staging, manifestPath, layerDir: dir, recordFile: path.join(dir, 'artifact.json') };
+}
+
+function haveTool(tool) {
+  return spawnSync('sh', ['-c', `command -v ${tool}`], { encoding: 'utf8' }).status === 0;
+}
+
+test('TEST-8a the verifier passes a well-formed real layer (marker, wrapper, entries)', () => {
+  if (!(haveTool('mksquashfs') && haveTool('unsquashfs'))) {
+    // Fail-closed with the cause named: the layer fixtures and every assertion
+    // below need the real artifact tools (same set the generator's build needs).
+    assert.fail('TEST-8 needs mksquashfs + unsquashfs on PATH (squashfs-tools) to build and extract real layer bytes');
+  }
+  const { layerDir, recordFile } = verifyFixture();
+  const r = verifyLayer(layerDir, recordFile);
+  assert.equal(r.status, 0, `${r.stderr}\n${r.stdout}`);
+  assert.match(r.stdout + r.stderr, /\[method-env\] verified/);
+  assert.match(r.stdout + r.stderr, /fixture-v/);
+  const rec = JSON.parse(fs.readFileSync(recordFile, 'utf8'));
+  const bytes = fs.readFileSync(path.join(layerDir, 'layer.squashfs'));
+  assert.equal(bytes.length, rec.size_bytes, 'the record size is the staged file size');
+  assert.equal(createHash('sha256').update(bytes).digest('hex'), rec.layer_sha256);
+});
+
+test('TEST-8b the verifier refuses an absent layer.squashfs', () => {
+  if (!(haveTool('mksquashfs') && haveTool('unsquashfs'))) {
+    assert.fail('TEST-8 needs mksquashfs + unsquashfs on PATH (squashfs-tools)');
+  }
+  const { layerDir, recordFile } = verifyFixture();
+  fs.rmSync(path.join(layerDir, 'layer.squashfs'));
+  const r = verifyLayer(layerDir, recordFile);
+  assert.equal(r.status, 1, 'an artifact without layer.squashfs must refuse');
+  assert.match(r.stderr, /no layer\.squashfs/);
+});
+
+test('TEST-8c the verifier refuses a layer.squashfs whose sha256 differs from the record', () => {
+  if (!(haveTool('mksquashfs') && haveTool('unsquashfs'))) {
+    assert.fail('TEST-8 needs mksquashfs + unsquashfs on PATH (squashfs-tools)');
+  }
+  const { layerDir, recordFile } = verifyFixture();
+  const entry = JSON.parse(fs.readFileSync(recordFile, 'utf8'));
+  const squashfs = path.join(layerDir, 'layer.squashfs');
+  fs.writeFileSync(squashfs, Buffer.alloc(4096, 7)); // different bytes, same name
+  const actual = createHash('sha256').update(fs.readFileSync(squashfs)).digest('hex');
+  const r = verifyLayer(layerDir, recordFile);
+  assert.equal(r.status, 1, 'a divergent byte sequence must refuse the publish');
+  assert.match(r.stderr, /sha256 mismatch/);
+  assert.ok(r.stderr.includes(entry.layer_sha256), `the record hash is named: ${r.stderr}`);
+  assert.ok(r.stderr.includes(actual), `the staged hash is named: ${r.stderr}`);
+});
+
+test('TEST-8d the verifier refuses a layer carrying no /code/run.py or /code/run.R', () => {
+  if (!(haveTool('mksquashfs') && haveTool('unsquashfs'))) {
+    assert.fail('TEST-8 needs mksquashfs + unsquashfs on PATH (squashfs-tools)');
+  }
+  const { layerDir, recordFile } = verifyFixture({ withRun: false });
+  const r = verifyLayer(layerDir, recordFile);
+  assert.equal(r.status, 1, 'a wrapper-less layer must refuse');
+  assert.match(r.stderr, /EXACTLY ONE/);
+  assert.match(r.stderr, /run\.py/);
+});
+
+test('TEST-8e the publisher refuses to push when the behavioral verifier fails', () => {
+  if (!(haveTool('mksquashfs') && haveTool('unsquashfs'))) {
+    assert.fail('TEST-8 needs mksquashfs + unsquashfs on PATH (squashfs-tools)');
+  }
+  // The broken layer passes every BYTE check (record + manifest + staged bytes
+  // agree — the layer just lacks the wrapper), so the refusal must come from
+  // the verifier, before any credential/login requirement.
+  const { staging, methodsDir, manifestPath } = verifyFixture({ withRun: false });
+  const r = publisher([
+    '--env', 'fixture-v',
+    '--manifest', manifestPath, '--staging-dir', staging, '--methods-dir', methodsDir,
+  ]);
+  assert.equal(r.status, 1, `the publisher must refuse: ${r.stderr}\n${r.stdout}`);
+  assert.match(r.stderr, /refusing: the behavioral verifier failed for fixture-v-amd64/);
 });

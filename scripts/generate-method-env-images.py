@@ -1219,6 +1219,16 @@ def build_one(eid: str, entry: dict, args) -> dict:
     materialize_layer(entries, m_root, layer_root)
     if not args.no_trim:
         trim_layer(layer_root)
+    # The runtime's shared rootfs mount primitive probes `usr/ present ==
+    # mounted` for EVERY artifact (base AND layer) — the shipped mount_at
+    # readiness wait. A code-only layer (the rule wrappers, 65 of 94) has no
+    # `usr/` at all, so it would never be considered mounted and every stacked
+    # run of it would refuse with ROOTFS_MOUNT_FAILED. The layer therefore
+    # carries a root-level `usr/` sentinel directory: it is NEVER a
+    # layer-manifest entry, never bound, carries no content (empty unless the
+    # entries are under `/usr/local`), and is exactly the mount-ready marker
+    # (design §5, ITEM-7 measurement — TEST-7 is the arbiter that found it).
+    os.makedirs(os.path.join(layer_root, "usr"), exist_ok=True)
     check_wrapper_modes(layer_root, folder["wrapper"])
     normalize_modes(layer_root)
     emit_marker_and_manifest(layer_root, entries)

@@ -37,6 +37,11 @@ mod jobrun_inpod_test;
 // real-run legs self-skip via record_skip when the host cannot execute, like
 // the other rootfs-gated suites here).
 mod method_stack_test;
+// ITEM-7 (method-env-images) — TEST-7/EX-7: the layer-artifact equivalence
+// arbiter (design doc §9): the REAL generator's fixture layer stacked through
+// the REAL runtime vs the full fixture image, byte-identical predictions; plus
+// the loopback pull-by-digest witness. Tool-gated per tier via record_skip.
+mod method_env_layer_test;
 // #189 (E1) — per-job env selection end to end: the wire-stability measurement, the
 // INV-1 no-declared-env regression baseline, and the unpublished-env refusal.
 mod per_job_env_test;

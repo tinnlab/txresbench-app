@@ -132,7 +132,11 @@ GUARD_GLOBS=('scripts/check-*.sh' 'scripts/check-*.mjs' 'scripts/lib/*' 'scripts
 # (schema + structural rules + regen parity), the surface the runtime fetches layers by —
 # exactly the "a guard that decides what the app runs" standing the network allowlist pins
 # above; the floor moves with the set it guards, as every entry above this one says.
-MIN_GUARDS=34
+MIN_GUARDS=35
+# ITEM-7 (method-env-images): 34 -> 35 with `scripts/lib/method-env-verify.sh` —
+# the behavioral layer verifier the publish path gates on (pinned for the same
+# reason env-image-verify.sh and env-id-grammar.sh are: it is guard logic under
+# a `scripts/lib/` name), in the same diff that adds it.
 
 MODE='verify'
 case "${1:-}" in
