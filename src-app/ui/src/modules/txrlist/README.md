@@ -80,6 +80,28 @@ import { TxrSelectList } from '@/modules/txrlist'
 />
 ```
 
+## The screen-E adapter
+
+Screen E (the methods picker) gets its rows and its bottom-bar total from
+the module's two fetch hooks, which drive the generated `@/api-client` only
+(no `fetch()`, no host literal — INV-4):
+
+```tsx
+const { rows, loading, error, refetch } = useMethodRows(inventory)
+const estimate = useListEstimate(selectedKeys, {
+  patients: inventory.patients,
+  atATime,
+})
+```
+
+`useMethodRows` fetches the catalogue and the eligibility verdicts and joins
+them (`data/methodRows.ts`), keyed on a stable inventory hash: the inventory
+object a host rebuilds on every render does not refetch, an inventory
+content change does, and `refetch()` retries. `useListEstimate` debounces
+the selection 250 ms, keys on the selected set (the per-set estimate cache
+survives an empty selection), and discards out-of-order responses — only the
+newest selection's request may write the totals.
+
 ## Method-catalogue binding
 
 The E-row facts and the per-row eligibility + time come from
