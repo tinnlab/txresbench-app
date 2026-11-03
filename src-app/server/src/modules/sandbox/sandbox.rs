@@ -407,7 +407,11 @@ impl SeccompPipe {
     fn read_fd(&self) -> RawFd {
         self.read_fd
     }
-    fn target_fd(&self) -> i32 {
+    /// The fd number the child receives via `dup2` (the compiled-BPF pipe end) —
+    /// the number the argv's `--seccomp <fd>` must name. `pub(crate)` so the
+    /// stacked run seam builds its argv with the same fd the shared spawn pipes
+    /// the filter into (one seccomp plumbing, never a second).
+    pub(crate) fn target_fd(&self) -> i32 {
         self.target_fd
     }
 }
@@ -502,6 +506,21 @@ pub(crate) fn spawn_bwrap_child(
         progress_fifo_src,
     );
 
+    spawn_argv_child(setup, caps, argv)
+}
+
+/// Spawn bwrap with an ALREADY-BUILT argv: the stdio/kill_on_drop/seccomp-dup2/
+/// cgroup-attach plumbing every argv path shares. The stacked run seam
+/// (`service::run_method_in_stack`) builds its argv through
+/// `stack::build_stacked_bwrap_argv` and comes here — the ONE implementation of
+/// the spawn mechanics, so a hardening change can never reach only one argv
+/// path (INV-5 / TEST-02's no-second-copy proof).
+#[cfg(target_os = "linux")]
+pub(crate) fn spawn_argv_child(
+    setup: &SandboxSetup,
+    caps: &HardeningCapabilities,
+    argv: Vec<String>,
+) -> Result<tokio::process::Child, AppError> {
     let mut cmd = Command::new(&caps.bwrap_path);
     cmd.args(&argv);
     cmd.stdin(Stdio::null());

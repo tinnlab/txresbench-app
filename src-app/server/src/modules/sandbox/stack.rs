@@ -1,5 +1,6 @@
 //! `stack` — the stacked-layer method sandbox: contract types + the pure
-//! argv/model/ref rules (PROV-SS-1/SS-2/SS-3).
+//! argv/model/ref rules (PROV-SS-1/SS-2/SS-3) + the run-seam-side helpers
+//! (layer manifest parsing, entrypoint derivation, the layer-digest sidecar).
 //!
 //! A method run is a [`MethodRunRequest`] naming a trimmed per-language BASE
 //! rootfs and one per-method LAYER image. The layer image is a single squashfs
@@ -710,6 +711,206 @@ fn path_bytes(p: &Path) -> Vec<u8> {
     {
         p.to_string_lossy().into_owned().into_bytes()
     }
+}
+
+// ────────────────────── layer manifest + entry command (runtime) ───────────────
+
+/// The layer-root file listing the layer's bind entries (PROV-SS-2, DEC-14).
+/// Produced by the `method-env-images` publisher — this node only READS it; the
+/// same file is what ITEM-7's fixture layers carry.
+const LAYER_MANIFEST_FILE: &str = "layer-manifest.json";
+
+/// The layer's root `layer-manifest.json` is missing, unreadable, or not a
+/// JSON array of strings (PROV-SS-2: "a malformed manifest is
+/// `ENV_UNKNOWN`-family failure, never a bind of an unvalidated path"). Plan
+/// text names a FAMILY, not a code — the shipped module carries no
+/// `ENV_UNKNOWN` code (the engine's catalogue-side per-method `ENV_UNKNOWN`
+/// means "no env entry for this method id" and would be overloaded by a
+/// second meaning), so the manifest condition gets its own typed code.
+pub const ENV_LAYER_MANIFEST_INVALID_CODE: &str = "ENV_LAYER_MANIFEST_INVALID";
+
+/// The layer names no runnable entrypoint: no parseable `method.json`
+/// language AND no `/code/run.R`, `/code/run.py` or `/code/run.sh` in the
+/// mounted layer (or the declared language's script is absent). The run is
+/// refused before any spawn — a layer with no wrapper is publisher data the
+/// caller must fix, never a host-filesystem run.
+pub const METHOD_ENTRYPOINT_MISSING_CODE: &str = "METHOD_ENTRYPOINT_MISSING";
+
+/// Parse + validate the layer's root `layer-manifest.json` (PROV-SS-2,
+/// TEST-15): a JSON array of mount-entry strings, each validated by
+/// [`validate_layer_entry`] BEFORE any bind is built. A missing/unreadable/
+/// non-array manifest is [`ENV_LAYER_MANIFEST_INVALID_CODE`]; an offending
+/// entry is [`ENV_LAYER_ENTRY_INVALID_CODE`] — either way nothing is bound.
+/// `layer_mount` is the host-side mount dir [`super::method_env`]
+/// returned (the dir whose `usr/` the base binds).
+pub fn layer_entries_from_manifest(layer_mount: &Path) -> Result<Vec<String>, AppError> {
+    let path = layer_mount.join(LAYER_MANIFEST_FILE);
+    let bytes = std::fs::read(&path).map_err(|e| {
+        AppError::new(
+            StatusCode::BAD_REQUEST,
+            ENV_LAYER_MANIFEST_INVALID_CODE,
+            format!("read {}: {e}", path.display()),
+        )
+    })?;
+    let entries: Vec<String> = serde_json::from_slice(&bytes).map_err(|e| {
+        AppError::new(
+            StatusCode::BAD_REQUEST,
+            ENV_LAYER_MANIFEST_INVALID_CODE,
+            format!(
+                "{} is not a JSON array of mount-entry strings: {e}",
+                path.display()
+            ),
+        )
+    })?;
+    validate_layer_entries(&entries)?;
+    Ok(entries)
+}
+
+/// The DEC-14 half that needs the MOUNTED base: the parent directory of every
+/// layer entry must exist in the base rootfs, so the per-entry overlay always
+/// lands on an existing base path (a layer entry may overlay, never invent —
+/// the "stacked" failure mode DEC-14 exists to prevent). Refused with the same
+/// typed [`ENV_LAYER_ENTRY_INVALID_CODE`] before any bind. The grammar half
+/// (absolute, no `.`/`..`, allowed prefixes) lives in [`validate_layer_entry`];
+/// this is the filesystem half, asserted by the ITEM-4 run seam where the base
+/// is mounted. The `/` parent of `/opt` / `/code` is the mount root itself and
+/// always exists.
+pub fn assert_entry_parents_exist(base_dir: &Path, entries: &[String]) -> Result<(), AppError> {
+    for entry in entries {
+        let parent = Path::new(entry).parent().unwrap_or(Path::new("/"));
+        if parent == Path::new("/") {
+            continue;
+        }
+        let rel = parent.strip_prefix("/").map_err(|_| {
+            AppError::new(
+                StatusCode::BAD_REQUEST,
+                ENV_LAYER_ENTRY_INVALID_CODE,
+                format!("the parent of layer entry {entry:?} is not absolute"),
+            )
+        })?;
+        let probe = base_dir.join(rel);
+        if !probe.is_dir() {
+            return Err(AppError::new(
+                StatusCode::BAD_REQUEST,
+                ENV_LAYER_ENTRY_INVALID_CODE,
+                format!(
+                    "the parent {} of layer entry {entry:?} does not exist in the base \
+                     rootfs at {} (DEC-14: an entry may overlay an existing base path, \
+                     never invent one)",
+                    parent.display(),
+                    base_dir.display()
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Derive the in-sandbox shell command that runs the method wrapper
+/// (PROV-SS-1's `user_cmd`). The wrapper lives in the layer at `/code`; the
+/// invocation follows the driver convention
+/// (`driver/run.py`: `Rscript run.R` when `language == "R"`, else the Python
+/// interpreter). In this app the interpreter is whatever the per-language base
+/// image installed on its `PATH` (`--clearenv` + the prefix's `PATH`), so the
+/// command is `Rscript /code/run.R` / `python3 /code/run.py`.
+///
+/// Resolution order (each step is contract data, never a host-path notion):
+/// 1. `<layer>/code/method.json` `language` — the publisher's declaration:
+///    its named script is THE wrapper; a declared script that is absent is a
+///    broken layer (loud refusal, not a silent switch to a different wrapper);
+/// 2. presence order, for a layer WITHOUT a parseable `method.json` (the
+///    minimal shell layers of this node's integration fixtures — a
+///    `/code/run.sh` wrapper is the fixture's own convention, TEST-08):
+///    `run.R`, `run.py`, then `run.sh`;
+/// 3. [`METHOD_ENTRYPOINT_MISSING_CODE`] — nothing runnable in the layer.
+pub fn method_entry_command(layer_mount: &Path) -> Result<String, AppError> {
+    let code = layer_mount.join("code");
+    let language = std::fs::read(code.join("method.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .and_then(|v| v.get("language").and_then(|l| l.as_str()).map(str::to_string));
+
+    if let Some(lang) = language {
+        let lower = lang.to_ascii_lowercase();
+        let named = if lower.contains("python") {
+            Some(("python3", "run.py"))
+        } else if lower.starts_with('r') {
+            Some(("Rscript", "run.R"))
+        } else {
+            None
+        };
+        if let Some((exe, script)) = named {
+            if code.join(script).is_file() {
+                return Ok(format!("{exe} /code/{script}"));
+            }
+            return Err(AppError::new(
+                StatusCode::BAD_REQUEST,
+                METHOD_ENTRYPOINT_MISSING_CODE,
+                format!(
+                    "the layer's method.json declares language {lang:?}, but the layer \
+                     carries no /code/{script}; nothing to run"
+                ),
+            ));
+        }
+    }
+
+    for (exe, script) in [("Rscript", "run.R"), ("python3", "run.py"), ("bash", "run.sh")] {
+        if code.join(script).is_file() {
+            return Ok(format!("{exe} /code/{script}"));
+        }
+    }
+    Err(AppError::new(
+        StatusCode::BAD_REQUEST,
+        METHOD_ENTRYPOINT_MISSING_CODE,
+        format!(
+            "the layer at {} carries no /code/run.R, /code/run.py or /code/run.sh (and no \
+             parseable method.json language); nothing to run",
+            layer_mount.display()
+        ),
+    ))
+}
+
+/// Write `<workspace>/[`RUN_LAYER_ENV_DIGEST_FILE`]` — the method-LAYER digest
+/// sidecar, the sibling of the shipped `env-digest` (base) — INV-6.
+///
+/// Mirrors [`super::env_image::write_run_env_digest`]'s semantics exactly: the
+/// sidecar is written BEFORE the child runs and says what the PLATFORM mounted;
+/// `None` (a legacy pre-mounted-dir seam carries no content identity) REMOVES a
+/// stale sidecar a previous attempt left, so a retry never records the earlier
+/// attempt's layer. Best-effort by design (a failure is logged, never fails the
+/// run — the result then reports no layer digest honestly).
+pub fn write_run_layer_digest(workspace_root: &Path, digest: Option<&str>) {
+    let path = workspace_root.join(RUN_LAYER_ENV_DIGEST_FILE);
+    let Some(hex) = digest else {
+        match std::fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => tracing::warn!(
+                path = %path.display(),
+                error = %e,
+                "could not clear a stale layer-env-digest sidecar; a retry of this job could \
+                 record the previous attempt's layer"
+            ),
+        }
+        return;
+    };
+    if let Err(e) = std::fs::write(&path, hex) {
+        tracing::warn!(
+            path = %path.display(),
+            error = %e,
+            "could not record this run's layer digest; the run will record no layer digest"
+        );
+    }
+}
+
+/// Read back the layer digest [`write_run_layer_digest`] recorded for the run
+/// rooted at `workspace_root`. `None` when the seam had no content identity
+/// (legacy seam), or the file is unreadable/malformed — the same honesty rule
+/// as [`super::env_image::read_run_env_digest`].
+pub fn read_run_layer_digest(workspace_root: &Path) -> Option<String> {
+    let raw = std::fs::read_to_string(workspace_root.join(RUN_LAYER_ENV_DIGEST_FILE)).ok()?;
+    let hex = raw.trim();
+    is_sha256_hex(hex).then(|| hex.to_string())
 }
 
 // ────────────────────────────── Unit tests ────────────────────────────────────
@@ -1509,5 +1710,146 @@ mod tests {
         assert_eq!(err2.error_code(), MODEL_TREE_READ_FAILED_CODE);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // TEST-15 (runtime half): the layer manifest parse + entry validation —
+    // a fixture layer dir whose root `layer-manifest.json` parses into
+    // `layer_entries`; a relative / `..` / wrong-prefix entry is refused
+    // (nothing bound, typed error); a missing or non-array manifest is the
+    // typed manifest refusal.
+    #[test]
+    fn layer_manifest_parses_entries_and_refuses_bad_shapes() {
+        let layer = std::env::temp_dir().join(format!("stack-layer-mf-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(layer.join("code")).unwrap();
+
+        std::fs::write(
+            layer.join(LAYER_MANIFEST_FILE),
+            br#"["/code", "/usr/local/lib/R/site-library"]"#,
+        )
+        .unwrap();
+        let entries = layer_entries_from_manifest(&layer).unwrap();
+        assert_eq!(
+            entries,
+            vec!["/code".to_string(), "/usr/local/lib/R/site-library".to_string()]
+        );
+
+        for bad in [
+            br#"["relative/path"]"#.as_slice(),
+            br#"["/usr/../etc"]"#,
+            br#"["/usr"]"#,
+            br#"["/etc"]"#,
+        ] {
+            std::fs::write(layer.join(LAYER_MANIFEST_FILE), bad).unwrap();
+            let err = layer_entries_from_manifest(&layer).expect_err("bad entry refused");
+            assert_eq!(err.error_code(), ENV_LAYER_ENTRY_INVALID_CODE, "for {bad:?}");
+        }
+
+        // A manifest that is not a JSON array OF STRINGS (an entry that is not
+        // a string, a bare string, a missing file) is MALFORMED — the
+        // manifest refusal, never a bind of an unvalidated path.
+        for bad in [br#"["/code", 42]"#.as_slice(), br#""not-an-array""#] {
+            std::fs::write(layer.join(LAYER_MANIFEST_FILE), bad).unwrap();
+            let err = layer_entries_from_manifest(&layer).expect_err("bad manifest refused");
+            assert_eq!(err.error_code(), ENV_LAYER_MANIFEST_INVALID_CODE, "for {bad:?}");
+        }
+
+        // Missing manifest — the typed manifest refusal.
+        std::fs::remove_file(layer.join(LAYER_MANIFEST_FILE)).unwrap();
+        let err = layer_entries_from_manifest(&layer).expect_err("missing manifest refused");
+        assert_eq!(err.error_code(), ENV_LAYER_MANIFEST_INVALID_CODE);
+
+        let _ = std::fs::remove_dir_all(&layer);
+    }
+
+    // DEC-14 filesystem half: parents must exist in the base; the `/` parent
+    // of `/opt` / `/code` is the mount root; a missing parent refuses with the
+    // SAME typed entry code, before any bind.
+    #[test]
+    fn entry_parents_must_exist_in_the_mounted_base() {
+        let base = std::env::temp_dir().join(format!("stack-base-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(base.join("usr/local/lib/R")).unwrap();
+        std::fs::create_dir_all(base.join("opt")).unwrap();
+
+        assert_entry_parents_exist(
+            &base,
+            &["/code".into(), "/opt".into(), "/usr/local/lib/R/site-library".into()],
+        )
+        .expect("existing parents pass");
+
+        let err = assert_entry_parents_exist(&base, &["/usr/local/no/such/lib".into()])
+            .expect_err("missing parent refused");
+        assert_eq!(err.error_code(), ENV_LAYER_ENTRY_INVALID_CODE);
+
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    // The entrypoint command: method.json language is the publisher's
+    // declaration (its named script is THE wrapper; absent → loud refusal);
+    // presence order covers a layer without a readable method.json (the
+    // /code/run.sh fixture layers); nothing → typed miss.
+    #[test]
+    fn entry_command_follows_language_then_presence() {
+        let layer = std::env::temp_dir().join(format!("stack-entry-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(layer.join("code")).unwrap();
+
+        std::fs::write(layer.join("code/run.R"), "").unwrap();
+        assert_eq!(method_entry_command(&layer).unwrap(), "Rscript /code/run.R");
+
+        std::fs::write(layer.join("code/run.py"), "").unwrap();
+        std::fs::write(
+            layer.join("code/method.json"),
+            br#"{"language": "Python"}"#,
+        )
+        .unwrap();
+        assert_eq!(method_entry_command(&layer).unwrap(), "python3 /code/run.py");
+
+        std::fs::write(layer.join("code/method.json"), br#"{"language": "R"}"#).unwrap();
+        assert_eq!(
+            method_entry_command(&layer).unwrap(),
+            "Rscript /code/run.R",
+            "language names its script; both present, language wins"
+        );
+
+        // A declared script that is absent is a broken layer — loud refusal,
+        // never a silent switch to the other wrapper.
+        std::fs::write(layer.join("code/method.json"), br#"{"language": "Python"}"#).unwrap();
+        std::fs::remove_file(layer.join("code/run.py")).unwrap();
+        let err = method_entry_command(&layer).expect_err("declared script missing → typed miss");
+        assert_eq!(err.error_code(), METHOD_ENTRYPOINT_MISSING_CODE);
+
+        std::fs::remove_file(layer.join("code/method.json")).unwrap();
+        std::fs::remove_file(layer.join("code/run.R")).unwrap();
+        std::fs::write(layer.join("code/run.sh"), "").unwrap();
+        assert_eq!(method_entry_command(&layer).unwrap(), "bash /code/run.sh");
+
+        std::fs::remove_file(layer.join("code/run.sh")).unwrap();
+        let err = method_entry_command(&layer).expect_err("no entry → typed miss");
+        assert_eq!(err.error_code(), METHOD_ENTRYPOINT_MISSING_CODE);
+
+        let _ = std::fs::remove_dir_all(&layer);
+    }
+
+    // INV-6 sidecar: write + read round-trip, and `None` CLEARS a stale
+    // sidecar (a retry after a legacy-seam attempt must not record the
+    // previous attempt's layer — the shipped sidecar's exact rule).
+    #[test]
+    fn layer_digest_sidecar_roundtrip_and_clears() {
+        let root = std::env::temp_dir().join(format!("stack-digest-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let hex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+        assert_eq!(read_run_layer_digest(&root), None, "absent → None");
+        write_run_layer_digest(&root, Some(hex));
+        assert_eq!(read_run_layer_digest(&root).as_deref(), Some(hex));
+        write_run_layer_digest(&root, None);
+        assert_eq!(
+            read_run_layer_digest(&root),
+            None,
+            "None removes a stale sidecar"
+        );
+        std::fs::write(root.join(RUN_LAYER_ENV_DIGEST_FILE), "not-a-digest").unwrap();
+        assert_eq!(read_run_layer_digest(&root), None, "malformed → None");
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

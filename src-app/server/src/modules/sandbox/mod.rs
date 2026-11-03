@@ -31,7 +31,10 @@
 //!    stack (INV-2); the base and layer digests are recorded in the run
 //!    workspace (INV-6). Env fetch/verify/cache/mount and the env-status +
 //!    method-run HTTP surface are the rest of this module's txr extension,
-//!    gated by the existing sandbox permissions (no new permission).
+//!    gated by the existing sandbox permissions (no new permission). The
+//!    method-run service seam is [`service::run_method_in_stack`]: ONE
+//!    admitted job slot runs ONE method stack — the caller (execution-engine)
+//!    owns admission, the bundle, the schedule and the run rows.
 //!
 //! # Host requirements (operator + dev)
 //!
