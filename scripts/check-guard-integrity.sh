@@ -125,7 +125,18 @@ GUARD_GLOBS=('scripts/check-*.sh' 'scripts/check-*.mjs' 'scripts/lib/*' 'scripts
 # re-pin adds. The pin-before-use rule applies to a guard the app SHIPS: the network
 # allowlist is the contract for "only method-env + update-check network use", and an
 # unpinned copy can be gutted in a diff nobody reads, exactly like any other guard.
-MIN_GUARDS=32
+# App branch (method-env-images ITEM-4): 32 -> 34 with `scripts/check-method-env-images.sh`
+# and its controls `scripts/check-method-env-images.test.mjs`, in the same diff that adds
+# them (both matched by the existing `scripts/check-*.sh|mjs` glob, so check 2 would have
+# reported them as unpinned on the first run). The pair validates the generated env-manifest
+# (schema + structural rules + regen parity), the surface the runtime fetches layers by —
+# exactly the "a guard that decides what the app runs" standing the network allowlist pins
+# above; the floor moves with the set it guards, as every entry above this one says.
+MIN_GUARDS=35
+# ITEM-7 (method-env-images): 34 -> 35 with `scripts/lib/method-env-verify.sh` —
+# the behavioral layer verifier the publish path gates on (pinned for the same
+# reason env-image-verify.sh and env-id-grammar.sh are: it is guard logic under
+# a `scripts/lib/` name), in the same diff that adds it.
 
 MODE='verify'
 case "${1:-}" in

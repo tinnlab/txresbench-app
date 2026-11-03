@@ -293,7 +293,11 @@ test('TEST-5 [acceptance] [invariant: INV-3] the CORRECTED frozen floor catches 
     `this step must show the stale floor of 4 saying NOTHING about the deleted leg — that is ` +
       `the slack #316 closed. If it has started objecting, the reason has changed and TEST-5's ` +
       `premise needs re-deriving:\n${st.out}`);
-  assert.match(st.out, /the frozen floor is 4 but the recipe declares 6 legs/,
+  // The count below is the recipe's REAL remaining legs after the drop, not a frozen constant.
+  // The app repo (method-env-images ITEM-4) raised this recipe 7 -> 9, so the drop leaves 8;
+  // a literal left at the old count would make this control a ratchet against a legitimate
+  // addition — the same mistake the paragraph above records in its first draft.
+  assert.match(st.out, /the frozen floor is 4 but the recipe declares 8 legs/,
     'at the stale floor the only surviving objection must be the EQUALITY assertion #316 added; ' +
       'if even that is gone, the floor has stopped guarding anything');
 });
