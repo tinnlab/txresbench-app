@@ -8,6 +8,7 @@
  * Usage:
  *   node scripts/build-landing-site.mjs [--out site/dist] [--config site/config.json]
  *                                     [--tauri-conf src-app/desktop/tauri/tauri.conf.json]
+ *                                     [--public site/public]
  *   node scripts/build-landing-site.mjs --print-urls
  *
  * Contracts:
@@ -526,6 +527,7 @@ function parseArgs(argv) {
     out: join(REPO_ROOT, 'site', 'dist'),
     config: join(REPO_ROOT, 'site', 'config.json'),
     tauriConf: join(REPO_ROOT, 'src-app', 'desktop', 'tauri', 'tauri.conf.json'),
+    public: join(REPO_ROOT, 'site', 'public'),
     printUrls: false,
     help: false,
   };
@@ -534,6 +536,7 @@ function parseArgs(argv) {
     if (a === '--out') args.out = argv[++i];
     else if (a === '--config') args.config = argv[++i];
     else if (a === '--tauri-conf') args.tauriConf = argv[++i];
+    else if (a === '--public') args.public = argv[++i];
     else if (a === '--print-urls') args.printUrls = true;
     else if (a === '--help' || a === '-h') args.help = true;
     else {
@@ -548,7 +551,7 @@ function parseArgs(argv) {
 function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
-    console.log(`usage: node scripts/build-landing-site.mjs [--out site/dist] [--config site/config.json] [--tauri-conf src-app/desktop/tauri/tauri.conf.json]
+    console.log(`usage: node scripts/build-landing-site.mjs [--out site/dist] [--config site/config.json] [--tauri-conf src-app/desktop/tauri/tauri.conf.json] [--public site/public]
        node scripts/build-landing-site.mjs --print-urls`);
     process.exit(args.badArg ? 2 : 0);
   }
@@ -577,7 +580,11 @@ function main() {
 
   // Public/ hosting contract: validate BEFORE the output dir is recreated so a
   // present-but-invalid feed never destroys nor replaces a previous publish.
-  validatePublic(join(REPO_ROOT, 'site', 'public'));
+  if (existsSync(args.public) && !statSync(args.public).isDirectory()) {
+    console.error(`usage error: --public must be a directory, got ${args.public}`);
+    process.exit(2);
+  }
+  validatePublic(args.public);
   if (ERRORS.length > 0) {
     for (const line of ERRORS) console.error(line);
     process.exit(1);
@@ -600,7 +607,7 @@ function main() {
   mkdirSync(args.out, { recursive: true });
   writeFileSync(join(args.out, 'index.html'), html);
   const copied = copyTreeVerbatim(join(REPO_ROOT, 'site', 'src'), args.out);
-  copyTreeVerbatim(join(REPO_ROOT, 'site', 'public'), args.out);
+  copyTreeVerbatim(args.public, args.out);
   if (ERRORS.length > 0) {
     for (const line of ERRORS) console.error(line);
     process.exit(1);

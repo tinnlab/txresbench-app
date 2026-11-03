@@ -42,6 +42,10 @@ dist/
 # the GitHub Pages publish root; regenerated at build time).
 site/dist/
 
+# Site test suite scratch (site/tests/*.test.mjs write their hermetic
+# fixtures here, under a per-process subdir; never source).
+site/tests/.tmp/
+
 # OS
 .DS_Store
 
