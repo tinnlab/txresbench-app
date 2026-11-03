@@ -302,6 +302,56 @@ artifact type + annotations → immutable tag → cosign sign; `--dry-run`,
 `--env`, `--arch`, `--skip-sign`; refuses cross-arch builds and refuses
 overwriting a tag whose remote digest differs).
 
+### §6.1 The artifact manifest bytes — pinned construction (ITEM-3)
+
+The manifest entry's `digest` is the OCI content digest of the artifact
+manifest the registry stores, and ITEM-6 commits it **before any push** —
+so the writer constructs the exact bytes itself (ITEM-2 implementation
+note h: "resolvable locally with an oras-style manifest construction").
+The construction is pinned here, in one place, because the value is
+meaningless unless it is reproducible:
+
+```
+{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.oci.image.manifest.v1+json",
+  "artifactType": "application/vnd.txr.method-env.layer.v1",
+  "config": {
+    "mediaType": "application/vnd.oci.empty.v1+json",
+    "digest": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "size": 2
+  },
+  "layers": [
+    {
+      "mediaType": "application/vnd.txr.method-env.layer.v1",
+      "digest": "sha256:<layer_sha256>",
+      "size": <size_bytes>,
+      "annotations": { "org.opencontainers.image.title": "layer.squashfs" }
+    }
+  ],
+  "annotations": { <the §6 table verbatim, in table order> }
+}
+```
+
+Key order is the OCI struct order (Go's `json.Marshal` field order), no
+whitespace, ASCII-only values (no HTML escapes), `com.txr.layer_schema` as
+the string `"1"` (annotations are strings, DEC-11). The layer's
+`mediaType` is the artifact type itself — the publisher's `oras push`
+spells the file `layer.squashfs:<ARTIFACT_TYPE>`, exactly the
+`publish-env-rootfs.sh` shape — and the layer descriptor carries the file
+title annotation (oras's file-push convention).
+
+The writer stages these exact bytes as
+`<staging>/layers/<env_id>-<arch>/oci-manifest.json` when it writes the
+manifest, so ITEM-5's publisher pushes **those bytes** (and verifies):
+`oras resolve` after the push must equal the recorded `digest`, and any
+difference refuses the publish naming both digests — a byte-exactness
+mismatch with a specific oras version is then a one-line correction to
+this construction followed by a regeneration, never a silent divergence
+between the manifest and the artifact. ITEM-7's loopback test is the
+runtime-side witness of the same equality (pull by digest → hash/size
+match).
+
 ## §7 Base pairing — no silent substitution (INV-3, DEC-4)
 
 The layer is a delta over a **specific** benchmark base. The manifest records
@@ -366,14 +416,38 @@ bwrap) through the shared skip recorder.
 ## §10 Determinism, regeneration, parity (INV-5)
 
 One source revision → one manifest. `source_revision` is the methods-repo
-commit (12 hex), entries sorted by `env_id`, no wall-clock field, no temp
-paths. `--check` is byte-equality against the committed file, and the guard
-(`scripts/check-method-env-images.sh`, pinned by `check-guard-integrity.sh`,
-wired into `just check-guards`) re-validates the committed file structurally
-(schema, id grammar, `sha256:` formats, `size > 0`, arch set, `base_ref`
-prefix, `oci_ref` prefix, uniqueness, sorted order, regen parity) — a
-hand-edit is a guard failure naming the first differing key. The data
-directory README states the generation contract (generate, do not edit).
+commit (12 hex), entries sorted by `env_id` (then `arch` within an id), no
+wall-clock field, no temp paths. The writer (the same
+`scripts/generate-method-env-images.py`, ITEM-3) assembles entries from
+the staged `artifact.json` records plus the index facts (`contract`) and
+`method.json` (`licence`, verbatim — TEST-11) and refuses (naming the
+record) any record whose env_id ≠ method_id, tag ≠ `<version>-<arch>`,
+oci_ref/base_ref prefix, digest/sha256 shape, arch or language is off, or
+whose index entry is missing or not `runnable` (DEC-8). Modes:
+
+- `--manifest <path>` after a build run writes the manifest (and stages
+  each entry's `oci-manifest.json`); `--fixture <dir> --manifest <path>`
+  writes from a fixture staging dir without building (the tests' mode).
+- `--check` assembles only and byte-compares against `--manifest`
+  (default `src-app/server/data/method-env-images.json`); a difference
+  exits 1 naming the first differing key (`envs[3].licence`,
+  `source_revision`, …) — TEST-2's failure shape. A hand-edit is a guard
+  failure naming the first differing key.
+- `--source-revision <12hex>` pins the expected revision: every staged
+  record must carry it (an explicit audit pin; the parity comparison
+  against the committed file's own revision is the default check).
+
+Byte-determinism caution: the writer's byte parity is about the
+manifest, not the squashfs. `--check` needs the staging dir the layers
+were built into (records + hashes are build outputs), so the ITEM-4
+guard's real-mode parity leg is a publisher-machine check against the
+recorded revision — on clean CI-style boxes only the fixture parity
+exercises it (see the ITEM-1 note on TEST-2). The guard itself
+(`scripts/check-method-env-images.sh`, pinned by
+`check-guard-integrity.sh`, wired into `just check-guards`) additionally
+re-validates the committed file structurally — schema, id grammar,
+`sha256:` formats, `size > 0`, arch set, `base_ref` prefix, `oci_ref`
+prefix, uniqueness, sorted order, no status/placeholder text.
 
 ## §11 Invariants → mechanisms
 
