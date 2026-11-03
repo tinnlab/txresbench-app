@@ -8,3 +8,4 @@
  */
 export * from './types'
 export * from './lib/format'
+export * from './lib/selection'
