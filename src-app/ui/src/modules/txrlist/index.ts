@@ -7,3 +7,4 @@
  * else inside the module.
  */
 export * from './types'
+export * from './lib/format'
