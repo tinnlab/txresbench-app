@@ -1,0 +1,4 @@
+patient_id,pfs_time,pfs_event,os_time,os_event,time_unit,cov_age,cov_sex,cov_stage,n_blood_samples
+J001,120.5,1,240.0,0,days,52,F,III,3
+J002,88.0,1,88.0,1,days,61,M,IV,3
+J003,330.25,0,330.25,0,days,47,F,III,2

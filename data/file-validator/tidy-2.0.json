@@ -1,0 +1,173 @@
+{
+  "format_version": "2.0",
+  "schema_id": "txresbench-tidy",
+  "title": "TxResBench tidy dataset format 2.0",
+  "description": "One machine-readable definition of a tidy dataset: four canonical tables (patients, samples, values, features) plus values.meta.json, stored as Parquet with an explicit typed schema. Read by the dataset validator (Python) and by the package core (C++). A dataset or a user's data is valid when every rule with severity 'error' holds; 'warning' rules are reported only. See README.md in this folder for how to read this file.",
+  "origin_documents": ["dev/code/benchmark/schema/dataset-tidy.md (logical shape + 'Format 2.0')", "dev/code/datasets/tools/validate_tidy.py (checks of the 1.x CSV validator)"],
+
+  "types": {
+    "string": {"parquet": ["string", "large_string"], "note": "UTF-8 text. patient_id, sample_id and feature are ALWAYS strings, never numbers, even when the ids look numeric."},
+    "int64": {"parquet": ["int64"], "note": "64-bit integer."},
+    "float64": {"parquet": ["double"], "note": "IEEE double. NaN is not allowed: a missing number is a Parquet null."}
+  },
+
+  "storage": {
+    "tidy_dir": "tidy",
+    "table_files": {"patients": "patients.parquet", "samples": "samples.parquet", "values": "values.parquet", "features": "features.parquet"},
+    "meta_file": "values.meta.json",
+    "meta_file_rule": "valid JSON whose top level is an object (source files and sheets used, id mapping, unit per feature, rows dropped and why, caveats)",
+    "validation_file": "VALIDATION.json",
+    "preview": {
+      "dir": "preview",
+      "generated": true,
+      "note": "Generated from the canonical tables by the build step, never edited, excluded from reproduction checks; patient-level, so it lives only in owner-only data folders.",
+      "n_patients": 20,
+      "max_features": 10,
+      "primary_feature": "the feature with the most value rows among those not ending in __detected / __lod unless the builder names one; ties broken by feature name",
+      "files": {
+        "patients": "patients.csv (first n_patients rows of the patients table, all columns)",
+        "samples": "samples.csv (all draws of those patients)",
+        "values": "values.csv (their value rows for the first max_features features: primary first, then the rest by descending number of value rows, ties by name)",
+        "features": "features.csv (ALL rows of the features table)",
+        "summary": "SUMMARY.md (counts, columns and types, outcome and schedule summaries, verdict section)"
+      }
+    }
+  },
+
+  "enums": {
+    "phase": ["baseline", "on_treatment_pre_outcome", "on_treatment", "at_or_after_outcome", "post_progression", "unknown"],
+    "day_source": ["file", "paper", "schedule", "unknown"],
+    "time_unit": ["days", "weeks", "months", "years"],
+    "recist": ["CR", "PR", "SD", "PD", "NE"],
+    "binary": [0, 1]
+  },
+
+  "column_patterns": [
+    {
+      "tables": ["patients"],
+      "pattern": "^cov_[A-Za-z0-9_]+$",
+      "types_allowed": ["string", "float64"],
+      "nullable": true,
+      "description": "Baseline covariate as in the source (cov_age, cov_sex, cov_stage, cov_ecog ...). One type per column: float64 when every non-null value is numeric, else string. Units go in features.csv under the feature named like the column."
+    }
+  ],
+
+  "extra_columns": {
+    "allowed": true,
+    "tables": "all",
+    "note": "Columns not listed below are allowed (dataset-specific documentation such as source_file) and ignored by the core. The writer stores them as float64 (all non-null values numeric) or string; the validator only requires that they are one of string / int64 / float64."
+  },
+
+  "tables": {
+    "patients": {
+      "file": "patients.parquet",
+      "description": "One row per patient (per treatment line, if the id encodes the line).",
+      "unique_keys": [["patient_id"]],
+      "columns": [
+        {"name": "patient_id", "type": "string", "required": true, "nullable": false, "description": "Patient (or patient x treatment line) id; the key every other table refers to."},
+        {"name": "n_blood_samples", "type": "int64", "required": false, "nullable": true, "minimum": 0, "description": "Number of blood draws of the patient."},
+        {"name": "has_baseline", "type": "int64", "required": false, "nullable": true, "enum": "binary", "description": "1 when the patient has a baseline draw."},
+        {"name": "n_pre_outcome_draws", "type": "int64", "required": false, "nullable": true, "minimum": 0, "description": "Baseline plus on-treatment draws before the patient's own PFS time (dataset convention, see dataset.yaml)."},
+        {"name": "best_response_raw", "type": "string", "required": false, "nullable": true, "description": "Best response exactly as the source writes it."},
+        {"name": "best_response_recist", "type": "string", "required": false, "nullable": true, "enum": "recist", "description": "Best overall response as a plain RECIST category when the source gives one; null otherwise (never '?')."},
+        {"name": "responder_binary", "type": "int64", "required": false, "nullable": true, "enum": "binary", "description": "1 = responder, 0 = not."},
+        {"name": "responder_rule", "type": "string", "required": false, "nullable": true, "description": "How responder_binary was derived, e.g. 'CR+PR=1; SD+PD=0 (BOR)'."},
+        {"name": "response_assessment_day", "type": "float64", "required": false, "nullable": true, "description": "Days from treatment start when the response label was assessed (per patient or the protocol's nominal day)."},
+        {"name": "pfs_time", "type": "float64", "required": false, "nullable": true, "minimum": 0, "description": "Progression-free survival time in time_unit from the same origin as day_from_start."},
+        {"name": "pfs_event", "type": "int64", "required": false, "nullable": true, "enum": "binary", "description": "1 = event, 0 = censored."},
+        {"name": "os_time", "type": "float64", "required": false, "nullable": true, "minimum": 0, "description": "Overall survival time in time_unit."},
+        {"name": "os_event", "type": "int64", "required": false, "nullable": true, "enum": "binary", "description": "1 = event, 0 = censored."},
+        {"name": "other_time", "type": "float64", "required": false, "nullable": true, "minimum": 0, "description": "Third endpoint time (named in dataset.yaml)."},
+        {"name": "other_event", "type": "int64", "required": false, "nullable": true, "enum": "binary", "description": "1 = event, 0 = censored."},
+        {"name": "time_unit", "type": "string", "required": true, "nullable": false, "enum": "time_unit", "description": "Unit of every *_time column; one value for the whole file."},
+        {"name": "time_origin", "type": "string", "required": false, "nullable": true, "description": "Text: origin of the outcome times; must equal the origin of day_from_start or the difference is stated."},
+        {"name": "treatment_arm", "type": "string", "required": false, "nullable": true, "description": "Treatment arm or regimen."},
+        {"name": "cancer_type", "type": "string", "required": false, "nullable": true, "description": "Cancer type or disease."},
+        {"name": "person_id", "type": "string", "required": false, "nullable": true, "description": "Person id when patient_id encodes a treatment line (several rows per person)."},
+        {"name": "treatment_line", "type": "int64", "required": false, "nullable": true, "minimum": 0, "description": "Treatment line number when patient_id encodes the line."},
+        {"name": "dcb", "type": "string", "required": false, "nullable": true, "description": "Durable clinical benefit label as in the source."},
+        {"name": "source_file", "type": "string", "required": false, "nullable": true, "description": "Source file or sheet the row came from."}
+      ]
+    },
+
+    "samples": {
+      "file": "samples.parquet",
+      "description": "One row per blood draw.",
+      "unique_keys": [["sample_id"]],
+      "columns": [
+        {"name": "patient_id", "type": "string", "required": true, "nullable": false, "description": "Patient the draw belongs to; a patients.patient_id."},
+        {"name": "sample_id", "type": "string", "required": true, "nullable": false, "description": "Draw id, unique in the dataset."},
+        {"name": "timepoint_label", "type": "string", "required": true, "nullable": true, "description": "Label of the draw in the source (C1D1, T2, month 6 ...)."},
+        {"name": "day_from_start", "type": "float64", "required": true, "nullable": true, "description": "Days from the start of the evaluated treatment (day 0 = first dose). Null only when day_source = 'unknown'."},
+        {"name": "day_source", "type": "string", "required": true, "nullable": false, "enum": "day_source", "description": "file: a date or day column; paper: the paper states the day of the label; schedule: derived from the stated schedule; unknown: day not established (then day_from_start is null and the draw has no value rows)."},
+        {"name": "phase", "type": "string", "required": true, "nullable": false, "enum": "phase", "description": "Position of the draw relative to the treatment and the outcome."},
+        {"name": "modality", "type": "string", "required": false, "nullable": true, "description": "Assay or modality."},
+        {"name": "source_file", "type": "string", "required": false, "nullable": true, "description": "Source file or sheet."}
+      ]
+    },
+
+    "values": {
+      "file": "values.parquet",
+      "description": "One row per sample x feature (long).",
+      "unique_keys": [["patient_id", "sample_id", "feature"]],
+      "columns": [
+        {"name": "patient_id", "type": "string", "required": true, "nullable": false, "description": "A patients.patient_id."},
+        {"name": "sample_id", "type": "string", "required": true, "nullable": false, "description": "A samples.sample_id."},
+        {"name": "day_from_start", "type": "float64", "required": true, "nullable": false, "description": "Days from the start of the evaluated treatment; equals samples.day_from_start of the same sample. Never null: a row whose day cannot be established is left out."},
+        {"name": "feature", "type": "string", "required": true, "nullable": false, "description": "Marker name, a features.feature."},
+        {"name": "value", "type": "float64", "required": true, "nullable": true, "description": "Value on the scale the source reports (no log, no scaling). Null only if the source gives no number. A non-detect with no number is 0 plus <feature>__detected = 0."}
+      ]
+    },
+
+    "features": {
+      "file": "features.parquet",
+      "description": "One row per marker documented. May also hold documentation rows for patient columns (cov_*), which are not values.feature entries.",
+      "unique_keys": [["feature"]],
+      "columns": [
+        {"name": "feature", "type": "string", "required": true, "nullable": false, "description": "Marker name (or cov_* column name)."},
+        {"name": "unit", "type": "string", "required": true, "nullable": true, "description": "Unit of the value."},
+        {"name": "platform", "type": "string", "required": false, "nullable": true, "description": "Assay or platform."},
+        {"name": "description", "type": "string", "required": false, "nullable": true, "description": "What the feature is and how non-detects are coded."},
+        {"name": "n_samples_with_value", "type": "int64", "required": false, "nullable": true, "minimum": 0, "description": "Number of samples with a value."}
+      ]
+    }
+  },
+
+  "rules": [
+    {"id": "R01_tables_present", "severity": "error", "scope": "dataset", "origin": "validate_tidy.py", "kind": "tables_present", "params": {"tables": ["patients", "samples", "values", "features"], "meta_file": true}, "message": "a canonical table or values.meta.json is missing"},
+    {"id": "R02_required_columns", "severity": "error", "scope": "table", "origin": "validate_tidy.py", "kind": "required_columns", "description": "every column with required=true exists in its table", "message": "required column missing"},
+    {"id": "R03_column_types", "severity": "error", "scope": "table", "origin": "dataset-tidy.md (Parquet with explicit typed schema)", "kind": "column_types", "description": "every listed column and every column matching a column_pattern has its declared type; extra columns are string, int64 or float64", "message": "column has the wrong type"},
+    {"id": "R04_nullability", "severity": "error", "scope": "table", "origin": "validate_tidy.py + dataset-tidy.md", "kind": "not_null", "description": "columns with nullable=false contain no nulls (ids, feature, values.day_from_start, samples.day_source and phase, patients.time_unit)", "message": "null in a non-nullable column"},
+    {"id": "R05_allowed_values", "severity": "error", "scope": "table", "origin": "validate_tidy.py (phase was a warning)", "kind": "enum", "description": "columns with an enum contain only its values (phase, day_source, time_unit, *_event / responder_binary / has_baseline in {0,1}, best_response_recist)", "message": "value outside the allowed set"},
+    {"id": "R06_ranges", "severity": "error", "scope": "table", "origin": "validate_tidy.py (negative outcome times)", "kind": "minimum", "description": "columns with a minimum respect it (outcome times >= 0, counts >= 0)", "message": "value below the allowed minimum"},
+    {"id": "R07_unique_keys", "severity": "error", "scope": "table", "origin": "validate_tidy.py (patients, samples, values); features added", "kind": "unique", "description": "unique_keys of every table: patients.patient_id; samples.sample_id; values (patient_id, sample_id, feature); features.feature", "message": "duplicate key"},
+    {"id": "R08_values_patient_exists", "severity": "error", "scope": "cross_table", "origin": "validate_tidy.py", "kind": "foreign_key", "params": {"from": {"table": "values", "columns": ["patient_id"]}, "to": {"table": "patients", "columns": ["patient_id"]}}, "message": "values row whose patient is not in patients"},
+    {"id": "R09_values_sample_exists", "severity": "error", "scope": "cross_table", "origin": "validate_tidy.py", "kind": "foreign_key", "params": {"from": {"table": "values", "columns": ["sample_id"]}, "to": {"table": "samples", "columns": ["sample_id"]}}, "message": "values row whose sample is not in samples"},
+    {"id": "R10_feature_described", "severity": "error", "scope": "cross_table", "origin": "validate_tidy.py", "kind": "foreign_key", "params": {"from": {"table": "values", "columns": ["feature"]}, "to": {"table": "features", "columns": ["feature"]}}, "message": "values feature not described in features"},
+    {"id": "R11_day_agreement", "severity": "error", "scope": "cross_table", "origin": "validate_tidy.py (first row per sample only, null sample day ignored; tightened to every row)", "kind": "join_equal", "params": {"left": {"table": "values", "key": ["sample_id"], "column": "day_from_start"}, "right": {"table": "samples", "key": ["sample_id"], "column": "day_from_start"}, "tolerance": 0.5, "null_right_is_violation": true}, "message": "day_from_start differs between values and samples"},
+    {"id": "R12_single_time_unit", "severity": "error", "scope": "table", "origin": "validate_tidy.py + dataset-tidy.md", "kind": "single_value", "params": {"table": "patients", "column": "time_unit"}, "message": "patients.time_unit must be one value for the whole file"},
+    {"id": "R13_nondetect_companions", "severity": "error", "scope": "cross_table", "origin": "dataset-tidy.md (companion features); checks added", "kind": "companion_features", "params": {"suffixes": {"__detected": {"values_in": [0, 1]}, "__lod": {"minimum": 0}}, "base_must_be_described": true}, "description": "for every values.feature named <F>__detected or <F>__lod: <F> is a feature in features; <F>__detected values are 0 or 1; <F>__lod values are >= 0", "message": "companion feature without its base feature or with invalid values"},
+    {"id": "R14_outcome_available", "severity": "error", "scope": "dataset", "origin": "validate_tidy.py", "kind": "min_non_null", "params": {"table": "patients", "any_of": ["pfs_time", "os_time", "responder_binary"], "minimum_count": 10}, "message": "no outcome with >= 10 patients"},
+    {"id": "R15_samples_patient_exists", "severity": "error", "scope": "cross_table", "origin": "added (implied by 'same id as patients')", "kind": "foreign_key", "params": {"from": {"table": "samples", "columns": ["patient_id"]}, "to": {"table": "patients", "columns": ["patient_id"]}}, "message": "samples row whose patient is not in patients"},
+    {"id": "R16_value_sample_same_patient", "severity": "error", "scope": "cross_table", "origin": "added (implied by the linkage)", "kind": "join_equal", "params": {"left": {"table": "values", "key": ["sample_id"], "column": "patient_id"}, "right": {"table": "samples", "key": ["sample_id"], "column": "patient_id"}, "tolerance": 0}, "message": "a values row names a different patient than its sample"},
+    {"id": "R17_unknown_day_iff_null", "severity": "error", "scope": "table", "origin": "added (dataset-tidy.md: 'unknown (then day_from_start is blank ...)')", "kind": "null_iff", "params": {"table": "samples", "column": "day_from_start", "other": "day_source", "other_equals": "unknown"}, "message": "samples.day_from_start is null exactly when day_source is 'unknown'"},
+    {"id": "R18_event_has_time", "severity": "error", "scope": "table", "origin": "added", "kind": "paired_null", "params": {"table": "patients", "pairs": [["pfs_time", "pfs_event"], ["os_time", "os_event"]]}, "description": "pfs_time and pfs_event are both null or both set; same for os. The third endpoint (other_*) is not paired: 007 carries other_event without other_time.", "message": "time without event (or event without time)"},
+    {"id": "R19_outcome_time_positive", "severity": "warning", "scope": "table", "origin": "requested '> 0'; 1.x allowed 0", "kind": "exclusive_minimum", "params": {"table": "patients", "columns": ["pfs_time", "os_time", "other_time"], "exclusive_minimum": 0}, "description": "an outcome time of exactly 0 is reported; it can never be eligible after a landmark. Kept a warning because 001 has one patient with pfs_time = 0 in the source; R06 still rejects negative times.", "message": "outcome time is 0"},
+    {"id": "R20_day_range", "severity": "warning", "scope": "table", "origin": "validate_tidy.py", "kind": "range", "params": {"table": "values", "column": "day_from_start", "minimum": -180, "maximum": 3650}, "message": "day_from_start outside [-180, 3650]"},
+    {"id": "R21_preview_consistent", "severity": "error", "scope": "files", "origin": "dataset-tidy.md (Format 2.0, preview generated from the canonical tables)", "kind": "preview_consistent", "description": "preview/ files equal what the generator makes from the canonical tables (everything in SUMMARY.md before the '## Verdict' heading). Not part of in-memory validation.", "message": "preview inconsistent with the canonical tables"}
+  ],
+
+  "content_hash": {
+    "algorithm": "sha256",
+    "per_table": true,
+    "column_order": "columns in the order of this file (including optional ones when present), then column_patterns and extra columns sorted by name",
+    "row_order": "rows sorted by all columns of the table's first unique key (strings compared by code point), ties broken by the serialised row",
+    "cell_normalisation": {
+      "null": "JSON null",
+      "string": "the UTF-8 string",
+      "int64": "JSON integer",
+      "float64": "JSON number from Python repr of the float (shortest round-trip); -0.0 becomes 0.0"
+    },
+    "row_serialisation": "JSON array of the cells, separators (',', ':'), ensure_ascii false; rows joined by newline; the header line is the JSON array of 'name:type' pairs"
+  }
+}

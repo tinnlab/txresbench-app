@@ -78,6 +78,10 @@ src-app/server/config/dev.local.yaml
 __pycache__/
 *.py[cod]
 
+# Generator scratch output (file-validator `--fixtures` write mode; the committed
+# parity target is fixtures/expected/, never this dir).
+scripts/file-validator/fixtures/out/
+
 # Per-worktree lifecycle scope (untracked by design — see .git/hooks/pre-push).
 # One owner name, e.g. `stage3`. Absent => the gate judges every scope, which is the
 # correct behaviour for a single-owner lifecycle and for a finished branch.
