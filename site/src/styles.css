@@ -456,3 +456,54 @@ a:hover {
   justify-content: space-between;
   gap: 8px;
 }
+
+/* Narrow viewports (390px phones). The design's flex-wrap layouts do the
+   stacking themselves; this block keeps the wrap tidy: tighter gutters, a
+   header that grows instead of clipping its second row, and one download
+   tile per line. */
+@media (max-width: 640px) {
+  .wrap {
+    padding: 0 20px;
+  }
+  .header-inner {
+    height: auto;
+    min-height: 56px;
+    padding: 10px 0;
+    flex-wrap: wrap;
+  }
+  .brand {
+    flex: 1 1 auto;
+  }
+  .nav {
+    order: 3;
+    flex-basis: 100%;
+    gap: 2px 14px;
+  }
+  .hero {
+    padding: 36px 0 40px;
+  }
+  .hero-title {
+    font-size: 34px;
+  }
+  .hero-lede {
+    font-size: 17px;
+  }
+  .band {
+    padding: 44px 0;
+  }
+  .h2 {
+    font-size: 26px;
+  }
+  .stat-band-inner {
+    gap: 12px 28px;
+  }
+  .tiles {
+    gap: 12px;
+  }
+  .tile {
+    flex-basis: 100%;
+  }
+  .research-notice {
+    padding: 12px 20px;
+  }
+}
