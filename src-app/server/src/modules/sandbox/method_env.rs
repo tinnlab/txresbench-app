@@ -593,6 +593,50 @@ impl MethodEnvManager {
         }
     }
 
+    /// The `DELETE …?prune` route's STATE half (PROV-SS-5): cancel an in-flight
+    /// download — exactly [`MethodEnvManager::cancel`] (flag the worker, record
+    /// the terminal state, join it) — then FORGET the env entirely: the
+    /// in-memory entry and the persisted
+    /// `<app_data>/txr-envs/<env-id>.json` are removed, so a follow-up
+    /// [`MethodEnvManager::status`] reports `not_downloaded` +
+    /// [`EnvKind::Unknown`] and a follow-up `ensure` starts clean.
+    ///
+    /// Returns the LAST RECORDED digest (the cache entry the caller's
+    /// `?prune=true` half may remove — the cache itself stays owned by
+    /// `rootfs::cache::prune_digest`, DEC-17), or `None` when no digest was
+    /// recorded. A grammar-invalid env-id or an env with no record is `None`
+    /// too — the route turns that into 404 `ENV_UNKNOWN` (nothing exists to
+    /// cancel, forget or prune).
+    ///
+    /// The worker tolerates a vanished entry: its terminal transition is
+    /// `if let Some(entry)` (the `cancel`-wins rule), so a join that overruns
+    /// [`CANCEL_JOIN_TIMEOUT`] cannot crash the manager — worst case a pull
+    /// completed behind no record, which the digest cache serves by digest.
+    pub fn cancel_and_forget(&self, env_id: &str) -> Option<String> {
+        if !is_valid_env_id(env_id) {
+            return None;
+        }
+        // The digest half, read under the lock BEFORE anything is torn down.
+        let digest = {
+            let guard = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+            guard
+                .entries
+                .get(env_id)
+                .and_then(|e| e.status.digest.clone())
+        };
+        // Cancel half (joins the worker; a no-op for an idle env).
+        self.cancel(env_id);
+        // Forget half: drop the in-memory entry + the persisted record.
+        let mut guard = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        let existed = guard.entries.remove(env_id).is_some();
+        drop(guard);
+        if existed {
+            let _ = std::fs::remove_file(state_file(env_id));
+            self.slot_changed.notify_all();
+        }
+        digest
+    }
+
     /// Get-or-create the entry and either claim the attempt or route this call
     /// to the existing attempt's result. `Ok(false)` = the caller must return
     /// [`Self::result_for`]; `Ok(true)` = the caller owns the attempt.
@@ -2037,6 +2081,64 @@ mod tests {
             m.status("fixture-env").state,
             MethodEnvState::NotDownloaded,
             "a crash-mid-download record is never left 'downloading' after a restart"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn cancel_and_forget_drops_the_record_and_returns_its_digest() {
+        let (root, _guard) = data_root();
+        let digest = hex_of(b"some-bytes");
+        let record = PersistedEnv {
+            env_id: "fixture-env".to_string(),
+            kind: EnvKind::Base,
+            state: MethodEnvState::Ready,
+            digest: Some(digest.clone()),
+            error: None,
+            last_used: 1_700_000_000,
+        };
+        std::fs::create_dir_all(state_dir()).unwrap();
+        std::fs::write(
+            state_file("fixture-env"),
+            serde_json::to_vec(&record).unwrap(),
+        )
+        .unwrap();
+
+        let m = MethodEnvManager::new();
+        assert_eq!(
+            m.status("fixture-env").kind,
+            EnvKind::Base,
+            "fixture precondition: the record loaded"
+        );
+        // The DELETE route's state half: the recorded digest (the caller's
+        // `?prune=true` cache key) comes back, the record is gone.
+        assert_eq!(
+            m.cancel_and_forget("fixture-env").as_deref(),
+            Some(digest.as_str()),
+            "the last recorded digest is returned for the cache-prune half"
+        );
+        assert_eq!(
+            m.status("fixture-env").kind,
+            EnvKind::Unknown,
+            "a forgotten env is unknown again (there is no record to classify)"
+        );
+        assert_eq!(
+            m.status("fixture-env").state,
+            MethodEnvState::NotDownloaded
+        );
+        assert!(
+            !state_file("fixture-env").exists(),
+            "the persisted record is removed, not just the in-memory entry"
+        );
+        assert_eq!(
+            m.cancel_and_forget("fixture-env"),
+            None,
+            "a second forget has nothing to forget"
+        );
+        assert_eq!(
+            m.cancel_and_forget("Bad/Id"),
+            None,
+            "a malformed id never touches the ledger"
         );
         let _ = std::fs::remove_dir_all(&root);
     }

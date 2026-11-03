@@ -1852,6 +1852,15 @@ export interface DatatypeContributionStorage {
   layout: LayoutKind
 }
 
+/**
+ * The `?prune=true` flag of `DELETE /api/sandbox/envs/{env_id}` — separate
+ *  from the delete itself so "forget the download state" and "also reclaim the
+ *  cached artifact" are two explicit intents (DEC-17: prune on demand only).
+ */
+export interface DeleteEnvQuery {
+  prune?: boolean
+}
+
 export interface DeleteProviderResponse {
   affected_user_links: number
   deleted: boolean
@@ -2083,6 +2092,46 @@ export interface EligibilityResponse {
  *  run for some patients / Cannot run").
  */
 export type EligibilityStatus = 'can_run' | 'can_run_some' | 'cannot_run'
+
+/**
+ * `GET /api/sandbox/envs` (PROV-SS-5): the stack half + the two env indexes.
+ *
+ *  The `base`/`layers` split is THIS route's classification job — an
+ *  [`EnvKind::Unknown`] record belongs to neither list (DRIFT-1 #15: the
+ *  manager never guesses base/layer, so an unknown entry only answers the
+ *  per-env `status` route).
+ */
+export interface EnvIndexStatus {
+  base: MethodEnvStatus[]
+  layers: MethodEnvStatus[]
+  stack: StackStatus
+}
+
+/** Which artifact a status/entry names (PROV-SS-4). */
+export type EnvKind = 'base' | 'layer' | 'unknown'
+
+/**
+ * Reference to one sandboxed artifact (base rootfs or method layer).
+ *
+ *  `digest` is the 64-hex sha256 of the artifact's single squashfs layer, taken
+ *  from the caller's catalogue record — verification is always against THIS
+ *  value, never against a moving tag (DEC-3).
+ */
+export interface EnvRef {
+  /**
+   * The pinned 64-hex sha256 of the squashfs layer the bytes are verified
+   *  against.
+   */
+  digest: string
+  /**
+   * Full OCI reference, e.g. `<prefix>/<env_id>[:<tag>][@sha256:<hex>]`
+   *  (prefixes from [`TXR_BASE_REGISTRY_PREFIX`] /
+   *  [`TXR_LAYER_REGISTRY_PREFIX`]; enforced by [`validate_oci_ref`]).
+   */
+  oci_ref: string
+  /** Optional tag; resolved only when the reference carries no `@digest`. */
+  tag?: string
+}
 
 /**
  * The estimate request: which methods, on how many patients, on how many CPUs,
@@ -3177,6 +3226,31 @@ export interface MethodEligibility {
   status: EligibilityStatus
 }
 
+/** The fetch state machine of one env (PROV-SS-4). */
+export type MethodEnvState = 'not_downloaded' | 'downloading' | 'ready' | 'failed'
+
+/**
+ * One env's status (PROV-SS-4, CONS-EE-7). `bytes_downloaded` is polled from
+ *  the growing staged file (no oras-output parser — oras's progress format is
+ *  not a contract); `bytes_total` is `None` while no size is known (the caller
+ *  that holds the catalogue's `size_bytes` drives the user-visible progress
+ *  bar).
+ */
+export interface MethodEnvStatus {
+  bytes_downloaded: number
+  bytes_total?: number
+  digest?: string
+  env_id: string
+  error?: string
+  kind: EnvKind
+  /**
+   * Whether the artifact's mount is currently live (the cache mount's
+   *  `usr/` is visible, or the staged dir carries it).
+   */
+  mounted: boolean
+  state: MethodEnvState
+}
+
 /** One method's estimate. */
 export interface MethodEstimate {
   estimate_quality: TimingQuality
@@ -3223,6 +3297,69 @@ export interface MethodListResponse {
 export interface MethodMarkers {
   count: number
   kind: MarkerKind
+}
+
+/**
+ * What one stacked run does (DEC-5). Maps to the container contract's
+ *  `SIGBENCH_MODE` (X1): unset = one fit+predict call, `fit` / `predict`.
+ */
+export type MethodRunMode = 'fit_predict' | 'fit_only' | 'reuse_model'
+
+/** One method run in its own stacked sandbox (PROV-SS-1). */
+export interface MethodRunRequest {
+  /** The trimmed per-language base rootfs (DEC-13: always caller-named). */
+  base: EnvRef
+  /** Host dir of the contract-shaped input bundle (bound RO at `/input`). */
+  bundle_dir: string
+  /** The per-method layer image carrying `/code` + extra mount entries. */
+  layer: EnvRef
+  /** Fit+predict / fit-only / reuse-model (DEC-5). */
+  mode: MethodRunMode
+  /** Verified model for a reuse run; `None` in fit modes. */
+  model?: ModelMount
+  /**
+   * Host dir the fit's `/model` is written to (under the staging tree —
+   *  DEC-6); required for `FitOnly`/`FitPredict`.
+   */
+  model_out_dir?: string
+  /**
+   * Per-run CPU cap: `OMP/OPENBLAS/MKL_NUM_THREADS` are set to this value
+   *  (after the prefix's `1` defaults — last-wins, TEST-05).
+   */
+  n_cpu: number
+  /** Host dir where `/output` is written (under the staging tree — DEC-6). */
+  outputs_dir: string
+  /**
+   * Optional wall-clock timeout override (seconds); the run seam clamps it
+   *  to the admin cap exactly like `clamp_timeout`.
+   */
+  timeout_secs?: number
+}
+
+/**
+ * Outcome of one stacked run (PROV-SS-1). `exit_code` etc. mirror the shipped
+ *  `SandboxRunResult`; the digests + model facts are the method-run extras
+ *  (INV-6).
+ */
+export interface MethodRunResult {
+  /** The base rootfs digest recorded in the run workspace. */
+  base_env_digest: string
+  duration_ms: number
+  exit_code: number
+  /** The method-layer digest recorded in the run workspace. */
+  layer_env_digest: string
+  /**
+   * `tree_sha256` of the fit's `/model` (a trained-model dir), when a
+   *  `model_out_dir` was given.
+   */
+  model_out_digest?: string
+  /** The model digest check ran and passed (`ReuseModel` only). */
+  model_verified: boolean
+  stderr: string
+  stderr_truncated: boolean
+  stdout: string
+  stdout_truncated: boolean
+  timed_out: boolean
 }
 
 /**
@@ -3455,6 +3592,20 @@ export interface MissingMarker {
   group_id?: string
   id: string
   id_system: string
+}
+
+/**
+ * A saved model dir the reuse run binds READ-ONLY at `/model` after
+ *  verification (PROV-SS-3, DEC-7).
+ */
+export interface ModelMount {
+  /** Host path of the saved model directory (the model store's artifact dir). */
+  host_path: string
+  /**
+   * The `tree_sha256` digest recorded at save time; the run seam recomputes
+   *  it and refuses the bind on mismatch.
+   */
+  tree_sha256: string
 }
 
 /** A row of `notifications`. */
@@ -4509,6 +4660,38 @@ export interface Software {
  */
 export type SparseOrientation = 'csc' | 'csr'
 
+/**
+ * The stacked-mode availability half of [`EnvIndexStatus`] (PROV-SS-5).
+ *
+ *  `supported` is the host-capability bit the stacked mode shares with the
+ *  shipped sandbox (`SandboxAvailability::Ready` — bwrap + squashfuse + userns
+ *  / `/proc` are all probed at boot); the env-FETCH half (oras) is reported
+ *  separately in `tool_bins` + `reason` because a staged-or-cached deployment
+ *  runs without it (ITEM-6's preflight is the operator's checklist, DEC-16).
+ */
+export interface StackStatus {
+  /**
+   * The degradation note when something short of hard-unavailable is wrong
+   *  (e.g. `oras` not found for env downloads); `None` when nothing is noted.
+   */
+  reason?: string
+  /**
+   * The compiled txr base-registry prefix — READ-ONLY (a release-time
+   *  security boundary, displayed exactly like
+   *  [`SandboxStatus::env_registry_base`]).
+   */
+  registry_base: string
+  /** The stacked sandbox mode is available on this host. */
+  supported: boolean
+  /**
+   * Map of the host tools the txr env fetch path resolves through
+   *  (`method_env::tool_bin`): `{ "oras": "<path>" | null }`. Machine-
+   *  readable so the admin view can render the exact gap; never trusted for
+   *  anything security-relevant.
+   */
+  tool_bins: unknown
+}
+
 /** A standard identifier of a file marker column (`(system, id)`). */
 export interface StandardId {
   id: string
@@ -5197,9 +5380,13 @@ export type ApiEndpointParameters = {
   'Provenance.updateSettings': UpdateProvenanceSettings
   'Provenance.verifications': { page?: number; per_page?: number; project_id: string; target_run_id?: string }
   'Provenance.verify': VerifyRequest
+  'Sandbox.deleteEnv': { env_id: string; prune?: boolean }
+  'Sandbox.envStatus': { env_id: string }
   'Sandbox.execute': AnalysisRequest
   'Sandbox.getSettings': void
   'Sandbox.getStatus': void
+  'Sandbox.listEnvs': void
+  'Sandbox.methodRun': MethodRunRequest
   'Sandbox.updateSettings': UpdateSandboxResourceLimits
   'Sync.subscribe': void
   'Workstore.deleteArtifact': { project_id: string; id: string }
@@ -5377,9 +5564,13 @@ export type ApiEndpointResponses = {
   'Provenance.updateSettings': ProvenanceSettings
   'Provenance.verifications': VerificationsResponse
   'Provenance.verify': VerificationDto
+  'Sandbox.deleteEnv': void
+  'Sandbox.envStatus': MethodEnvStatus
   'Sandbox.execute': AnalysisResult
   'Sandbox.getSettings': SandboxResourceLimits
   'Sandbox.getStatus': SandboxStatus
+  'Sandbox.listEnvs': EnvIndexStatus
+  'Sandbox.methodRun': MethodRunResult
   'Sandbox.updateSettings': SandboxResourceLimits
   'Sync.subscribe': SyncSseEvent
   'Workstore.deleteArtifact': void
