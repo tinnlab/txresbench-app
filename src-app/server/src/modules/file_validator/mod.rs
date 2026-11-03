@@ -24,6 +24,7 @@
 pub mod assets;
 pub mod bundle;
 pub mod inspect;
+pub mod routes;
 pub mod rules;
 pub mod types;
 pub mod units;
@@ -107,7 +108,7 @@ impl AppModule for FileValidatorModule {
         // The four endpoints (inspect, validate, the two template/example
         // asset getters) are layered on the typed contract in this module's
         // `routes` submodule — request/response only, no events (PROV-FV-8).
-        router
+        router.merge(routes::file_validator_routes())
     }
 }
 

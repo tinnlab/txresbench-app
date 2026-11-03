@@ -8981,6 +8981,234 @@
         ]
       }
     },
+    "/api/file-validation/inspect": {
+      "post": {
+        "tags": [
+          "file-validator"
+        ],
+        "description": "One file's drop-time verdict (screen C inspects each file as it is dropped; screen N inspects its only file): resolved column roles, per-file tidy problems by FILE row, the marker list with row counts, the distinct draw days, and the per-column join-offer / unit / vocabulary facts. The full cross-table set is the validate endpoint's. A body that does not match the typed request schema is 400 INVALID_KIND.",
+        "operationId": "FileValidation.inspect",
+        "requestBody": {
+          "description": "The inspect request body: ONE file, no cross-file context (screen C inspects\n each file as it is dropped; screen N inspects its only file — INV-3).",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FileInspectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and manage your projects",
+                        "name": "ProjectsUse",
+                        "value": "projects::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: projects::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "The inspect response (PROV-FV-2). The problems cover the per-file checks\n (types, nullability, uniqueness, cross-table references that are\n resolvable single-file, header and required-column problems); the full\n cross-table + join + units + outcome set is the `validate` response's.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileInspection"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_KIND — the request body is not the contract's (bad kind, bad table shape)"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "projects::use"
+        ]
+      }
+    },
+    "/api/file-validation/validate": {
+      "post": {
+        "tags": [
+          "file-validator"
+        ],
+        "description": "The full two-table verdict: per-file + cross-table problems by FILE row, the resolved marker columns (after the user's joins and vocabulary mappings), unit verdicts, per-marker coverage with the 2026-10-19 baseline rule, the table summaries and the inventory body — the exact POST /api/methods/eligibility request the intake screens post straight on. The request chooses the C screen's two-table `files` mode or the N screen's measurements-only `predict` mode; one endpoint set serves both. 400 INVALID_MODE / INVALID_PARAMETERS / MISSING_PATIENTS / INVALID_JOIN.",
+        "operationId": "FileValidation.validate",
+        "requestBody": {
+          "description": "The validate request body (PROV-FV-3): both tables (or only measurements in\n predict mode), the accepted joins, the confirmed vocabulary mappings and the\n analysis parameters.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValidationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and manage your projects",
+                        "name": "ProjectsUse",
+                        "value": "projects::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: projects::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "The validate response (PROV-FV-3): the FULL problem set (per-file +\n cross-table + units + joins + outcome availability), the resolved marker\n columns, both table summaries and the inventory body — the EXACT body of\n `POST /api/methods/eligibility` (CONS-FV-2: the engine replays it\n in-process, so the type is the provider's own).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_MODE (body not the contract's) / INVALID_PARAMETERS (non-finite or impossible day window) / MISSING_PATIENTS / INVALID_JOIN"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "projects::use"
+        ]
+      }
+    },
+    "/api/file-validation/templates/{kind}": {
+      "get": {
+        "tags": [
+          "file-validator"
+        ],
+        "description": "The header-only template CSV for a screen-C file kind (`patients`: patient_id,pfs_days,pfs_event,os_days,os_event,age,sex,stage; `measurements`: patient_id,day,marker,value,unit) — served from the embedded bytes, never read from disk. Unknown kind → 404 INVALID_EXAMPLE_KIND.",
+        "operationId": "FileValidation.template",
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and manage your projects",
+                        "name": "ProjectsUse",
+                        "value": "projects::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: projects::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "text/csv; charset=utf-8 — the committed template bytes"
+          },
+          "404": {
+            "description": "Unknown kind (INVALID_EXAMPLE_KIND)"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "projects::use"
+        ]
+      }
+    },
+    "/api/file-validation/examples/{kind}": {
+      "get": {
+        "tags": [
+          "file-validator"
+        ],
+        "description": "The full synthetic example CSV for a screen-C file kind (generated from the open benchmark data-synth world; ids J0000.., markers M1/M2 — never real patient data). Served from the embedded bytes. Unknown kind → 404 INVALID_EXAMPLE_KIND.",
+        "operationId": "FileValidation.example",
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and manage your projects",
+                        "name": "ProjectsUse",
+                        "value": "projects::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: projects::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "text/csv; charset=utf-8 — the committed example bytes"
+          },
+          "404": {
+            "description": "Unknown kind (INVALID_EXAMPLE_KIND)"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "projects::use"
+        ]
+      }
+    },
     "/api/sandbox/status": {
       "get": {
         "tags": [
@@ -11683,6 +11911,22 @@
           "id"
         ]
       },
+      "AnalysisParameters": {
+        "description": "The analysis parameters: the decision day and the baseline window end\n (2026-10-19 contract: a draw is baseline when day ≤ `baseline_max_day`;\n pre-treatment negative days count as baseline). Per-analysis user inputs\n (screen B/C), never operational tunables (DEC-9); defaults apply when the\n UI omits the block.",
+        "type": "object",
+        "properties": {
+          "baseline_max_day": {
+            "type": "number",
+            "format": "double",
+            "default": 0.0
+          },
+          "decision_day": {
+            "type": "number",
+            "format": "double",
+            "default": 56.0
+          }
+        }
+      },
       "AnalysisRequest": {
         "description": "Request to run an analysis command in the sandbox.",
         "type": "object",
@@ -12652,6 +12896,22 @@
             "type": "string",
             "const": "sandbox"
           }
+        ]
+      },
+      "CovariateColumn": {
+        "description": "One covariate column's numeric-ness fact (an inspect-time report: a\n covariate known to a numeric rule is a usable covariate; a text column is\n a covariate the engine cannot use as a number).",
+        "type": "object",
+        "properties": {
+          "is_numeric": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "is_numeric"
         ]
       },
       "CovariateMode": {
@@ -14576,6 +14836,85 @@
           "blob_version_id"
         ]
       },
+      "FileColumns": {
+        "description": "The column-resolution report of one file (PROV-FV-2's `columns`).",
+        "type": "object",
+        "properties": {
+          "covariate_columns": {
+            "description": "The covariate columns with their numeric-ness (the model's covariate\n input fact: a non-numeric covariate column is not usable as one).",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CovariateColumn"
+            }
+          },
+          "resolved": {
+            "description": "role wire-key (`patient_id`, `pfs_days`, … `covariate:<name>`) →\n column name, for every column that matched a rule alias (DEC-5).",
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "unresolved": {
+            "description": "Columns known to no rule — reported, never rejected (DEC-5).",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "resolved",
+          "unresolved",
+          "covariate_columns"
+        ]
+      },
+      "FileInspection": {
+        "description": "The inspect response (PROV-FV-2). The problems cover the per-file checks\n (types, nullability, uniqueness, cross-table references that are\n resolvable single-file, header and required-column problems); the full\n cross-table + join + units + outcome set is the `validate` response's.",
+        "type": "object",
+        "properties": {
+          "columns": {
+            "$ref": "#/components/schemas/FileColumns"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/FileTableKind"
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FileProblem"
+            }
+          },
+          "source_name": {
+            "type": "string"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/FileSummary"
+          }
+        },
+        "required": [
+          "kind",
+          "source_name",
+          "columns",
+          "problems",
+          "summary"
+        ]
+      },
+      "FileInspectionRequest": {
+        "description": "The inspect request body: ONE file, no cross-file context (screen C inspects\n each file as it is dropped; screen N inspects its only file — INV-3).",
+        "type": "object",
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/FileTableKind"
+          },
+          "table": {
+            "$ref": "#/components/schemas/ParsedTable"
+          }
+        },
+        "required": [
+          "kind",
+          "table"
+        ]
+      },
       "FileLayout": {
         "description": "How an artifact's bytes map to physical files. P1's store already resolves the\n physical members (`is_multifile` + merkle `content_hash`); P2 only DECLARES the\n shape so the reader knows how to assemble (ITEM-14).",
         "oneOf": [
@@ -14653,6 +14992,77 @@
           "has_response_day",
           "has_event",
           "has_survival_day"
+        ]
+      },
+      "FileProblem": {
+        "description": "One reported problem (INV-2: every problem carries its FILE row — 1-based,\n header included — or `null` for file-level; columns are named when the\n problem is a column's, `null` otherwise).",
+        "type": "object",
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ProblemCode"
+          },
+          "column": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "row": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32",
+            "minimum": 0
+          },
+          "severity": {
+            "$ref": "#/components/schemas/ProblemSeverity"
+          }
+        },
+        "required": [
+          "code",
+          "severity",
+          "message"
+        ]
+      },
+      "FileSummary": {
+        "description": "The file-level summary facts of an inspect call (row count, marker columns\n and their row counts, the distinct draw days).",
+        "type": "object",
+        "properties": {
+          "draw_days": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          "markers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MarkerSummary"
+            }
+          },
+          "rows": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "rows",
+          "markers",
+          "draw_days"
+        ]
+      },
+      "FileTableKind": {
+        "description": "The two user-file tables (screen C and screen N) — one parsed shape, both\n screens, one validation pipeline (INV-3).",
+        "type": "string",
+        "enum": [
+          "patients",
+          "measurements"
         ]
       },
       "FileVersion": {
@@ -15804,6 +16214,25 @@
           }
         }
       },
+      "JoinOffer": {
+        "description": "A join offer the user accepted: every `variants` spelling of one logical\n marker column merges into the single `key` (DEC-12: nothing is ever\n auto-applied — an `A03` problem is a QUESTION; the user's `joins[]` entry\n is the answer).",
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "variants": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "variants",
+          "key"
+        ]
+      },
       "LayoutKind": {
         "description": "The domain-neutral storage layout a datatype's artifacts use. Keyed on LAYOUT,\n never on domain (DEC-4) — every layout below is one option among several and NONE\n is privileged, so no domain's favourite physical shape becomes the core's default.\n Maps to P1's coarse `workstore::artifact::StorageLayout` string via\n [`LayoutKind::as_storage_layout`].",
         "oneOf": [
@@ -16127,6 +16556,81 @@
           "password"
         ]
       },
+      "MarkerColumn": {
+        "description": "One resolved marker column of the file (after joins and mappings) — the\n per-marker facts the C/N card renders and the inventory is built from.",
+        "type": "object",
+        "properties": {
+          "coverage": {
+            "$ref": "#/components/schemas/MarkerCoverage"
+          },
+          "key": {
+            "description": "The stable column key (the join key after merges).",
+            "type": "string"
+          },
+          "n_rows": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "spellings": {
+            "description": "Every spelling that merged into this key (`[\"ldh\", \"LDH\"]` after a\n join — EXAMPLE-FV-1).",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "unit_status": {
+            "$ref": "#/components/schemas/UnitStatus"
+          },
+          "vocabulary": {
+            "description": "The vocabulary candidates (join offers) — suggestions, never applied.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MarkerMatch"
+            }
+          }
+        },
+        "required": [
+          "key",
+          "spellings",
+          "n_rows",
+          "unit_status",
+          "vocabulary",
+          "coverage"
+        ]
+      },
+      "MarkerCoverage": {
+        "description": "The per-marker coverage counts (EXAMPLE-FV-3: the board's \"needs 3 or more\n draws; 120 of 151 have them\" is renderable from these three numbers).",
+        "type": "object",
+        "properties": {
+          "patients_with_baseline": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "patients_with_ontreatment": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "patients_with_value": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "patients_with_value",
+          "patients_with_baseline",
+          "patients_with_ontreatment"
+        ]
+      },
       "MarkerGroup": {
         "description": "One of the 7 board marker groups (screen B checkbox row).",
         "type": "object",
@@ -16152,6 +16656,81 @@
           "single",
           "panel",
           "multi"
+        ]
+      },
+      "MarkerMapping": {
+        "description": "A vocabulary mapping the user confirmed: file column `key` is the\n vocabulary marker `marker_id` (DEC-12: mapping is explicit only; fuzzy\n suggestions are never applied without it).",
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "marker_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "marker_id"
+        ]
+      },
+      "MarkerMatch": {
+        "description": "One vocabulary candidate for a file marker column (the join offer's\n \"this column looks like X\" fact — PROV-FV-3's `MarkerMatch`).",
+        "type": "object",
+        "properties": {
+          "canonical_unit": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "marker_id": {
+            "description": "The vocabulary marker's id within its system.",
+            "type": "string"
+          },
+          "match_kind": {
+            "$ref": "#/components/schemas/MatchKind"
+          },
+          "n_methods": {
+            "description": "How many runnable methods reference this marker (the join-offer\n weight — a marker 300 methods rank differently from one 3 do).",
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "system": {
+            "description": "The raw registry system spelling (`LOINC`, `HGNC`, … — the open-string\n system, same as `StandardId.system`, never a closed list here).",
+            "type": "string"
+          },
+          "unit_family": {
+            "$ref": "#/components/schemas/UnitFamily"
+          }
+        },
+        "required": [
+          "marker_id",
+          "system",
+          "display_name",
+          "unit_family",
+          "canonical_unit",
+          "n_methods",
+          "match_kind"
+        ]
+      },
+      "MarkerSummary": {
+        "description": "One marker column's inspect summary (name → value-row count).",
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "rows": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "name",
+          "rows"
         ]
       },
       "MarkerSystem": {
@@ -16186,6 +16765,16 @@
         "required": [
           "markers",
           "groups"
+        ]
+      },
+      "MatchKind": {
+        "description": "The matched item kind (DEC-12 match ladder: exact display name → alias →\n standard id → fuzzy containment suggestion, in that order; fuzzy is a\n suggestion only).",
+        "type": "string",
+        "enum": [
+          "exact",
+          "alias",
+          "standard_id",
+          "fuzzy"
         ]
       },
       "MatchMode": {
@@ -16262,6 +16851,36 @@
           "user",
           "permissions",
           "has_password"
+        ]
+      },
+      "MeasurementsSummary": {
+        "description": "The measurements-table summary facts of a validate call.",
+        "type": "object",
+        "properties": {
+          "distinct_draw_days": {
+            "description": "The distinct draw days, ascending (the \"draw times\" the engine and the\n screen B schedule need).",
+            "type": "array",
+            "items": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          "patients": {
+            "description": "Distinct patients in the measurements table (the predict-mode\n cohort — TEST-FV-9).",
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "rows": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "rows",
+          "patients",
+          "distinct_draw_days"
         ]
       },
       "MembersQuery": {
@@ -17564,6 +18183,64 @@
           "mcp_url"
         ]
       },
+      "ParsedTable": {
+        "description": "The browser-decoded table: raw cells only, no interpretation (DEC-1). This\n is the wire type of every file the module sees — both the C screen's two\n tables and the N screen's measurements table (INV-3).",
+        "type": "object",
+        "properties": {
+          "columns": {
+            "description": "The column names, in file order.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "header_row": {
+            "description": "The 1-based FILE row holding the column names (DEC-6): every problem\n this module reports carries a FILE row number, so \"Row 14\" on screen\n matches the user's spreadsheet.",
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "rows": {
+            "description": "Data rows only (the header row is excluded). Cells are raw text; an\n empty cell is `null`.",
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "source": {
+            "$ref": "#/components/schemas/ParsedTableSource"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "source",
+          "header_row",
+          "columns",
+          "rows"
+        ]
+      },
+      "ParsedTableSource": {
+        "description": "The source facts of a decoded table (the file name the user chose and the\n byte format it decoded from).",
+        "type": "object",
+        "properties": {
+          "format": {
+            "$ref": "#/components/schemas/TableFormat"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "format"
+        ]
+      },
       "PatientDrawCounts": {
         "description": "One patient's marker coverage (baseline + on-treatment draw counts).",
         "type": "object",
@@ -17586,6 +18263,35 @@
           "patient_key",
           "baseline_draws",
           "ontreatment_draws"
+        ]
+      },
+      "PatientsSummary": {
+        "description": "The patients-table summary facts of a validate call.",
+        "type": "object",
+        "properties": {
+          "median_followup_days": {
+            "description": "Median follow-up (the event time of the primary outcome, in days);\n `null` when no outcome is resolvable.",
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "rows": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "with_primary_outcome": {
+            "description": "Patients with a resolvable primary outcome (pfs or os event+time, or a\n responder+response_day pair) — the R14-availability fact.",
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "rows",
+          "with_primary_outcome"
         ]
       },
       "Performance": {
@@ -17735,6 +18441,48 @@
             "minimum": 0
           }
         }
+      },
+      "ProblemCode": {
+        "description": "A problem code — one of the tidy-2.0 rule ids (R01–R21, INV-8: the app\n applies the benchmark's rule semantics to user files) or an app-specific id\n (A01–A07) for conditions the four-table benchmark schema has no word for\n (header recognition, required columns, join offers, units, size notices).",
+        "type": "string",
+        "enum": [
+          "R01",
+          "R02",
+          "R03",
+          "R04",
+          "R05",
+          "R06",
+          "R07",
+          "R08",
+          "R09",
+          "R10",
+          "R11",
+          "R12",
+          "R13",
+          "R14",
+          "R15",
+          "R16",
+          "R17",
+          "R18",
+          "R19",
+          "R20",
+          "R21",
+          "A01",
+          "A02",
+          "A03",
+          "A04",
+          "A05",
+          "A06",
+          "A07"
+        ]
+      },
+      "ProblemSeverity": {
+        "description": "The severity of a problem (the benchmark's own split: errors block,\n warnings are reported — INV-8).",
+        "type": "string",
+        "enum": [
+          "error",
+          "warning"
+        ]
       },
       "ProcessDatasetRequest": {
         "description": "Request body for `POST /datasets/{id}/process`.\n\n `spec` is the processor's compute spec — an [`AnalysisSpec`]-shaped object\n (`language`, `script` **or** `code_ref`, optional `produces`, `schedule`,\n `extra_mounts`, `arch`, `timeout_secs`, `seed`, and any NON-dataset `inputs`\n such as prior-step artifacts for a chained step). It is passed opaque (like\n `CreateJobRequest.params`) so the sandbox's `AnalysisSpec` stays the single\n owner of the compute-spec schema + validation. The endpoint APPENDS the\n dataset's file(s) as `dataset_file_ref` inputs, so the spec must NOT declare\n them itself.",
@@ -19716,6 +20464,14 @@
           }
         ]
       },
+      "TableFormat": {
+        "description": "The byte format the browser decoded (the server never interprets bytes —\n DEC-1: parsing stays in the browser, rules stay in Rust).",
+        "type": "string",
+        "enum": [
+          "csv",
+          "excel"
+        ]
+      },
       "TestProviderResponse": {
         "type": "object",
         "properties": {
@@ -19864,6 +20620,17 @@
           "ratio",
           "detection",
           "none"
+        ]
+      },
+      "UnitStatus": {
+        "description": "The unit verdict of one marker column (DEC-10: `matches` against the\n vocabulary's `canonical_unit`, `family` when only the family agrees, an\n honest `unknown` when nothing is known, `absent` when the file carries no\n unit, `mixed` when the column is not constant).",
+        "type": "string",
+        "enum": [
+          "matches",
+          "family",
+          "unknown",
+          "absent",
+          "mixed"
         ]
       },
       "UnreadCount": {
@@ -20583,6 +21350,105 @@
         "enum": [
           "landmark",
           "full"
+        ]
+      },
+      "ValidationMode": {
+        "description": "The analysis mode: `files` (the complete two-table file set — the C screen)\n or `predict` (measurements only — the N screen, INV-3: the same endpoints\n serve both).\n\n Wire spelling: the frozen plan (PROV-FV-3) names this value with the\n one word the framework's rename-completeness scan (`scripts/check-no-*\n -domain-literals.sh`) bans across `src-app/**` — the plan's own invariants\n (INV-7, TEST-FV-15) require the shipped module to carry ZERO such tokens.\n The wire spelling here uses the app's own word for the C screen\n (`Files.dc.html` \"your files\"; the `/files` route of the flow) — the\n two-mode split, the 400 mapping and every test intent are unchanged\n (DRIFT-1 ITEM-2 #1).",
+        "type": "string",
+        "enum": [
+          "files",
+          "predict"
+        ]
+      },
+      "ValidationRequest": {
+        "description": "The validate request body (PROV-FV-3): both tables (or only measurements in\n predict mode), the accepted joins, the confirmed vocabulary mappings and the\n analysis parameters.",
+        "type": "object",
+        "properties": {
+          "joins": {
+            "type": "array",
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/JoinOffer"
+            }
+          },
+          "mapping": {
+            "type": "array",
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/MarkerMapping"
+            }
+          },
+          "measurements": {
+            "$ref": "#/components/schemas/ParsedTable"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/ValidationMode"
+          },
+          "parameters": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AnalysisParameters"
+              }
+            ],
+            "default": {
+              "baseline_max_day": 0.0,
+              "decision_day": 56.0
+            }
+          },
+          "patients": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ParsedTable"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "mode",
+          "measurements"
+        ]
+      },
+      "ValidationResponse": {
+        "description": "The validate response (PROV-FV-3): the FULL problem set (per-file +\n cross-table + units + joins + outcome availability), the resolved marker\n columns, both table summaries and the inventory body — the EXACT body of\n `POST /api/methods/eligibility` (CONS-FV-2: the engine replays it\n in-process, so the type is the provider's own).",
+        "type": "object",
+        "properties": {
+          "inventory": {
+            "$ref": "#/components/schemas/InventoryEligibilityRequest"
+          },
+          "markers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MarkerColumn"
+            }
+          },
+          "measurements": {
+            "$ref": "#/components/schemas/MeasurementsSummary"
+          },
+          "patients": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PatientsSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FileProblem"
+            }
+          }
+        },
+        "required": [
+          "problems",
+          "markers",
+          "measurements",
+          "inventory"
         ]
       },
       "VerificationDto": {

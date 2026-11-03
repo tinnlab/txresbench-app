@@ -55,6 +55,21 @@ All commands write only what is named; `--check` and `--selftest` write nothing.
 The fixture write mode writes to `scripts/file-validator/fixtures/out/`
 (gitignored) unless `--out` names the committed `fixtures/expected/` target.
 
+## OpenAPI regen
+
+The four routes emit request/response schemas into the shared client; after a
+route or type change, regenerate and commit the generated output in the same
+change (the regen-parity leg of the suite):
+
+```bash
+cd src-app/server && CONFIG_FILE=config/dev.yaml cargo run -- --generate-openapi ../ui/openapi
+```
+
+That writes `src-app/ui/openapi/openapi.json` and the four
+`src-app/ui/src/api-client/*` files. The server links no format-parsing crate
+and performs no network I/O; the only build-time inputs are the embedded
+assets and the committed catalogue (see above).
+
 ## Runtime behaviour
 
 Fixed by this file and unchanged by regenerating: no `SIGTRANS_ROOT`, no
