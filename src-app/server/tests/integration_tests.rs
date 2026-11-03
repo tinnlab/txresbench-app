@@ -26,6 +26,9 @@ mod features;
 // The `ziee-file` HTTP surface merged by `modules::file` — its authorization
 // suite (the removed-member deny matrix + positive controls).
 mod file;
+// The `file_validator` suites (rule-port acceptance TEST-FV-17/18; the HTTP
+// suites land with ITEM-5/6).
+mod file_validator;
 mod harness_db_lifecycle;
 mod harness_sentinel;
 mod health;

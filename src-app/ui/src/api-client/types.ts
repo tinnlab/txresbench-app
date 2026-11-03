@@ -532,6 +532,18 @@ export interface AnalysisContributionData {
   methods?: MethodsNarration
 }
 
+/**
+ * The analysis parameters: the decision day and the baseline window end
+ *  (2026-10-19 contract: a draw is baseline when day ≤ `baseline_max_day`;
+ *  pre-treatment negative days count as baseline). Per-analysis user inputs
+ *  (screen B/C), never operational tunables (DEC-9); defaults apply when the
+ *  UI omits the block.
+ */
+export interface AnalysisParameters {
+  baseline_max_day?: number
+  decision_day?: number
+}
+
 /** Request to run an analysis command in the sandbox. */
 export interface AnalysisRequest {
   /**
@@ -1106,6 +1118,16 @@ export interface ConverterRef {
 
 /** Where a converter runs (DEC-6). */
 export type ConverterRun = 'host' | 'sandbox'
+
+/**
+ * One covariate column's numeric-ness fact (an inspect-time report: a
+ *  covariate known to a numeric rule is a usable covariate; a text column is
+ *  a covariate the engine cannot use as a number).
+ */
+export interface CovariateColumn {
+  is_numeric: boolean
+  name: string
+}
 
 /** Whether a method's inputs include patient covariates beyond the markers. */
 export type CovariateMode = 'none' | 'optional' | 'required'
@@ -2270,6 +2292,45 @@ export interface File {
   version: number
 }
 
+/** The column-resolution report of one file (PROV-FV-2's `columns`). */
+export interface FileColumns {
+  /**
+   * The covariate columns with their numeric-ness (the model's covariate
+   *  input fact: a non-numeric covariate column is not usable as one).
+   */
+  covariate_columns: CovariateColumn[]
+  /**
+   * role wire-key (`patient_id`, `pfs_days`, … `covariate:<name>`) →
+   *  column name, for every column that matched a rule alias (DEC-5).
+   */
+  resolved: any
+  /** Columns known to no rule — reported, never rejected (DEC-5). */
+  unresolved: string[]
+}
+
+/**
+ * The inspect response (PROV-FV-2). The problems cover the per-file checks
+ *  (types, nullability, uniqueness, cross-table references that are
+ *  resolvable single-file, header and required-column problems); the full
+ *  cross-table + join + units + outcome set is the `validate` response's.
+ */
+export interface FileInspection {
+  columns: FileColumns
+  kind: FileTableKind
+  problems: FileProblem[]
+  source_name: string
+  summary: FileSummary
+}
+
+/**
+ * The inspect request body: ONE file, no cross-file context (screen C inspects
+ *  each file as it is dropped; screen N inspects its only file — INV-3).
+ */
+export interface FileInspectionRequest {
+  kind: FileTableKind
+  table: ParsedTable
+}
+
 /**
  * How an artifact's bytes map to physical files. P1's store already resolves the
  *  physical members (`is_multifile` + merkle `content_hash`); P2 only DECLARES the
@@ -2304,6 +2365,35 @@ export interface FileOutcomes {
   /** The file carries a survival time column (`pfs_days`/`os_days`). */
   has_survival_day: boolean
 }
+
+/**
+ * One reported problem (INV-2: every problem carries its FILE row — 1-based,
+ *  header included — or `null` for file-level; columns are named when the
+ *  problem is a column's, `null` otherwise).
+ */
+export interface FileProblem {
+  code: ProblemCode
+  column?: string
+  message: string
+  row?: number
+  severity: ProblemSeverity
+}
+
+/**
+ * The file-level summary facts of an inspect call (row count, marker columns
+ *  and their row counts, the distinct draw days).
+ */
+export interface FileSummary {
+  draw_days: number[]
+  markers: MarkerSummary[]
+  rows: number
+}
+
+/**
+ * The two user-file tables (screen C and screen N) — one parsed shape, both
+ *  screens, one validation pipeline (INV-3).
+ */
+export type FileTableKind = 'patients' | 'measurements'
 
 /** One immutable version of a file. */
 export interface FileVersion {
@@ -2858,6 +2948,17 @@ export interface JobsListQuery {
 }
 
 /**
+ * A join offer the user accepted: every `variants` spelling of one logical
+ *  marker column merges into the single `key` (DEC-12: nothing is ever
+ *  auto-applied — an `A03` problem is a QUESTION; the user's `joins[]` entry
+ *  is the answer).
+ */
+export interface JoinOffer {
+  key: string
+  variants: string[]
+}
+
+/**
  * The domain-neutral storage layout a datatype's artifacts use. Keyed on LAYOUT,
  *  never on domain (DEC-4) — every layout below is one option among several and NONE
  *  is privileged, so no domain's favourite physical shape becomes the core's default.
@@ -3081,6 +3182,36 @@ export interface LoginRequest {
   username: string
 }
 
+/**
+ * One resolved marker column of the file (after joins and mappings) — the
+ *  per-marker facts the C/N card renders and the inventory is built from.
+ */
+export interface MarkerColumn {
+  coverage: MarkerCoverage
+  /** The stable column key (the join key after merges). */
+  key: string
+  n_rows: number
+  /**
+   * Every spelling that merged into this key (`["ldh", "LDH"]` after a
+   *  join — EXAMPLE-FV-1).
+   */
+  spellings: string[]
+  unit?: string
+  unit_status: UnitStatus
+  /** The vocabulary candidates (join offers) — suggestions, never applied. */
+  vocabulary: MarkerMatch[]
+}
+
+/**
+ * The per-marker coverage counts (EXAMPLE-FV-3: the board's "needs 3 or more
+ *  draws; 120 of 151 have them" is renderable from these three numbers).
+ */
+export interface MarkerCoverage {
+  patients_with_baseline: number
+  patients_with_ontreatment: number
+  patients_with_value: number
+}
+
 /** One of the 7 board marker groups (screen B checkbox row). */
 export interface MarkerGroup {
   display_name: string
@@ -3093,6 +3224,45 @@ export interface MarkerGroup {
  *  `multi` (N markers, no fixed list).
  */
 export type MarkerKind = 'any' | 'single' | 'panel' | 'multi'
+
+/**
+ * A vocabulary mapping the user confirmed: file column `key` is the
+ *  vocabulary marker `marker_id` (DEC-12: mapping is explicit only; fuzzy
+ *  suggestions are never applied without it).
+ */
+export interface MarkerMapping {
+  key: string
+  marker_id: string
+}
+
+/**
+ * One vocabulary candidate for a file marker column (the join offer's
+ *  "this column looks like X" fact — PROV-FV-3's `MarkerMatch`).
+ */
+export interface MarkerMatch {
+  canonical_unit: string
+  display_name: string
+  /** The vocabulary marker's id within its system. */
+  marker_id: string
+  match_kind: MatchKind
+  /**
+   * How many runnable methods reference this marker (the join-offer
+   *  weight — a marker 300 methods rank differently from one 3 do).
+   */
+  n_methods: number
+  /**
+   * The raw registry system spelling (`LOINC`, `HGNC`, … — the open-string
+   *  system, same as `StandardId.system`, never a closed list here).
+   */
+  system: string
+  unit_family: UnitFamily
+}
+
+/** One marker column's inspect summary (name → value-row count). */
+export interface MarkerSummary {
+  name: string
+  rows: number
+}
 
 /**
  * The marker identifier system of a vocabulary marker (the registry's systems;
@@ -3108,6 +3278,13 @@ export interface MarkerVocabularyResponse {
   groups: MarkerGroup[]
   markers: VocabularyMarker[]
 }
+
+/**
+ * The matched item kind (DEC-12 match ladder: exact display name → alias →
+ *  standard id → fuzzy containment suggestion, in that order; fuzzy is a
+ *  suggestion only).
+ */
+export type MatchKind = 'exact' | 'alias' | 'standard_id' | 'fuzzy'
 
 /** The `required_markers` match mode (the data.py port's `match:` field). */
 export type MatchMode = 'all' | 'min_fraction'
@@ -3162,6 +3339,21 @@ export interface MeResponse {
   /** Effective permissions (union of user's direct permissions + all active group permissions) */
   permissions: string[]
   user: User
+}
+
+/** The measurements-table summary facts of a validate call. */
+export interface MeasurementsSummary {
+  /**
+   * The distinct draw days, ascending (the "draw times" the engine and the
+   *  screen B schedule need).
+   */
+  distinct_draw_days: number[]
+  /**
+   * Distinct patients in the measurements table (the predict-mode
+   *  cohort — TEST-FV-9).
+   */
+  patients: number
+  rows: number
 }
 
 export interface MembersQuery {
@@ -3777,11 +3969,57 @@ export interface PairStartResponse {
   mcp_url: string
 }
 
+/**
+ * The browser-decoded table: raw cells only, no interpretation (DEC-1). This
+ *  is the wire type of every file the module sees — both the C screen's two
+ *  tables and the N screen's measurements table (INV-3).
+ */
+export interface ParsedTable {
+  /** The column names, in file order. */
+  columns: string[]
+  /**
+   * The 1-based FILE row holding the column names (DEC-6): every problem
+   *  this module reports carries a FILE row number, so "Row 14" on screen
+   *  matches the user's spreadsheet.
+   */
+  header_row: number
+  /**
+   * Data rows only (the header row is excluded). Cells are raw text; an
+   *  empty cell is `null`.
+   */
+  rows: string | null[][]
+  source: ParsedTableSource
+}
+
+/**
+ * The source facts of a decoded table (the file name the user chose and the
+ *  byte format it decoded from).
+ */
+export interface ParsedTableSource {
+  format: TableFormat
+  name: string
+}
+
 /** One patient's marker coverage (baseline + on-treatment draw counts). */
 export interface PatientDrawCounts {
   baseline_draws: number
   ontreatment_draws: number
   patient_key: string
+}
+
+/** The patients-table summary facts of a validate call. */
+export interface PatientsSummary {
+  /**
+   * Median follow-up (the event time of the primary outcome, in days);
+   *  `null` when no outcome is resolvable.
+   */
+  median_followup_days?: number
+  rows: number
+  /**
+   * Patients with a resolvable primary outcome (pfs or os event+time, or a
+   *  responder+response_day pair) — the R14-availability fact.
+   */
+  with_primary_outcome: number
 }
 
 /**
@@ -3840,6 +4078,20 @@ export interface PreviewEligibilityRequest {
 export interface PreviewQuery {
   page?: number
 }
+
+/**
+ * A problem code — one of the tidy-2.0 rule ids (R01–R21, INV-8: the app
+ *  applies the benchmark's rule semantics to user files) or an app-specific id
+ *  (A01–A07) for conditions the four-table benchmark schema has no word for
+ *  (header recognition, required columns, join offers, units, size notices).
+ */
+export type ProblemCode = 'R01' | 'R02' | 'R03' | 'R04' | 'R05' | 'R06' | 'R07' | 'R08' | 'R09' | 'R10' | 'R11' | 'R12' | 'R13' | 'R14' | 'R15' | 'R16' | 'R17' | 'R18' | 'R19' | 'R20' | 'R21' | 'A01' | 'A02' | 'A03' | 'A04' | 'A05' | 'A06' | 'A07'
+
+/**
+ * The severity of a problem (the benchmark's own split: errors block,
+ *  warnings are reported — INV-8).
+ */
+export type ProblemSeverity = 'error' | 'warning'
 
 /**
  * Request body for `POST /datasets/{id}/process`.
@@ -4770,6 +5022,12 @@ export type SyncSseEvent = {
   data: SyncEvent
 }
 
+/**
+ * The byte format the browser decoded (the server never interprets bytes —
+ *  DEC-1: parsing stays in the browser, rules stay in Rust).
+ */
+export type TableFormat = 'csv' | 'excel'
+
 export interface TestProviderResponse {
   message: string
   ok: boolean
@@ -4830,6 +5088,14 @@ export interface TokenPair {
  *  satisfies a method needing another).
  */
 export type UnitFamily = 'concentration_mass' | 'concentration_molar' | 'count' | 'percent' | 'ratio' | 'detection' | 'none'
+
+/**
+ * The unit verdict of one marker column (DEC-10: `matches` against the
+ *  vocabulary's `canonical_unit`, `family` when only the family agrees, an
+ *  honest `unknown` when nothing is known, `absent` when the file carries no
+ *  unit, `mixed` when the column is not constant).
+ */
+export type UnitStatus = 'matches' | 'family' | 'unknown' | 'absent' | 'mixed'
 
 /** Unread-count response. */
 export interface UnreadCount {
@@ -5033,6 +5299,51 @@ export interface User {
  *  ITEM-1); `full` renders as "uses all available history".
  */
 export type UsesHistory = 'landmark' | 'full'
+
+/**
+ * The analysis mode: `files` (the complete two-table file set — the C screen)
+ *  or `predict` (measurements only — the N screen, INV-3: the same endpoints
+ *  serve both).
+ *
+ *  Wire spelling: the frozen plan (PROV-FV-3) names this value with the
+ *  one word the framework's rename-completeness scan (`scripts/check-no-*
+ *  -domain-literals.sh`) bans across `src-app/**` — the plan's own invariants
+ *  (INV-7, TEST-FV-15) require the shipped module to carry ZERO such tokens.
+ *  The wire spelling here uses the app's own word for the C screen
+ *  (`Files.dc.html` "your files"; the `/files` route of the flow) — the
+ *  two-mode split, the 400 mapping and every test intent are unchanged
+ *  (DRIFT-1 ITEM-2 #1).
+ */
+export type ValidationMode = 'files' | 'predict'
+
+/**
+ * The validate request body (PROV-FV-3): both tables (or only measurements in
+ *  predict mode), the accepted joins, the confirmed vocabulary mappings and the
+ *  analysis parameters.
+ */
+export interface ValidationRequest {
+  joins?: JoinOffer[]
+  mapping?: MarkerMapping[]
+  measurements: ParsedTable
+  mode: ValidationMode
+  parameters?: AnalysisParameters
+  patients?: ParsedTable
+}
+
+/**
+ * The validate response (PROV-FV-3): the FULL problem set (per-file +
+ *  cross-table + units + joins + outcome availability), the resolved marker
+ *  columns, both table summaries and the inventory body — the EXACT body of
+ *  `POST /api/methods/eligibility` (CONS-FV-2: the engine replays it
+ *  in-process, so the type is the provider's own).
+ */
+export interface ValidationResponse {
+  inventory: InventoryEligibilityRequest
+  markers: MarkerColumn[]
+  measurements: MeasurementsSummary
+  patients?: PatientsSummary
+  problems: FileProblem[]
+}
 
 /**
  * A verification record (the re-run trust view). `status` ∈
@@ -5304,6 +5615,10 @@ export type ApiEndpointParameters = {
   'File.previewVersion': { file_id: string; version: string; page?: number }
   'File.restore': { file_id: string } & RestoreVersionRequest
   'File.textVersion': { file_id: string; version: string; page?: number }
+  'FileValidation.example': { kind: string }
+  'FileValidation.inspect': FileInspectionRequest
+  'FileValidation.template': { kind: string }
+  'FileValidation.validate': ValidationRequest
   'Health.check': void
   'Jobs.create': CreateJobRequest
   'Jobs.get': { id: string }
@@ -5488,6 +5803,10 @@ export type ApiEndpointResponses = {
   'File.previewVersion': Blob
   'File.restore': File
   'File.textVersion': Blob
+  'FileValidation.example': void
+  'FileValidation.inspect': FileInspection
+  'FileValidation.template': void
+  'FileValidation.validate': ValidationResponse
   'Health.check': HealthResponse
   'Jobs.create': Job
   'Jobs.get': JobDetail

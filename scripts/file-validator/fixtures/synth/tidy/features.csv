@@ -1,0 +1,3 @@
+feature,unit,platform,description,n_samples_with_value
+M1,a.u.,synthetic,informative (joint-model trajectory),8
+M2,a.u.,synthetic,noise,8

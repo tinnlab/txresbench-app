@@ -1,0 +1,9 @@
+{
+  "format_version": "2.0",
+  "schema_id": "txresbench-tidy",
+  "fixture_source": "synthetic minimal contract copy for the generator fixture mode",
+  "rules": [
+    {"id": "R02_required_columns", "kind": "required_columns", "severity": "error"},
+    {"id": "R03_column_types", "kind": "column_types", "severity": "error"}
+  ]
+}
