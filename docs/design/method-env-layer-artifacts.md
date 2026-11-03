@@ -262,17 +262,47 @@ contract** — the build refuses and names the paths (PROV-3's refusal rule,
 enforced by the generator).
 Measured on the methods repository at `5db3b60f727d`: 17 of 391 method
 Dockerfiles use `apt-get`; of the 95 runnable methods exactly
-**`jmbayes-value-cumulative`** does (`apt-get install jags` →
-`/usr/bin/jags`, `/usr/lib/jags`, `/usr/share/jags`). This is one method, and
-it is a hard refusal under the frozen contract, not a silent skip: the
-generator reports it as an error naming the id and the paths. Candidate
-repairs (a later item's, owner-gated): (a) grow the allowed prefix set to
-include `/usr` with the overlay-union mount (§8) — the shipped runtime's
-prefix list is compiled and parity-locked, so the growth is a deliberate
-`sandbox-stacked` change; (b) fold the shared system dependency into the
-per-language trimmed base (jags is method-specific, so this is the wrong
-shape here); (c) treat the method as layer-less. (a) is the design-consistent
-route; ITEM-6's full run measures the actual delta before any is chosen.
+**`jmbayes-value-cumulative`** does (`apt-get install jags`). This is one
+method, and it is a hard refusal under the frozen contract, not a silent
+skip: the generator reports it as an error naming the id and the paths.
+
+**ITEM-6's full run measured the actual delta** (2026-11-03, amd64, the same
+revision). The built image adds 5,435 paths and changes 8, of which 49 land
+outside the allowed prefixes and refuse the build — not the forecast's three
+under `/usr/bin|lib|share`, but the real Debian amd64 layout plus apt's state:
+
+```
+/etc/ld.so.cache
+/usr/bin/jags
+/usr/libexec/jags-terminal
+/usr/lib/x86_64-linux-gnu/JAGS/modules-4/{basemod,bugs,dic,glm,lecuyer,mix,msm}.{la,so}
+/usr/lib/x86_64-linux-gnu/libjags.{la,so,so.4,so.4.0.3}
+/usr/lib/x86_64-linux-gnu/libjrmath.{la,so,so.0,so.0.0.0}
+/usr/lib/x86_64-linux-gnu/libltdl.{so.7,so.7.3.2}
+/usr/lib/x86_64-linux-gnu/pkgconfig/jags.pc
+/usr/share/lintian/overrides/jags
+/var/lib/apt/extended_states
+/var/lib/dpkg/info/{jags.*,libltdl7:amd64.*}
+/var/lib/dpkg/{status,status-old}
+/var/log/{apt/{eipp.log.xz,history.log,term.log},dpkg.log}
+```
+
+Two consequences for the repair, now evidenced rather than inferred: (a)
+growing the allowed prefix set to `/usr` (candidate (a) below) is
+**not sufficient** — `/var/lib/dpkg`, `/var/lib/apt` and `/var/log` are
+neither under the allowed prefixes nor under the excluded-tops list, so a
+repair must also add those apt/dpkg state paths to the excluded tops (build
+debris, the §5 naming style) or carry them as entries; (b) the forecast's
+`/usr/lib/jags` path does not exist — the real modules live under
+`/usr/lib/x86_64-linux-gnu/JAGS/`.
+
+Candidate repairs (a later item's, owner-gated): (a) grow the allowed prefix
+set to include `/usr` with the overlay-union mount (§8) plus the excluded-tops
+growth above — the shipped runtime's prefix list is compiled and
+parity-locked, so the growth is a deliberate `sandbox-stacked` change;
+(b) fold the shared system dependency into the per-language trimmed base
+(jags is method-specific, so this is the wrong shape here); (c) treat the
+method as layer-less.
 
 ## §6 The OCI artifact (PROV-method-env-images-2)
 

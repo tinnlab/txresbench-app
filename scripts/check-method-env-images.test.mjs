@@ -38,6 +38,13 @@
 //            the remote tag names different bytes, and the full stubbed
 //            sequence (login → blob/manifest push → resolve → sign) — each
 //            driven against a stub `oras`/`cosign` on PATH, never a network.
+//   TEST-10  the full-generation manifest: one entry per runnable method per
+//            published arch (amd64 + arm64 under one env id), no duplicate
+//            (env_id, arch), per-arch tags `^<version>-<arch>$`, deterministic
+//            order, the guard accepting it, and a non-runnable record refused
+//   TEST-11  every entry carries the non-empty identity + provenance triplet
+//            and the licence VERBATIM from method.json; a licence change is a
+//            regeneration event, never an edit
 //
 //   node --test scripts/check-method-env-images.test.mjs
 
@@ -174,6 +181,59 @@ function fixture() {
   }
   const r = gen(['--fixture', staging, '--methods-dir', methodsDir, '--manifest', manifestPath]);
   assert.equal(r.status, 0, `fixture manifest did not assemble: ${r.stderr}`);
+  return { base, methodsDir, staging, manifestPath };
+}
+
+// ── ITEM-6 fixture: the FULL-GENERATION shape ─────────────────────────────────
+// The plan's ITEM-6 is the real 95-method run; TEST-10/TEST-11 pin its
+// GENERATED-MANIFEST properties on the fixture index: one entry per runnable
+// method per published arch (here amd64 + a native arm64 record share one env
+// id), per-arch tags `^<version>-(amd64|arm64)$`, and the full provenance
+// triplet + the verbatim licence (INV-6/TEST-11).
+const RECORD_D = {
+  ...RECORD_A,
+  env_id: 'fixture-d',
+  method_id: 'fixture-d',
+  method_version: '1.5.0',
+  arch: 'arm64',
+  oci_ref: 'ghcr.io/tinnlab/txr-method-env-layers/fixture-d',
+  tag: '1.5.0-arm64',
+  wrapper_code_sha256: 'c4f0c7861fd6f6d66b2a90c8e35fc787a49e85bfef2c35d7b7270fd5c89cda25',
+};
+const INDEX_FULL = {
+  index_version: '2026.10.0',
+  contract_versions: ['2.0'],
+  methods: [
+    ...INDEX.methods,
+    { id: 'fixture-d', version: '1.5.0', language: 'Python', contract: '2.0', runnable: true },
+  ],
+};
+
+/** The ITEM-6 fixture: three staged records (a amd64, b amd64, d arm64) over an
+ *  index with two runnable fixtures + one non-runnable (fixture-c) + one arm64
+ *  fixture (fixture-d); the manifest is written by the real generator. */
+function fixtureFull() {
+  const { base, methodsDir, staging } = fixture();
+  const manifestPath = path.join(base, 'manifest-full.json');
+  fs.writeFileSync(path.join(methodsDir, 'index.json'), JSON.stringify(INDEX_FULL));
+  const dMethods = path.join(methodsDir, 'methods', 'fixture-d');
+  fs.mkdirSync(dMethods, { recursive: true });
+  fs.writeFileSync(
+    path.join(dMethods, 'method.json'),
+    JSON.stringify({ id: 'fixture-d', licence: 'verbatim-licence-of-fixture-d-LLC' }),
+  );
+  const dir = path.join(staging, 'layers', 'fixture-d-arm64');
+  fs.mkdirSync(dir, { recursive: true });
+  const squashfs = path.join(dir, 'layer.squashfs');
+  fs.writeFileSync(squashfs, Buffer.alloc(2048, 3));
+  const bytes = fs.readFileSync(squashfs);
+  fs.writeFileSync(path.join(dir, 'artifact.json'), JSON.stringify({
+    ...RECORD_D,
+    layer_sha256: createHash('sha256').update(bytes).digest('hex'),
+    size_bytes: bytes.length,
+  }, null, 2));
+  const r = gen(['--fixture', staging, '--methods-dir', methodsDir, '--manifest', manifestPath]);
+  assert.equal(r.status, 0, `ITEM-6 fixture manifest did not assemble: ${r.stderr}`);
   return { base, methodsDir, staging, manifestPath };
 }
 
@@ -569,4 +629,97 @@ test('TEST-9f the publisher verifies the staged bytes are the entry bytes', () =
   ]);
   assert.equal(r.status, 1, 'a diverged layer file must refuse the publish');
   assert.match(r.stderr, /sha256 .*!= manifest layer_sha256/);
+});
+
+// ── ITEM-6: the full-generation manifest (TEST-10/TEST-11) ────────────────────
+
+test('TEST-10 the full-generation run emits exactly one entry per runnable method', () => {
+  const { methodsDir, staging, manifestPath } = fixtureFull();
+  const m = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  const idx = JSON.parse(fs.readFileSync(path.join(methodsDir, 'index.json'), 'utf8'));
+  const runnable = idx.methods.filter((e) => e.runnable === true).map((e) => e.id).sort();
+  const keys = m.envs.map((e) => `${e.env_id}-${e.arch}`);
+  // exactly the runnable set — the non-runnable fixture has no entry, and the
+  // arm64 record made its way in under a second arch of the SAME env id.
+  assert.deepEqual(
+    [...m.envs].map((e) => e.env_id).sort(),
+    runnable,
+    `one entry per runnable method (got ${m.envs.map((e) => e.env_id).join(', ')})`,
+  );
+  const pairs = m.envs.map((e) => `${e.env_id}|${e.arch}`);
+  assert.equal(new Set(pairs).size, pairs.length, 'no duplicate (env_id, arch)');
+  for (const e of m.envs) {
+    assert.match(e.tag, new RegExp(`^${e.method_version}-(amd64|arm64)$`),
+      `${e.env_id}: per-arch tag <version>-<arch> (DEC-2), got ${e.tag}`);
+  }
+  const d = m.envs.find((e) => e.env_id === 'fixture-d');
+  assert.equal(d.arch, 'arm64');
+  assert.equal(d.tag, '1.5.0-arm64');
+  // deterministic order (DEC-15): strict (env_id, arch) ascending.
+  const sorted = [...m.envs].sort((x, y) => {
+    if (x.env_id !== y.env_id) return x.env_id < y.env_id ? -1 : 1;
+    return x.arch < y.arch ? -1 : 1;
+  });
+  assert.deepEqual(keys, sorted.map((e) => `${e.env_id}-${e.arch}`));
+  // the real guard accepts the full-generation manifest (schema + structural).
+  const g = guard(['--manifest', manifestPath]);
+  assert.equal(g.status, 0, `the guard refused the full-generation manifest: ${g.stderr}`);
+  // a record for a NON-runnable method must refuse the write — "exactly the
+  // runnable methods" is enforced by the writer (DEC-8), not a coincidence of
+  // the fixture.
+  const cDir = path.join(staging, 'layers', 'fixture-c-amd64');
+  fs.mkdirSync(cDir, { recursive: true });
+  const cBytes = Buffer.alloc(1024, 5);
+  fs.writeFileSync(path.join(cDir, 'layer.squashfs'), cBytes);
+  fs.writeFileSync(path.join(cDir, 'artifact.json'), JSON.stringify({
+    ...RECORD_A,
+    env_id: 'fixture-c',
+    method_id: 'fixture-c',
+    method_version: '1.0.0',
+    oci_ref: 'ghcr.io/tinnlab/txr-method-env-layers/fixture-c',
+    tag: '1.0.0-amd64',
+    layer_sha256: createHash('sha256').update(cBytes).digest('hex'),
+    size_bytes: cBytes.length,
+  }, null, 2));
+  const r = gen(['--fixture', staging, '--methods-dir', methodsDir,
+    '--manifest', path.join(path.dirname(manifestPath), 'manifest-must-not-write.json')]);
+  assert.notEqual(r.status, 0, 'a record for a non-runnable method must refuse');
+  assert.match(r.stderr, /fixture-c/);
+  assert.match(r.stderr, /not runnable/);
+});
+
+test('TEST-11 every entry carries the provenance triplet and the verbatim licence', () => {
+  const { methodsDir, staging, manifestPath } = fixtureFull();
+  const m = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  const idx = JSON.parse(fs.readFileSync(path.join(methodsDir, 'index.json'), 'utf8'));
+  const indexOf = new Map(idx.methods.map((e) => [e.id, e]));
+  assert.equal(m.base_contract, '2.0');
+  for (const e of m.envs) {
+    // non-empty identity + provenance fields (INV-6: a run and a saved model
+    // record these verbatim — method, method version, base digest, env digest).
+    for (const f of ['method_id', 'method_version', 'digest', 'base_digest',
+                     'oci_ref', 'tag', 'wrapper_code_sha256', 'layer_sha256']) {
+      assert.ok(e[f] && String(e[f]).length > 0, `${e.env_id}: ${f} must be non-empty`);
+    }
+    assert.match(e.digest, /^sha256:[0-9a-f]{64}$/);
+    assert.match(e.base_digest, /^sha256:[0-9a-f]{64}$/);
+    assert.match(e.layer_sha256, /^[0-9a-f]{64}$/);
+    assert.equal(e.oci_ref, `ghcr.io/tinnlab/txr-method-env-layers/${e.env_id}`);
+    assert.equal(e.contract, indexOf.get(e.env_id).contract);
+    // the licence reproduced VERBATIM from method.json at generation time.
+    const mj = JSON.parse(fs.readFileSync(
+      path.join(methodsDir, 'methods', e.env_id, 'method.json'), 'utf8'));
+    assert.equal(e.licence, mj.licence);
+    assert.equal(e.licence, `verbatim-licence-of-${e.env_id}-LLC`);
+  }
+  // a licence change is a REGENERATION event (run the writer again from the
+  // same records), never an edit: the verbatim fact follows method.json.
+  const revised = 'verbatim-licence-of-fixture-a-LLC-revised-by-the-facts';
+  fs.writeFileSync(path.join(methodsDir, 'methods', 'fixture-a', 'method.json'),
+    JSON.stringify({ id: 'fixture-a', licence: revised }));
+  const regenerated = path.join(path.dirname(manifestPath), 'manifest-regen.json');
+  const r = gen(['--fixture', staging, '--methods-dir', methodsDir, '--manifest', regenerated]);
+  assert.equal(r.status, 0, `regeneration refused: ${r.stderr}`);
+  const m2 = JSON.parse(fs.readFileSync(regenerated, 'utf8'));
+  assert.equal(m2.envs.find((e) => e.env_id === 'fixture-a').licence, revised);
 });
