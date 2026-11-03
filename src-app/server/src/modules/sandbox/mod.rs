@@ -70,6 +70,7 @@ pub mod config;
 pub mod env_id;
 pub mod env_image;
 pub mod inputs;
+pub mod method_env;
 pub mod outputs;
 pub mod permissions;
 pub mod processors;
@@ -162,7 +163,14 @@ impl AppModule for SandboxModule {
             host_caps: host,
         });
         set_init_status(SandboxAvailability::Ready);
-        tracing::info!("sandbox: registered (rootfs mounts lazily on first run)");
+        // txr method-env manager: loads the persisted download-state ledger
+        // (`<app_data>/txr-envs/`, DEC-10 — disk state, no DB row) so the env
+        // status surface is correct from the first request after a restart.
+        let persisted = method_env::manager().persisted_count();
+        tracing::info!(
+            "sandbox: registered (rootfs mounts lazily on first run; {} persisted txr method envs)",
+            persisted
+        );
         Ok(())
     }
 
