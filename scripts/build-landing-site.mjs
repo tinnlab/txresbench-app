@@ -14,11 +14,18 @@
  *     or empty field, a malformed value (sha256, url, download kind), an empty
  *     `downloads` array, an unrecognised method group or an unsubstituted
  *     template token fails the build with the field name.
+ *   - `site/public/` hosts exactly the two machine feeds, each optionally
+ *     absent: `pretrained-catalogue.json` (JSON object root; every `url`
+ *     field's host must be github.com or tinnlab.github.io) and
+ *     `updates/latest.json` (Tauri v2 updater static-JSON shape). A
+ *     present-but-invalid file, an unknown platform/top-level key or an
+ *     unexpected file in `public/` fails the build naming the file and the
+ *     violation — before the output dir is touched.
  *   - copied files are byte-identical (sha256 verified) — the hosted feeds are
  *     never rewritten, reordered or re-encoded.
  *   - output is deterministic: no timestamps, no mutable state.
- *   - exit 0 = built; exit 1 = invalid config or unrenderable template; exit 2
- *     = usage error.
+ *   - exit 0 = built; exit 1 = invalid config, invalid hosted feed or
+ *     unrenderable template; exit 2 = usage error.
  */
 
 import { createHash } from 'node:crypto';
@@ -39,6 +46,18 @@ const DOWNLOAD_KINDS = new Set(['dmg', 'nsis', 'deb', 'appimage']);
 const DOWNLOAD_RE = /^https:\/\/github\.com\/tinnlab\/txresbench-app\/releases\/(tag|download)\/app-v\d+\.\d+\.\d+([0-9A-Za-z.+-]*)\//;
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const LINK_HOST_RE = /^https:\/\/(github\.com|tinnlab\.github\.io)\//;
+
+// Hosted public/ contract (PROV-landing-site-2/5/7): exactly these two files may
+// live in site/public; any other file would be published unvalidated.
+const PUBLIC_FILES = new Set(['pretrained-catalogue.json', 'updates/latest.json']);
+const FEED_TOP_KEYS = new Set(['version', 'pub_date', 'notes', 'platforms']);
+const FEED_PLATFORM_KEYS = ['darwin-aarch64', 'darwin-x86_64', 'linux-x86_64', 'windows-x86_64'];
+// semver 2.0.0 (no leading zeros, optional prerelease/build metadata).
+const SEMVER_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+// RFC3339 date-time (full-date + full-time + offset; date-only is accepted by
+// RFC3339 but never meaningful for a release timestamp).
+const RFC3339_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+const ALLOWED_HOSTS = new Set(['github.com', 'tinnlab.github.io']);
 
 const GROUP_LABELS = {
   'response-call': 'Response call',
@@ -150,6 +169,143 @@ function validateConfig(cfg, path) {
 function validateLink(url, field) {
   if (!LINK_HOST_RE.test(url)) {
     error(field, `must be an absolute https URL on github.com or tinnlab.github.io, got ${JSON.stringify(url)}`);
+  }
+}
+
+function pubError(file, why) {
+  ERRORS.push(`public error: ${file}: ${why}`);
+}
+
+/**
+ * validatePublic — the `site/public/` hosting contract (PROV-landing-site-2/5/7).
+ *
+ * The two machine feeds are validated BEFORE the output dir is touched, so a
+ * present-but-invalid file fails the build without destroying the previous
+ * publish output. Absent files are valid (the app treats 404/empty as "nothing
+ * yet", DEC-17). Validation never rewrites a file — the copy pass keeps the
+ * byte-identical promise (sha256 read-back).
+ */
+function validatePublic(publicDir) {
+  if (!existsSync(publicDir)) return;
+  const rel = (p) => relative(REPO_ROOT, p);
+  for (const name of readdirSync(publicDir)) {
+    const p = join(publicDir, name);
+    if (statSync(p).isFile()) {
+      if (!PUBLIC_FILES.has(name)) pubError(rel(p), 'unexpected file in site/public (only pretrained-catalogue.json and updates/latest.json are hosted, and both may be absent)');
+    } else if (name === 'updates') {
+      for (const sub of readdirSync(p)) {
+        const sp = join(p, sub);
+        if (statSync(sp).isFile() && !PUBLIC_FILES.has(`updates/${sub}`)) pubError(rel(sp), 'unexpected file in site/public (only pretrained-catalogue.json and updates/latest.json are hosted, and both may be absent)');
+        else if (statSync(sp).isDirectory()) pubError(rel(sp), `unexpected directory in site/public (only pretrained-catalogue.json and updates/latest.json are hosted, and both may be absent)`);
+      }
+    } else if (name !== 'updates') {
+      pubError(rel(p), 'unexpected directory in site/public (only pretrained-catalogue.json and updates/latest.json are hosted, and both may be absent)');
+    }
+  }
+  validateCatalogue(join(publicDir, 'pretrained-catalogue.json'), rel);
+  validateFeed(join(publicDir, 'updates', 'latest.json'), rel);
+}
+
+/**
+ * validateCatalogue — PROV-landing-site-2: JSON object root; every `url` field
+ * that carries an http(s):// value must point at github.com or
+ * tinnlab.github.io. No field schema is imposed (the schema is the
+ * pretrained-catalogue node's, DEC-7).
+ */
+function validateCatalogue(file, rel) {
+  if (!existsSync(file)) return;
+  let doc;
+  try {
+    doc = JSON.parse(readFileSync(file, 'utf8'));
+  } catch (e) {
+    pubError(rel(file), `not valid JSON (${e.message})`);
+    return;
+  }
+  if (doc === null || typeof doc !== 'object' || Array.isArray(doc)) {
+    pubError(rel(file), `root must be a single JSON object, got ${Array.isArray(doc) ? 'an array' : doc === null ? 'null' : `a ${typeof doc}`}`);
+    return;
+  }
+  scanUrlHosts(doc, rel(file), '$');
+}
+
+function scanUrlHosts(node, file, where) {
+  if (node === null || typeof node !== 'object') return;
+  if (Array.isArray(node)) {
+    node.forEach((v, i) => scanUrlHosts(v, file, `${where}[${i}]`));
+    return;
+  }
+  for (const [key, value] of Object.entries(node)) {
+    if (key === 'url') checkUrlHost(value, file, `${where}.url`);
+    scanUrlHosts(value, file, `${where}.${key}`);
+  }
+}
+
+function checkUrlHost(value, file, where) {
+  if (typeof value !== 'string' || !/^https?:\/\//i.test(value)) return;
+  let host;
+  try {
+    host = new URL(value).hostname.toLowerCase();
+  } catch {
+    pubError(file, `${where}: not a parseable URL: ${JSON.stringify(value)}`);
+    return;
+  }
+  if (!ALLOWED_HOSTS.has(host)) {
+    pubError(file, `${where}: host ${JSON.stringify(host)} is outside the policy (github.com or tinnlab.github.io only)`);
+  }
+}
+
+/**
+ * validateFeed — PROV-landing-site-5: the Tauri v2 static-JSON updater shape.
+ * Root object with `version` (semver), optional RFC3339 `pub_date`, optional
+ * string `notes`, and `platforms` (object; >= 1 key of the fixed set; each
+ * entry a non-empty `url` + non-empty `signature`). Unknown top-level or
+ * platform keys, empty url/signature, non-semver version or missing platforms
+ * fail the build naming the defect; the file is then copied verbatim.
+ */
+function validateFeed(file, rel) {
+  if (!existsSync(file)) return;
+  let doc;
+  try {
+    doc = JSON.parse(readFileSync(file, 'utf8'));
+  } catch (e) {
+    pubError(rel(file), `not valid JSON (${e.message})`);
+    return;
+  }
+  if (doc === null || typeof doc !== 'object' || Array.isArray(doc)) {
+    pubError(rel(file), `root must be a single JSON object, got ${Array.isArray(doc) ? 'an array' : doc === null ? 'null' : `a ${typeof doc}`}`);
+    return;
+  }
+  for (const key of Object.keys(doc)) {
+    if (!FEED_TOP_KEYS.has(key)) pubError(rel(file), `unknown top-level key ${JSON.stringify(key)} (allowed: ${[...FEED_TOP_KEYS].join(', ')})`);
+  }
+  if (typeof doc.version !== 'string' || !SEMVER_RE.test(doc.version)) {
+    pubError(rel(file), `version must be a semver string, got ${JSON.stringify(doc.version)}`);
+  }
+  if (doc.pub_date !== undefined && (typeof doc.pub_date !== 'string' || !RFC3339_RE.test(doc.pub_date) || Number.isNaN(Date.parse(doc.pub_date)))) {
+    pubError(rel(file), `pub_date must be an RFC3339 date-time with a zone offset, got ${JSON.stringify(doc.pub_date)}`);
+  }
+  if (doc.notes !== undefined && typeof doc.notes !== 'string') {
+    pubError(rel(file), `notes must be a string, got ${JSON.stringify(doc.notes)}`);
+  }
+  if (doc.platforms === null || typeof doc.platforms !== 'object' || Array.isArray(doc.platforms)) {
+    pubError(rel(file), 'platforms must be an object');
+    return;
+  }
+  const keys = Object.keys(doc.platforms);
+  if (keys.length === 0) pubError(rel(file), 'platforms must contain at least one platform');
+  for (const key of keys) {
+    if (!FEED_PLATFORM_KEYS.includes(key)) {
+      pubError(rel(file), `platforms: unknown platform key ${JSON.stringify(key)} (allowed: ${FEED_PLATFORM_KEYS.join(', ')})`);
+      continue;
+    }
+    const entry = doc.platforms[key];
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+      pubError(rel(file), `platforms.${key}: entry must be an object`);
+      continue;
+    }
+    if (typeof entry.url !== 'string' || entry.url.trim() === '') pubError(rel(file), `platforms.${key}.url: must be a non-empty string`);
+    if (typeof entry.signature !== 'string' || entry.signature.trim() === '') pubError(rel(file), `platforms.${key}.signature: must be a non-empty string`);
+    checkUrlHost(entry.url, rel(file), `platforms.${key}.url`);
   }
 }
 
@@ -350,6 +506,14 @@ function main() {
     process.exit(1);
   }
   validateConfig(cfg, '');
+  if (ERRORS.length > 0) {
+    for (const line of ERRORS) console.error(line);
+    process.exit(1);
+  }
+
+  // Public/ hosting contract: validate BEFORE the output dir is recreated so a
+  // present-but-invalid feed never destroys nor replaces a previous publish.
+  validatePublic(join(REPO_ROOT, 'site', 'public'));
   if (ERRORS.length > 0) {
     for (const line of ERRORS) console.error(line);
     process.exit(1);
