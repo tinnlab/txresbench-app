@@ -40,6 +40,14 @@ pub mod object_store;
 /// CytoAnalyst's `HarnessApp`. Server-only (no desktop test crate yet).
 pub struct CytoHarnessApp;
 
+/// The fixed bytes of every pre-staged method-env squashfs
+/// ([`TestOptions::prestage_method_envs`]). The bytes are deliberately
+/// NOT a real rootfs: the record's purpose is the manager's `ready` +
+/// cache-entry load rule (so `DELETE /envs/{id}?prune=true` has a real 204
+/// target with a real digest), not a mountable artifact — nothing in the
+/// boot/test path mounts it.
+pub const PRESTAGED_METHOD_ENV_SQUASHFS: &[u8] = b"txr-prestaged-method-env-squashfs-bytes";
+
 /// Per-spawn knobs. Grow as tests need config overrides (mirrors ziee's
 /// `TestServerOptions`).
 #[derive(Default, Clone)]
@@ -92,6 +100,21 @@ pub struct TestOptions {
     /// the server subprocess as `provenance` initializes, so anything a test writes
     /// after `TestServer::start` returns has already missed it.
     pub prestage_rootfs_digests: usize,
+
+    /// Pre-stage method-env records under the spawned server's
+    /// `<data_dir>/txr-envs/` + a matching cached artifact at
+    /// `<data_dir>/sandbox-rootfs/<digest>/rootfs.squashfs` BEFORE it boots.
+    /// The txr method-env manager loads its persisted ledger at sandbox init
+    /// (`method_env::manager()`), so a record written after `spawn` returns is
+    /// invisible to it — the same boot-window reason as
+    /// `prestage_rootfs_digests`. Each tuple is `(env_id, kind)` with
+    /// `kind` = `"base"` | `"layer"`; the digest is the sha256 of
+    /// [`PRESTAGED_METHOD_ENV_SQUASHFS`] (the manager honors a `ready` record
+    /// only while the cache entry exists), the state is `ready`.
+    ///
+    /// This is what lets a route test reach `DELETE /envs/{id}`'s 204+prune
+    /// arm without network and without oras (a real `ensure` would pull).
+    pub prestage_method_envs: Vec<(String, String)>,
 
     /// Set the at-rest secret storage key (`CYTO_SECRET_STORAGE_KEY`, #60) for the
     /// spawned server, enabling ENCRYPTED billing-integration storage. `None` (default)
@@ -177,6 +200,41 @@ jwt:
                         std::fs::create_dir_all(&dir).expect("prestage digest dir");
                         std::fs::write(dir.join("rootfs.squashfs"), b"prestaged-rootfs-bytes")
                             .expect("prestage squashfs");
+                    }
+                }
+                if !opts.prestage_method_envs.is_empty() {
+                    use sha2::{Digest, Sha256};
+                    let txr = facts.data_dir.join("txr-envs");
+                    std::fs::create_dir_all(&txr).expect("prestage txr-envs dir");
+                    let cache_base = facts.data_dir.join("sandbox-rootfs");
+                    std::fs::create_dir_all(&cache_base).expect("prestage method-env cache dir");
+                    let digest = hex::encode(Sha256::digest(PRESTAGED_METHOD_ENV_SQUASHFS));
+                    let digest_dir = cache_base.join(&digest);
+                    std::fs::create_dir_all(&digest_dir).expect("prestage method-env digest dir");
+                    std::fs::write(
+                        digest_dir.join("rootfs.squashfs"),
+                        PRESTAGED_METHOD_ENV_SQUASHFS,
+                    )
+                    .expect("prestage method-env squashfs");
+                    for (env_id, kind) in &opts.prestage_method_envs {
+                        if !cytoanalyst::modules::sandbox::env_id::is_valid_env_id(env_id) {
+                            panic!("prestage_method_envs: {env_id:?} is not a valid env id");
+                        }
+                        if !matches!(kind.as_str(), "base" | "layer") {
+                            panic!("prestage_method_envs: kind {kind:?} is not base|layer");
+                        }
+                        let record = serde_json::json!({
+                            "env_id": env_id,
+                            "kind": kind,
+                            "state": "ready",
+                            "digest": digest,
+                            "last_used": 0,
+                        });
+                        std::fs::write(
+                            txr.join(format!("{env_id}.json")),
+                            record.to_string(),
+                        )
+                        .expect("prestage method-env ledger");
                     }
                 }
                 let mut env = vec![(

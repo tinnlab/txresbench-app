@@ -462,6 +462,16 @@ pub async fn run_method_in_stack(
         mode: MountMode::ReadOnly,
     });
 
+    // DEC-6 / PROV-SS-1: a FIT mode's trained model is written at /model, so
+    // the request's model_out_dir is bound READ-WRITE at the same fixed dest
+    // (the reuse path above binds a VERIFIED model read-only there — the two
+    // modes are disjoint, enforced by `validate_model_contract`). Same
+    // caller-mount-wins rule as /input + /output; the dir was validated +
+    // created above (ITEM-17: it lives outside the run workspace).
+    if let Some(mount) = fit_model_mount(req.mode, &req.model_out_dir) {
+        push_mount_if_absent(&mut run_mounts, mount);
+    }
+
     // ── record BOTH digests before the child runs (INV-6) ───────────────────
     // `env-digest` (base, shipped) + `layer-env-digest` (new sidecar); each
     // `None` clears a stale file a previous attempt of this job may have left.
@@ -547,6 +557,28 @@ pub async fn run_method_in_stack(
     _sink: Option<std::sync::Arc<dyn super::backend::ProgressSink>>,
 ) -> Result<MethodRunResult, AppError> {
     Err(unavailable("the method sandbox is Linux-only"))
+}
+
+/// The fit-mode `/model` mount (DEC-6): the request's `model_out_dir` bound
+/// READ-WRITE at the fixed `/model` dest, so `SIGBENCH_MODE=fit` writes the
+/// trained model into the caller's staging tree. `None` for a reuse run (its
+/// verification + read-only bind is the separate [`ModelMount`] path — never
+/// both, enforced by [`validate_model_contract`]). Pure + testable.
+#[cfg(target_os = "linux")]
+fn fit_model_mount(
+    mode: MethodRunMode,
+    model_out_dir: &Option<std::path::PathBuf>,
+) -> Option<ExtraMount> {
+    use super::types::MountMode;
+
+    if matches!(mode, MethodRunMode::ReuseModel) {
+        return None;
+    }
+    model_out_dir.as_ref().map(|dir| ExtraMount {
+        host_path: dir.clone(),
+        sandbox_path: super::stack::MODEL_SANDBOX_PATH.into(),
+        mode: MountMode::ReadWrite,
+    })
 }
 
 /// A request dir must not live inside the per-run workspace (ITEM-17), and
@@ -736,14 +768,20 @@ fn append_capped(buf: &mut Vec<u8>, chunk: &[u8], truncated: &mut bool) {
     buf.extend_from_slice(&chunk[..take]);
 }
 
-/// The live-progress FIFO of a stacked run + its drain-thread stop flag. Drop
-/// stops the drain and unlinks the node (the same guard shape the streaming
-/// path's `StreamGuards` provides; this seam owns its own because
-/// `streaming.rs` is deliberately untouched by this node).
+/// The live-progress FIFO of a stacked run + its drain thread. Drop requests
+/// the drain to stop and JOINS it (bounded: the drain's poll/sleep cadence is
+/// 100 ms), so the wrapper's finale milestone/log lines are delivered to the
+/// sink BEFORE the synchronous service call returns — the PROV-SS-1 sink
+/// contract (TEST-22, the renumbered reconcile-growth sink test). Then the node is unlinked (the same guard shape
+/// the streaming path's `StreamGuards` provides; this seam owns its own
+/// because `streaming.rs` is deliberately untouched by this node).
 #[cfg(target_os = "linux")]
 struct MethodProgressFifo {
     stop: std::sync::Arc<std::sync::atomic::AtomicBool>,
     path: std::path::PathBuf,
+    /// The drain thread's join handle; `None` only if the thread never
+    /// started (impossible today — the drain is spawned right after mkfifo).
+    drain: Option<std::thread::JoinHandle<()>>,
 }
 
 #[cfg(target_os = "linux")]
@@ -757,6 +795,9 @@ impl MethodProgressFifo {
 impl Drop for MethodProgressFifo {
     fn drop(&mut self) {
         self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+        if let Some(handle) = self.drain.take() {
+            let _ = handle.join();
+        }
         let _ = std::fs::remove_file(&self.path);
     }
 }
@@ -786,9 +827,9 @@ fn setup_method_progress_fifo(
     // Blocking reader thread: the same open/poll/drain shape as
     // `streaming::drain_fifo` (that file is pinned untouched); the parse is the
     // SHARED `streaming::parse_milestone_line` / `parse_progress_line`.
-    std::thread::spawn(move || drain_method_fifo(&reader_path, stop_reader, sink));
+    let drain = std::thread::spawn(move || drain_method_fifo(&reader_path, stop_reader, sink));
 
-    Ok(MethodProgressFifo { stop, path })
+    Ok(MethodProgressFifo { stop, path, drain: Some(drain) })
 }
 
 /// Poll the FIFO for `milestone|…` and `phase|pct|message` lines, forwarding
@@ -814,11 +855,20 @@ fn drain_method_fifo(path: &std::path::Path, stop: std::sync::Arc<std::sync::ato
     let mut partial: Vec<u8> = Vec::new();
 
     loop {
-        if stop.load(std::sync::atomic::Ordering::SeqCst) {
-            break;
-        }
+        // READ FIRST, stop-check after an EMPTY read — the order is the
+        // contract: a wrapper writes its finale milestone/log lines just
+        // before exiting, so a stop flag set on the guard drop must not win
+        // over bytes that are already buffered in the FIFO (the lose-the-last-
+        // frames race the shipped streaming path cannot have because its
+        // guards outlive the run; this seam's guard drops the moment the child
+        // does). `Ok(0)` / `WouldBlock` mean NOTHING left to read — only then
+        // is the stop flag consulted, so the join in the guard's Drop is
+        // bounded by the 100 ms poll cadence and never loses a frame.
         match file.read(&mut buf) {
             Ok(0) => {
+                if stop.load(std::sync::atomic::Ordering::SeqCst) {
+                    break;
+                }
                 std::thread::sleep(std::time::Duration::from_millis(100));
             }
             Ok(n) => {
@@ -838,6 +888,9 @@ fn drain_method_fifo(path: &std::path::Path, stop: std::sync::Arc<std::sync::ato
                 }
             }
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                if stop.load(std::sync::atomic::Ordering::SeqCst) {
+                    break;
+                }
                 std::thread::sleep(std::time::Duration::from_millis(100));
             }
             Err(_) => break,
@@ -1016,5 +1069,39 @@ mod tests {
         );
         assert_eq!(mounts.len(), 1, "the caller's /input mount wins — no duplicate");
         assert_eq!(mounts[0].host_path, std::path::PathBuf::from("/caller/input"));
+    }
+
+    // (TEST-08's /model half, DEC-6): a fit run binds its model_out_dir
+    // READ-WRITE at the fixed /model dest; a reuse run never does (its
+    // verified model binds READ-ONLY through the separate ModelMount path).
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn fit_modes_bind_model_out_at_model_rw_only() {
+        use crate::modules::sandbox::types::MountMode;
+
+        let dir = Some(std::path::PathBuf::from("/staging/model"));
+        for mode in [MethodRunMode::FitPredict, MethodRunMode::FitOnly] {
+            let m = fit_model_mount(mode, &dir)
+                .unwrap_or_else(|| panic!("{mode:?} binds its model_out_dir"));
+            assert_eq!(
+                m.sandbox_path,
+                crate::modules::sandbox::stack::MODEL_SANDBOX_PATH,
+                "the fit's /model is the fixed dest"
+            );
+            assert_eq!(
+                m.mode,
+                MountMode::ReadWrite,
+                "a fit WRITES the trained model; DEC-6"
+            );
+            assert_eq!(m.host_path, std::path::PathBuf::from("/staging/model"));
+        }
+        assert!(
+            fit_model_mount(MethodRunMode::ReuseModel, &dir).is_none(),
+            "a reuse run's model is the verified READ-ONLY ModelMount, never this"
+        );
+        assert!(
+            fit_model_mount(MethodRunMode::FitPredict, &None).is_none(),
+            "no model_out_dir ⇒ nothing to bind (validate_model_contract refuses it)"
+        );
     }
 }
