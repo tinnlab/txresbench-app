@@ -7,6 +7,7 @@
  *
  * Usage:
  *   node scripts/build-landing-site.mjs [--out site/dist] [--config site/config.json]
+ *                                     [--tauri-conf src-app/desktop/tauri/tauri.conf.json]
  *   node scripts/build-landing-site.mjs --print-urls
  *
  * Contracts:
@@ -14,6 +15,12 @@
  *     or empty field, a malformed value (sha256, url, download kind), an empty
  *     `downloads` array, an unrecognised method group or an unsubstituted
  *     template token fails the build with the field name.
+ *   - `config.product.version` MUST equal the `version` of
+ *     `src-app/desktop/tauri/tauri.conf.json` (the app's single version source
+ *     of truth); drift fails the build naming both values. Each `downloads[]`
+ *     url's `app-v<semver>` tag must carry that same version, and each row's
+ *     `os`/`kind` must be one of the release node's four combos
+ *     (macos=dmg, windows=nsis, linux=deb/appimage).
  *   - `site/public/` hosts exactly the two machine feeds, each optionally
  *     absent: `pretrained-catalogue.json` (JSON object root; every `url`
  *     field's host must be github.com or tinnlab.github.io) and
@@ -43,9 +50,16 @@ const URLS = {
 };
 
 const DOWNLOAD_KINDS = new Set(['dmg', 'nsis', 'deb', 'appimage']);
-const DOWNLOAD_RE = /^https:\/\/github\.com\/tinnlab\/txresbench-app\/releases\/(tag|download)\/app-v\d+\.\d+\.\d+([0-9A-Za-z.+-]*)\//;
+// Group 1 = "tag"|"download", group 2 = the tag's version payload
+// ("app-v" + semver), group 3 = the trailing path after the tag. The version
+// in the tag is checked against config.product.version (ITEM-4: a download
+// row must link the release the page advertises).
+const DOWNLOAD_RE = /^https:\/\/github\.com\/tinnlab\/txresbench-app\/releases\/(tag|download)\/app-v([0-9A-Za-z.+-]+)\/(.*)$/;
 const SHA256_RE = /^[0-9a-f]{64}$/;
 const LINK_HOST_RE = /^https:\/\/(github\.com|tinnlab\.github\.io)\//;
+// The release node's (PROV-IR-3) os/kind matrix; a row outside it is a wiring
+// error — a user must never be handed the wrong OS's installer.
+const OS_KINDS = { macos: ['dmg'], windows: ['nsis'], linux: ['deb', 'appimage'] };
 
 // Hosted public/ contract (PROV-landing-site-2/5/7): exactly these two files may
 // live in site/public; any other file would be published unvalidated.
@@ -138,11 +152,23 @@ function validateConfig(cfg, path) {
         }
         if (d.size_mb === undefined || d.size_mb === null || d.size_mb === '') error(`${p}downloads[${i}].size_mb`, 'missing or empty');
         else if (!Number.isFinite(Number(d.size_mb)) || Number(d.size_mb) < 0) error(`${p}downloads[${i}].size_mb`, 'must be a non-negative number');
-        if (isNonEmpty(d.url) && !DOWNLOAD_RE.test(d.url)) {
-          error(`${p}downloads[${i}].url`, `must be a tinnlab/txresbench-app release asset URL under app-v<semver> (${DOWNLOAD_RE})`);
+        if (isNonEmpty(d.url)) {
+          const m = DOWNLOAD_RE.exec(d.url);
+          if (!m) {
+            error(`${p}downloads[${i}].url`, `must be a tinnlab/txresbench-app release asset URL under app-v<semver> (${DOWNLOAD_RE})`);
+          } else if (m[2] !== cfg.product.version) {
+            error(`${p}downloads[${i}].url`, `release tag app-v${m[2]} does not match product.version ${JSON.stringify(cfg.product.version)} (the page must link the release it advertises)`);
+          }
         }
         if (isNonEmpty(d.sha256) && !SHA256_RE.test(d.sha256)) {
           error(`${p}downloads[${i}].sha256`, 'must be 64 lowercase hex characters');
+        }
+        if (d.os !== undefined && d.kind !== undefined) {
+          const allowed = OS_KINDS[d.os];
+          if (!allowed) error(`${p}downloads[${i}].os`, `unrecognised os ${JSON.stringify(d.os)} (known: ${Object.keys(OS_KINDS).join(', ')})`);
+          else if (!allowed.includes(d.kind)) {
+            error(`${p}downloads[${i}].kind`, `${JSON.stringify(d.kind)} is not a ${JSON.stringify(d.os)} artifact (${d.os}: ${allowed.join(', ')})`);
+          }
         }
       }
     });
@@ -169,6 +195,36 @@ function validateConfig(cfg, path) {
 function validateLink(url, field) {
   if (!LINK_HOST_RE.test(url)) {
     error(field, `must be an absolute https URL on github.com or tinnlab.github.io, got ${JSON.stringify(url)}`);
+  }
+}
+
+/**
+ * validateAppVersion — PROV-landing-site-4: `config.product.version` MUST equal
+ * `src-app/desktop/tauri/tauri.conf.json` `version`. The site advertises the
+ * app the user downloads; the Tauri manifest is the app's single version source
+ * of truth (CONS-landing-site-1), so a drift fails the build naming both
+ * values. The file is also part of the fail-closed set: a build that cannot
+ * read the app version cannot know what it is advertising.
+ */
+function validateAppVersion(tauriConfPath, cfg) {
+  if (cfg.product === null || typeof cfg.product !== 'object' || !isNonEmpty(cfg.product.version)) return;
+  if (!existsSync(tauriConfPath)) {
+    error('product.version', `cannot check for drift: ${relative(REPO_ROOT, tauriConfPath)} is missing (the site must advertise the app's version)`);
+    return;
+  }
+  let doc;
+  try {
+    doc = JSON.parse(readFileSync(tauriConfPath, 'utf8'));
+  } catch (e) {
+    error('product.version', `cannot check for drift: ${relative(REPO_ROOT, tauriConfPath)} is not valid JSON (${e.message})`);
+    return;
+  }
+  if (doc === null || typeof doc !== 'object' || typeof doc.version !== 'string' || doc.version.trim() === '') {
+    error('product.version', `cannot check for drift: ${relative(REPO_ROOT, tauriConfPath)} carries no version string`);
+    return;
+  }
+  if (cfg.product.version !== doc.version) {
+    error('product.version', `${JSON.stringify(cfg.product.version)} does not match ${relative(REPO_ROOT, tauriConfPath)} version ${JSON.stringify(doc.version)} (drift; the page must advertise the app's version)`);
   }
 }
 
@@ -466,11 +522,18 @@ function copyTreeVerbatim(srcDir, outDir) {
 }
 
 function parseArgs(argv) {
-  const args = { out: join(REPO_ROOT, 'site', 'dist'), config: join(REPO_ROOT, 'site', 'config.json'), printUrls: false, help: false };
+  const args = {
+    out: join(REPO_ROOT, 'site', 'dist'),
+    config: join(REPO_ROOT, 'site', 'config.json'),
+    tauriConf: join(REPO_ROOT, 'src-app', 'desktop', 'tauri', 'tauri.conf.json'),
+    printUrls: false,
+    help: false,
+  };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === '--out') args.out = argv[++i];
     else if (a === '--config') args.config = argv[++i];
+    else if (a === '--tauri-conf') args.tauriConf = argv[++i];
     else if (a === '--print-urls') args.printUrls = true;
     else if (a === '--help' || a === '-h') args.help = true;
     else {
@@ -485,7 +548,7 @@ function parseArgs(argv) {
 function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
-    console.log(`usage: node scripts/build-landing-site.mjs [--out site/dist] [--config site/config.json]
+    console.log(`usage: node scripts/build-landing-site.mjs [--out site/dist] [--config site/config.json] [--tauri-conf src-app/desktop/tauri/tauri.conf.json]
        node scripts/build-landing-site.mjs --print-urls`);
     process.exit(args.badArg ? 2 : 0);
   }
@@ -506,6 +569,7 @@ function main() {
     process.exit(1);
   }
   validateConfig(cfg, '');
+  validateAppVersion(args.tauriConf, cfg);
   if (ERRORS.length > 0) {
     for (const line of ERRORS) console.error(line);
     process.exit(1);
