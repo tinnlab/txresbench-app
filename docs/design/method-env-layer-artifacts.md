@@ -121,8 +121,33 @@ Per method (DEC-3, INV-1):
    an excluded top is not an error (methods routinely clean apt caches).
 5. The delta is trimmed (§4), the schema marker and
    `/layer-manifest.json` are emitted (§5), modes are normalized (§5), and the
-   result is packed with `mksquashfs -comp zstd -b 1M -all-root` (the shipped
-   `single-cell` recipe's own packer flags).
+   result is packed with the shipped `single-cell` recipe's own packer flags
+   (`mksquashfs -comp zstd -Xcompression-level 22 -b 1M -noappend -no-progress
+   -all-root` — the recipe's full line; the abbreviated form in the PLAN is a
+   summary, not a different recipe).
+
+### §3.1 The deletion rule, with the cover known
+
+The literal per-path reading of step 3's deletion refusal is refined once the
+**cover** (§5.1) is known, and the two must be read together:
+
+- a deletion **under a cover entry's subtree** is the method's *replacement*
+  of that subtree — the entry carries the method image's full subtree at that
+  path (§5.1), and a bind of the entry shadows the base's version wholesale
+  (§8), so the removal is exactly what the method image does. The canonical
+  case is a changed package: the method re-installed `pkg` at a new version
+  that dropped a file the base's version had, and the layer must NOT restore
+  it. Allowed.
+- a deletion **outside every cover entry's subtree**: if the method image
+  genuinely lacks a base path the layer does not overlay, the stacked run
+  would show the base's file where the method image has none — a silent
+  divergence the refuse rule exists to prevent. Refused, naming the topmost
+  paths.
+- a deletion under an excluded top: allowed (methods clean their own caches).
+
+The generator therefore computes the cover first (from added/changed) and only
+then decides which deletions refuse; the deletion check is never a separate
+pre-pass that would refuse a legitimate package replacement.
 
 The excluded tops (the exact list, in both directions — deleted from base:
 allowed, added/changed under them: dropped from the delta):
