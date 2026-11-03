@@ -453,31 +453,43 @@ fn error_row(row: u32, column: &str, msg: String) -> FileProblem {
 /// sits on the header row and asks whether row 1 is the header.
 pub fn check_no_recognizable_header(model: &CanonicalModel) -> Vec<FileProblem> {
     let mut out = Vec::new();
-    let mut shapes: Vec<(&str, &TableShape, FileTableKind)> = Vec::new();
     if let Some(s) = &model.patients_shape {
-        shapes.push(("patients", s, FileTableKind::Patients));
+        out.extend(check_no_recognizable_header_in(s, FileTableKind::Patients, "patients"));
     }
-    shapes.push(("measurements", &model.measurements_shape, FileTableKind::Measurements));
-    for (name, shape, kind) in shapes {
-        let resolved = shape
-            .columns
-            .iter()
-            .any(|c| resolve_column_role(c, kind).is_some());
-        if !resolved {
-            out.push(problem_row(
-                ProblemCode::A01NoRecognizableHeader,
-                ProblemSeverity::Error,
-                Some(shape.header_row),
-                None,
-                format!(
-                    "no recognizable header in the {name} table: none of the {} column(s) matches a known name; is row {} the header?",
-                    shape.columns.len(),
-                    shape.header_row
-                ),
-            ));
-        }
-    }
+    out.extend(check_no_recognizable_header_in(
+        &model.measurements_shape,
+        FileTableKind::Measurements,
+        "measurements",
+    ));
     out
+}
+
+/// The A01 check for ONE table shape — the per-file inspect half (ITEM-5: a
+/// dropped file is judged before the other file exists; the two-table
+/// [`check_no_recognizable_header`] delegates here and runs both shapes).
+pub fn check_no_recognizable_header_in(
+    shape: &TableShape,
+    kind: FileTableKind,
+    table_name: &str,
+) -> Vec<FileProblem> {
+    let resolved = shape
+        .columns
+        .iter()
+        .any(|c| resolve_column_role(c, kind).is_some());
+    if resolved {
+        return Vec::new();
+    }
+    vec![problem_row(
+        ProblemCode::A01NoRecognizableHeader,
+        ProblemSeverity::Error,
+        Some(shape.header_row),
+        None,
+        format!(
+            "no recognizable header in the {table_name} table: none of the {} column(s) matches a known name; is row {} the header?",
+            shape.columns.len(),
+            shape.header_row
+        ),
+    )]
 }
 
 /// R02 — required columns (the tidy `required_columns` kind). Every role in
@@ -485,26 +497,39 @@ pub fn check_no_recognizable_header(model: &CanonicalModel) -> Vec<FileProblem> 
 /// role, on the header row, naming the canonical column.
 pub fn check_required_columns(model: &CanonicalModel) -> Vec<FileProblem> {
     let mut out = Vec::new();
-    let mut shapes: Vec<(&str, &TableShape, FileTableKind)> = Vec::new();
     if let Some(s) = &model.patients_shape {
-        shapes.push(("patients", s, FileTableKind::Patients));
+        out.extend(check_required_columns_in(s, FileTableKind::Patients, "patients"));
     }
-    shapes.push(("measurements", &model.measurements_shape, FileTableKind::Measurements));
-    for (name, shape, kind) in shapes {
-        let resolved: BTreeSet<String> = shape
-            .columns
-            .iter()
-            .filter_map(|c| resolve_column_role(c, kind).map(|r| r.wire_key()))
-            .collect();
-        for role in required_roles(kind) {
-            let key = role.wire_key();
-            if !resolved.contains(&key) {
-                out.push(error_row(
-                    shape.header_row,
-                    &key,
-                    format!("required column `{key}` is missing from the {name} table"),
-                ));
-            }
+    out.extend(check_required_columns_in(
+        &model.measurements_shape,
+        FileTableKind::Measurements,
+        "measurements",
+    ));
+    out
+}
+
+/// The R02 check for ONE table shape — the per-file inspect half (ITEM-5: the
+/// required set is judged per dropped file; [`check_required_columns`]
+/// delegates here and runs both shapes).
+pub fn check_required_columns_in(
+    shape: &TableShape,
+    kind: FileTableKind,
+    table_name: &str,
+) -> Vec<FileProblem> {
+    let mut out = Vec::new();
+    let resolved: BTreeSet<String> = shape
+        .columns
+        .iter()
+        .filter_map(|c| resolve_column_role(c, kind).map(|r| r.wire_key()))
+        .collect();
+    for role in required_roles(kind) {
+        let key = role.wire_key();
+        if !resolved.contains(&key) {
+            out.push(error_row(
+                shape.header_row,
+                &key,
+                format!("required column `{key}` is missing from the {table_name} table"),
+            ));
         }
     }
     out
@@ -988,6 +1013,13 @@ fn strip_companion_suffix(marker: &str) -> &str {
     } else {
         marker
     }
+}
+
+/// The base marker of a companion spelling (`<F>__detected`/`<F>__lod` → the
+/// base with the suffix removed) — the ITEM-5 metadata rule (a column that has
+/// a detection companion in the file) reads the same suffix contract as R13.
+pub(crate) fn companion_base(marker: &str) -> &str {
+    strip_companion_suffix(marker)
 }
 
 /// R14 — outcome available (adapted severity): when outcome columns EXIST but

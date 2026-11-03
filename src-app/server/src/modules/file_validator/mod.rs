@@ -22,14 +22,19 @@
 //! failure, since `include_bytes!` refuses to compile without the file).
 
 pub mod assets;
+pub mod bundle;
+pub mod inspect;
 pub mod rules;
 pub mod types;
 pub mod units;
+pub mod validate;
 pub mod vocab;
 
 // The re-exported contract surface (PROV-FV-2/3/5): consumers bind the typed
 // names directly; `types` stays the full surface for the submodule layering.
 pub use assets::{AssetFacts, AssetsError, EmbeddedAssets, ASSETS};
+pub use bundle::canonical_bundle;
+pub use inspect::inspect;
 pub use rules::{
     check_allowed_values, check_column_types, check_companion_features, check_day_range,
     check_exclusive_minimum, check_foreign_keys, check_join_equality, check_no_recognizable_header,
@@ -54,6 +59,7 @@ pub use units::{
     unit_absent_problem, unit_mismatch_problem, unit_mixed_problem, unit_unclassified_problem,
     MarkerUnitFacts, UnitAgreement, UnitSpelling,
 };
+pub use validate::{patient_cohort, validate};
 pub use vocab::{
     marker_matches, marker_matches_in, marker_matches_set, marker_spelling_groups,
     normalize_marker_name, MarkerMatchSet, MarkerSpelling,
