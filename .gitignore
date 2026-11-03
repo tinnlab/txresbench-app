@@ -38,6 +38,10 @@ dist/
 .vite/
 **/.vite/
 
+# Landing page build output (scripts/build-landing-site.mjs writes site/dist,
+# the GitHub Pages publish root; regenerated at build time).
+site/dist/
+
 # OS
 .DS_Store
 

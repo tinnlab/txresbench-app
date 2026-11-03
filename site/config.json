@@ -1,0 +1,74 @@
+{
+  "schema": 1,
+  "product": {
+    "name": "TxResBench",
+    "version": "0.1.0"
+  },
+  "paper": null,
+  "stats": {
+    "methods": 357,
+    "datasets": 290,
+    "patients": 25092,
+    "prediction_kinds": 4
+  },
+  "methods": [
+    { "id": "asm-best-change-rule", "group": "response-call" },
+    { "id": "ctdna-clearance", "group": "response-call" },
+    { "id": "cox-cutpoint-risk", "group": "static-risk" },
+    { "id": "landmark-cox-current", "group": "dynamic-risk" },
+    { "id": "jmbayes-value-cumulative", "group": "dynamic-risk" },
+    { "id": "direct-on", "group": "response-probability" },
+    { "id": "fglm-pace-logit", "group": "response-probability" }
+  ],
+  "downloads": [
+    {
+      "os": "macos",
+      "label": "macOS",
+      "detail": "Apple silicon, macOS 14 or later",
+      "kind": "dmg",
+      "url": "https://github.com/tinnlab/txresbench-app/releases/download/app-v0.1.0/TxResBench_0.1.0_universal.dmg",
+      "size_mb": 0,
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "os": "windows",
+      "label": "Windows",
+      "detail": "Windows 10 or 11, 64-bit",
+      "kind": "nsis",
+      "url": "https://github.com/tinnlab/txresbench-app/releases/download/app-v0.1.0/TxResBench_0.1.0_x64-setup.exe",
+      "size_mb": 0,
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "os": "linux",
+      "label": "Linux",
+      "detail": "64-bit · AppImage, .deb",
+      "kind": "deb",
+      "url": "https://github.com/tinnlab/txresbench-app/releases/download/app-v0.1.0/txresbench-desktop_0.1.0_amd64.deb",
+      "size_mb": 0,
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "os": "linux",
+      "label": "Linux",
+      "detail": "64-bit · AppImage",
+      "kind": "appimage",
+      "url": "https://github.com/tinnlab/txresbench-app/releases/download/app-v0.1.0/txresbench-desktop_0.1.0_amd64.AppImage",
+      "size_mb": 0,
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ],
+  "system": {
+    "memory_gb": 8,
+    "disk_gb": 3
+  },
+  "links": {
+    "source": "https://github.com/tinnlab/txresbench-app",
+    "licence": "https://github.com/tinnlab/txresbench-app/blob/main/LICENSE",
+    "third_party": "https://github.com/tinnlab/txresbench-app/blob/main/THIRD-PARTY-NOTICES.md",
+    "issues": "https://github.com/tinnlab/txresbench-app/issues",
+    "releases": "https://github.com/tinnlab/txresbench-app/releases",
+    "benchmark": "https://tinnlab.github.io/txresbench-site/",
+    "notes": "https://github.com/tinnlab/txresbench-app/releases"
+  }
+}
