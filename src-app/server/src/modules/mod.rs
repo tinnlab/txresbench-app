@@ -18,6 +18,11 @@ pub mod extensions;
 // build.rs like every other module's.
 pub mod features;
 pub mod file;
+// TxResBench: the shared, stateless file layer — browser-decoded two-table
+// validation (tidy-2.0 semantics), marker joins/units, per-patient coverage,
+// the canonical bundle rows for the engine and embedded template/example
+// assets. DB-free, stateless, boot-validated embed (like method_catalogue).
+pub mod file_validator;
 pub mod health;
 pub mod mcp;
 // TxResBench: the app-owned method catalogue (embedded facts + eligibility /
