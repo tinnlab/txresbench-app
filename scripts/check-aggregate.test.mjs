@@ -961,7 +961,7 @@ const REACHABLE_FROM_CHECK = [
  * check                      c9bdcd8be56f9318ca84de8228e9f0b608e1794b404f687fe8892b4cdef36b6d  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
  * check-coercion             d571dea18bc7b32d4eb1ac6cb0955af4d8e4679a9faa32ef3b54299c00e9b644  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
  * check-domain               bbb462d17850d2f630f4b1e3f267e008b02d540d33c62d18370c6ca1f40c2ab4  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
- * check-guards               310717a171295e01606aaa790d90c742988e5aa5d3f047b61746658802ac4990  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
+ * check-guards               310717a171295e01606aaa790d90c742988e5aa5d3f047b61746658802ac4990  eaf2a71be9793f97a9642437d9de14d38f216475 8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
  * check-invariants           aaec696e5ff37f56457c59c3a3954911cd93d4a85cea490d922ac57218a430fc  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
  * check-packages             45e578d674049dae499fe67dd307d5719f0ff0f63f5bc50752d1640bf067af4f  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
  * check-processor-versions   d7d82a9fbe447e08f37859c898b36acc32d57cd3d300e7651c99d9b045282567  8020d711dbfb0631a4f77dc62fb3d634374e9f65 THIS-CHANGE
@@ -986,22 +986,19 @@ const REACHABLE_FROM_CHECK = [
  *
  * ── APP-REPO CHECK-GUARDS MOVE (ITEM-4, method-env-images) ───────────────────────────────
  * `check-guards` moved AGAIN in this repository: the pin above is
- * 310717a1..., not 4493b447... The move commit's citation stays the baseline
- * import commit (8020d71) and is marked THIS-CHANGE, because the ledger row can
- * only cite a commit that already exists — the working-tree pin cannot name the
- * ITEM-4 commit that has not happened yet, and this repo has no upstream history
- * to cite (the APP-REPO RE-ANCHOR note above). The ITEM-4-REPORT.md DONE line
- * records the move commit; a reviewer can also verify the body directly:
- * `git log --oneline -- justfile` and `git show <the ITEM-4 commit> -- justfile`.
- * The change itself: ITEM-4 ADDS `check-method-env-images-controls node --test
- * scripts/check-method-env-images.test.mjs` in front of
+ * 310717a1..., not 4493b447..., and the row cites both commits that moved its
+ * body — eaf2a71 (this repository's ITEM-4 move) and 8020d71 (the baseline
+ * import, which the APP-REPO RE-ANCHOR note above explains replaces the
+ * upstream shas). The change: ITEM-4 ADDS `check-method-env-images-controls
+ * node --test scripts/check-method-env-images.test.mjs` in front of
  * `check-method-env-images bash scripts/check-method-env-images.sh` (the
  * negative-control suite first, the committed env-manifest structural guard
- * second — the controls-in-front-of-guard order every other pair here uses) and
- * raises `--min-legs` 7 -> 9 with them. Nothing removed, no leg repointed, no
- * floor lowered; both legs point at files pinned in scripts/guard-hashes.txt
+ * second — the controls-in-front-of-guard order every other pair here uses)
+ * and raises `--min-legs` 7 -> 9 with them. Nothing removed, no leg repointed,
+ * no floor lowered; both legs point at files pinned in scripts/guard-hashes.txt
  * (34 pins), and AGGREGATE_FLOORS moves 7 -> 9 in this same diff, so the recipe
- * cannot be edited into agreement with itself. STRENGTHENING.
+ * cannot be edited into agreement with itself. STRENGTHENING. Establish it
+ * yourself: `git show eaf2a71 -- justfile` is one recipe.
  *
  * ── WHY THE TWO MOVED ROWS SAY WHAT THEY SAY (the part a reviewer judges) ────────────────
  *

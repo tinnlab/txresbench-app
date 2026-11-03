@@ -6,7 +6,7 @@
 #
 # <sha256>  <path>
 d51fbf676171ad317a28c512771c197c487e0ed1ab43a28988b21e8c90ca9b7e  scripts/check-aggregate.sh
-e5b5824e2df9803c26f7f122984653d5f75f9e7f17e4baa5077631a16ba22e05  scripts/check-aggregate.test.mjs
+f07a6f9ae249f9e45fb1b30898027b99a92a83aa19f7c4fc39c85d378f1f915b  scripts/check-aggregate.test.mjs
 1b4b861c379f1d5cb0e0106539cd634a6822dbf57df9687d5e2a6de7345e670d  scripts/check-derived-vocabulary.sh
 fab26245ff7dba86df1426952405aa4279e365dc0ab1c1537dceaee135eabb32  scripts/check-derived-vocabulary.test.mjs
 a66d5a3c74ef9803a5046fbcc7a3b8b3cc69f385d5390725c0d5e4487b885588  scripts/check-design-citations.mjs
