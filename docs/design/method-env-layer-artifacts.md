@@ -352,6 +352,31 @@ between the manifest and the artifact. ITEM-7's loopback test is the
 runtime-side witness of the same equality (pull by digest → hash/size
 match).
 
+### §6.2 The publisher's push shape — the staged bytes, verbatim (ITEM-5)
+
+`oras push --artifact-type ...` does NOT store these bytes. Its pack path
+(oras-go `pack.go`): sets `org.opencontainers.image.created` to the current
+wall-clock time whenever the caller did not supply it
+(`ensureAnnotationCreated`), serializes annotation maps with lexicographic
+key order (Go's `json.Marshal`), and lets the file store name the layer
+title. A digest pinned in the manifest would therefore change from push to
+push, and could never equal the construction above. ITEM-5's publisher
+instead pushes the staged bytes verbatim, so the recorded digest is the
+pushed digest BY CONSTRUCTION (oras-version independent):
+
+```
+oras blob push    <oci_ref> layer.squashfs
+oras blob push    <oci_ref> <staging>/publish/empty-config.json
+oras manifest push <oci_ref>:<tag> <staging>/layers/<env>-<arch>/oci-manifest.json
+```
+
+The blobs go first (registries refuse a manifest referencing absent blobs;
+the empty config is the OCI empty descriptor `{}` the construction
+references, sha256 `44136fa3...`), then `oras manifest push` tags the
+manifest file exactly as stored — no re-marshal, no clock, no key
+reordering. The `oras resolve == digest` verify closes the loop on the
+registry side. Recorded in .lifecycle PLAN note (r) and DRIFT-1 ITEM-5.
+
 ## §7 Base pairing — no silent substitution (INV-3, DEC-4)
 
 The layer is a delta over a **specific** benchmark base. The manifest records

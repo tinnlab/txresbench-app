@@ -29,15 +29,22 @@
 //            differing key after a manual edit / a bumped revision; the guard's
 //            parity leg (skip-with-reason, live run, --require-parity)
 //   TEST-5   the guard passes the committed manifest; the network-allowlist
-//            guard is unaffected (no allowlist edit; DEC-17)
+//            guard is unaffected (no allowlist edit; DEC-17) + the publisher's
+//            --dry-run names only the allowlisted host ghcr.io
 //   TEST-6   both files pinned in scripts/guard-hashes.txt; an unpinned
 //            guard-shaped file fails check 2 of check-guard-integrity.sh
+//   TEST-9   the publisher: cross-arch refusal (ALLOW_EMULATED_BUILD gate),
+//            credentials requirement (or --dry-run), overwrite refusal when
+//            the remote tag names different bytes, and the full stubbed
+//            sequence (login → blob/manifest push → resolve → sign) — each
+//            driven against a stub `oras`/`cosign` on PATH, never a network.
 //
 //   node --test scripts/check-method-env-images.test.mjs
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -47,6 +54,7 @@ const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(SCRIPTS_DIR, '..');
 const GUARD = path.join(SCRIPTS_DIR, 'check-method-env-images.sh');
 const GENERATOR = path.join(SCRIPTS_DIR, 'generate-method-env-images.py');
+const PUBLISHER = path.join(SCRIPTS_DIR, 'publish-method-env-images.sh');
 const COMMITTED_MANIFEST = path.join(REPO, 'src-app/server/data/method-env-images.json');
 
 const TMPROOT = process.env.TMPDIR || os.tmpdir();
@@ -128,7 +136,13 @@ const INDEX = {
 };
 
 /** methodsDir + stagingDir with two staged records; the manifest is written by
- *  the real generator's --fixture mode and returned as its path. */
+ *  the real generator's --fixture mode and returned as its path.
+ *
+ *  The staged layer.squashfs bytes are written FIRST and the record's
+ *  `layer_sha256`/`size_bytes` are then set to THEIR REAL hash/size — the
+ *  generator's --fixture mode trusts the record, but the publisher (ITEM-5)
+ *  re-hashes the staged file and refuses a mismatch, so the fixture byte
+ *  contract must be truthful for the publisher to be the thing under test. */
 function fixture() {
   const base = mkdtemp('mei-fixture-');
   const methodsDir = path.join(base, 'methods');
@@ -145,8 +159,18 @@ function fixture() {
   for (const [id, rec] of [['fixture-a', RECORD_A], ['fixture-b', RECORD_B]]) {
     const dir = path.join(staging, 'layers', `${id}-amd64`);
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'artifact.json'), JSON.stringify(rec, null, 2));
-    fs.writeFileSync(path.join(dir, 'layer.squashfs'), Buffer.alloc(4096, 1));
+    const squashfs = path.join(dir, 'layer.squashfs');
+    fs.writeFileSync(squashfs, Buffer.alloc(4096, 1));
+    const bytes = fs.readFileSync(squashfs);
+    const record = {
+      ...rec,
+      layer_sha256: createHash('sha256').update(bytes).digest('hex'),
+      size_bytes: bytes.length,
+    };
+    // The writer derives the manifest entry digest from the record, and the
+    // oci-manifest.json digest depends on layer_sha256 — recompute the record
+    // field the manifest digests but keep the file the publisher verifies.
+    fs.writeFileSync(path.join(dir, 'artifact.json'), JSON.stringify(record, null, 2));
   }
   const r = gen(['--fixture', staging, '--methods-dir', methodsDir, '--manifest', manifestPath]);
   assert.equal(r.status, 0, `fixture manifest did not assemble: ${r.stderr}`);
@@ -368,4 +392,181 @@ test('TEST-6c the integrity gate passes with both new guards pinned', () => {
   });
   assert.equal(r.status, 0, `${r.stdout}\n${r.stderr}`);
   assert.match(r.stdout, /PASS/);
+});
+
+// ── TEST-9: the publisher (ITEM-5) ────────────────────────────────────────────
+// The publisher is driven with a stub `oras`/`cosign` on PATH. The stubs are
+// REAL subprocesses that log their invocation to a file and answer `resolve`
+// with a digest supplied by the test — so the assertions are about what the
+// publisher actually executed, in order, never about text it printed. The
+// registry is never contacted: the artifact checks, the guard preflight and
+// the refusal paths are all local, and the stubbed success path witnesses the
+// exact push sequence without a network.
+function publisher(args = [], env = {}) {
+  return spawnSync('bash', [PUBLISHER, ...args], {
+    cwd: REPO,
+    encoding: 'utf8',
+    env: { ...process.env, ...env },
+  });
+}
+
+/** Write the stub tool dir. `resolveDigest` is what `oras resolve` answers;
+ *  returns { dir, bin, log, env } where env carries the PATH + the stub's log
+ *  path. The returned `dir` is the ONLY thing the caller may clean up. */
+function makeStubs(resolveDigest) {
+  const dir = mkdtemp('mei-pubstub-');
+  const log = path.join(dir, 'calls.log');
+  const bin = path.join(dir, 'bin');
+  fs.mkdirSync(bin);
+  fs.writeFileSync(path.join(bin, 'oras'), `#!/usr/bin/env sh
+echo "oras $*" >> "$ORAS_STUB_LOG"
+case "$1" in
+  login) cat >/dev/null ;;
+  resolve) echo "$ORAS_STUB_RESOLVE" ;;
+esac
+exit 0
+`);
+  fs.writeFileSync(path.join(bin, 'cosign'), `#!/usr/bin/env sh
+echo "cosign $*" >> "$ORAS_STUB_LOG"
+exit 0
+`);
+  fs.chmodSync(path.join(bin, 'oras'), 0o755);
+  fs.chmodSync(path.join(bin, 'cosign'), 0o755);
+  const env = {
+    ORAS_STUB_LOG: log,
+    ORAS_STUB_RESOLVE: resolveDigest,
+    PATH: `${bin}:${process.env.PATH}`,
+  };
+  return { dir, bin, log, env };
+}
+
+function calls(log) {
+  return fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean);
+}
+
+const CROSS_HOST = (() => {
+  const host = process.arch === 'arm64' ? 'amd64' : 'arm64';
+  return host;
+})();
+
+test('TEST-9a the publisher refuses a cross-arch publish without ALLOW_EMULATED_BUILD', () => {
+  const { staging, methodsDir, manifestPath } = fixture();
+  const r = publisher([
+    '--env', 'fixture-a', '--arch', CROSS_HOST,
+    '--manifest', manifestPath, '--staging-dir', staging, '--methods-dir', methodsDir,
+    '--dry-run',
+  ]);
+  assert.equal(r.status, 2, 'a cross-arch publish must be refused');
+  assert.match(r.stderr, /refusing to publish a/);
+  assert.match(r.stderr, new RegExp(CROSS_HOST));
+});
+
+test('TEST-9b ALLOW_EMULATED_BUILD=1 opens the gate (the refusal is the arch check, not the entry)', () => {
+  const { staging, methodsDir, manifestPath } = fixture();
+  const r = publisher([
+    '--env', 'fixture-a', '--arch', CROSS_HOST,
+    '--manifest', manifestPath, '--staging-dir', staging, '--methods-dir', methodsDir,
+    '--dry-run',
+  ], { ALLOW_EMULATED_BUILD: '1' });
+  // With the gate open the cross-arch refusal is gone; the (amd64-only) fixture
+  // manifest then rejects the arm64 entry — proving the gate, not the entry,
+  // was the earlier blocker.
+  assert.doesNotMatch(r.stderr, /refusing to publish a/);
+  assert.match(r.stderr, /no manifest entry for fixture-a-arm64/);
+  assert.equal(r.status, 2);
+});
+
+test('TEST-9c the publisher requires GHCR_TOKEN/GHCR_USER unless --dry-run', () => {
+  const { staging, methodsDir, manifestPath } = fixture();
+  const cleanEnv = { GHCR_TOKEN: '', GHCR_USER: '', ...process.env };
+  delete cleanEnv.GHCR_TOKEN;
+  delete cleanEnv.GHCR_USER;
+  const r = publisher([
+    '--env', 'fixture-a',
+    '--manifest', manifestPath, '--staging-dir', staging, '--methods-dir', methodsDir,
+  ], cleanEnv);
+  assert.equal(r.status, 2, 'missing credentials must refuse');
+  assert.match(r.stderr, /GHCR_TOKEN/);
+  assert.match(r.stderr, /GHCR_USER/);
+  const dry = publisher([
+    '--env', 'fixture-a', '--dry-run',
+    '--manifest', manifestPath, '--staging-dir', staging, '--methods-dir', methodsDir,
+  ], cleanEnv);
+  assert.equal(dry.status, 0, `--dry-run must not need credentials: ${dry.stderr}`);
+});
+
+test('TEST-5d the publisher dry-run names only the allowlisted host ghcr.io', () => {
+  const { staging, methodsDir, manifestPath } = fixture();
+  const r = publisher([
+    '--env', 'fixture-a', '--dry-run',
+    '--manifest', manifestPath, '--staging-dir', staging, '--methods-dir', methodsDir,
+  ]);
+  assert.equal(r.status, 0, `${r.stderr}\n${r.stdout}`);
+  const out = r.stdout + r.stderr;
+  assert.match(out, /ghcr\.io/);
+  assert.doesNotMatch(out, /http:\/\//, 'scheme-less refs only (DEC-17)');
+  // Everything that looks like a host (scheme-less registry refs) is ghcr.io —
+  // the allowlisted registry; the annotation source URL is inside the staged
+  // manifest bytes, not in the publish sequence the script prints.
+  const hosts = [...out.matchAll(/([a-z0-9.-]+\.[a-z]{2,})[:/]/g)].map((m) => m[1]);
+  for (const h of hosts) {
+    assert.equal(h, 'ghcr.io', `unexpected host in the publish sequence: ${h}`);
+  }
+});
+
+test('TEST-9d the publisher refuses to overwrite a tag holding different bytes', (t) => {
+  const { staging, methodsDir, manifestPath } = fixture();
+  const entry = JSON.parse(fs.readFileSync(manifestPath, 'utf8')).envs[0];
+  const other = 'sha256:' + '42'.repeat(32);
+  assert.notEqual(entry.digest, other);
+  const { dir: stubDir, log, env } = makeStubs(other);
+  t.after(() => fs.rmSync(stubDir, { recursive: true, force: true }));
+  const r = publisher([
+    '--env', 'fixture-a',
+    '--manifest', manifestPath, '--staging-dir', staging, '--methods-dir', methodsDir,
+  ], { ...env, GHCR_TOKEN: 'stub-token', GHCR_USER: 'stub-user' });
+  assert.equal(r.status, 1, 'a different remote digest must refuse the publish');
+  assert.match(r.stderr, /already exists at/);
+  assert.match(r.stderr, new RegExp(other));
+  assert.match(r.stderr, new RegExp(entry.digest.replace(/:/g, ':')));
+  const c = calls(log);
+  assert.ok(c.some((l) => l.startsWith('oras resolve')), 'the tag was resolved first');
+  assert.ok(!c.some((l) => /oras (blob|manifest) push/.test(l)),
+    'nothing was pushed when the tag held different bytes');
+});
+
+test('TEST-9e the full stubbed sequence publishes and verifies the digest', (t) => {
+  const { staging, methodsDir, manifestPath } = fixture();
+  const entry = JSON.parse(fs.readFileSync(manifestPath, 'utf8')).envs[0];
+  const { dir: stubDir, log, env } = makeStubs(entry.digest);
+  t.after(() => fs.rmSync(stubDir, { recursive: true, force: true }));
+  const r = publisher([
+    '--env', 'fixture-a',
+    '--manifest', manifestPath, '--staging-dir', staging, '--methods-dir', methodsDir,
+  ], { ...env, GHCR_TOKEN: 'stub-token', GHCR_USER: 'stub-user' });
+  assert.equal(r.status, 0, `${r.stderr}\n${r.stdout}`);
+  assert.match(r.stdout + r.stderr, new RegExp(`published.*${entry.digest}`));
+  const c = calls(log);
+  assert.deepEqual(c, [
+    `oras login ghcr.io -u stub-user --password-stdin`,
+    `oras resolve ghcr.io/tinnlab/txr-method-env-layers/fixture-a:${entry.tag}`,
+    `oras blob push ghcr.io/tinnlab/txr-method-env-layers/fixture-a layer.squashfs`,
+    `oras blob push ghcr.io/tinnlab/txr-method-env-layers/fixture-a ${path.join(staging, 'publish', 'empty-config.json')}`,
+    `oras manifest push ghcr.io/tinnlab/txr-method-env-layers/fixture-a:${entry.tag} ${path.join(staging, 'layers', 'fixture-a-amd64', 'oci-manifest.json')}`,
+    `oras resolve ghcr.io/tinnlab/txr-method-env-layers/fixture-a:${entry.tag}`,
+    `cosign sign --yes ghcr.io/tinnlab/txr-method-env-layers/fixture-a@${entry.digest}`,
+  ], `the publish sequence must be login → resolve → blob → blob → manifest → resolve → sign:\n${c.join('\n')}`);
+});
+
+test('TEST-9f the publisher verifies the staged bytes are the entry bytes', () => {
+  const { staging, methodsDir, manifestPath } = fixture();
+  // Tamper the staged layer bytes AFTER the manifest pins their hash.
+  const squashfs = path.join(staging, 'layers', 'fixture-a-amd64', 'layer.squashfs');
+  fs.writeFileSync(squashfs, Buffer.alloc(4096, 7));
+  const r = publisher([
+    '--env', 'fixture-a',
+    '--manifest', manifestPath, '--staging-dir', staging, '--methods-dir', methodsDir,
+  ]);
+  assert.equal(r.status, 1, 'a diverged layer file must refuse the publish');
+  assert.match(r.stderr, /sha256 .*!= manifest layer_sha256/);
 });
