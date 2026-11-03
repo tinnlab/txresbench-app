@@ -1,0 +1,509 @@
+/* TxResBench landing page — board M tokens.
+   Source Sans 3 / Source Serif 4 / Source Code Pro, latin subset, SIL OFL 1.1
+   (see assets/fonts/LICENSE-OFL-*.txt). */
+
+@font-face {
+  font-family: 'Source Sans 3';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./assets/fonts/source-sans-3-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Source Sans 3';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./assets/fonts/source-sans-3-latin-600-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Source Sans 3';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./assets/fonts/source-sans-3-latin-700-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Source Serif 4';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./assets/fonts/source-serif-4-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Source Serif 4';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./assets/fonts/source-serif-4-latin-600-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Source Code Pro';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./assets/fonts/source-code-pro-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Source Code Pro';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./assets/fonts/source-code-pro-latin-500-normal.woff2') format('woff2');
+}
+
+:root {
+  --paper: #fbfaf8;
+  --paper-2: #f7f6f3;
+  --band: #f1efe9;
+  --ink: #141414;
+  --ink-2: #2a2a2a;
+  --ink-3: #3a3a3a;
+  --muted: #5e5e5e;
+  --accent: #1d4e89;
+  --accent-deep: #143a68;
+  --border: #cfcdc7;
+  --border-strong: #b9b6ad;
+  --line: #e7e5e0;
+  --dot: #d9d6cd;
+  --notice-bg: #fdf8ea;
+  --notice-border: #ecd9a8;
+  --notice-ink: #5d4300;
+  --wrap: 1120px;
+  --serif: 'Source Serif 4', Georgia, serif;
+  --sans: 'Source Sans 3', system-ui, sans-serif;
+  --mono: 'Source Code Pro', monospace;
+}
+
+body {
+  margin: 0;
+}
+a {
+  color: var(--accent);
+}
+a:hover {
+  color: var(--accent-deep);
+}
+
+.page {
+  min-height: 820px;
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.wrap {
+  max-width: var(--wrap);
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0 32px;
+}
+
+/* Header */
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #ffffff;
+  border-bottom: 1px solid var(--border);
+}
+.header-inner {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 26px;
+}
+.brand {
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 21px;
+}
+.nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  font-size: 14.5px;
+  flex-grow: 1;
+}
+.nav-link {
+  color: var(--ink-3);
+  text-decoration: none;
+}
+.btn {
+  display: inline-block;
+}
+.nav-download {
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #ffffff;
+  font-weight: 700;
+  text-decoration: none;
+  font-size: 14.5px;
+}
+
+/* Hero */
+.content {
+  flex-grow: 1;
+}
+.hero {
+  background: var(--paper);
+  padding: 52px 0 56px;
+  scroll-margin-top: 60px;
+}
+.hero-inner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 44px;
+  align-items: center;
+}
+.hero-copy {
+  flex: 1 1 420px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.hero-title {
+  margin: 0;
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 48px;
+  line-height: 1.08;
+}
+.hero-lede {
+  margin: 0;
+  font-size: 19px;
+  line-height: 1.45;
+  color: var(--ink-2);
+  max-width: 30em;
+}
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+}
+.hero-primary {
+  display: inline-flex;
+  flex-direction: column;
+  padding: 13px 28px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 17px;
+  text-decoration: none;
+  line-height: 1.25;
+}
+.hero-primary .btn-sub {
+  font-weight: 400;
+  font-size: 12.5px;
+  opacity: 0.85;
+}
+.also-os {
+  font-size: 14.5px;
+}
+.hero-meta {
+  font-size: 13.5px;
+  color: var(--muted);
+}
+.hero-figure {
+  flex: 1 1 460px;
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+}
+
+/* Screenshot cards */
+.shot {
+  margin: 0;
+  max-width: 620px;
+  flex: 1 1 300px;
+  min-width: 0;
+}
+.shot-window {
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #ffffff;
+  box-shadow: 0 14px 36px rgba(20, 20, 20, 0.14);
+}
+.window-bar {
+  height: 22px;
+  background: var(--paper-2);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+}
+.bar-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 99px;
+  background: var(--dot);
+}
+.shot-window img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.caption {
+  margin-top: 10px;
+  font-size: 15px;
+}
+.caption-note {
+  display: block;
+  color: var(--ink-3);
+  font-size: 14px;
+}
+
+/* Paper band */
+.paper-band {
+  background: var(--band);
+  border-bottom: 1px solid var(--border);
+}
+.paper-band-inner {
+  padding-top: 11px;
+  padding-bottom: 11px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 18px;
+  font-size: 14px;
+}
+.paper-label {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.paper-text {
+  flex: 1 1 420px;
+  min-width: 0;
+}
+.paper-links {
+  white-space: nowrap;
+}
+.link-strong {
+  font-weight: 700;
+}
+
+/* Stats band */
+.stat-band {
+  background: var(--accent);
+  color: #ffffff;
+}
+.stat-band-inner {
+  padding-top: 20px;
+  padding-bottom: 20px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 56px;
+  justify-content: space-between;
+}
+.stat-value {
+  font-family: var(--serif);
+  font-size: 28px;
+}
+
+/* Sections */
+.band {
+  padding: 64px 0;
+  scroll-margin-top: 60px;
+}
+.band-paper {
+  background: var(--paper);
+}
+.band-white {
+  background: #ffffff;
+}
+.h2 {
+  margin: 0;
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 30px;
+  line-height: 1.2;
+}
+.band-lede {
+  margin: 6px 0 0;
+  color: var(--ink-3);
+  font-size: 17px;
+}
+.shots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 30px;
+  margin-top: 26px;
+}
+.features {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px 40px;
+  margin-top: 26px;
+}
+.feature {
+  flex: 1 1 250px;
+  min-width: 0;
+}
+.feature-icon {
+  margin-bottom: 8px;
+}
+.feature-title {
+  margin: 0 0 3px;
+  font-size: 18px;
+}
+.feature-note {
+  color: var(--ink-3);
+}
+
+/* Method chips */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 22px;
+}
+.chip {
+  display: inline-flex;
+  flex-direction: column;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #ffffff;
+}
+.chip-id {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.chip-group {
+  font-size: 12px;
+  color: var(--muted);
+}
+.chips-more {
+  align-self: center;
+  padding: 0 8px;
+}
+
+/* Download tiles */
+.tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 22px;
+}
+.tile {
+  flex: 1 1 250px;
+  min-width: 0;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #ffffff;
+  text-decoration: none;
+  color: var(--ink);
+}
+.tile-primary {
+  border: 2px solid var(--accent);
+}
+.tile-os {
+  font-weight: 700;
+  font-size: 18px;
+  color: var(--accent);
+}
+.tile-detail {
+  font-size: 14px;
+  color: var(--ink-3);
+}
+.tile-meta {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+.download-note {
+  margin-top: 14px;
+  font-size: 14px;
+  color: var(--ink-3);
+}
+
+/* Research notice */
+.research-notice {
+  background: var(--notice-bg);
+  border-top: 1px solid var(--notice-border);
+  border-bottom: 1px solid var(--notice-border);
+  color: var(--notice-ink);
+  font-size: 14.5px;
+  padding: 14px 32px;
+}
+
+/* Footer */
+.site-footer {
+  background: var(--paper-2);
+  border-top: 1px solid var(--border);
+  padding: 22px 0;
+  font-size: 13.5px;
+  color: var(--ink-3);
+}
+.footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* Narrow viewports (390px phones). The design's flex-wrap layouts do the
+   stacking themselves; this block keeps the wrap tidy: tighter gutters, a
+   header that grows instead of clipping its second row, and one download
+   tile per line. */
+@media (max-width: 640px) {
+  .wrap {
+    padding: 0 20px;
+  }
+  .header-inner {
+    height: auto;
+    min-height: 56px;
+    padding: 10px 0;
+    flex-wrap: wrap;
+  }
+  .brand {
+    flex: 1 1 auto;
+  }
+  .nav {
+    order: 3;
+    flex-basis: 100%;
+    gap: 2px 14px;
+  }
+  .hero {
+    padding: 36px 0 40px;
+  }
+  .hero-title {
+    font-size: 34px;
+  }
+  .hero-lede {
+    font-size: 17px;
+  }
+  .band {
+    padding: 44px 0;
+  }
+  .h2 {
+    font-size: 26px;
+  }
+  .stat-band-inner {
+    gap: 12px 28px;
+  }
+  .tiles {
+    gap: 12px;
+  }
+  .tile {
+    flex-basis: 100%;
+  }
+  .research-notice {
+    padding: 12px 20px;
+  }
+}

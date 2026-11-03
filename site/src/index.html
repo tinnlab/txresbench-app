@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TxResBench: landing page</title>
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="512x512" href="assets/favicon.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="page">
+<header class="site-header">
+  <div class="wrap header-inner">
+    <span class="brand">TxResBench</span>
+    <nav class="nav" aria-label="Site">
+      <a class="nav-link" href="#see">Screens</a>
+      <a class="nav-link" href="#what">What it does</a>
+      <a class="nav-link" href="#methods">Methods</a>
+      <a class="nav-link" href="#privacy">Privacy</a>
+      <!--::PAPER-NAV::-->
+      <a class="nav-link" href="{{links.benchmark}}">Benchmark</a>
+      <a class="nav-link" href="{{links.source}}">Source</a>
+    </nav>
+    <a class="btn nav-download" href="#download">Download</a>
+  </div>
+</header>
+<main class="content">
+<section id="top" class="hero">
+  <div class="wrap hero-inner">
+    <div class="hero-copy">
+      <h1 class="hero-title">Predict treatment response from blood markers</h1>
+      <p class="hero-lede">Run the methods of the TxResBench benchmark on your patients' serial measurements, and compare their predictions.</p>
+      <div class="hero-actions">
+        <!--::HERO-PRIMARY::-->
+        <!--::ALSO-OS::-->
+      </div>
+      <!--::CITE-LINE::-->
+    </div>
+    <div class="hero-figure">
+      <figure class="shot">
+        <div class="shot-window">
+          <div class="window-bar"><i class="bar-dot"></i><i class="bar-dot"></i><i class="bar-dot"></i></div>
+          <img src="assets/img/results.png" alt="Predictions of eleven methods for each of 38 patients">
+        </div>
+        <figcaption class="caption">
+          <b>Compare the methods patient by patient</b>
+          <span class="caption-note">One row per patient, one column per method.</span>
+        </figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+<!--::PAPER-BAND::-->
+<!--::STATS::-->
+<section id="see" class="band band-paper">
+  <div class="wrap">
+    <h2 class="h2">See it</h2>
+    <div class="shots">
+      <figure class="shot">
+        <div class="shot-window">
+          <div class="window-bar"><i class="bar-dot"></i><i class="bar-dot"></i><i class="bar-dot"></i></div>
+          <img src="assets/img/files.png" alt="Checking an uploaded file against the expected format">
+        </div>
+        <figcaption class="caption">
+          <b>Add your data</b>
+          <span class="caption-note">The file is checked against the expected format as you add it.</span>
+        </figcaption>
+      </figure>
+      <figure class="shot">
+        <div class="shot-window">
+          <div class="window-bar"><i class="bar-dot"></i><i class="bar-dot"></i><i class="bar-dot"></i></div>
+          <img src="assets/img/methods.png" alt="Choosing methods with the time each will take">
+        </div>
+        <figcaption class="caption">
+          <b>Pick the methods</b>
+          <span class="caption-note">See which can run on your markers, and how long each takes.</span>
+        </figcaption>
+      </figure>
+      <figure class="shot">
+        <div class="shot-window">
+          <div class="window-bar"><i class="bar-dot"></i><i class="bar-dot"></i><i class="bar-dot"></i></div>
+          <img src="assets/img/models.png" alt="Saving the trained models">
+        </div>
+        <figcaption class="caption">
+          <b>Save the models</b>
+          <span class="caption-note">Reuse them later on new patients.</span>
+        </figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+<section id="what" class="band band-white">
+  <div class="wrap">
+    <h2 class="h2">What you can do</h2>
+    <div class="features">
+      <div class="feature">
+        <div class="feature-icon">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#1d4e89" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"></path></svg>
+        </div>
+        <h3 class="feature-title">Use a pretrained model</h3>
+        <div class="feature-note">Add new patients, pick models, get predictions.</div>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#1d4e89" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect></svg>
+        </div>
+        <h3 class="feature-title">Learn from your data</h3>
+        <div class="feature-note">Train many methods on your patients and compare them.</div>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#1d4e89" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4z"></path></svg>
+        </div>
+        <h3 class="feature-title">Reuse saved models</h3>
+        <div class="feature-note">Predict new patients without the training data.</div>
+      </div>
+    </div>
+  </div>
+</section>
+<section id="methods" class="band band-paper">
+  <div class="wrap">
+    <h2 class="h2">Methods included</h2>
+    <p class="band-lede">Published methods, each run unchanged in its own environment.</p>
+    <div class="chips">
+      <!--::CHIPS::-->
+      <a class="chips-more" href="{{links.benchmark}}">All {{stats.methods}}, with references</a>
+    </div>
+  </div>
+</section>
+<section id="download" class="band band-white">
+  <div class="wrap">
+    <h2 class="h2">Download</h2>
+    <p class="band-lede">Version {{product.version}}</p>
+    <div class="tiles">
+      <!--::TILES::-->
+    </div>
+    <div class="download-note">Needs {{system.memory_gb}} GB memory and about {{system.disk_gb}} GB of disk. <a href="{{links.notes}}">Release notes</a> · <a href="{{links.releases}}">All releases</a></div>
+  </div>
+</section>
+<section id="privacy" class="band band-paper">
+  <div class="wrap">
+    <h2 class="h2">Privacy</h2>
+    <div class="features">
+      <div class="feature">
+        <div class="feature-icon">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#1d4e89" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"></path><path d="M9 12l2 2 4-4"></path></svg>
+        </div>
+        <h3 class="feature-title">No account, no tracking</h3>
+        <div class="feature-note">No sign-in and no usage reports.</div>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#1d4e89" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"></path><path d="M8.5 16.5a5 5 0 017 0M5 12.5a10 10 0 015-2.7M12 20h.01"></path></svg>
+        </div>
+        <h3 class="feature-title">Little network use</h3>
+        <div class="feature-note">Only to fetch methods and models, and check for updates.</div>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#1d4e89" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"></path></svg>
+        </div>
+        <h3 class="feature-title">Source available</h3>
+        <div class="feature-note">Read the code to see what it does.</div>
+      </div>
+    </div>
+  </div>
+</section>
+<div class="research-notice">For research. Predictions are not for deciding a patient's treatment.</div>
+</main>
+<footer class="site-footer">
+  <div class="wrap footer-inner">
+    <span>TxResBench · Tinn lab</span>
+    <span>PolyForm Noncommercial 1.0.0 · <a href="{{links.licence}}">Licence</a> · <a href="{{links.third_party}}">Third-party notices</a> · <a href="{{links.issues}}">Report a problem</a></span>
+  </div>
+</footer>
+</div>
+</body>
+</html>
