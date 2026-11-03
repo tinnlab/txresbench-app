@@ -38,7 +38,8 @@
 //!
 //! # Host requirements (operator + dev)
 //!
-//! The sandbox needs three host properties. On a bare-metal Linux host with the
+//! The sandbox needs three host properties — plus one tool for the txr env
+//! fetch (item 4). On a bare-metal Linux host with the
 //! packages installed they are all satisfied by default; inside a CONTAINER (dev
 //! or prod) two of them need deployment config — these are host/deployment facts,
 //! NOT things the server can fix at runtime.
@@ -66,6 +67,13 @@
 //!    host filesystem.
 //!
 //! For a local dev box, `scripts/dev-sandbox-bootstrap.sh` applies 2 + 3 idempotently.
+//! `scripts/txr-sandbox-preflight.sh` is the same checklist WITHOUT the fixes —
+//! the non-destructive check the installer and the operator run (DEC-16): the
+//! four host tools (bwrap, squashfuse, fusermount3, oras), `user_allow_other`
+//! and the fresh-`/proc` probe, each with its exact one-line remediation and a
+//! non-zero exit when something required is missing. Its tool resolution
+//! matches [`method_env::tool_bin`] (`<app_data>/bin` first, then `PATH`), so
+//! what it reports is what `GET /api/sandbox/envs`' `stack.tool_bins` reports.
 
 pub mod backend;
 pub mod cgroup;
@@ -99,13 +107,30 @@ use linkme::distributed_slice;
 
 use ziee_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
 
-use config::{init_state, set_init_status, SandboxAvailability, SandboxState};
+use config::{init_state, init_status, set_init_status, SandboxAvailability, SandboxState};
 
 /// Sync-emit seam for a settings change. No-op today: the app-side sync
 /// subscribe route + FE `initSync` land on live8's branch; at merge
 /// reconciliation this wires to `ctx.sync.publish(SandboxSettings, …)` (DEC-4).
 pub fn emit_settings_changed() {
     tracing::debug!("sandbox: settings changed (sync emit is a no-op until sync lands — DEC-4)");
+}
+
+/// The one-line boot summary of the stacked method mode (ITEM-6): the same
+/// facts `GET /api/sandbox/envs`' `stack` section reports, formatted like
+/// [`super::types::hardening_summary`] (`sandbox: <field> = { … }`).
+/// Pure so its shape is pinned by tests; the call sites read
+/// `init_status()` + `method_env::tool_bin("oras")`, exactly like the route.
+fn stack_boot_summary(
+    status: SandboxAvailability,
+    oras: Option<String>,
+    registry_base: &str,
+) -> String {
+    let supported = status == SandboxAvailability::Ready;
+    let oras = oras.unwrap_or_else(|| "missing".to_string());
+    format!(
+        "sandbox: stack = {{ supported: {supported}, oras: {oras}, registry_base: \"{registry_base}\" }}"
+    )
 }
 
 pub struct SandboxModule;
@@ -137,6 +162,14 @@ impl AppModule for SandboxModule {
                     "sandbox: bwrap not found on PATH — sandbox disabled (host_unsupported). \
                      Install bubblewrap + squashfuse to enable."
                 );
+                tracing::info!(
+                "{}",
+                stack_boot_summary(
+                    init_status(),
+                    method_env::tool_bin("oras").map(|p| p.display().to_string()),
+                    stack::TXR_BASE_REGISTRY_PREFIX,
+                )
+            );
                 return Ok(());
             }
         };
@@ -147,6 +180,14 @@ impl AppModule for SandboxModule {
         if let Err(e) = create_workspace_root(&workspace_root) {
             set_init_status(SandboxAvailability::WorkspaceInitFailed);
             tracing::warn!("sandbox: workspace root init failed ({e}) — sandbox disabled");
+            tracing::info!(
+                "{}",
+                stack_boot_summary(
+                    init_status(),
+                    method_env::tool_bin("oras").map(|p| p.display().to_string()),
+                    stack::TXR_BASE_REGISTRY_PREFIX,
+                )
+            );
             return Ok(());
         }
         // Output staging root `<data_root>/run-staging/`, same 0700 treatment
@@ -157,6 +198,14 @@ impl AppModule for SandboxModule {
         if let Err(e) = create_workspace_root(&staging_root) {
             set_init_status(SandboxAvailability::WorkspaceInitFailed);
             tracing::warn!("sandbox: output staging root init failed ({e}) — sandbox disabled");
+            tracing::info!(
+                "{}",
+                stack_boot_summary(
+                    init_status(),
+                    method_env::tool_bin("oras").map(|p| p.display().to_string()),
+                    stack::TXR_BASE_REGISTRY_PREFIX,
+                )
+            );
             return Ok(());
         }
 
@@ -166,6 +215,25 @@ impl AppModule for SandboxModule {
             host_caps: host,
         });
         set_init_status(SandboxAvailability::Ready);
+        // The stacked (base+layer) method-mode summary, at boot, in the same
+        // one-line style as the hardening summary (ITEM-6): the facts
+        // `GET /api/sandbox/envs`' `stack` section reports. `supported` is the
+        // same host-capability bit (`SandboxAvailability::Ready` — bwrap +
+        // squashfuse + userns/`/proc` are the shipped boot probes); `oras` is
+        // the ONLY stack-specific tool, and a missing one degrades (a staged/
+        // cached txr env runs without it — the `reason`/`tool_bins` pairing),
+        // never disables the stack; `registry_base` is the compiled
+        // release-time boundary (read-only, like `env_registry_base`).
+        // `scripts/txr-sandbox-preflight.sh` is the operator's checklist
+        // (DEC-16).
+        tracing::info!(
+            "{}",
+            stack_boot_summary(
+                init_status(),
+                method_env::tool_bin("oras").map(|p| p.display().to_string()),
+                stack::TXR_BASE_REGISTRY_PREFIX,
+            )
+        );
         // txr method-env manager: loads the persisted download-state ledger
         // (`<app_data>/txr-envs/`, DEC-10 — disk state, no DB row) so the env
         // status surface is correct from the first request after a restart.
@@ -200,3 +268,51 @@ static SANDBOX: ModuleEntry = ModuleEntry {
     description: "bwrap-isolated analysis execution.",
     constructor: || Box::new(SandboxModule),
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ITEM-6 boot summary: the Ready facts are reported exactly, including the
+    // resolved oras path and the compiled registry base.
+    #[test]
+    fn stack_boot_summary_reports_the_ready_facts() {
+        let s = stack_boot_summary(
+            SandboxAvailability::Ready,
+            Some("/usr/bin/oras".to_string()),
+            stack::TXR_BASE_REGISTRY_PREFIX,
+        );
+        assert_eq!(
+            s,
+            format!(
+                "sandbox: stack = {{ supported: true, oras: /usr/bin/oras, \
+                 registry_base: \"{}\" }}",
+                stack::TXR_BASE_REGISTRY_PREFIX
+            )
+        );
+    }
+
+    // A missing oras is reported as `missing`, NOT as `supported: false` — a
+    // staged/air-gapped or cached environment runs without the fetch tool
+    // (DRIFT-1 #35; the HTTP surface's `reason`/`tool_bins` carries the note).
+    #[test]
+    fn stack_boot_summary_keeps_support_with_a_missing_oras() {
+        let s = stack_boot_summary(SandboxAvailability::Ready, None, "reg");
+        assert!(s.contains("supported: true"), "{s}");
+        assert!(s.contains("oras: missing"), "{s}");
+    }
+
+    // Any non-Ready availability is `supported: false` — the stack rides the
+    // same probes as the shipped sandbox, so a disabled sandbox is a disabled
+    // stack (DEC-16's degrade works on the same bit).
+    #[test]
+    fn stack_boot_summary_reflects_a_disabled_host() {
+        let s = stack_boot_summary(
+            SandboxAvailability::HostUnsupported,
+            Some("/usr/bin/oras".to_string()),
+            "reg",
+        );
+        assert!(s.contains("supported: false"), "{s}");
+        assert!(s.contains("oras: /usr/bin/oras"), "{s}");
+    }
+}
