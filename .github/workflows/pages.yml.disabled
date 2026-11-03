@@ -1,0 +1,65 @@
+# Builds the TxResBench landing page + machine feeds into site/dist and
+# deploys them to GitHub Pages (PROV-landing-site-8).
+#
+# DISABLED BY FILENAME: GitHub ignores `*.yml.disabled`, so nothing runs until
+# the owner completes the enable runbook in site/README.md (owner decision
+# D07: "Enable the Actions workflow" at the owner's go). The enable step is a
+# rename (`git mv .github/workflows/pages.yml.disabled
+# .github/workflows/pages.yml`) plus the one-time repo Settings -- Pages --
+# Source "GitHub Actions" choice; nothing else in this file changes.
+#
+# WHAT IT PUBLISHES: `site/dist/` — the rendered landing page (HTML + CSS
+# only, no JavaScript, no analytics), the vendored fonts/imagery, and the two
+# machine feeds `updates/latest.json` (Tauri v2 updater static JSON) and
+# `pretrained-catalogue.json` (pretrained-model catalogue), both copied
+# byte-identical from the hosted files under `site/public/`. The build
+# validates every config value, the version drift against the Tauri manifest
+# and both feed wire shapes before the publish root is written, so an invalid
+# feed or a stale version fails the job — nothing half-valid is deployed.
+#
+# TRIGGERS (per PROV-landing-site-8): a tag `app-v*` (the release the
+# download buttons advertise) or `workflow_dispatch` (the owner's path for
+# publishing a new catalogue or feed between releases). There is deliberately
+# no `push: branches: [main]` trigger: the site's content changes go through
+# the owner's production steps, and a bare main push cannot produce a
+# validated release pairing.
+name: pages
+
+on:
+  push:
+    tags:
+      - 'app-v*'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the site
+        run: node scripts/build-landing-site.mjs
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
