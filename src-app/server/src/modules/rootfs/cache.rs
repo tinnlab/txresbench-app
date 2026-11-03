@@ -345,6 +345,25 @@ fn evict_digests(base: &Path, digests: &[String]) -> Vec<String> {
     removed
 }
 
+/// One-digest ON-DEMAND prune (PROV-SS-5's `DELETE
+/// /api/sandbox/envs/{env_id}?prune=true`, DEC-17): removes the cache entry
+/// for `digest` with the SAME rename-then-delete discipline as
+/// [`evict_digests`] — a busy (mounted) digest dir is never half-destroyed, it
+/// is left intact. Returns true when the entry went away. An invalid digest
+/// or an absent entry is a quiet no-op (`false`) — pruning a digest that is
+/// not cached is a successful no-op for the caller, not an error.
+///
+/// This is the txr DELETE route's CACHE half; the env-state half is
+/// `MethodEnvManager::cancel_and_forget`, and the GC policy / protected set of
+/// [`gc_unreferenced`] are deliberately untouched (this node prunes on demand
+/// only — never an automatic eviction of a catalogue-pinned digest).
+pub fn prune_digest(digest: &str) -> bool {
+    if !is_valid_digest(digest) {
+        return false;
+    }
+    !evict_digests(&base_dir(), &[digest.to_string()]).is_empty()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -774,6 +793,45 @@ mod tests {
         }
         // A second pass is a no-op — the bound is stable, not oscillating.
         assert!(gc_unreferenced(&referenced).is_empty(), "GC converges");
+
+        drop(_guard);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // PROV-SS-5 / DEC-17: the on-demand prune is a single-digest eviction —
+    // a planted entry goes away (the accepted `?prune=true` outcome), an
+    // invalid digest and an absent digest are quiet no-ops, and the prune
+    // never touches another digest's entry. Runs under a scoped data root so
+    // the real cache is never touched.
+    #[test]
+    fn prune_digest_removes_exactly_the_named_entry() {
+        let root = scratch();
+        let _guard = super::super::scoped_data_root(&root);
+        let base = base_dir();
+        std::fs::create_dir_all(&base).unwrap();
+
+        let victim = hex(3);
+        place(&base, &victim, b"sqfs-bytes");
+        let bystander = hex(4);
+        place(&base, &bystander, b"other-bytes");
+
+        // An invalid digest is a no-op (and never hits the filesystem with a
+        // traversal shape).
+        assert!(!prune_digest("../../etc/passwd"));
+        assert!(!prune_digest("short"));
+        // An absent-but-valid digest is a successful no-op.
+        assert!(!prune_digest(&hex(9)));
+
+        assert!(prune_digest(&victim), "the planted entry is pruned");
+        assert!(!has_digest(&victim), "the pruned digest is no longer servable");
+        assert!(
+            has_digest(&bystander),
+            "the bystander digest is untouched (a single-digest prune)"
+        );
+        assert!(
+            !base.join(&victim).exists(),
+            "the digest dir is gone, not just the squashfs file"
+        );
 
         drop(_guard);
         let _ = std::fs::remove_dir_all(&root);

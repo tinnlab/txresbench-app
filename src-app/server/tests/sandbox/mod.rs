@@ -32,6 +32,11 @@ mod kubernetes_backend_test;
 // finalize outputs back. Not saas-gated (the executor core is location-agnostic); the real-run
 // legs self-skip when no rootfs is usable.
 mod jobrun_inpod_test;
+// ITEM-7 — the sandbox-stacked integration suite (real loopback OCI registry +
+// real stacked bwrap runs + the four-route matrix + the preflight runbook; the
+// real-run legs self-skip via record_skip when the host cannot execute, like
+// the other rootfs-gated suites here).
+mod method_stack_test;
 // #189 (E1) — per-job env selection end to end: the wire-stability measurement, the
 // INV-1 no-declared-env regression baseline, and the unpublished-env refusal.
 mod per_job_env_test;
