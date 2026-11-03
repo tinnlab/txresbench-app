@@ -24,6 +24,8 @@
 pub mod assets;
 pub mod rules;
 pub mod types;
+pub mod units;
+pub mod vocab;
 
 // The re-exported contract surface (PROV-FV-2/3/5): consumers bind the typed
 // names directly; `types` stays the full surface for the submodule layering.
@@ -47,6 +49,15 @@ pub use types::{
     UnitStatus, ValidationError, ValidationMode, ValidationRequest, ValidationResponse,
 };
 pub use types::{InventoryEligibilityRequest, UnitFamily};
+pub use units::{
+    compare_unit_to_canonical, infer_unit_family, marker_unit_facts, normalize_unit,
+    unit_absent_problem, unit_mismatch_problem, unit_mixed_problem, unit_unclassified_problem,
+    MarkerUnitFacts, UnitAgreement, UnitSpelling,
+};
+pub use vocab::{
+    marker_matches, marker_matches_in, marker_matches_set, marker_spelling_groups,
+    normalize_marker_name, MarkerMatchSet, MarkerSpelling,
+};
 
 use aide::axum::ApiRouter;
 use linkme::distributed_slice;
