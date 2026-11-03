@@ -600,8 +600,10 @@ check-invariants:
 check-guards:
     #!/usr/bin/env bash
     set -uo pipefail
-    "{{justfile_directory()}}/scripts/check-aggregate.sh" --label 'just check-guards' --min-legs 7 --controls-leg check-guard-integrity <<'LEGS'
+    "{{justfile_directory()}}/scripts/check-aggregate.sh" --label 'just check-guards' --min-legs 9 --controls-leg check-guard-integrity <<'LEGS'
     check-guard-integrity "{{justfile_directory()}}/scripts/check-guard-integrity.sh"
+    check-method-env-images-controls node --test "{{justfile_directory()}}/scripts/check-method-env-images.test.mjs"
+    check-method-env-images bash "{{justfile_directory()}}/scripts/check-method-env-images.sh"
     check-recipe-pins-controls node --test "{{justfile_directory()}}/scripts/check-recipe-pins.test.mjs"
     check-recipe-pins node "{{justfile_directory()}}/scripts/check-recipe-pins.mjs"
     check-derived-vocabulary-controls node --test "{{justfile_directory()}}/scripts/check-derived-vocabulary.test.mjs"
