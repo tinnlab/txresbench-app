@@ -1,6 +1,7 @@
 /**
  * TEST-INT-1 — txrintake module shape + the txrshell `/` handoff
- * (PROV-UI-INTAKE-1; INV-5, INV-6; ITEM-1).
+ * (PROV-UI-INTAKE-1; INV-5, INV-6; ITEM-1), plus the ITEM-2 part of the
+ * same row per the TESTS coverage map (ITEM-2 types + barrel, PROV-UI-INTAKE-2).
  *
  * The module is a framework module: auto-discovered by the loader glob in
  * `modules/loader.ts` (import.meta.glob over module.tsx files in the modules
@@ -10,6 +11,9 @@
  * to the module that owns the analysis flow; `/models`, `/history` and `/help`
  * stay. The no-new-dependency + no-status-words + no-design-example-number
  * checks below run over the item's own delta, as TEST-INT-1 pins them.
+ * ITEM-2's additions pin the barrel entry and the state-contract surface
+ * (the types are compile-time; the snapshot below is the representative
+ * instance the store will own).
  */
 import { execFileSync } from 'node:child_process'
 import { readdirSync, readFileSync } from 'node:fs'
@@ -19,6 +23,11 @@ import { describe, expect, it } from 'vitest'
 import type { AppModule } from '@ziee/framework/module-system/types'
 import txrIntakeModule, { ROUTE_CONVENTIONS } from './module'
 import txrShellModule, { TxrLayoutDef } from '../txrshell/module'
+import type {
+  IntakeSnapshot,
+  JoinOffer,
+  LoadedFile,
+} from './index'
 
 type RouteEntry = { path?: string; requiresAuth?: boolean; layout?: unknown }
 
@@ -160,5 +169,59 @@ describe('txrintake module', () => {
     for (const phrase of designExampleBareCounts) {
       expect(own).not.toContain(phrase)
     }
+  })
+})
+
+describe('ITEM-2 — the state-contract barrel (PROV-UI-INTAKE-2)', () => {
+  it('re-exports the intake state types from the module barrel', () => {
+    const barrel = readFileSync(fileURLToPath(new URL('./index.ts', import.meta.url)), 'utf8')
+    expect(barrel).toContain("export * from './types'")
+  })
+
+  it('declares the representative snapshot the store will own', () => {
+    const measurements: LoadedFile = {
+      source: { name: 'measurements.csv', format: 'csv' },
+      table: {
+        source: { name: 'measurements.csv', format: 'csv' },
+        header_row: 1,
+        columns: ['patient_id', 'day', 'marker', 'value', 'unit'],
+        rows: [
+          ['P0001', '0', 'ldh', '210', 'U/L'],
+          ['P0001', '14', 'LDH', '260', 'U/L'],
+        ],
+      },
+      inspection: null,
+      problems: [],
+      prepared: false,
+      joinOffers: [],
+      vocabOffers: [],
+    }
+    const joins: JoinOffer[] = [{ variants: ['ldh', 'LDH'], key: 'LDH' }]
+    const mapping = [{ key: 'LDH', marker_id: 'ldh' }]
+    const snapshot: IntakeSnapshot = {
+      intent: 'train',
+      mode: 'study',
+      study: {
+        disease: 'colorectal',
+        treatment: null,
+        outcome: 'progression-by-day',
+        markerGroups: { ctdna: true, counts: true, ldh: true },
+        beforeTreatment: 'always',
+        drawsDuringTreatment: 2,
+        lastDrawDay: 56,
+      },
+      patients: null,
+      measurements,
+      predictMeasurements: null,
+      joins,
+      mapping,
+      parameters: { decision_day: 56, baseline_max_day: 0 },
+      validation: null,
+    }
+    expect(snapshot.mode).toBe('study')
+    expect(snapshot.parameters).toEqual({ decision_day: 56, baseline_max_day: 0 })
+    expect(snapshot.measurements?.table.rows).toHaveLength(2)
+    expect(snapshot.joins[0].variants).toEqual(['ldh', 'LDH'])
+    expect(snapshot.validation).toBeNull()
   })
 })
