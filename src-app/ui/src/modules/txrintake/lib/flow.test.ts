@@ -372,6 +372,20 @@ describe('lib/flow.ts (TEST-INT-3, ITEM-6)', () => {
     expect(n.line).toBe(c.line.replace('. Ready.', '. Next you choose the models that can run on it.'))
   })
 
+  it('the status boxes render the board grouping for counts over 999 (ITEM-8)', () => {
+    // The board's own "Found 1,102 rows" (PredictFiles.dc.html) — the
+    // row-label builders (lib/format.ts) group with the board's fixed
+    // bytes; counts under 1000 are unchanged (the ITEM-6 pins above).
+    const big = responseOf({ measurements: { rows: 1102, patients: 38, distinct_draw_days: [0, 14, 28, 56] } })
+    expect(measurementsStatus(big).line).toBe(
+      'Found 1,102 rows: markers ldh and cea; draws at day 0, 14, 28 and 56. Ready.',
+    )
+    const bigPatients = responseOf()
+    bigPatients.patients = { rows: 1234, with_primary_outcome: 62, median_followup_days: 231 }
+    expect(patientsStatus(bigPatients).heading).toBe('✓ 1,234 patients read')
+    expect(predictMeasurementsStatus(big).heading).toBe('✓ 38 patients read')
+  })
+
   it('predictMeasurementsStatus clips long marker lists like the C box', () => {
     const many = responseOf()
     many.markers = [

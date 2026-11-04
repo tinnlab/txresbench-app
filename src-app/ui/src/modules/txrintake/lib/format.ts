@@ -3,13 +3,17 @@
  * created at ITEM-5 with the Screen-B surface the panel needs: the option
  * labels of the six question groups, the panel count copy, the short
  * marker-group names for the descriptive sentence, and the fallback reason
- * line (CONS-UI-INTAKE-9's fallback). ITEM-8 completes this file with the
- * download helper and its own copy rows (TEST-INT-13's full set).
+ * line (CONS-UI-INTAKE-9's fallback). ITEM-8 completes the file with the
+ * row-label builders (`pluralize` / `rowLabel`) and the remaining
+ * TEST-INT-13 rows — the "151 patients" / "1,102 rows" count phrasing the
+ * C/N status boxes render (the download helper lives in `lib/download.ts`,
+ * its ITEM-6 home).
  *
- * Copy rule DEC-13: every label is the board's own text (Criteria.dc.html)
- * VERBATIM, and every NUMBER the boards show is a design example — never
- * data. The heading/label builders below format whatever the caller passes;
- * no count is hardcoded anywhere in this module.
+ * Copy rule DEC-13: every label is the board's own text (Criteria.dc.html,
+ * Files.dc.html, PredictFiles.dc.html) VERBATIM, and every NUMBER the
+ * boards show is a design example — never data. The heading/label builders
+ * below format whatever the caller passes; no count is hardcoded anywhere
+ * in this module.
  *
  * The marker-group SHORT names: the board's panel sentence uses the short
  * forms ("with ctDNA, counts and LDH") while the checkbox labels are the
@@ -156,3 +160,31 @@ export const PREVIEW_REASON_FALLBACK = "doesn't fit with these answers"
 
 /** The B panel's MAXIMUM directly-visible excluded rows (the board's 250px clip ≈ 6 rows). */
 export const EXCLUDED_LIST_LIMIT = 6
+
+/**
+ * The board's thousands grouping — "1,102 rows" (PredictFiles.dc.html).
+ * The grouping is fixed to the board's `1,102` bytes, never the host's
+ * locale: a box in a comma-decimal locale must render the same string.
+ */
+export function groupNumber(n: number): string {
+  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+}
+
+/**
+ * A count phrase — "151 patients", "1 patient" (`pluralize(151,
+ * 'patient')`). The singular is the `count === 1` case; every other count
+ * takes the `s` form (the C/N boxes' counts are file facts — "patients
+ * read", "rows" — never design examples).
+ */
+export function pluralize(count: number, noun: string): string {
+  return `${groupNumber(count)} ${count === 1 ? noun : `${noun}s`}`
+}
+
+/**
+ * The row-count phrasing of the C/N status boxes — `rowLabel(1102)` →
+ * "1,102 rows" (PredictFiles.dc.html's "Found 1,102 rows"), `rowLabel(1)`
+ * → "1 row".
+ */
+export function rowLabel(rows: number): string {
+  return pluralize(rows, 'row')
+}

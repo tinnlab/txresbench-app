@@ -2,11 +2,13 @@
 /**
  * TEST-INT-8's download rows (the ITEM-6 part — `lib/download.ts` ships
  * here because the C/N cards' download links are ITEM-6's content; the
- * module's fixture rows of the same row stay with ITEM-8/11):
+ * module's fixture rows of the same test stay with ITEM-8/11):
  * `downloadText` saves a `text/csv` Blob under the right filename and
  * revokes the object URL (the ProvenanceExport precedent); the filename
  * convention is `<kind>_template.csv` / `<kind>_example.csv`; the
  * fetch helper goes through the generated client with the byte guard.
+ * ITEM-8 completes the row with the full kind × source routing (every
+ * pair reaches its own endpoint with its own filename).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { downloadText, fetchTemplateCsv, templateFilename } from './download'
@@ -96,5 +98,24 @@ describe('lib/download.ts (TEST-INT-8 rows, ITEM-6)', () => {
     await expect(fetchTemplateCsv('patients', 'template')).rejects.toThrow(
       'the patients template came back empty',
     )
+  })
+
+  it('routes every kind × source pair to its own endpoint with its own filename (ITEM-8)', async () => {
+    api.template.mockResolvedValue('patient_id\n')
+    api.example.mockResolvedValue('patient_id,day,marker,value\n')
+
+    await fetchTemplateCsv('patients', 'template')
+    expect(api.template).toHaveBeenCalledWith({ kind: 'patients' })
+    await fetchTemplateCsv('measurements', 'template')
+    expect(api.template).toHaveBeenCalledWith({ kind: 'measurements' })
+    await fetchTemplateCsv('patients', 'example')
+    expect(api.example).toHaveBeenCalledWith({ kind: 'patients' })
+    await fetchTemplateCsv('measurements', 'example')
+    expect(api.example).toHaveBeenCalledWith({ kind: 'measurements' })
+
+    expect(templateFilename('patients', 'template')).toBe('patients_template.csv')
+    expect(templateFilename('measurements', 'template')).toBe('measurements_template.csv')
+    expect(templateFilename('patients', 'example')).toBe('patients_example.csv')
+    expect(templateFilename('measurements', 'example')).toBe('measurements_example.csv')
   })
 })

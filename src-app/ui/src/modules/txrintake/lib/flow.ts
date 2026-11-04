@@ -32,11 +32,13 @@
  *   claimed by (a)/(b).
  * - `patientsStatus` / `measurementsStatus` — the green card box lines,
  *   data-filled from the validate response (board strings; the numbers are
- *   the provider's, never design examples). `measurementsStatus` is the C
- *   screen's box (the board-N line with the C "Ready." terminator, per
- *   ITEM-6); `predictMeasurementsStatus` is the N screen's OWN box — the
- *   same line with the board-N continuation ("Next you choose the models
- *   that can run on it.", ITEM-7).
+ *   the provider's, never design examples). The counts use `lib/format.ts`'s
+ *   row-label builders (`pluralize` / `rowLabel`) so the board's own
+ *   "1,102 rows" grouping renders (ITEM-8's wiring); `measurementsStatus`
+ *   is the C screen's box (the board-N line with the C "Ready." terminator,
+ *   per ITEM-6); `predictMeasurementsStatus` is the N screen's OWN box —
+ *   the same line with the board-N continuation ("Next you choose the
+ *   models that can run on it.", ITEM-7).
  */
 
 import type {
@@ -53,6 +55,7 @@ import type {
 } from '@/api-client/types'
 import type { ParsedTable } from '@/lib/txr-files/types'
 import type { IntakeSnapshot, JoinOffer, VocabOffer } from '../types'
+import { pluralize, rowLabel } from './format'
 
 /**
  * The provider's wire spelling for the C screen. The generated
@@ -274,19 +277,19 @@ export interface CardStatus {
   line: string
 }
 
-/** "✓ N patients read | Found 151 rows, 62 progressions or deaths, median follow-up 231 days. Ready." */
+/** "✓ N patients read | Found N rows, N progressions or deaths, median follow-up N days. Ready." */
 export function patientsStatus(response: ValidationResponse): CardStatus {
   const patients = response.patients
   if (patients === undefined) {
     return { heading: '✓ patients read', line: 'Ready.' }
   }
-  const detail: string[] = [`Found ${patients.rows} rows`]
+  const detail: string[] = [`Found ${rowLabel(patients.rows)}`]
   detail.push(`${patients.with_primary_outcome} progressions or deaths`)
   if (patients.median_followup_days !== undefined) {
     detail.push(`median follow-up ${patients.median_followup_days} days`)
   }
   return {
-    heading: `✓ ${patients.rows} patients read`,
+    heading: `✓ ${pluralize(patients.rows, 'patient')} read`,
     line: `${detail.join(', ')}. Ready.`,
   }
 }
@@ -311,7 +314,7 @@ const STATUS_MARKER_CLIP = 6
 export function measurementsStatus(response: ValidationResponse): CardStatus {
   const measurements = response.measurements
   return {
-    heading: `✓ ${measurements.patients} patients read`,
+    heading: `✓ ${pluralize(measurements.patients, 'patient')} read`,
     line: `${measurementsDetail(response)}. Ready.`,
   }
 }
@@ -329,7 +332,7 @@ export function measurementsStatus(response: ValidationResponse): CardStatus {
 export function predictMeasurementsStatus(response: ValidationResponse): CardStatus {
   const measurements = response.measurements
   return {
-    heading: `✓ ${measurements.patients} patients read`,
+    heading: `✓ ${pluralize(measurements.patients, 'patient')} read`,
     line: `${measurementsDetail(response)}. Next you choose the models that can run on it.`,
   }
 }
@@ -344,7 +347,7 @@ function measurementsDetail(response: ValidationResponse): string {
   const markers = response.markers.map(column => column.key)
   const shown = markers.slice(0, STATUS_MARKER_CLIP)
   const clipped = markers.length > STATUS_MARKER_CLIP ? '…' : ''
-  let line = `Found ${measurements.rows} rows`
+  let line = `Found ${rowLabel(measurements.rows)}`
   if (shown.length > 0) line += `: markers ${joinNames(shown)}${clipped}`
   if (measurements.distinct_draw_days.length > 0) {
     line += `; draws at day ${joinNames(measurements.distinct_draw_days.map(String))}`

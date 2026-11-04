@@ -5,8 +5,10 @@
  * outcome pills, Before treatment, Draws during treatment, Last draw); the
  * "N of M methods fit" / "N methods are left out" copy is parameter-free
  * (no hardcoded counts — FLOW.md's design-example rule); the B-panel
- * fallback reason line is the module's own constant. The remaining rows of
- * TEST-INT-13 (pluralize/rowLabel, the download helper) ship with ITEM-8.
+ * fallback reason line is the module's own constant. The remaining
+ * row-label rows of TEST-INT-13 (pluralize/rowLabel + the board's
+ * fixed-locale grouping) ship with ITEM-8; the download rows' file is
+ * `lib/download.test.ts` (created at ITEM-6).
  */
 import { describe, expect, it } from 'vitest'
 import {
@@ -18,7 +20,10 @@ import {
   PREVIEW_REASON_FALLBACK,
   TREATMENT_OPTIONS,
   fitHeading,
+  groupNumber,
   leftOutHeading,
+  pluralize,
+  rowLabel,
   someFitLine,
 } from './format'
 
@@ -90,5 +95,25 @@ describe('panel copy (TEST-INT-13)', () => {
 
   it('the fallback reason line is the module constant', () => {
     expect(PREVIEW_REASON_FALLBACK).toBe("doesn't fit with these answers")
+  })
+})
+
+describe('row labels (TEST-INT-13, ITEM-8)', () => {
+  it('pluralize renders the count with its word and the board grouping', () => {
+    expect(pluralize(151, 'patient')).toBe('151 patients')
+    expect(pluralize(1, 'patient')).toBe('1 patient')
+    expect(pluralize(1102, 'patient')).toBe('1,102 patients')
+  })
+
+  it('rowLabel renders the row-count phrase (the board "Found 1,102 rows")', () => {
+    expect(rowLabel(1102)).toBe('1,102 rows')
+    expect(rowLabel(151)).toBe('151 rows')
+    expect(rowLabel(1)).toBe('1 row')
+  })
+
+  it('the grouping is the board fixed-locale bytes, never the host locale', () => {
+    expect(groupNumber(1102)).toBe('1,102')
+    expect(groupNumber(999)).toBe('999')
+    expect(groupNumber(1234567)).toBe('1,234,567')
   })
 })
