@@ -77,12 +77,19 @@ nothing.
   provider's reason codes verbatim) — and the module's ONE CSV codec
   (`parse_csv`/`parse_number`, the package's `table.cpp` port, used to write
   the bundle files and to read the methods' outputs); `predictions.rs` — the
-  method-output ingest (ITEM-5): parse + validate `/output/predictions.csv`
-  and `/output/run.json` against the contract 2.0 `method_output` rules, the
-  per-method chance-column selection (`p_<outcome>_H<h>` for the survival
-  outcomes, `p_<outcome>` for the response ones), the per-patient abstention
-  notes and coverage, and the `PREDICTION_INVALID` failure typing (pure
-  functions; the port of `method.cpp::validate_method_output`);
+  method-output ingest and the U2 recalibration band: parse + validate
+  `/output/predictions.csv` and `/output/run.json` against the contract 2.0
+  `method_output` rules, the per-method chance-column selection
+  (`p_<outcome>_H<h>` for the survival outcomes, `p_<outcome>` for the
+  response ones), the per-patient abstention notes and coverage, the
+  `PREDICTION_INVALID` failure typing (pure functions; the port of
+  `method.cpp::validate_method_output`), and the risk→probability conversion
+  for the methods that write no native probability (the port of
+  `conversion.cpp`): a weighted logistic regression on the standardised
+  training score — the weighted event rate when the scores do not vary or do
+  not rise with the event — with IPCW weights at the survival horizon, an
+  inner 3-fold cross-fit for the methods that learn from outcomes, and the
+  `RECALIBRATION_FAILED` typing when no usable (risk, label) pair exists;
   `migrations/2026102600{01..04}_*.sql` —
   the four module-owned tables the consumers bind (`txr_runs`,
   `txr_run_methods`, `txr_run_logs`, `txr_app_config`).

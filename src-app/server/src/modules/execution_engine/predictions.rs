@@ -1,7 +1,10 @@
-//! The method output — `predictions.rs` (PLAN ITEM-5, re-pinned by DRIFT-2
-//! to package contract 2.0): parse + validate `/output/predictions.csv` and
-//! `/output/run.json`, and resolve the per-method "chance" column, the
-//! per-patient abstention notes and the coverage.
+//! The method output — `predictions.rs` (PLAN ITEM-5 + ITEM-6, re-pinned by
+//! DRIFT-2 to package contract 2.0): parse + validate `/output/predictions.csv`
+//! and `/output/run.json`, resolve the per-method "chance" column, the
+//! per-patient abstention notes and the coverage (ITEM-5), and run the U2
+//! recalibration engine (ITEM-6): the risk→probability conversion the package
+//! fits on the training scores of a method that declares no native
+//! probability.
 //!
 //! The rules are a port of the package's `core/src/method.cpp`
 //! (`validate_method_output`, `own_risk`, `own_probability`, `declares`,
@@ -40,6 +43,25 @@
 //! - **`run.json` is permissive** (the package's `read_run_json`): missing
 //!   or unparseable is an empty object, never a failure — the file is the
 //!   method's own report, carried through.
+//! - **The recalibration band (ITEM-6)** is a faithful port of the package's
+//!   `conversion.cpp`: one [`Conversion`] per (outcome, horizon) — a weighted
+//!   logistic regression of the event on the STANDARDISED score
+//!   (`p = expit(a + b·(risk−mu)/sd)`, `b ≥ 0` so a higher score never gives a
+//!   lower probability; the weighted event rate when the scores do not vary,
+//!   do not rise with the event, or when they separate the labels). The
+//!   survival horizons use inverse-probability-of-censoring weights (`1/G`,
+//!   G = the Kaplan–Meier estimate of the censoring distribution, floored at
+//!   [`G_FLOOR`]); a method that learns from outcomes (`fitted: true`) gets
+//!   an inner 3-fold cross-fit so its training scores are out-of-fold —
+//!   [`crossfit_folds`] is the seeded fold construction of the package's Rng
+//!   (the tests pin its output against the package's own golden file).
+//!   The conversion is fitted on the TRAINING patients only and applied
+//!   unchanged to the test patients ([`fit_recalibration`] +
+//!   [`converted_rows`]); a method that declares a native probability is
+//!   never converted (INV-3 — the [`CalibrationError::NativeProbability`]
+//!   refusal) and a conversion with no usable (risk, label) pair is
+//!   [`CalibrationError::NoUsableTrainingData`] → `RECALIBRATION_FAILED`,
+//!   never an all-empty column.
 //!
 //! Pure functions: text in, typed facts out — no I/O (ITEM-9 reads the
 //! files); the CSV bytes are read with the module's own codec
@@ -47,6 +69,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::modules::execution_engine::bundle::{parse_csv, parse_number, CsvTable};
@@ -726,6 +749,664 @@ pub fn method_predictions(
 /// Rust's shortest round-trip; `-0` is kept as the package prints it).
 fn number_text(x: f64) -> String {
     format!("{x}")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ITEM-6 — the U2 recalibration engine (a port of the package's
+// `core/src/conversion.cpp`: fit_conversion, censoring_km, ipcw_labels,
+// conversion_key, and the 3-fold cross-fit of `engine.cpp::fit`)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The Kaplan–Meier weight floor: a patient whose censoring estimate has
+/// fallen below this is weighted no more than `1/G_FLOOR` (the package's
+/// `G_FLOOR`).
+pub const G_FLOOR: f64 = 0.05;
+
+/// The inner cross-fit fold count of the `fitted: true` arm (the package's
+/// `K = 3`).
+pub const CROSS_FIT_FOLDS: usize = 3;
+
+/// The fold count a caller's value maps to (0 is treated as 1 — the
+/// [`crossfit_folds`] arithmetic never divides by zero).
+fn fold_count(folds: usize) -> usize {
+    folds.max(1)
+}
+
+/// The two kinds of a [`Conversion`] (the package's `kind` strings).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConversionKind {
+    /// `p = expit(a + b·(risk−mu)/sd)` — the fitted probability curve.
+    Logistic,
+    /// The (weighted) event rate, when the scores do not vary, do not rise
+    /// with the event, or separate it.
+    Constant,
+}
+
+/// One risk→probability conversion — the model-side record the package's
+/// `fit()` stores per (outcome, horizon) (`model.conversions`). The serde
+/// shape is the package's JSON exactly (`{kind, a, b, mu, sd, n, rate}`); a
+/// conversion is fitted on the TRAINING scores only and applied unchanged to
+/// the test patients (DEC-8).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Conversion {
+    /// `"logistic"` | `"constant"` (the package's `kind` vocabulary — a
+    /// String, not an enum, so the record's wire bytes stay the package's).
+    pub kind: String,
+    /// The logistic intercept where the score is standardised
+    /// (`z = (risk − mu)/sd`); 0 for the constant kind.
+    pub a: f64,
+    /// The logistic slope on the standardised score, constrained to ≥ 0 (a
+    /// higher score never gives a lower probability); 0 for the constant kind.
+    pub b: f64,
+    /// The weighted mean of the training scores (the standardisation centre).
+    pub mu: f64,
+    /// The weighted standard deviation of the training scores; 1 for the
+    /// constant kind (the scale is irrelevant there).
+    pub sd: f64,
+    /// The patients the conversion was learned on.
+    pub n: i64,
+    /// The weighted event rate — the constant map's value; `None` when no
+    /// (risk, label) pair was usable (n = 0; the package's NA rate).
+    #[serde(default)]
+    pub rate: Option<f64>,
+}
+
+impl Conversion {
+    /// The map kind.
+    pub fn kind(&self) -> ConversionKind {
+        match self.kind.as_str() {
+            "logistic" => ConversionKind::Logistic,
+            _ => ConversionKind::Constant,
+        }
+    }
+
+    /// Convert one risk: `None` (no score) gives `None` — the package's
+    /// "NA risk gives NA" — and a constant map with a rate gives that rate
+    /// for every score. The probability is in (0, 1) for a logistic map (the
+    /// inverse-logit image), the rate itself for a constant map.
+    pub fn apply(&self, risk: Option<f64>) -> Option<f64> {
+        let r = risk?;
+        if !r.is_finite() {
+            return None;
+        }
+        match self.kind() {
+            ConversionKind::Constant => self.rate,
+            ConversionKind::Logistic => Some(expit(self.a + self.b * (r - self.mu) / self.sd)),
+        }
+    }
+}
+
+/// The inverse logit (the package's `expit` — same expression, same
+/// overflow behaviour: `exp(−x)` → `inf` gives 0, → `0` gives 1).
+fn expit(x: f64) -> f64 {
+    1.0 / (1.0 + (-x).exp())
+}
+
+/// Fit a conversion from the training scores: `risk` is the method's score of
+/// each training patient, `label` the outcome (0/1), `weight` the IPCW weight
+/// (1 for the response outcomes) — an exact port of the package's
+/// `fit_conversion`. Rows with a missing/non-finite risk, a missing label or
+/// a non-positive weight are dropped; the result is the weighted logistic
+/// regression on the standardised score (Newton with step halving + a tiny
+/// ridge on the slope), or the weighted event rate when the scores do not
+/// vary, do not rise with the event, or separate it — the package's
+/// constraints, byte-for-byte.
+pub fn fit_conversion(risk: &[Option<f64>], label: &[Option<f64>], weight: &[f64]) -> Conversion {
+    let mut r: Vec<f64> = Vec::new();
+    let mut yy: Vec<f64> = Vec::new();
+    let mut ww: Vec<f64> = Vec::new();
+    for i in 0..risk.len() {
+        let Some(ri) = risk[i] else { continue };
+        if !ri.is_finite() {
+            continue;
+        }
+        let Some(yi) = label[i] else { continue };
+        if !yi.is_finite() {
+            continue;
+        }
+        if weight.get(i).copied().unwrap_or(0.0) <= 0.0 {
+            continue;
+        }
+        r.push(ri);
+        yy.push(yi);
+        ww.push(weight[i]);
+    }
+    let n = r.len();
+    let mut c = Conversion {
+        kind: "constant".to_string(),
+        a: 0.0,
+        b: 0.0,
+        mu: 0.0,
+        sd: 1.0,
+        n: n as i64,
+        rate: None,
+    };
+    if r.is_empty() {
+        return c;
+    }
+    let sw: f64 = ww.iter().sum();
+    let swy: f64 = ww.iter().zip(&yy).map(|(w, y)| w * y).sum();
+    let mean: f64 = ww.iter().zip(&r).map(|(w, x)| w * x).sum::<f64>() / sw;
+    let mut var = 0.0;
+    for i in 0..r.len() {
+        var += ww[i] * (r[i] - mean) * (r[i] - mean);
+    }
+    var /= sw;
+    let rate = swy / sw;
+    c.rate = Some(rate);
+    c.mu = mean;
+    c.sd = var.sqrt();
+    if !(c.sd > 1e-12) || rate <= 0.0 || rate >= 1.0 {
+        // The scores do not vary or the event rate is degenerate: a constant
+        // map (the package leaves the scale unused at 1).
+        c.sd = 1.0;
+        return c;
+    }
+
+    // Weighted logistic regression on the standardised score: Newton steps
+    // with step halving and a tiny ridge `lam` on the slope (the package's
+    // loop verbatim; `b` is clamped to ±30 and the fit falls back to the
+    // constant when the slope is not positive).
+    let lam = 1e-6 * sw;
+    let mut a = (rate / (1.0 - rate)).ln();
+    let mut b = 0.0;
+    let loglik = |a_: f64, b_: f64| {
+        let mut ll = 0.0;
+        for i in 0..r.len() {
+            let eta = a_ + b_ * (r[i] - c.mu) / c.sd;
+            ll += ww[i] * (yy[i] * eta - eta.exp().ln_1p());
+        }
+        ll - 0.5 * lam * b_ * b_
+    };
+    for _ in 0..100 {
+        let mut g0 = 0.0;
+        let mut g1 = -lam * b;
+        let mut h00 = 0.0;
+        let mut h01 = 0.0;
+        let mut h11 = lam;
+        for i in 0..r.len() {
+            let z = (r[i] - c.mu) / c.sd;
+            let p = expit(a + b * z);
+            let v = ww[i] * p * (1.0 - p);
+            g0 += ww[i] * (yy[i] - p);
+            g1 += ww[i] * (yy[i] - p) * z;
+            h00 += v;
+            h01 += v * z;
+            h11 += v * z * z;
+        }
+        let det = h00 * h11 - h01 * h01;
+        if !(det.abs() > 1e-300) {
+            break;
+        }
+        let da = (h11 * g0 - h01 * g1) / det;
+        let db = (-h01 * g0 + h00 * g1) / det;
+        let l0 = loglik(a, b);
+        let mut step = 1.0;
+        while step > 1e-8 && loglik(a + step * da, b + step * db) < l0 - 1e-12 {
+            step /= 2.0;
+        }
+        a += step * da;
+        b += step * db;
+        if b.abs() > 30.0 {
+            b = if b > 0.0 { 30.0 } else { -30.0 };
+        }
+        if step * da.abs().max(db.abs()) < 1e-10 {
+            break;
+        }
+    }
+    if !(b > 0.0) {
+        // A score that falls with the event is turned into the event rate —
+        // never into a falling probability.
+        c.sd = 1.0;
+        return c;
+    }
+    c.kind = "logistic".to_string();
+    c.a = a;
+    c.b = b;
+    c
+}
+
+/// The package's `conversion_key`: the outcome, or `outcome@<horizon>` for the
+/// survival outcomes (the model record's map key).
+pub fn conversion_key(outcome: &str, horizon: Option<f64>) -> String {
+    match horizon {
+        Some(h) => format!("{outcome}@{}", horizon_name(h)),
+        None => outcome.to_string(),
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The IPCW band (censoring KM + horizon labels)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The Kaplan–Meier estimate of the CENSORING distribution (`G(t) = P(C > t)`;
+/// events precede censorings at tied times — the package's `CensoringKM`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct CensoringKm {
+    /// The distinct follow-up times (strictly increasing).
+    pub t: Vec<f64>,
+    /// `G` after each distinct time.
+    pub g: Vec<f64>,
+}
+
+impl CensoringKm {
+    /// `G(x)`: right-continuous, 1 before the first time.
+    pub fn at(&self, x: f64) -> f64 {
+        let mut v = 1.0;
+        for (t, g) in self.t.iter().zip(&self.g) {
+            if *t <= x {
+                v = *g;
+            } else {
+                break;
+            }
+        }
+        v
+    }
+
+    /// `G(x−)`: the value just before `x` (1 before the first time).
+    pub fn before(&self, x: f64) -> f64 {
+        let mut v = 1.0;
+        for (t, g) in self.t.iter().zip(&self.g) {
+            if *t < x {
+                v = *g;
+            } else {
+                break;
+            }
+        }
+        v
+    }
+}
+
+/// The KM of the censoring distribution, `time`/`event` per patient (events
+/// first at tied times: `event == Some(0.0)` is a censoring, anything else —
+/// an event or an unknown flag — is not) — the package's `censoring_km`.
+/// Callers pass finite times (the label extraction drops unknown ones).
+pub fn censoring_km(time: &[f64], event: &[Option<f64>]) -> CensoringKm {
+    let mut order: Vec<usize> = (0..time.len()).collect();
+    order.sort_by(|&a, &b| time[a].total_cmp(&time[b]));
+    let n = order.len();
+    let mut km = CensoringKm {
+        t: Vec::new(),
+        g: Vec::new(),
+    };
+    let mut g = 1.0;
+    let mut i = 0;
+    while i < n {
+        let mut j = i;
+        let mut censored = 0.0;
+        while j < n && time[order[j]] == time[order[i]] {
+            if event[order[j]] == Some(0.0) {
+                censored += 1.0;
+            }
+            j += 1;
+        }
+        let at_risk = (n - i) as f64;
+        if censored > 0.0 {
+            g *= 1.0 - censored / at_risk;
+        }
+        km.t.push(time[order[i]]);
+        km.g.push(g);
+        i = j;
+    }
+    km
+}
+
+/// One IPCW-labelled patient: the binary label, the weight and whether the
+/// patient is kept at all (censored before the horizon → dropped; the
+/// package's `ipcw_labels` triple).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct IpcwLabel {
+    /// 1 = event by the horizon, 0 = event-free beyond it; `None` = no label
+    /// (censored before the horizon — `keep` is false).
+    pub label: Option<f64>,
+    /// `1/G` (floored at [`G_FLOOR`] — so no weight exceeds `1/G_FLOOR`).
+    pub weight: f64,
+    /// Whether the patient is used: false when censored before `h`.
+    pub keep: bool,
+}
+
+/// The `P(event by day h)` training labels from follow-up times and event
+/// flags (days since the first dose), with the IPCW weights — the package's
+/// `ipcw_labels`: an event at or before h is 1 weighted by `1/G(time−)`, a
+/// follow-up beyond h is 0 weighted by `1/G(h)`, a patient censored at or
+/// before h is left out.
+pub fn ipcw_labels(time: &[f64], event: &[Option<f64>], horizon: f64) -> Vec<IpcwLabel> {
+    let km = censoring_km(time, event);
+    (0..time.len())
+        .map(|i| {
+            if event[i] == Some(1.0) && time[i] <= horizon {
+                IpcwLabel {
+                    label: Some(1.0),
+                    weight: 1.0 / km.before(time[i]).max(G_FLOOR),
+                    keep: true,
+                }
+            } else if time[i] > horizon {
+                IpcwLabel {
+                    label: Some(0.0),
+                    weight: 1.0 / km.at(horizon).max(G_FLOOR),
+                    keep: true,
+                }
+            } else {
+                IpcwLabel {
+                    label: None,
+                    weight: 0.0,
+                    keep: false,
+                }
+            }
+        })
+        .collect()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The seeded cross-fit fold construction (the package's Rng — pinned by
+// `tests/golden/v2.0.0/rng/rng.tsv`, an independent implementation of the
+// same specification)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The deterministic generator of the package's folds (`rng.hpp`:
+/// xoshiro256** seeded through SplitMix64; `below(n)` is uniform in [0, n) by
+/// rejection; shuffle is Fisher–Yates from the back). Kept private — the
+/// engine needs only the fold assignment, never the stream.
+struct Rng {
+    s: [u64; 4],
+}
+
+impl Rng {
+    fn new(seed: u64) -> Self {
+        let mut x = seed;
+        let s = [
+            splitmix64(&mut x),
+            splitmix64(&mut x),
+            splitmix64(&mut x),
+            splitmix64(&mut x),
+        ];
+        Self { s }
+    }
+
+    fn next(&mut self) -> u64 {
+        let result = self.s[1].wrapping_mul(5).rotate_left(7).wrapping_mul(9);
+        let t = self.s[1] << 17;
+        self.s[2] ^= self.s[0];
+        self.s[3] ^= self.s[1];
+        self.s[1] ^= self.s[2];
+        self.s[0] ^= self.s[3];
+        self.s[2] ^= t;
+        self.s[3] = self.s[3].rotate_left(45);
+        result
+    }
+
+    fn below(&mut self, n: u64) -> u64 {
+        let threshold = 0u64.wrapping_sub(n) % n;
+        loop {
+            let r = self.next();
+            if r >= threshold {
+                return r % n;
+            }
+        }
+    }
+
+    fn permutation(&mut self, n: usize) -> Vec<usize> {
+        let mut a: Vec<usize> = (0..n).collect();
+        for i in (1..n).rev() {
+            let j = self.below(i as u64 + 1) as usize;
+            a.swap(i, j);
+        }
+        a
+    }
+}
+
+fn splitmix64(x: &mut u64) -> u64 {
+    *x = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    let mut z = *x;
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
+}
+
+/// The fold of each patient of the `fitted: true` cross-fit arm (the
+/// package's construction in `engine.cpp::fit`): the patients (callers pass
+/// them in the deterministic `outcomes.csv` order — the sorted cohort) are
+/// shuffled with the run's seed and every `folds`-th position forms one fold;
+/// `fold_of_patient[i]` is the fold the model trained ON THE REST was
+/// validated on for patient i, and the recalibration map is fitted on these
+/// OUT-OF-FOLD risks plus the patients' own outcomes. `folds` is the
+/// package's `K` (3 via [`CROSS_FIT_FOLDS`]); 0 is treated as 1.
+pub fn crossfit_folds(n_patients: usize, seed: u64, folds: usize) -> Vec<usize> {
+    let k = fold_count(folds);
+    let perm = Rng::new(seed).permutation(n_patients);
+    let mut fold_of = vec![0usize; n_patients];
+    for (i, patient) in perm.iter().enumerate() {
+        fold_of[*patient] = i % k;
+    }
+    fold_of
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The calibration band: training labels + the conversion fitting entry
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// One training patient's outcome facts, as the conversion band reads them
+/// from the written `train/outcomes.csv` (the package's `OutcomeRow`
+/// projection; an empty cell = not available for this patient).
+#[derive(Debug, Clone, PartialEq)]
+pub struct TrainingLabel {
+    pub patient_id: String,
+    pub pfs_time: Option<f64>,
+    pub pfs_event: Option<f64>,
+    pub os_time: Option<f64>,
+    pub os_event: Option<f64>,
+    pub no_response: Option<f64>,
+    pub progressive_disease: Option<f64>,
+}
+
+/// Read the training labels from a parsed `train/outcomes.csv` (the row order
+/// the bundle wrote — the sorted cohort). Only the fixed column set of
+/// contract 2.0 is read; the per-horizon `progression_H<h>`/`death_H<h>`
+/// cells are the method-bundle labels, not the conversion's (the conversion
+/// fits the IPCW labels from the follow-up times/events).
+pub fn training_labels(outcomes: &CsvTable) -> Vec<TrainingLabel> {
+    let cell = |name: &str, row: usize| -> Option<f64> {
+        outcomes
+            .col(name)
+            .and_then(|col| parse_number(&col[row]))
+            .filter(|x| x.is_finite())
+    };
+    let n = outcomes.nrow();
+    let ids = outcomes.col("patient_id");
+    (0..n)
+        .map(|row| TrainingLabel {
+            patient_id: ids.map(|ids| ids[row].clone()).unwrap_or_default(),
+            pfs_time: cell("pfs_time", row),
+            pfs_event: cell("pfs_event", row),
+            os_time: cell("os_time", row),
+            os_event: cell("os_event", row),
+            no_response: cell("no_response", row),
+            progressive_disease: cell("progressive_disease", row),
+        })
+        .collect()
+}
+
+/// A recalibration refusal — the plan's `RECALIBRATION_FAILED` + the named
+/// reason kept on the method row (INV-2). Both variants are the one engine
+/// code; the details differ.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CalibrationError {
+    /// The method declares a native probability for the displayed (outcome,
+    /// horizon) — the conversion band is never applied on top of one
+    /// (INV-3: `prob_source` is never mixed silently within a column).
+    NativeProbability { method_id: String, column: String },
+    /// No usable (risk, label) pair on the training side: the conversion map
+    /// cannot be learned (the package's constant-with-NA-rate outcome — the
+    /// engine refuses it instead of serving an all-empty column).
+    NoUsableTrainingData {
+        method_id: String,
+        outcome: String,
+        horizon: Option<f64>,
+    },
+}
+
+impl CalibrationError {
+    /// The engine's reason code for every variant.
+    pub fn engine_code(&self) -> EngineReasonCode {
+        EngineReasonCode::RecalibrationFailed
+    }
+
+    /// The human line kept on the method row.
+    pub fn detail(&self) -> String {
+        match self {
+            CalibrationError::NativeProbability { method_id, column } => format!(
+                "method '{method_id}' writes its own probability column {column}; no conversion is fitted (native and recalibrated probabilities are never mixed)"
+            ),
+            CalibrationError::NoUsableTrainingData {
+                method_id,
+                outcome,
+                horizon,
+            } => match horizon {
+                Some(h) => format!(
+                    "method '{method_id}' gave no training score the {} probability at H{} can be fitted from",
+                    outcome,
+                    horizon_name(*h)
+                ),
+                None => format!(
+                    "method '{method_id}' gave no training score the {outcome} probability can be fitted from"
+                ),
+            },
+        }
+    }
+}
+
+impl std::fmt::Display for CalibrationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.detail())
+    }
+}
+
+impl std::error::Error for CalibrationError {}
+
+/// Fit the recalibration map for one displayed (outcome, horizon) from the
+/// TRAINING side (the package's conversion band of `engine.cpp::fit`):
+///
+/// - `spec`: the method's declared outputs (a native probability for the
+///   displayed outcome/horizon is a refusal — never converted).
+/// - `outcomes`: the parsed `train/outcomes.csv` (the labels, in the bundle's
+///   row order).
+/// - `training_risks`: the method's scores of the training patients, keyed by
+///   patient id — `fitted` methods' scores are the OUT-OF-FOLD risks of
+///   [`crossfit_folds`] (the per-fold runs are the orchestrator's v1 calls);
+///   a patient with no score is an unknown risk, dropped by the fit.
+/// - `outcome` / `horizon`: the displayed column's identity.
+///
+/// Survival outcomes use the IPCW labels at the horizon; the response
+/// outcomes are the plain 0/1 labels at weight 1. The result is the
+/// [`Conversion`] (kind `logistic` or `constant`), or a typed
+/// [`CalibrationError`] → `RECALIBRATION_FAILED`.
+pub fn fit_recalibration(
+    spec: &PredictionSpec<'_>,
+    outcomes: &CsvTable,
+    training_risks: &BTreeMap<String, Option<f64>>,
+    outcome: &str,
+    horizon: Option<f64>,
+) -> Result<Conversion, CalibrationError> {
+    if own_probability(spec.own_outputs, outcome, horizon) {
+        return Err(CalibrationError::NativeProbability {
+            method_id: spec.method_id.to_string(),
+            column: chance_column(outcome, horizon),
+        });
+    }
+    let labels = training_labels(outcomes);
+    let mut risk: Vec<Option<f64>> = Vec::new();
+    let mut y: Vec<Option<f64>> = Vec::new();
+    let mut w: Vec<f64> = Vec::new();
+
+    if is_survival(outcome) {
+        // The package reads the follow-up time/event pair of the outcome
+        // (pfs → progression, os → death), skips the patients without a
+        // time, and lets ipcw_labels keep/weight the rest.
+        let (time_col, event_col) = match outcome {
+            "progression" => ("pfs_time", "pfs_event"),
+            "death" => ("os_time", "os_event"),
+            _ => unreachable!("is_survival gates the pair"),
+        };
+        let mut times: Vec<f64> = Vec::new();
+        let mut events: Vec<Option<f64>> = Vec::new();
+        let mut ids: Vec<&str> = Vec::new();
+        for lbl in &labels {
+            let Some(t) = training_label_cell(lbl, time_col) else {
+                continue;
+            };
+            times.push(t);
+            events.push(training_label_cell(lbl, event_col));
+            ids.push(&lbl.patient_id);
+        }
+        let h = horizon.expect("a survival outcome carries the run's horizon");
+        for (i, ipcw) in ipcw_labels(&times, &events, h).iter().enumerate() {
+            if !ipcw.keep {
+                continue;
+            }
+            risk.push(training_risks.get(ids[i]).copied().flatten());
+            y.push(ipcw.label);
+            w.push(ipcw.weight);
+        }
+    } else {
+        for lbl in &labels {
+            // The response label the package reads (no_response for the app's
+            // displayed outcome; progressive_disease is never learned — the
+            // arm stays symmetric for completeness).
+            let Some(yy) = training_label_cell(lbl, outcome) else {
+                continue;
+            };
+            risk.push(
+                training_risks
+                    .get(lbl.patient_id.as_str())
+                    .copied()
+                    .flatten(),
+            );
+            y.push(Some(yy));
+            w.push(1.0);
+        }
+    }
+
+    let conversion = fit_conversion(&risk, &y, &w);
+    if conversion.n == 0 {
+        return Err(CalibrationError::NoUsableTrainingData {
+            method_id: spec.method_id.to_string(),
+            outcome: outcome.to_string(),
+            horizon,
+        });
+    }
+    Ok(conversion)
+}
+
+/// The label cell of one training patient (the column names the conversion
+/// band reads from `outcomes.csv`).
+fn training_label_cell(lbl: &TrainingLabel, column: &str) -> Option<f64> {
+    match column {
+        "pfs_time" => lbl.pfs_time,
+        "pfs_event" => lbl.pfs_event,
+        "os_time" => lbl.os_time,
+        "os_event" => lbl.os_event,
+        "no_response" => lbl.no_response,
+        "progressive_disease" => lbl.progressive_disease,
+        _ => None,
+    }
+}
+
+/// The predict-side rows with the recalibration map applied: every scored
+/// patient's missing probability becomes `conversion.apply(risk)` (an
+/// abstained patient keeps its note and no probability); a native value is
+/// never overwritten — the caller calls this only for a
+/// `native_column: None` method, and the rows' `prob_source` is then
+/// `"recalibrated"` on the method record (one source per column, INV-3).
+pub fn converted_rows(conversion: &Conversion, rows: &[PredictionRow]) -> Vec<PredictionRow> {
+    rows.iter()
+        .map(|row| {
+            let mut converted = row.clone();
+            if converted.probability.is_none() {
+                converted.probability = conversion.apply(row.risk);
+            }
+            converted
+        })
+        .collect()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1533,5 +2214,563 @@ mod tests {
         // and every number the fixtures carry is a literal in this file.
         let _ = csv(&["patient_id", "risk"], &[&["T0001", "0.1"]]);
         let _ = q("a,b");
+    }
+
+    // ── ITEM-6: the U2 recalibration engine (TEST-EE-16) ────────────────────
+
+    /// The package's own golden values (`tests/golden/v2.0.0/rng/rng.tsv`,
+    /// re-verified here against a build of the package's `rng.cpp`): the
+    /// xoshiro256**/SplitMix64 stream, `below(n)` and the Fisher–Yates
+    /// permutation of the fold construction.
+    #[test]
+    fn rng_matches_the_package_golden_file() {
+        let mut rng = Rng::new(0);
+        let next: Vec<u64> = (0..8).map(|_| rng.next()).collect();
+        assert_eq!(
+            next,
+            vec![
+                11091344671253066420,
+                13793997310169335082,
+                1900383378846508768,
+                7684712102626143532,
+                13521403990117723737,
+                18442103541295991498,
+                7788427924976520344,
+                9881088229871127103
+            ]
+        );
+        let mut rng = Rng::new(0);
+        let mut below = Vec::new();
+        for _ in 0..12 {
+            below.push(rng.below(1000));
+        }
+        assert_eq!(
+            below,
+            vec![420, 82, 768, 532, 737, 498, 344, 103, 617, 797, 844, 693]
+        );
+        let mut rng1 = Rng::new(1);
+        let mut below1 = Vec::new();
+        for _ in 0..12 {
+            below1.push(rng1.below(1000));
+        }
+        assert_eq!(
+            below1,
+            vec![557, 522, 900, 383, 371, 162, 286, 429, 321, 208, 841, 110]
+        );
+        assert_eq!(
+            Rng::new(0).permutation(20),
+            vec![11, 7, 5, 19, 18, 2, 14, 15, 13, 17, 10, 1, 3, 12, 8, 9, 16, 4, 6, 0]
+        );
+        assert_eq!(
+            Rng::new(1).permutation(20),
+            vec![12, 13, 2, 6, 4, 18, 16, 9, 19, 10, 11, 1, 8, 0, 7, 3, 5, 14, 15, 17]
+        );
+    }
+
+    /// TEST-EE-16 half 1: the cross-fit fold construction equals the
+    /// package's — the seeded shuffle then every K-th position, `K = 3` (the
+    /// `rng.tsv`-pinned Rng; the 9-patient pin was produced by a build of the
+    /// package's own `engine.cpp` construction).
+    #[test]
+    fn crossfit_folds_match_the_package_construction() {
+        assert_eq!(
+            crossfit_folds(9, 1, CROSS_FIT_FOLDS),
+            vec![0, 1, 1, 2, 2, 2, 1, 0, 0],
+            "seed 1, 9 patients: the package's fold_of_patient vector"
+        );
+        let folds = crossfit_folds(6, 0, 3);
+        assert!(folds.iter().all(|f| *f < 3));
+        // The partition: every fold is exactly every-3rd shuffled position.
+        let mut counts = [0usize; 3];
+        for f in &folds {
+            counts[*f] += 1;
+        }
+        assert_eq!(counts, [2, 2, 2]);
+        // Degenerate edges: 0 patients, and 0 folds treated as 1.
+        assert_eq!(crossfit_folds(0, 1, CROSS_FIT_FOLDS), Vec::<usize>::new());
+        assert_eq!(crossfit_folds(1, 1, 0), vec![0]);
+    }
+
+    /// The package's own hand-computed censoring KM example (`core_test.cpp`),
+    /// pinned byte-for-byte.
+    #[test]
+    fn censoring_km_and_ipcw_labels_match_core_test() {
+        let time = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let event: Vec<Option<f64>> = [1.0, 0.0, 1.0, 0.0, 1.0, 0.0].map(Some).to_vec();
+        let km = censoring_km(&time, &event);
+        assert_eq!(km.at(0.5), 1.0, "1 before the first time");
+        assert!((km.at(2.0) - 0.8).abs() < 1e-12, "G(2) = 0.8");
+        assert!(
+            (km.at(4.0) - 0.8 * (2.0 / 3.0)).abs() < 1e-12,
+            "G(4) = 0.5333…"
+        );
+        assert!((km.before(3.0) - 0.8).abs() < 1e-12, "G(3−) = 0.8");
+
+        let labels = ipcw_labels(&time, &event, 4.0);
+        let keep: Vec<bool> = labels.iter().map(|l| l.keep).collect();
+        assert_eq!(keep, vec![true, false, true, false, true, true]);
+        assert_eq!(labels[0].label, Some(1.0));
+        assert_eq!(labels[2].label, Some(1.0));
+        assert_eq!(labels[4].label, Some(0.0));
+        assert_eq!(labels[5].label, Some(0.0));
+        assert!((labels[0].weight - 1.0).abs() < 1e-12, "1/G(1−) = 1");
+        assert!((labels[2].weight - 1.25).abs() < 1e-12, "1/G(3−) = 1.25");
+        assert!((labels[4].weight - 1.875).abs() < 1e-12, "1/G(5−) = 1.875");
+        assert!((labels[5].weight - 1.875).abs() < 1e-12, "1/G(4) = 1.875");
+
+        // The floor: heavy censorings push G under G_FLOOR → the weight caps
+        // at 1/G_FLOOR (verified against the package: G(before 21) = 1/21,
+        // the kept event's weight is exactly 20).
+        let t2: Vec<f64> = (1..=21).map(|d| d as f64).collect();
+        let mut e2: Vec<Option<f64>> = vec![Some(0.0); 21];
+        e2[20] = Some(1.0);
+        let f = ipcw_labels(&t2, &e2, 30.0);
+        assert_eq!(f[20].keep, true);
+        assert!((f[20].weight - 1.0 / G_FLOOR).abs() < 1e-12);
+    }
+
+    fn approx(a: f64, b: f64) -> bool {
+        (a - b).abs() < 1e-12
+    }
+
+    /// A method with no declared outputs beyond the plain `risk` column (the
+    /// recalibration band's caller shape).
+    fn risk_only_spec<'a>(method_id: &'a str, own_outputs: &'a [String]) -> PredictionSpec<'a> {
+        PredictionSpec {
+            method_id,
+            own_outputs,
+            group: MethodGroup::DynamicRisk,
+            constant_ok: None,
+        }
+    }
+
+    /// TEST-EE-16 half 2: `fit_conversion` is the package's — the constant
+    /// fallbacks (constant risk → the weighted event rate; one class → the
+    /// rate itself; a falling relation → the rate, never a falling
+    /// probability; no usable patient → no probability), the interior
+    /// logistic fit on the standardised score, and the weights' effect. The
+    /// numeric pins were produced by a build of the package's own
+    /// `conversion.cpp` on the SAME vectors.
+    #[test]
+    fn fit_conversion_matches_the_package() {
+        let cc = fit_conversion(
+            &[Some(1.0), Some(1.0), Some(1.0), Some(1.0)],
+            &[Some(1.0), Some(0.0), Some(0.0), Some(1.0)],
+            &[1.0, 1.0, 1.0, 1.0],
+        );
+        assert_eq!(cc.kind(), ConversionKind::Constant);
+        assert_eq!(cc.n, 4);
+        assert!(approx(cc.rate.unwrap(), 0.5));
+        assert!(approx(cc.apply(Some(1.0)).unwrap(), 0.5), "the event rate");
+
+        let one = fit_conversion(
+            &[Some(1.0), Some(2.0), Some(3.0)],
+            &[Some(1.0), Some(1.0), Some(1.0)],
+            &[1.0, 1.0, 1.0],
+        );
+        assert_eq!(one.kind(), ConversionKind::Constant);
+        assert!(approx(one.apply(Some(2.0)).unwrap(), 1.0), "one class");
+
+        let none = fit_conversion(&[None, None], &[Some(1.0), Some(0.0)], &[1.0, 1.0]);
+        assert_eq!(none.n, 0);
+        assert_eq!(none.rate, None);
+        assert_eq!(
+            none.apply(Some(1.0)),
+            None,
+            "no usable patient gives no probability"
+        );
+        assert_eq!(none.apply(None), None, "no risk gives no probability");
+
+        // The interior logistic pin (the package's own output on this exact
+        // 9-vector): p = expit(a + b·(risk−mu)/sd), b > 0, in (0, 1).
+        let risk: Vec<Option<f64>> = [-2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0]
+            .map(Some)
+            .to_vec();
+        let label: Vec<Option<f64>> = [0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0]
+            .map(Some)
+            .to_vec();
+        let c = fit_conversion(&risk, &label, &[1.0; 9]);
+        assert_eq!(c.kind(), ConversionKind::Logistic);
+        assert!(approx(c.a, 0.27542780849523218));
+        assert!(approx(c.b, 0.99169043940169499));
+        assert!(approx(c.mu, 0.0));
+        assert!(approx(c.sd, 1.2909944487358056));
+        assert_eq!(c.n, 9);
+        assert!(approx(c.rate.unwrap(), 5.0 / 9.0));
+        assert!(approx(c.apply(Some(-2.0)).unwrap(), 0.22082030636303676));
+        assert!(approx(c.apply(Some(0.0)).unwrap(), 0.56842493568537655));
+        assert!(approx(c.apply(Some(2.0)).unwrap(), 0.85957300694451966));
+        assert!(c.apply(Some(2.0)).unwrap() > c.apply(Some(0.0)).unwrap());
+        assert!(c.apply(Some(0.0)).unwrap() > c.apply(Some(-2.0)).unwrap());
+
+        // Weights change the fit (the events weighted ×3 — the package's own
+        // check on a bigger sample; pinned here on the same 9-vector).
+        let w3: Vec<f64> = label
+            .iter()
+            .map(|y| if *y == Some(1.0) { 3.0 } else { 1.0 })
+            .collect();
+        let cw = fit_conversion(&risk, &label, &w3);
+        assert_eq!(cw.kind(), ConversionKind::Logistic);
+        assert!(approx(cw.a, 1.5708711485883229));
+        assert!(approx(cw.b, 0.95318676445032269));
+        assert!(approx(cw.mu, 0.26315789473684209));
+        assert!(approx(cw.rate.unwrap(), 15.0 / 19.0));
+
+        // A score that falls with the event gives the event rate — never a
+        // falling probability.
+        let falling_label: Vec<Option<f64>> = [1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+            .map(Some)
+            .to_vec();
+        let cf = fit_conversion(&risk, &falling_label, &[1.0; 9]);
+        assert_eq!(cf.kind(), ConversionKind::Constant);
+        assert!(approx(cf.rate.unwrap(), 4.0 / 9.0));
+        assert_eq!(cf.apply(Some(-1.0)), cf.apply(Some(1.0)));
+
+        // Missing labels / non-positive weights are dropped (the package's
+        // filter); the two kept points separate so the anti-solution is
+        // refused → the constant fallback.
+        let mixed = fit_conversion(
+            &[Some(1.0), None, Some(3.0), None, Some(5.0)],
+            &[Some(1.0), Some(1.0), None, Some(0.0), Some(0.0)],
+            &[1.0, 1.0, 1.0, 0.0, 1.0],
+        );
+        assert_eq!(mixed.kind(), ConversionKind::Constant);
+        assert_eq!(mixed.n, 2);
+        assert!(approx(mixed.mu, 3.0));
+        assert!(approx(mixed.rate.unwrap(), 0.5));
+    }
+
+    /// The conversion record's JSON is the package's `{kind, a, b, mu, sd, n,
+    /// rate}` shape (the model-record round trip, `core_test.cpp`'s check) —
+    /// and `rate: null` when no patient was usable.
+    #[test]
+    fn conversion_json_round_trips_in_the_package_shape() {
+        let c = fit_conversion(
+            &[Some(1.0), Some(2.0), Some(3.0)],
+            &[Some(1.0), Some(0.0), Some(1.0)],
+            &[1.0, 1.0, 1.0],
+        );
+        let v = serde_json::to_value(&c).unwrap();
+        assert_eq!(
+            v,
+            serde_json::json!({"kind": "constant", "a": 0.0, "b": 0.0, "mu": 2.0, "sd": 1.0, "n": 3, "rate": 2.0 / 3.0})
+        );
+        let back: Conversion = serde_json::from_value(v).unwrap();
+        assert_eq!(back, c);
+        assert_eq!(
+            conversion_key("progression", Some(238.0)),
+            "progression@238"
+        );
+        assert_eq!(conversion_key("death", Some(238.5)), "death@238.5");
+        assert_eq!(conversion_key("no_response", None), "no_response");
+
+        let none = fit_conversion(&[None, None], &[Some(1.0), Some(0.0)], &[1.0, 1.0]);
+        assert_eq!(
+            serde_json::to_value(&none).unwrap()["rate"],
+            serde_json::Value::Null
+        );
+    }
+
+    /// TEST-EE-16 half 3: the calibration band is fitted on the TRAINING side
+    /// only — the survival arm reads the IPCW labels from the written
+    /// `outcomes.csv` (the package's arm on its own hand-computed example),
+    /// and the map is one conversion, keyed per (outcome, horizon).
+    #[test]
+    fn fit_recalibration_uses_the_ipcw_training_labels() {
+        let outcomes = csv(
+            &[
+                "patient_id",
+                "pfs_time",
+                "pfs_event",
+                "os_time",
+                "os_event",
+                "no_response",
+            ],
+            &[
+                &["P0001", "1", "1", "", "", "1"],
+                &["P0002", "2", "0", "", "", "0"],
+                &["P0003", "3", "1", "", "", "1"],
+                &["P0004", "4", "0", "", "", "0"],
+                &["P0005", "5", "1", "", "", "0"],
+                &["P0006", "6", "0", "", "", "1"],
+            ],
+        );
+        let outcomes_table = parse_csv(&outcomes).expect("the fixture parses");
+        let own: Vec<String> = vec!["risk".into()];
+        let spec = risk_only_spec("dyn", &own);
+        let risks: BTreeMap<String, Option<f64>> = [
+            ("P0001", Some(1.0)),
+            ("P0002", Some(2.0)),
+            ("P0003", Some(3.0)),
+            ("P0004", Some(4.0)),
+            ("P0005", Some(5.0)),
+            ("P0006", Some(6.0)),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
+        let c = fit_recalibration(&spec, &outcomes_table, &risks, "progression", Some(4.0))
+            .expect("the IPCW band fits");
+        // The package's own output for the same construction: the four kept
+        // patients (events at 1, 3; beyond-h at 5, 6) fit a FALLING relation
+        // (risks 1,3,5,6 with labels 1,1,0,0) → the weighted event rate.
+        assert_eq!(c.kind(), ConversionKind::Constant);
+        assert_eq!(c.n, 4);
+        assert!(approx(c.mu, 4.2291666666666652));
+        assert!(approx(c.rate.unwrap(), 0.375));
+        assert!(
+            c.apply(Some(5.0)).unwrap() <= c.apply(Some(1.0)).unwrap() + 1e-12,
+            "the falling band is the rate, never a rising-then-falling curve"
+        );
+
+        // The same construction against the response labels (weight 1) — the
+        // map is per outcome: no_response is its own conversion.
+        let c2 = fit_recalibration(&spec, &outcomes_table, &risks, "no_response", None).unwrap();
+        assert_eq!(c2.n, 6);
+        assert_eq!(c2.kind(), ConversionKind::Constant); // nearly falling
+        assert_eq!(conversion_key("no_response", None), "no_response");
+    }
+
+    /// TEST-EE-16 half 4: the `fitted: true` arm — the map the orchestrator
+    /// fits for a fitted method is built on the INNER 3-FOLD OUT-OF-FOLD
+    /// risks: the fold partition is the package's (`crossfit_folds`), the
+    /// per-fold risks are the caller's v1 calls, and the fitted conversion is
+    /// exactly the one `fit_conversion` produces on those (risk, label)
+    /// pairs — never on a different ranking.
+    #[test]
+    fn fitted_cross_fit_arm_fits_the_oof_risks() {
+        let ids: Vec<String> = (0..9).map(|i| format!("S000{i}")).collect();
+        let labels: Vec<f64> = [1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0].to_vec();
+        let outcomes = csv(
+            &["patient_id", "no_response"],
+            &[
+                &["S0000", "1"],
+                &["S0001", "0"],
+                &["S0002", "1"],
+                &["S0003", "0"],
+                &["S0004", "1"],
+                &["S0005", "0"],
+                &["S0006", "1"],
+                &["S0007", "0"],
+                &["S0008", "1"],
+            ],
+        );
+        let outcomes_table = parse_csv(&outcomes).expect("the fixture parses");
+
+        let folds = crossfit_folds(9, 1, CROSS_FIT_FOLDS);
+        assert_eq!(folds, vec![0, 1, 1, 2, 2, 2, 1, 0, 0]);
+        // The per-fold partition, in the outcomes.csv order: fold k = the
+        // positions whose fold is k (every shuffle position's every-3rd).
+        for k in 0..3usize {
+            let members: Vec<usize> = (0..9).filter(|i| folds[*i] == k).collect();
+            assert!(!members.is_empty(), "fold {k} is non-empty");
+        }
+
+        // The OOF risks of the per-fold runs (each fold's patients were
+        // scored by the model trained on the REST — the fixture's numbers)
+        // and the labels they were evaluated against.
+        let oof: Vec<Option<f64>> = [
+            Some(0.9),
+            Some(0.2),
+            Some(1.1),
+            Some(0.3),
+            Some(1.2),
+            Some(0.35),
+            Some(1.05),
+            Some(0.15),
+            Some(0.25),
+        ]
+        .to_vec();
+        let oof_map: BTreeMap<String, Option<f64>> = ids
+            .iter()
+            .zip(&oof)
+            .map(|(id, r)| (id.clone(), *r))
+            .collect();
+        let own: Vec<String> = vec!["risk".into()];
+        let spec = risk_only_spec("fitted-method", &own);
+        let fitted = fit_recalibration(&spec, &outcomes_table, &oof_map, "no_response", None)
+            .expect("the OOF arm fits");
+        let direct = fit_conversion(
+            &oof,
+            &labels.iter().map(|y| Some(*y)).collect::<Vec<_>>(),
+            &[1.0; 9],
+        );
+        assert_eq!(fitted, direct, "one map over the union of OOF risks");
+        assert_eq!(fitted.n, 9);
+        assert_eq!(fitted.kind(), ConversionKind::Logistic);
+
+        // A different ranking moves the map (the map is the OOF risks the
+        // engine was given, never a recomputed one).
+        let shifted: Vec<Option<f64>> = oof.iter().map(|r| r.map(|x| x + 0.5)).collect();
+        let shifted_map: BTreeMap<String, Option<f64>> = ids
+            .iter()
+            .zip(&shifted)
+            .map(|(id, r)| (id.clone(), *r))
+            .collect();
+        let moved =
+            fit_recalibration(&spec, &outcomes_table, &shifted_map, "no_response", None).unwrap();
+        assert_ne!(fitted.mu, moved.mu, "a shifted ranking must move the map");
+        assert_ne!(fitted, moved);
+    }
+
+    /// TEST-EE-16 half 5: the failure typing — a method that declares a
+    /// native probability is NEVER converted (INV-3's never-mixed rule, with
+    /// the named column), and no usable (risk, label) pair is
+    /// `RECALIBRATION_FAILED`, not an all-empty column (a single-value risk
+    /// is NOT a failure — it is the package's constant/rate map; the
+    /// plan's v1.2 "unrankable" wording is superseded by DRIFT-2).
+    #[test]
+    fn fit_recalibration_failure_typing() {
+        let outcomes = csv(
+            &[
+                "patient_id",
+                "pfs_time",
+                "pfs_event",
+                "os_time",
+                "os_event",
+                "no_response",
+            ],
+            &[
+                &["P0001", "20", "1", "30", "0", "1"],
+                &["P0002", "25", "0", "40", "1", "0"],
+                &["P0003", "60", "1", "70", "0", "1"],
+            ],
+        );
+        let outcomes_table = parse_csv(&outcomes).expect("the fixture parses");
+        let own: Vec<String> = vec!["risk".into()];
+        let spec = risk_only_spec("dyn", &own);
+        let risks: BTreeMap<String, Option<f64>> = [
+            ("P0001", Some(0.5)),
+            ("P0002", Some(0.6)),
+            ("P0003", Some(0.7)),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
+
+        // A native probability → refusal, with the column named.
+        let own: Vec<String> = vec!["risk".into(), "p_progression_H*".into()];
+        let native = PredictionSpec {
+            method_id: "native",
+            own_outputs: &own,
+            group: MethodGroup::DynamicRisk,
+            constant_ok: None,
+        };
+        let err = fit_recalibration(&native, &outcomes_table, &risks, "progression", Some(238.0))
+            .expect_err("a native column is never converted");
+        assert_eq!(
+            err,
+            CalibrationError::NativeProbability {
+                method_id: "native".to_string(),
+                column: "p_progression_H238".to_string()
+            }
+        );
+        assert_eq!(err.engine_code(), EngineReasonCode::RecalibrationFailed);
+        assert!(err.detail().contains("p_progression_H238"));
+
+        // No training score at all → RECALIBRATION_FAILED.
+        let empty: BTreeMap<String, Option<f64>> = BTreeMap::new();
+        let err = fit_recalibration(&spec, &outcomes_table, &empty, "no_response", None)
+            .expect_err("no usable pair is a refusal");
+        assert_eq!(
+            err,
+            CalibrationError::NoUsableTrainingData {
+                method_id: "dyn".to_string(),
+                outcome: "no_response".to_string(),
+                horizon: None
+            }
+        );
+        assert_eq!(err.engine_code(), EngineReasonCode::RecalibrationFailed);
+        assert!(err.detail().contains("no training score"));
+
+        // A single-value risk is the package's constant map, not a failure.
+        let flat: BTreeMap<String, Option<f64>> = [
+            ("P0001", Some(0.5)),
+            ("P0002", Some(0.5)),
+            ("P0003", Some(0.5)),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v))
+        .collect();
+        let c = fit_recalibration(&spec, &outcomes_table, &flat, "no_response", None).unwrap();
+        assert_eq!(c.kind(), ConversionKind::Constant);
+        assert!(approx(c.rate.unwrap(), 2.0 / 3.0));
+    }
+
+    /// The converted rows: the map is applied to the scored risks only, an
+    /// abstained patient keeps its note and no probability, and a native
+    /// value is never overwritten (the caller passes `native_column: None`
+    /// methods only — one source per column).
+    #[test]
+    fn converted_rows_apply_the_map_and_keep_abstentions() {
+        let c = Conversion {
+            kind: "logistic".to_string(),
+            a: 0.0,
+            b: 1.0,
+            mu: 0.0,
+            sd: 1.0,
+            n: 10,
+            rate: Some(0.5),
+        };
+        let rows = vec![
+            PredictionRow {
+                patient_id: "T0001".to_string(),
+                risk: Some(2.0),
+                probability: None,
+                note: String::new(),
+            },
+            PredictionRow {
+                patient_id: "T0002".to_string(),
+                risk: None,
+                probability: None,
+                note: "no value at the landmark".to_string(),
+            },
+            PredictionRow {
+                patient_id: "T0003".to_string(),
+                risk: Some(-1.0),
+                probability: Some(0.9), // a native value: never overwritten
+                note: String::new(),
+            },
+        ];
+        let out = converted_rows(&c, &rows);
+        assert!(approx(
+            out[0].probability.unwrap(),
+            1.0 / (1.0 + (-2.0f64).exp())
+        ));
+        assert_eq!(out[1].probability, None);
+        assert_eq!(out[1].note, "no value at the landmark");
+        assert!(approx(out[2].probability.unwrap(), 0.9), "native kept");
+        // A constant map gives its rate for every score.
+        let rate = Conversion {
+            kind: "constant".to_string(),
+            a: 0.0,
+            b: 0.0,
+            mu: 0.0,
+            sd: 1.0,
+            n: 10,
+            rate: Some(0.4),
+        };
+        let out = converted_rows(&rate, &rows);
+        assert!(approx(out[0].probability.unwrap(), 0.4));
+        assert_eq!(out[1].probability, None);
+        // Coverage recomputes over the converted rows (the plan's finalize).
+        let cov = coverage(&out);
+        assert_eq!((cov.scored, cov.eligible), (2, 3));
+    }
+
+    /// TEST-EE-22 (ITEM-6 fixtures): the new fixtures are synthetic in-test
+    /// constructs — ids `S0000..`/`P0001..`, every number a literal, no
+    /// data-folder path.
+    #[test]
+    fn item6_fixtures_are_synthetic_in_test_constructs() {
+        let synthetic = |id: &str| {
+            id.len() == 5
+                && (id.starts_with('S') || id.starts_with('P'))
+                && id[1..].chars().all(|c| c.is_ascii_digit())
+        };
+        for id in ["S0000", "S0008", "P0001", "P0006"] {
+            assert!(synthetic(id), "{id} is a synthetic id");
+        }
+        assert!(!synthetic("Q0001"), "a non-fixture letter is refused");
     }
 }
