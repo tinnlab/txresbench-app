@@ -1,0 +1,207 @@
+// @vitest-environment jsdom
+/**
+ * TEST-INT-11 — screen A (`pages/StartPage.tsx`, ITEM-4): the three path
+ * cards (board Start.dc.html, DEC-13 copy), the learn card's LIVE runnable
+ * count (CONS-UI-INTAKE-3) with its number-free degradation, the intent
+ * navigation (pretrained/reuse → `/predict-files`, train → `/study`), the
+ * banner's study link, "Try the example data" (DEC-20: train intent + both
+ * example files adopted → `/files`), and the web-URL notice (DEC-12:
+ * `http:` dev/web only).
+ *
+ * The ApiClient is mocked (the txrlist/Datasets-store precedent); the
+ * example-data path runs the REAL PROV-FV-7 decode against inline CSV
+ * fixtures, and the REAL TxrIntake store is asserted for the intent/file
+ * side effects. Navigation is read through a location probe inside the
+ * `MemoryRouter` the page renders in.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { MemoryRouter, useLocation } from 'react-router-dom'
+import { StartPage } from './StartPage'
+import { useTxrIntakeStore } from '../stores/TxrIntake.store'
+
+const api = vi.hoisted(() => ({
+  list: vi.fn(),
+  example: vi.fn(),
+}))
+vi.mock('@/api-client', () => ({
+  ApiClient: {
+    MethodCatalogue: {
+      list: api.list,
+    },
+    FileValidation: {
+      example: api.example,
+    },
+  },
+}))
+
+/** The committed synthetic example shape (PROV-FV-4: ids J0000../P0001..). */
+const PATIENTS_CSV = [
+  'patient_id,pfs_days,pfs_event,os_days,os_event,age,sex,stage',
+  'P0001,560,0,560,0,72,F,IV',
+  'P0002,230,1,231,1,64,M,III',
+].join('\n')
+
+const MEASUREMENTS_CSV = [
+  'patient_id,day,marker,value,unit',
+  'P0001,0,ldh,210,U/L',
+  'P0001,14,LDH,260,U/L',
+  'P0001,28,cea,3.1,ng/mL',
+].join('\n')
+
+/** The live runnable-set size the mocked list response reports. */
+const RUNNABLE_COUNT = 359
+
+function LocationProbe() {
+  const location = useLocation()
+  return <div data-testid="route-location">{location.pathname}</div>
+}
+
+function renderStart() {
+  return render(
+    <MemoryRouter initialEntries={['/']}>
+      <StartPage />
+      <LocationProbe />
+    </MemoryRouter>,
+  )
+}
+
+const routeAt = () => screen.getByTestId('route-location').textContent
+const store = () => useTxrIntakeStore.getState()
+
+beforeEach(() => {
+  api.list.mockReset()
+  api.example.mockReset()
+  api.list.mockResolvedValue({ methods: [], total: RUNNABLE_COUNT })
+  api.example.mockImplementation(({ kind }: { kind: 'patients' | 'measurements' }) =>
+    Promise.resolve(kind === 'patients' ? PATIENTS_CSV : MEASUREMENTS_CSV),
+  )
+  window.localStorage.clear()
+  store().reset()
+})
+
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
+
+describe('StartPage (TEST-INT-11, ITEM-4)', () => {
+  it('renders the three path cards with the board copy', () => {
+    renderStart()
+    const pretrained = screen.getByTestId('txr-intake-start-card-pretrained')
+    expect(within(pretrained).getByText('Quickest')).toBeTruthy()
+    expect(within(pretrained).getByText(/Predict with a pretrained model/)).toBeTruthy()
+    expect(within(pretrained).getByText('Recommended to start')).toBeTruthy()
+    expect(screen.getByText('Most flexible')).toBeTruthy()
+    expect(screen.getByText('Learn from my data')).toBeTruthy()
+    expect(screen.getByText('Repeat a past analysis')).toBeTruthy()
+    expect(screen.getByText('Use a model I saved')).toBeTruthy()
+    // The pretrained + saved cards carry no count clause (OWNER-7) — the
+    // board's model counts are design examples (DEC-13).
+    expect(screen.queryByText(/^\d+ models/)).toBeNull()
+    expect(screen.getByText('The app checks your file and shows which models can run')).toBeTruthy()
+  })
+
+  it('renders the live runnable method count on the learn card', async () => {
+    renderStart()
+    await waitFor(() => {
+      expect(screen.getByText(`${RUNNABLE_COUNT} methods, with the time each will take`)).toBeTruthy()
+    })
+    expect(api.list).toHaveBeenCalledTimes(1)
+    expect(api.list).toHaveBeenCalledWith({ runnable: true })
+  })
+
+  it('degrades to the number-free line when the count fetch fails', async () => {
+    api.list.mockRejectedValueOnce(new Error('catalogue down'))
+    renderStart()
+    await waitFor(() => {
+      expect(screen.getByText('Methods, with the time each will take')).toBeTruthy()
+    })
+    expect(screen.queryByText(new RegExp(`${RUNNABLE_COUNT} methods`))).toBeNull()
+  })
+
+  it('sets the intent and navigates from each card button', () => {
+    renderStart()
+    fireEvent.click(
+      within(screen.getByTestId('txr-intake-start-card-pretrained')).getByRole('button'),
+    )
+    expect(routeAt()).toBe('/predict-files')
+    expect(store().intent).toBe('pretrained')
+    expect(store().mode).toBe('predict')
+
+    fireEvent.click(within(screen.getByTestId('txr-intake-start-card-train')).getByRole('button'))
+    expect(routeAt()).toBe('/study')
+    expect(store().intent).toBe('train')
+    expect(store().mode).toBe('study')
+
+    fireEvent.click(within(screen.getByTestId('txr-intake-start-card-reuse')).getByRole('button'))
+    expect(routeAt()).toBe('/predict-files')
+    expect(store().intent).toBe('reuse')
+    expect(store().mode).toBe('predict')
+  })
+
+  it('links the banner clause to the study screen', () => {
+    renderStart()
+    fireEvent.click(screen.getByTestId('txr-intake-start-unsure'))
+    expect(routeAt()).toBe('/study')
+  })
+
+  it('Try the example data: train intent + both example files adopted, then /files (DEC-20)', async () => {
+    renderStart()
+    fireEvent.click(screen.getByTestId('txr-intake-start-example'))
+
+    await waitFor(() => {
+      expect(routeAt()).toBe('/files')
+    })
+    expect(api.example).toHaveBeenCalledTimes(2)
+    expect(api.example).toHaveBeenCalledWith({ kind: 'patients' })
+    expect(api.example).toHaveBeenCalledWith({ kind: 'measurements' })
+    expect(store().intent).toBe('train')
+    expect(store().mode).toBe('study')
+
+    const patients = store().patients
+    expect(patients?.source.name).toBe('patients_example.csv')
+    expect(patients?.table.columns).toEqual([
+      'patient_id',
+      'pfs_days',
+      'pfs_event',
+      'os_days',
+      'os_event',
+      'age',
+      'sex',
+      'stage',
+    ])
+    expect(patients?.table.rows).toHaveLength(2)
+    expect(patients?.table.rows[1]?.[0]).toBe('P0002')
+
+    const measurements = store().measurements
+    expect(measurements?.source.name).toBe('measurements_example.csv')
+    expect(measurements?.table.rows).toHaveLength(3)
+    expect(measurements?.table.rows[2]?.[2]).toBe('cea')
+  })
+
+  it('renders the web-URL notice only on a http: server context (DEC-12)', () => {
+    renderStart()
+    expect(screen.getByTestId('txr-intake-web-url')).toBeTruthy()
+    expect(screen.getByText(/This app is also available at/)).toBeTruthy()
+    cleanup()
+
+    // The desktop shell's scheme (and a file:// context) renders nothing.
+    const original = window.location
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      writable: true,
+      value: { ...original, protocol: 'txr:', origin: 'txr://app' },
+    })
+    try {
+      renderStart()
+      expect(screen.queryByTestId('txr-intake-web-url')).toBeNull()
+    } finally {
+      Object.defineProperty(window, 'location', {
+        configurable: true,
+        writable: true,
+        value: original,
+      })
+    }
+  })
+})
