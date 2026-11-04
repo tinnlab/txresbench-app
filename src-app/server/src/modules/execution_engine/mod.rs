@@ -33,6 +33,7 @@
 //! loop follows the `provenance::verify` finally-close discipline. The engine
 //! adds its own per-run lane semaphore (the board's "run N at a time").
 
+pub mod envmanifest;
 pub mod types;
 
 use std::sync::Arc;
@@ -73,6 +74,21 @@ impl AppModule for ExecutionEngineModule {
     }
 
     fn init(&mut self, ctx: &ModuleContext) -> Result<(), Box<dyn std::error::Error>> {
+        // The manifest boot check (INV-4 / PROV-method-env-images-1): parse +
+        // validate the embedded env manifest ONCE here, exactly like the
+        // `method_catalogue` module's boot check. An error is the boxed named
+        // refusal (`envmanifest::ManifestLoadError`) — module init errors
+        // abort the boot, so a malformed first-party manifest is never
+        // silently degraded into a per-method ENV_UNKNOWN forest. The
+        // catalogue facts (`envmanifest::facts_for`) need no boot-time call:
+        // the provider validates its own embed at ITS init (order 47, before
+        // this module).
+        envmanifest::ensure_loaded().map_err(|e| {
+            Box::<dyn std::error::Error>::from(format!(
+                "method env manifest load failed: {e}"
+            ))
+        })?;
+
         // The pool the engine's repository + drive loop bind (CONS-EE-1/1b).
         // The inquiry/verification of the module-owned tables belongs to the
         // repository (query-time) and to the migration set applied at boot
@@ -80,7 +96,10 @@ impl AppModule for ExecutionEngineModule {
         // query, never as a silent empty.
         let pool: Arc<SqlitePool> = ctx.db_pool.clone();
         self.pool = Some(pool);
-        tracing::info!("execution engine module initialized");
+        tracing::info!(
+            envs = envmanifest::envs().len(),
+            "execution engine module initialized (embedded env manifest loaded)"
+        );
         Ok(())
     }
 
