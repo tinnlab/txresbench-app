@@ -90,9 +90,22 @@ nothing.
   not rise with the event — with IPCW weights at the survival horizon, an
   inner 3-fold cross-fit for the methods that learn from outcomes, and the
   `RECALIBRATION_FAILED` typing when no usable (risk, label) pair exists;
-  `migrations/2026102600{01..04}_*.sql` —
+  `repository.rs` — the persistence seam: the typed repository over the four
+  tables (runs with their JSON facts, per-method rows, the run-scoped log with
+  one global `seq` per run + the `MAX_LOG_LINES_PER_RUN` oldest-trim, the
+  per-state aggregate counts query, the sticky analysis-config singleton,
+  delete/clear with the schema's cascade) and the `produced_models` seam the
+  saved-model consumer binds (a method row is a produced model only when its
+  record is complete — digest, dir, env pair, trained cohort, size);
+  `reconcile.rs` — the boot reconcile (DEC-17): a run the previous process
+  left in `creating|preparing|running|finishing` turns `failed` +
+  `INTERRUPTED` at boot, its in-flight method rows fail with the code, a
+  finished method's result stays readable, one "interrupted on restart" line
+  lands, nothing auto-reruns (idempotent; armed exactly once per process);
+  `migrations/2026102600{01..05}_*.sql` —
   the four module-owned tables the consumers bind (`txr_runs`,
-  `txr_run_methods`, `txr_run_logs`, `txr_app_config`).
+  `txr_run_methods`, `txr_run_logs`, `txr_app_config`) + the additive `0005`
+  produced-model columns of `txr_run_methods`.
 
 ## Data hygiene rules
 

@@ -124,6 +124,22 @@ pub enum TxrRunStatus {
     Stopped,
 }
 
+impl TxrRunStatus {
+    /// The stored/wire spelling (the repository binds this string; reading
+    /// back goes through the serde derive — ONE vocabulary, one spelling).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TxrRunStatus::Creating => "creating",
+            TxrRunStatus::Preparing => "preparing",
+            TxrRunStatus::Running => "running",
+            TxrRunStatus::Finishing => "finishing",
+            TxrRunStatus::Finished => "finished",
+            TxrRunStatus::Failed => "failed",
+            TxrRunStatus::Stopped => "stopped",
+        }
+    }
+}
+
 /// The per-method state machine (INV-2 — one sandboxed environment per method,
 /// a method never runs twice in the same stack). `cannot_run` is the
 /// classification verdict from run start (eligibility reason kept on the row);
@@ -142,6 +158,22 @@ pub enum TxrMethodState {
     CannotRun,
 }
 
+impl TxrMethodState {
+    /// The stored/wire spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TxrMethodState::Waiting => "waiting",
+            TxrMethodState::Downloading => "downloading",
+            TxrMethodState::Running => "running",
+            TxrMethodState::Finished => "finished",
+            TxrMethodState::Failed => "failed",
+            TxrMethodState::Stopped => "stopped",
+            TxrMethodState::Skipped => "skipped",
+            TxrMethodState::CannotRun => "cannot_run",
+        }
+    }
+}
+
 /// The method's execution phase (the F screen's phase column): `env` =
 /// environment ensure (base + layer), `fit`/`predict` = the two contract
 /// steps of one `run_method_in_stack` call (X1), `done` = terminal.
@@ -155,6 +187,19 @@ pub enum TxrPhase {
     Done,
 }
 
+impl TxrPhase {
+    /// The stored/wire spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TxrPhase::Idle => "idle",
+            TxrPhase::Env => "env",
+            TxrPhase::Fit => "fit",
+            TxrPhase::Predict => "predict",
+            TxrPhase::Done => "done",
+        }
+    }
+}
+
 /// Where a method column's probabilities come from (INV-3: never mixed
 /// silently in one column; U2 recalibration is recorded per method).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -165,6 +210,17 @@ pub enum TxrProbSource {
     None,
 }
 
+impl TxrProbSource {
+    /// The stored/wire spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TxrProbSource::Native => "native",
+            TxrProbSource::Recalibrated => "recalibrated",
+            TxrProbSource::None => "none",
+        }
+    }
+}
+
 /// The outcome task a method ran as (the enumerated vocabulary ui-results
 /// normalizes — CONS-UR-8; a run can mix tasks, `task_is_mixed` says so).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -173,6 +229,17 @@ pub enum TxrTask {
     Pfs,
     Os,
     Response,
+}
+
+impl TxrTask {
+    /// The stored/wire spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TxrTask::Pfs => "pfs",
+            TxrTask::Os => "os",
+            TxrTask::Response => "response",
+        }
+    }
 }
 
 /// The run's endpoint verb (board E's outcome choice).
@@ -200,6 +267,16 @@ pub enum TxrRunMode {
     Reuse,
 }
 
+impl TxrRunMode {
+    /// The stored/wire spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TxrRunMode::Train => "train",
+            TxrRunMode::Reuse => "reuse",
+        }
+    }
+}
+
 /// A log line's stream (engine-authored state lines vs the method's captured
 /// stdout/stderr).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -208,6 +285,17 @@ pub enum TxrLogStream {
     Stdout,
     Stderr,
     Engine,
+}
+
+impl TxrLogStream {
+    /// The stored/wire spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TxrLogStream::Stdout => "stdout",
+            TxrLogStream::Stderr => "stderr",
+            TxrLogStream::Engine => "engine",
+        }
+    }
 }
 
 /// The engine-owned failure / terminal codes (PROV-EE-3). The delivery-time

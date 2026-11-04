@@ -36,6 +36,8 @@
 pub mod bundle;
 pub mod envmanifest;
 pub mod predictions;
+pub mod reconcile;
+pub mod repository;
 pub mod types;
 
 use std::sync::Arc;
@@ -97,11 +99,19 @@ impl AppModule for ExecutionEngineModule {
         // (CONS-EE-2) — a schema the migration chain does not deliver fails at
         // query, never as a silent empty.
         let pool: Arc<SqlitePool> = ctx.db_pool.clone();
-        self.pool = Some(pool);
+        self.pool = Some(pool.clone());
         tracing::info!(
             envs = envmanifest::envs().len(),
             "execution engine module initialized (embedded env manifest loaded)"
         );
+
+        // Boot reconcile of runs interrupted by an app restart (ITEM-7 /
+        // DEC-17): one detached pass (never awaited, so the openapi-gen
+        // lazy-pool path is not blocked — a failed query there only logs;
+        // the pass is data-idempotent, so a second module instance is a
+        // no-op). The admitted `jobs` rows are closed by the jobs module's
+        // own boot reconcile, never here.
+        reconcile::spawn_boot_reconcile((*pool).clone());
         Ok(())
     }
 
@@ -137,6 +147,105 @@ mod tests {
     use ziee_framework::MODULE_ENTRIES;
 
     use super::*;
+
+    /// TEST-EE-01 (node half, the part ITEM-1 note (b) defers to the item
+    /// owning the reconcile): module init SPAWNS the boot reconcile — a run
+    /// left `running` by a previous process turns `failed` + `INTERRUPTED`
+    /// shortly after init, its in-flight method row marks failed, and the
+    /// "interrupted on restart" line lands (DEC-17; nothing auto-reruns).
+    #[tokio::test]
+    async fn init_spawns_the_boot_reconcile() {
+        use crate::modules::execution_engine::repository::test_support::module_pool;
+        use crate::modules::execution_engine::repository::{NewMethod, NewRun, TxrRepository};
+        use crate::modules::execution_engine::types::{
+            RunConfig, TxrMethodState, TxrRunCounts, TxrRunFileNames, TxrRunInputSummary,
+            TxrRunMode, TxrRunStatus,
+        };
+        use std::time::Duration;
+
+        let pool = module_pool().await;
+        let repo = TxrRepository::new(pool.clone());
+        let run = NewRun {
+            id: uuid::Uuid::new_v4(),
+            created_at: None,
+            status: TxrRunStatus::Running,
+            mode: TxrRunMode::Train,
+            config: RunConfig::default(),
+            input_summary: TxrRunInputSummary {
+                patients: Some(4),
+                predict_patients: None,
+                markers: 2,
+                events: Some(1),
+                file_names: TxrRunFileNames {
+                    patients: Some("patients.csv".to_string()),
+                    measurements: "measurements.csv".to_string(),
+                    predict_measurements: None,
+                },
+            },
+            model_ids: Vec::new(),
+            method_count: 1,
+            counts: TxrRunCounts {
+                finished: 0,
+                failed: 0,
+                stopped: 0,
+                skipped: 0,
+                cannot_run: 0,
+                running: 1,
+                downloading: 0,
+                waiting: 0,
+            },
+            dir: "/app-data/analysis-2026-10-21-1002-abcd1234".to_string(),
+            memory_total_bytes: None,
+            cpus: Some(4),
+            seed: 1,
+        };
+        repo.insert_run(&run).await.expect("run");
+        repo.insert_method(&NewMethod {
+            id: uuid::Uuid::new_v4(),
+            run_id: run.id,
+            method_id: "dynforest".to_string(),
+            label: "dynforest".to_string(),
+            version: "2.0.1".to_string(),
+            group: "dynamic_risk".to_string(),
+            state: TxrMethodState::Running,
+            bytes_total: Some(250 * 1024 * 1024),
+        })
+        .await
+        .expect("method");
+
+        let cfg: ziee_core::ServerConfig = serde_norway::from_str(
+            "database:\n  path: \"\"\nserver:\n  host: \"127.0.0.1\"\n  port: 3100\n  api_prefix: \"/api\"\njwt:\n  secret: \"test-secret-for-the-engine-module-over-32-chars\"\n  issuer: \"cytoanalyst\"\n  audience: \"cytoanalyst-api\"\n  access_token_expiry_hours: 24\n  refresh_token_expiry_days: 30\n",
+        )
+        .expect("test config parses");
+        let ctx = ModuleContext::new(
+            Arc::new(pool),
+            Arc::new(cfg),
+            Arc::new(()) as Arc<dyn std::any::Any + Send + Sync>,
+        );
+        let mut module = ExecutionEngineModule::new();
+        module.init(&ctx).expect("init succeeds");
+
+        // The spawned reconcile is a background task: wait (bounded) for the
+        // run to turn failed, then assert the full interruption record.
+        let run_id = run.id;
+        let mut row = None;
+        for _ in 0..250 {
+            if let Some(r) = repo.get_run(run_id).await.expect("get") {
+                if r.status == "failed" {
+                    row = Some(r);
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let row = row.expect("the boot reconcile must fail the interrupted run");
+        assert_eq!(row.error.as_deref(), Some("interrupted on restart"));
+        let methods = repo.methods_for_run(run_id).await.expect("methods");
+        assert_eq!(methods.len(), 1);
+        assert_eq!(methods[0].state, "failed");
+        assert_eq!(methods[0].reason_code.as_deref(), Some("INTERRUPTED"));
+        assert_eq!(repo.log_total(run_id).await.expect("logs"), 1);
+    }
 
     /// TEST-EE-01 (node half): `execution_engine` is registered under
     /// `MODULE_ENTRIES` exactly once, with the declared order 49, and no OTHER
@@ -214,10 +323,13 @@ mod tests {
         assert!(module2.pool.is_some());
     }
 
-    /// TEST-EE-01 (node half): the four module-owned migrations are declared
-    /// next to the module with the plan's exact version numbers PROV-EE-10 and
+    /// TEST-EE-01 (node half): the module-owned migrations are declared
+    /// next to the module with the plan's version numbers PROV-EE-10 and
     /// each one creates its table (the build composes them into the merged
     /// chain — the table names are the seams the repository + consumers bind).
+    /// The fifth file (`0005`) is the reconcile growth GAP-B/GAP-C: the
+    /// produced-model columns on `txr_run_methods` — an additive `ALTER`, no
+    /// new table (the table set stays PROV-EE-10's four).
     #[test]
     fn migrations_declare_the_four_txr_tables() {
         use std::path::PathBuf;
@@ -274,6 +386,22 @@ mod tests {
                 "202610260003",
                 "202610260004"
             ]
+        );
+
+        // The reconcile growth: 0005 adds the produced-model columns to
+        // `txr_run_methods` (no CREATE TABLE — the four-table set holds).
+        let grown = dir.join("202610260005_txr_run_methods_model_fields.sql");
+        let grown_sql = std::fs::read_to_string(&grown)
+            .unwrap_or_else(|e| panic!("migration 0005 must exist: {} ({e})", grown.display()));
+        assert!(
+            grown_sql.contains("ALTER TABLE txr_run_methods ADD COLUMN trained_on_patients")
+                && grown_sql.contains("ALTER TABLE txr_run_methods ADD COLUMN size_bytes")
+                && grown_sql.contains("ALTER TABLE txr_run_methods ADD COLUMN own_auc"),
+            "0005 carries the three produced-model fields as ALTERs"
+        );
+        assert!(
+            !grown_sql.contains("CREATE TABLE"),
+            "0005 declares no table — the table set stays PROV-EE-10's four"
         );
     }
 }
