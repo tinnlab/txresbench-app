@@ -74,7 +74,16 @@ nothing.
   functions) plus per-method marker sets (the package's count rule: a method
   named on a fixed marker list gets exactly its markers; a method without one
   takes the file's markers or refuses) and the task-compatibility check (the
-  provider's reason codes verbatim); `migrations/2026102600{01..04}_*.sql` —
+  provider's reason codes verbatim) — and the module's ONE CSV codec
+  (`parse_csv`/`parse_number`, the package's `table.cpp` port, used to write
+  the bundle files and to read the methods' outputs); `predictions.rs` — the
+  method-output ingest (ITEM-5): parse + validate `/output/predictions.csv`
+  and `/output/run.json` against the contract 2.0 `method_output` rules, the
+  per-method chance-column selection (`p_<outcome>_H<h>` for the survival
+  outcomes, `p_<outcome>` for the response ones), the per-patient abstention
+  notes and coverage, and the `PREDICTION_INVALID` failure typing (pure
+  functions; the port of `method.cpp::validate_method_output`);
+  `migrations/2026102600{01..04}_*.sql` —
   the four module-owned tables the consumers bind (`txr_runs`,
   `txr_run_methods`, `txr_run_logs`, `txr_app_config`).
 

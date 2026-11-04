@@ -35,6 +35,7 @@
 
 pub mod bundle;
 pub mod envmanifest;
+pub mod predictions;
 pub mod types;
 
 use std::sync::Arc;

@@ -64,6 +64,15 @@
 //!
 //! Pure functions: no I/O, no state — the same canonical bundle + settings
 //! yield byte-equal files (the caller writes them under the run dir).
+//!
+//! ### The CSV codec
+//!
+//! `bundle.rs` also carries the module's ONE CSV codec — [`parse_csv`] +
+//! [`parse_number`] + [`CsvTable`] — a port of the package's `table.cpp`
+//! (`parse_csv`/`parse_number`/`Table`), used both to WRITE the bundle files
+//! and (ITEM-5) to READ the methods' `/output/predictions.csv`: one
+//! RFC-4180 reader, one pandas-missing-cell vocabulary, both directions
+//! byte-compatible with the package's files.
 
 use std::collections::{BTreeMap, HashSet};
 use std::fmt;
@@ -750,10 +759,14 @@ fn csv_cell(s: &str) -> String {
     }
 }
 
-/// One CSV table: header + rows of string cells (the package's `Table` +
-/// `to_csv`; an empty string = the contract's empty cell).
+/// One CSV table: header + rows of string cells (the package's `Table`, its
+/// `to_csv` for the write side and `parse_csv` for the read side; an empty
+/// string = the contract's empty cell). This is the module's ONE CSV codec:
+/// `bundle.rs` writes the bundle files with it and `predictions.rs` (ITEM-5)
+/// parses the methods' `predictions.csv` with it — the package's single
+/// `Table` type does both directions too.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct CsvTable {
+pub struct CsvTable {
     names: Vec<String>,
     cols: Vec<Vec<String>>,
 }
@@ -796,6 +809,175 @@ impl CsvTable {
         }
         out
     }
+
+    /// The row count (the package's `Table::nrow`).
+    pub(crate) fn nrow(&self) -> usize {
+        self.cols.first().map(|c| c.len()).unwrap_or(0)
+    }
+
+    /// The header, in file order.
+    pub(crate) fn names(&self) -> &[String] {
+        &self.names
+    }
+
+    /// The column index of a name, or None.
+    pub(crate) fn find(&self, name: &str) -> Option<usize> {
+        self.names.iter().position(|n| n == name)
+    }
+
+    pub(crate) fn has(&self, name: &str) -> bool {
+        self.find(name).is_some()
+    }
+
+    /// A column's cells (row-order), or None when the column is absent.
+    pub(crate) fn col(&self, name: &str) -> Option<&[String]> {
+        self.find(name).map(|j| self.cols[j].as_slice())
+    }
+}
+
+/// A CSV parse refusal (the package's `parse_csv` throws the same two
+/// errors: a row whose cell count does not match the header, and a file that
+/// ends inside a quoted cell).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CsvError {
+    detail: String,
+}
+
+impl CsvError {
+    pub(crate) fn detail(&self) -> &str {
+        &self.detail
+    }
+}
+
+impl fmt::Display for CsvError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.detail)
+    }
+}
+
+impl std::error::Error for CsvError {}
+
+/// The cell texts pandas reads as missing (the package's `is_missing_cell`
+/// list, verbatim): blank, NA, NaN, N/A, null, None — a prediction cell that
+/// says one of these is a missing cell, never a number.
+const MISSING_CELLS: [&str; 19] = [
+    "", "#N/A", "#N/A N/A", "#NA", "-1.#IND", "-1.#QNAN", "-NaN", "-nan", "1.#IND", "1.#QNAN",
+    "<NA>", "N/A", "NA", "NULL", "NaN", "None", "n/a", "nan", "null",
+];
+
+/// Parse a CSV cell the way the package's `parse_number` (and so pandas'
+/// `to_numeric(errors="coerce")`) did: leading/trailing spaces, tabs and
+/// carriage returns are trimmed, the missing-word list and any cell a hex
+/// float could hide in (`x`/`X`/`p`/`P` — the package's guard against
+/// `strtod` reading `0x1p3`) are NOT numbers, and a complete number —
+/// including `inf`/`nan`, which the CALLER must reject as non-finite — is
+/// Some. `None` therefore means "not a number", not "missing", so the
+/// contract's "a number is infinite or not a number" refusal can name it.
+pub(crate) fn parse_number(cell: &str) -> Option<f64> {
+    let mut a = 0;
+    let mut b = cell.len();
+    while a < b && (cell.as_bytes()[a] == b' ' || cell.as_bytes()[a] == b'\t') {
+        a += 1;
+    }
+    while b > a
+        && (cell.as_bytes()[b - 1] == b' ' || cell.as_bytes()[b - 1] == b'\t' || cell.as_bytes()[b - 1] == b'\r')
+    {
+        b -= 1;
+    }
+    let s = &cell[a..b];
+    if MISSING_CELLS.contains(&s) || s.bytes().any(|c| matches!(c, b'x' | b'X' | b'p' | b'P')) {
+        return None;
+    }
+    s.parse::<f64>().ok()
+}
+
+/// Parse RFC-4180 CSV text (the package's `parse_csv`): a UTF-8 BOM is
+/// skipped, cells are quoted with doubled quotes, `\r\n` / `\r` / `\n`
+/// records all end a row, a fully blank line is not a record, and a row
+/// whose cell count differs from the header's is refused.
+pub(crate) fn parse_csv(text: &str) -> Result<CsvTable, CsvError> {
+    let mut records: Vec<Vec<String>> = Vec::new();
+    let mut rec: Vec<String> = Vec::new();
+    let mut cell = String::new();
+    let mut in_quotes = false;
+    let mut any = false;
+    let mut i = 0;
+    if text.len() >= 3
+        && text.as_bytes()[0] == 0xEF
+        && text.as_bytes()[1] == 0xBB
+        && text.as_bytes()[2] == 0xBF
+    {
+        i = 3;
+    }
+    let mut end_record = |rec: &mut Vec<String>, cell: &mut String, any: &mut bool| {
+        rec.push(std::mem::take(cell));
+        if *any {
+            records.push(std::mem::take(rec));
+        }
+        rec.clear();
+        *any = false;
+    };
+    let mut iter = text[i..].chars().peekable();
+    while let Some(c) = iter.next() {
+        if in_quotes {
+            if c == '"' {
+                if iter.peek() == Some(&'"') {
+                    cell.push('"');
+                    iter.next();
+                } else {
+                    in_quotes = false;
+                }
+            } else {
+                cell.push(c);
+            }
+        } else if c == '"' {
+            in_quotes = true;
+            any = true;
+        } else if c == ',' {
+            rec.push(std::mem::take(&mut cell));
+            any = true;
+        } else if c == '\n' {
+            end_record(&mut rec, &mut cell, &mut any);
+        } else if c == '\r' {
+            if iter.peek() == Some(&'\n') {
+                iter.next();
+            }
+            end_record(&mut rec, &mut cell, &mut any);
+        } else {
+            cell.push(c);
+            any = true;
+        }
+    }
+    if in_quotes {
+        return Err(CsvError {
+            detail: "CSV ends inside a quoted cell".to_string(),
+        });
+    }
+    if any {
+        end_record(&mut rec, &mut cell, &mut any);
+    }
+    let mut table = CsvTable::new(&[]);
+    let Some(header) = records.first() else {
+        return Ok(table);
+    };
+    table.names = header.clone();
+    table.cols = vec![Vec::new(); header.len()];
+    for (r, row) in records.iter().enumerate().skip(1) {
+        if row.len() != header.len() {
+            return Err(CsvError {
+                detail: format!(
+                    "CSV row {} has {} cells, header has {}",
+                    r + 1,
+                    row.len(),
+                    header.len()
+                ),
+            });
+        }
+        for (j, cell) in row.iter().enumerate() {
+            table.cols[j].push(cell.clone());
+        }
+    }
+    Ok(table)
 }
 
 /// Write the draws table (`long.csv` columns): sorted stable by
