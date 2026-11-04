@@ -39,6 +39,7 @@ pub mod orchestrator;
 pub mod predictions;
 pub mod reconcile;
 pub mod repository;
+pub mod routes;
 pub mod runtime;
 pub mod types;
 
@@ -152,10 +153,27 @@ impl AppModule for ExecutionEngineModule {
     }
 
     fn register_routes(&self, router: ApiRouter) -> ApiRouter {
-        // The 15 endpoints of PROV-EE-2..EE-8 register here under `/api/txr/*`
+        // The 16 endpoints of PROV-EE-2..EE-8 register here under `/api/txr/*`
         // (DEC-1: the free app-owned namespace) with the reused `JobsUse`
-        // permission (DEC-14 — no new permission, A10 not triggered).
-        router
+        // permission (DEC-14 — no new permission, A10 not triggered). The
+        // module-installed runtime/env/executor state rides as a layered
+        // extension (the `sync` resolver precedent); pool comes from the
+        // framework's own `Extension<SqlitePool>`.
+        let state = routes::TxrRouteState {
+            runtime: self
+                .runtime
+                .clone()
+                .expect("init installs the RunRuntime before register_routes"),
+            env: self
+                .env
+                .clone()
+                .expect("init installs the env provider before register_routes"),
+            executor: self
+                .executor
+                .clone()
+                .expect("init installs the executor before register_routes"),
+        };
+        router.merge(routes::txr_routes(state))
     }
 }
 

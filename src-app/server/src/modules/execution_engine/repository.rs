@@ -135,6 +135,12 @@ impl RunRow {
     }
 }
 
+/// Parse the stored RunConfig JSON (the detail + predictions routes read the
+/// row's config without re-deriving it — the stored value IS the run's).
+pub(crate) fn parse_config(cell: &Json) -> Result<RunConfig, AppError> {
+    json_parse(cell, "txr_runs.config")
+}
+
 /// Serialize a `uuid[]` batch into the JSON-hex form the SQLite membership
 /// predicates consume: a JSON array of 32-char lowercase hex strings,
 /// compared against a 16-byte BLOB column through `unhex()` — the ITEM-15
@@ -710,6 +716,83 @@ impl TxrRepository {
         .await
         .map_err(AppError::database_error)?;
         Ok(())
+    }
+
+    /// Any run still in a live state (creating/preparing/running/finishing)
+    /// — PROV-EE-2's `409 RUN_ALREADY_ACTIVE` guard: the single-user app
+    /// drives ONE analysis at a time, so a second create (or a rerun) while
+    /// one is live is refused rather than silently over-subscribing the
+    /// sandbox lanes. A boot-reconciled run is terminal (`failed` +
+    /// `INTERRUPTED`), so a fresh boot never sees a stale live row.
+    pub async fn active_run(&self) -> Result<Option<Uuid>, AppError> {
+        let id = sqlx::query_scalar!(
+            r#"SELECT id as "id: Uuid" FROM txr_runs
+               WHERE status IN ('creating', 'preparing', 'running', 'finishing')
+               ORDER BY created_at DESC LIMIT 1"#,
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(AppError::database_error)?;
+        Ok(id)
+    }
+
+    /// The mid-run lane change (CONS-UI-RUN-11 / TEST-EE-34): the run row's
+    /// `config.at_a_time` is replaced (the lane gate itself is the drive's —
+    /// this write is the persisted config the summary serves).
+    pub async fn update_run_at_a_time(&self, id: Uuid, at_a_time: u32) -> Result<(), AppError> {
+        let row = self.get_run(id).await?.ok_or_else(|| {
+            AppError::new(
+                axum::http::StatusCode::NOT_FOUND,
+                "RUN_NOT_FOUND",
+                format!("no run {id}"),
+            )
+        })?;
+        let mut config = json_parse::<serde_json::Value>(&row.config, "txr_runs.config")?;
+        config["at_a_time"] = serde_json::json!(at_a_time);
+        sqlx::query!(
+            "UPDATE txr_runs SET config = $2 WHERE id = $1",
+            id,
+            config,
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(AppError::database_error)?;
+        Ok(())
+    }
+
+    /// Every run's id + dir (the clear-all route's prune surface — the rows
+    /// cascade on delete, the FOLDERS are this list).
+    pub async fn all_run_dirs(&self) -> Result<Vec<(Uuid, String)>, AppError> {
+        let rows = sqlx::query!(
+            r#"SELECT id as "id: Uuid", dir FROM txr_runs ORDER BY created_at DESC"#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(AppError::database_error)?;
+        Ok(rows.into_iter().map(|r| (r.id, r.dir)).collect())
+    }
+
+    /// The run's LAST `n` log lines, ascending (the SSE replay-on-connect's
+    /// "last 200 log lines" — a seq-ascending page cannot express the tail).
+    pub async fn logs_tail(&self, run_id: Uuid, n: u32) -> Result<Vec<LogRow>, AppError> {
+        let n = n as i64;
+        let mut rows = sqlx::query_as!(
+            LogRow,
+            r#"SELECT id as "id: Uuid", run_id as "run_id: Uuid", seq,
+                      method_id, stream, content,
+                      created_at as "created_at: DateTime<Utc>"
+               FROM txr_run_logs
+               WHERE run_id = $1
+               ORDER BY seq DESC
+               LIMIT $2"#,
+            run_id,
+            n,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(AppError::database_error)?;
+        rows.reverse();
+        Ok(rows)
     }
 
     /// Delete one run (+ its method rows + log rows — the cascade is the

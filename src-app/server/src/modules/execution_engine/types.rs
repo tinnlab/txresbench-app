@@ -81,10 +81,13 @@ pub const DEFAULT_LOOK_AHEAD_DAY: f64 = 238.0;
 /// The default lane count (board E's "run 3 at a time").
 pub const DEFAULT_AT_A_TIME: u32 = 3;
 
-/// The 15 route doc ids (PROV-EE-2..EE-8, the routes' `.id(...)` seam). Exactly
+/// The 16 route doc ids (PROV-EE-2..EE-8, the routes' `.id(...)` seam). Exactly
 /// this list is pinned by TEST-EE-02 so the generated client surface
 /// (`Txr.*` operation ids in `apiEndpoints.ts`) is one stable vocabulary.
-pub const ROUTE_DOC_IDS: [&str; 15] = [
+/// `Txr.setAtATime` is the mid-run lane-change route GROWN at reconcile
+/// (CONS-UI-RUN-11; ITEM-10's number 16 — the plan's ITEM-10 text names 15
+/// and the older 13/14 route counts are the pre-growth shapes).
+pub const ROUTE_DOC_IDS: [&str; 16] = [
     "Txr.createRun",
     "Txr.listRuns",
     "Txr.getRun",
@@ -94,6 +97,7 @@ pub const ROUTE_DOC_IDS: [&str; 15] = [
     "Txr.stopMethod",
     "Txr.skipMethod",
     "Txr.rerunRun",
+    "Txr.setAtATime",
     "Txr.deleteRun",
     "Txr.clearRuns",
     "Txr.getPredictions",
@@ -590,7 +594,11 @@ pub struct TxrRunDetail {
     pub methods: Vec<TxrRunMethod>,
     pub models: Vec<TxrProducedModel>,
     pub log_lines: u64,
-    pub estimate: TxrRunEstimate,
+    /// The create-time estimate facts (PROV-MC-6's shape); `None` = never
+    /// computed (a provider failure / an empty queued set — a display fact
+    /// the consumer renders only when the run carries it, D36; never a
+    /// fabricated zero).
+    pub estimate: Option<TxrRunEstimate>,
     /// Detected at run start (DEC-12) — the F header's "on <n> CPUs".
     pub cpus: u32,
     /// Read once at run start (Linux /proc/meminfo), display-only (DEC-12).
@@ -1217,13 +1225,15 @@ mod tests {
     }
 
     /// TEST-EE-02: the route doc ids are exactly the plan's 15
-    /// `Txr.*` operation ids (the generated client surface's identity).
+    /// `Txr.*` operation ids plus the reconcile-grown `Txr.setAtATime`
+    /// (the 16-route surface — the generated client's identity).
     #[test]
     fn route_doc_ids_are_the_plan_set() {
-        assert_eq!(ROUTE_DOC_IDS.len(), 15);
+        assert_eq!(ROUTE_DOC_IDS.len(), 16);
         assert_eq!(ROUTE_DOC_IDS[0], "Txr.createRun");
         assert_eq!(ROUTE_DOC_IDS[3], "Txr.streamRun");
-        assert_eq!(ROUTE_DOC_IDS[14], "Txr.updateAnalysisConfig");
+        assert_eq!(ROUTE_DOC_IDS[9], "Txr.setAtATime");
+        assert_eq!(ROUTE_DOC_IDS[15], "Txr.updateAnalysisConfig");
     }
 
     /// TEST-EE-02: the wire defaults — a partial `RunConfig` and a partial
@@ -1302,11 +1312,11 @@ mod tests {
             methods: Vec::new(),
             models: Vec::new(),
             log_lines: 3,
-            estimate: TxrRunEstimate {
+            estimate: Some(TxrRunEstimate {
                 total_seconds: 840.0,
                 schedule_seconds: 300.0,
                 estimate_quality: TimingQuality::Estimate,
-            },
+            }),
             cpus: 4,
             memory_total_bytes: None,
             outcome: TxrRunOutcome {

@@ -29,6 +29,7 @@ pub mod conformance;
 // (its project/dataset scope arms are now account-aware transitively).
 pub mod authz;
 mod permissions;
+pub use permissions::JobsUse;
 mod routes;
 pub mod runner;
 // `runtime` is `pub` so a run this module does not SCHEDULE can still be stopped

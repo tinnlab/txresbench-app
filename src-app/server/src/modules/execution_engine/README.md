@@ -62,6 +62,34 @@ python3 scripts/method-catalogue/gen_method_catalogue.py --check
 Both `--check` runs validate parity against the committed bytes; both write
 nothing.
 
+## HTTP surface (`/api/txr/*`, gated by the reused `jobs::use`)
+
+- `POST /txr/runs` (202 `TxrRunSummary`) — create + start a run (400
+  `EMPTY_METHODS`/`EMPTY_MODELS`/`INVALID_*`, 404 `METHOD_NOT_FOUND`, 409
+  `RUN_ALREADY_ACTIVE`); `GET /txr/runs` (paged) + `GET /txr/runs/{id}`
+  (the detail: summary + method rows + produced models + estimate + outcome
+  facts; 404 `RUN_NOT_FOUND`).
+- `GET /txr/runs/{id}/stream` — the SSE stream (status / method / log /
+  progress / prediction frames; replay-on-connect + terminal close).
+- `GET /txr/runs/{id}/logs` — paged log lines (`after_seq`, `method_id`,
+  `limit` ≤ 2000).
+- `POST /txr/runs/{id}/{stop,methods/{method_id}/stop,methods/{method_id}/
+  skip,rerun,at-a-time}` + `DELETE /txr/runs/{id}` + `DELETE /txr/runs` —
+  the control surface (202/200/204; 400/404/409 per the plan's closed error
+  vocabulary).
+- `GET/POST /txr/runs/{id}/predictions(.csv)` — the heatmap data + the CSV
+  download, served while the run is active (finished methods only; 409
+  `PREDICTIONS_UNAVAILABLE` when none).
+- `GET/PUT /txr/analysis-config` — the sticky E-screen settings singleton.
+
+The per-method columns the predictions surface serves are the ENGINE'S
+recorded artifact `output/<method_id>/chance.csv`
+(`patient_id,probability,note` — 6-decimal probability, empty when abstained,
+the per-patient note escaped): the container's raw `predictions.csv` stays the
+provenance, while the recorded column carries what the engine actually served
+after validation and — for a method with no native probability — after the
+conversion band (the raw file cannot be re-derived into it).
+
 ## Files
 
 - `mod.rs` — the `AppModule` (`ModuleEntry` order 49), init wiring, the
@@ -105,7 +133,12 @@ nothing.
   `runtime.rs` — the per-run SSE + run-stop registry (the `jobs::runtime`
   mirror for one analysis run: the module-installed broadcaster the stream
   route subscribes to and the run-stop channel the drive loop selects on,
-  capped at `TxrLimits::SSE_CLIENTS_MAX`); `orchestrator.rs` — the run
+  capped at `TxrLimits::SSE_CLIENTS_MAX`); `routes.rs` — the 16 `Txr.*`
+  endpoints (PROV-EE-2..EE-8 + the at-a-time GROWTH): thin transport over
+  the repository + the orchestrator seams, the typed-body extractor (the
+  named-400 mapping), the SSE replay contract and the predictions read
+  engines over the recorded `chance.csv` columns;
+  `orchestrator.rs` — the run
   drive: `start_run` (validate the request, validate + canonicalize the
   in-memory tables once per run, persist the `preparing` row, write the run
   dir + input snapshot, classify every selected method — the providers'

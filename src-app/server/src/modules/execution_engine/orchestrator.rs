@@ -54,7 +54,7 @@ use uuid::Uuid;
 
 use ziee_core::AppError;
 
-use super::repository::{MethodPatch, NewMethod, NewRun, TxrRepository};
+use super::repository::{MethodPatch, NewMethod, NewRun, RunRow, TxrRepository};
 use super::runtime::RunRuntime;
 use super::types::{
     CreateRunRequest, EngineReasonCode, RunConfig, TxrCoverage, TxrLimits, TxrLogStream,
@@ -1134,6 +1134,16 @@ impl StackMethodExecutor {
         };
         let coverage = super::predictions::coverage(&rows);
 
+        // The recorded chance column (ITEM-10's PROV-EE-7 read surface:
+        // `output/<method_id>/chance.csv` — the assembled per-patient column
+        // the heatmap + CSV download serve; the raw container output stays
+        // the provenance). A write failure is a typed method failure — a
+        // finished method whose column was never recorded would be a hole in
+        // the results surface (INV-2, never a silent skip).
+        if let Err(e) = super::predictions::write_chance_column(&ctx.run_dir, &method_id, &rows) {
+            return Ok(failed_outcome(io_failure(&e)));
+        }
+
         // The produced model: ONLY a `saves_model` method has a `/model` tree
         // (the fit's `model_out_digest`); a combined method's "model" is its
         // train files — recorded in the bundle, never a TxrProducedModel
@@ -1388,6 +1398,12 @@ impl StackMethodExecutor {
             (TxrProbSource::None, rows)
         };
         let coverage = super::predictions::coverage(&rows);
+
+        // The recorded chance column (ITEM-10's read surface — same as the
+        // train arm; the reuse column is this run's own).
+        if let Err(e) = super::predictions::write_chance_column(&ctx.run_dir, &method_id, &rows) {
+            return Ok(failed_outcome(io_failure(&e)));
+        }
 
         Ok(MethodOutcome {
             state: TxrMethodState::Finished,
@@ -2459,6 +2475,287 @@ pub fn prune_run_dir(dir: &Path) -> Result<(), AppError> {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// The control surface (ITEM-10's route seams — PROV-EE-6): every stop/skip/
+// lane change resolves the LIVE drive first (the drive owns its method tasks
+// and cancel channels — INV-2's "stop/skip" machine), then falls back to a
+// DB transition for a run whose drive is not in THIS process (a boot-
+// reconcile leftover, or the create-race window between the runtime
+// registration and the drive registration). The fallback is the SAME typing
+// the drive applies, so a consumer cannot observe one heading from the drive
+// and another from the fallback.
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn run_not_found(run_id: Uuid) -> AppError {
+    AppError::new(
+        axum::http::StatusCode::NOT_FOUND,
+        "RUN_NOT_FOUND",
+        format!("no run {run_id}"),
+    )
+}
+
+fn method_not_found(run_id: Uuid, method_id: &str) -> AppError {
+    AppError::new(
+        axum::http::StatusCode::NOT_FOUND,
+        "METHOD_NOT_FOUND",
+        format!("method {method_id:?} is not part of run {run_id}"),
+    )
+}
+
+fn method_not_active(run_id: Uuid, method_id: &str, state: &str) -> AppError {
+    AppError::new(
+        axum::http::StatusCode::CONFLICT,
+        "METHOD_NOT_ACTIVE",
+        format!("method {method_id:?} of run {run_id} is already {state}"),
+    )
+}
+
+fn method_not_skippable(run_id: Uuid, method_id: &str, state: &str) -> AppError {
+    AppError::new(
+        axum::http::StatusCode::CONFLICT,
+        "METHOD_NOT_SKIPPABLE",
+        format!("method {method_id:?} of run {run_id} is {state}"),
+    )
+}
+
+fn run_not_active(run_id: Uuid, state: &str) -> AppError {
+    AppError::new(
+        axum::http::StatusCode::CONFLICT,
+        "RUN_NOT_ACTIVE",
+        format!("run {run_id} is already {state}"),
+    )
+}
+
+/// Stop the whole run (stop-all). The drive path signals the run-stop +
+/// every method flag + the admitted jobs' cancels; the DB fallback marks
+/// running → `stopped` + `ABORTED` and waiting/downloading → `skipped`
+/// (PROV-EE-6's typing), finalizes the run `stopped`, and logs "stopped by
+/// the user". An already-stopped run is an idempotent success; `finished`/
+/// `failed` is `409 RUN_NOT_ACTIVE`.
+pub async fn stop_run(
+    pool: sqlx::SqlitePool,
+    runtime: Arc<RunRuntime>,
+    run_id: Uuid,
+) -> Result<(), AppError> {
+    let repo = TxrRepository::new(pool.clone());
+    let Some(row) = repo.get_run(run_id).await? else {
+        return Err(run_not_found(run_id));
+    };
+    match row.status()? {
+        TxrRunStatus::Stopped => return Ok(()),
+        TxrRunStatus::Finished | TxrRunStatus::Failed => {
+            return Err(run_not_active(run_id, row.status()?.as_str()));
+        }
+        _ => {}
+    }
+    if let Some(drive) = drive_for(run_id) {
+        drive.signal_stop_all();
+        return Ok(());
+    }
+    // A run-stop ALREADY registered on the runtime (a drive about to start —
+    // the create-race window): the signal reaches the drive's run_stop
+    // channel, so the DB fallback must not pre-empt the drive's own finalize.
+    if runtime.signal_cancel(run_id) {
+        return Ok(());
+    }
+    stop_run_from_db(&repo, &row).await
+}
+
+async fn stop_run_from_db(repo: &TxrRepository, row: &RunRow) -> Result<(), AppError> {
+    let run_id = row.id;
+    for m in repo.methods_for_run(run_id).await? {
+        match m.state()? {
+            TxrMethodState::Waiting | TxrMethodState::Downloading => {
+                repo.patch_method(
+                    run_id,
+                    &m.method_id,
+                    &MethodPatch {
+                        state: Some(TxrMethodState::Skipped),
+                        finished_at: Some(Utc::now()),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+            }
+            TxrMethodState::Running => {
+                repo.patch_method(
+                    run_id,
+                    &m.method_id,
+                    &MethodPatch {
+                        state: Some(TxrMethodState::Stopped),
+                        reason: Some(TxrRunReason::from_engine(
+                            EngineReasonCode::Aborted,
+                            "stopped by the user",
+                        )),
+                        finished_at: Some(Utc::now()),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+            }
+            _ => {}
+        }
+    }
+    let counts = repo.method_counts(run_id).await?;
+    let elapsed = row
+        .started_at
+        .map(|s| (Utc::now() - s).num_seconds().max(0) as u64)
+        .unwrap_or(0);
+    repo.finish_run(
+        run_id,
+        TxrRunStatus::Stopped,
+        elapsed,
+        &counts,
+        counts.finished > 0,
+        None,
+    )
+    .await?;
+    repo.append_log(run_id, None, TxrLogStream::Engine, "stopped by the user")
+        .await?;
+    Ok(())
+}
+
+/// Stop ONE method (waiting/downloading/running → `stopped` + `ABORTED`; a
+/// terminal row is `409 METHOD_NOT_ACTIVE`, PROV-EE-6's wording).
+pub async fn stop_method(
+    pool: sqlx::SqlitePool,
+    run_id: Uuid,
+    method_id: &str,
+) -> Result<(), AppError> {
+    let repo = TxrRepository::new(pool.clone());
+    let Some(_row) = repo.get_run(run_id).await? else {
+        return Err(run_not_found(run_id));
+    };
+    let Some(m) = repo.get_method(run_id, method_id).await? else {
+        return Err(method_not_found(run_id, method_id));
+    };
+    match m.state()? {
+        TxrMethodState::Finished
+        | TxrMethodState::Failed
+        | TxrMethodState::Skipped
+        | TxrMethodState::Stopped
+        | TxrMethodState::CannotRun => {
+            return Err(method_not_active(run_id, method_id, m.state()?.as_str()));
+        }
+        _ => {}
+    }
+    if let Some(drive) = drive_for(run_id) {
+        if drive.signal_stop_method(method_id) {
+            return Ok(());
+        }
+    }
+    repo.patch_method(
+        run_id,
+        method_id,
+        &MethodPatch {
+            state: Some(TxrMethodState::Stopped),
+            reason: Some(TxrRunReason::from_engine(
+                EngineReasonCode::Aborted,
+                "stopped by the user",
+            )),
+            finished_at: Some(Utc::now()),
+            ..Default::default()
+        },
+    )
+    .await?;
+    repo.append_log(run_id, Some(method_id), TxrLogStream::Engine, "stopped by the user")
+        .await?;
+    let counts = repo.method_counts(run_id).await?;
+    repo.update_run_counts(run_id, &counts).await?;
+    Ok(())
+}
+
+/// Skip ONE method (waiting/downloading only — a running method is never
+/// skippable, `409 METHOD_NOT_SKIPPABLE`: it must be stopped first,
+/// PROV-EE-6).
+pub async fn skip_method(
+    pool: sqlx::SqlitePool,
+    run_id: Uuid,
+    method_id: &str,
+) -> Result<(), AppError> {
+    let repo = TxrRepository::new(pool.clone());
+    let Some(_row) = repo.get_run(run_id).await? else {
+        return Err(run_not_found(run_id));
+    };
+    let Some(m) = repo.get_method(run_id, method_id).await? else {
+        return Err(method_not_found(run_id, method_id));
+    };
+    match m.state()? {
+        TxrMethodState::Running => {
+            return Err(method_not_skippable(run_id, method_id, "running"));
+        }
+        TxrMethodState::Finished
+        | TxrMethodState::Failed
+        | TxrMethodState::Skipped
+        | TxrMethodState::Stopped
+        | TxrMethodState::CannotRun => {
+            return Err(method_not_skippable(run_id, method_id, m.state()?.as_str()));
+        }
+        _ => {}
+    }
+    if let Some(drive) = drive_for(run_id) {
+        if drive.signal_skip_method(method_id) {
+            return Ok(());
+        }
+    }
+    repo.patch_method(
+        run_id,
+        method_id,
+        &MethodPatch {
+            state: Some(TxrMethodState::Skipped),
+            finished_at: Some(Utc::now()),
+            ..Default::default()
+        },
+    )
+    .await?;
+    repo.append_log(run_id, Some(method_id), TxrLogStream::Engine, "skipped")
+        .await?;
+    let counts = repo.method_counts(run_id).await?;
+    repo.update_run_counts(run_id, &counts).await?;
+    Ok(())
+}
+
+/// The mid-run lane change (CONS-UI-RUN-11): outside 1..=8 is
+/// `400 INVALID_AT_A_TIME` (reject, never silently clamp — the estimate
+/// provider's own posture); a running method is never interrupted (the
+/// drive's lane gate applies the new count from the next admission); the
+/// run row's config is rewritten so the summary serves the change.
+pub async fn set_at_a_time_run(
+    pool: sqlx::SqlitePool,
+    run_id: Uuid,
+    at_a_time: u32,
+) -> Result<TxrRunSummary, AppError> {
+    if !(TxrLimits::AT_A_TIME_MIN..=TxrLimits::AT_A_TIME_MAX).contains(&at_a_time) {
+        return Err(AppError::new(
+            axum::http::StatusCode::BAD_REQUEST,
+            "INVALID_AT_A_TIME",
+            format!(
+                "at_a_time must be within {}..={}, got {}",
+                TxrLimits::AT_A_TIME_MIN,
+                TxrLimits::AT_A_TIME_MAX,
+                at_a_time
+            ),
+        ));
+    }
+    let repo = TxrRepository::new(pool.clone());
+    let Some(row) = repo.get_run(run_id).await? else {
+        return Err(run_not_found(run_id));
+    };
+    match row.status()? {
+        TxrRunStatus::Finished | TxrRunStatus::Failed | TxrRunStatus::Stopped => {
+            return Err(run_not_active(run_id, row.status()?.as_str()));
+        }
+        _ => {}
+    }
+    if let Some(drive) = drive_for(run_id) {
+        drive.set_at_a_time(at_a_time);
+    }
+    repo.update_run_at_a_time(run_id, at_a_time).await?;
+    repo.get_run_summary(run_id)
+        .await?
+        .ok_or_else(|| AppError::internal_error("run row vanished after lane change"))
+}
+
 async fn start_run_inner(
     pool: sqlx::SqlitePool,
     runtime: Arc<RunRuntime>,
@@ -2470,6 +2767,20 @@ async fn start_run_inner(
 ) -> Result<TxrRunSummary, AppError> {
     req.validate().map_err(request_error_to_app)?;
     check_methods_known(&req)?;
+
+    // PROV-EE-2's `409 RUN_ALREADY_ACTIVE`: the app drives ONE analysis at a
+    // time (a second create — or a rerun of a STILL-ACTIVE run — would spawn
+    // a second lane fleet against the same inputs). A boot-reconciled run is
+    // terminal, so a fresh boot never trips this on a stale row; the check
+    // lives in `start_run_inner` so the rerun path inherits it (ITEM-10's
+    // route seam; TEST-EE-30's 409 arm).
+    if let Some(active) = TxrRepository::new(pool.clone()).active_run().await? {
+        return Err(AppError::new(
+            axum::http::StatusCode::CONFLICT,
+            "RUN_ALREADY_ACTIVE",
+            format!("a run is already active: {active}"),
+        ));
+    }
 
     // Validate + canonicalize first (the in-memory tables; the CPU work is off
     // the executor) — the run row's `input_summary` then carries the
@@ -3867,7 +4178,8 @@ mod tests {
     use crate::modules::execution_engine::predictions;
     use crate::modules::execution_engine::repository::TxrRepository;
     use crate::modules::execution_engine::types::{
-        self, CreateRunRequest, RunConfig, TxrMethodEnv, TxrRunInput, TxrRunMode, TxrTask,
+        self, CreateRunRequest, RunConfig, TxrMethodEnv, TxrRunFileNames, TxrRunInput,
+        TxrRunInputSummary, TxrRunMode, TxrTask,
     };
     use crate::modules::file_validator::types::{ParsedTable, ParsedTableSource, TableFormat};
     use crate::modules::sandbox::method_env::{EnvKind, MethodEnvState};
@@ -5704,5 +6016,306 @@ mod tests {
             "fit + 3×(fit + predict) for a fitted method"
         );
         drop(calls);
+    }
+
+    // ── ITEM-10: the control surface (PROV-EE-6) + the 409 guards ──────────
+
+    /// A run row + method rows inserted DIRECTLY (no drive registered — the
+    /// DB-fallback path's precondition).
+    async fn seed_live_run(
+        pool: &SqlitePool,
+        states: &[(&str, TxrMethodState)],
+        status: TxrRunStatus,
+    ) -> uuid::Uuid {
+        let repo = TxrRepository::new(pool.clone());
+        let id = uuid::Uuid::new_v4();
+        let dir = run_dir_root().join(run_dir_name(Utc::now(), id));
+        repo.insert_run(&NewRun {
+            id,
+            created_at: None,
+            status,
+            mode: TxrRunMode::Train,
+            config: RunConfig::default(),
+            input_summary: TxrRunInputSummary {
+                patients: Some(4),
+                predict_patients: None,
+                markers: 2,
+                events: Some(1),
+                file_names: TxrRunFileNames {
+                    patients: Some("patients.csv".to_string()),
+                    measurements: "measurements.csv".to_string(),
+                    predict_measurements: None,
+                },
+            },
+            model_ids: Vec::new(),
+            method_count: states.len() as u32,
+            counts: TxrRunCounts {
+                finished: 0,
+                failed: 0,
+                stopped: 0,
+                skipped: 0,
+                cannot_run: 0,
+                running: 0,
+                downloading: 0,
+                waiting: 0,
+            },
+            dir: dir.display().to_string(),
+            memory_total_bytes: None,
+            cpus: Some(4),
+            seed: 1,
+            estimate: None,
+        })
+        .await
+        .expect("run inserts");
+        for (mid, state) in states {
+            repo.insert_method(&NewMethod {
+                id: uuid::Uuid::new_v4(),
+                run_id: id,
+                method_id: mid.to_string(),
+                label: mid.to_string(),
+                version: "2.0.1".to_string(),
+                group: "dynamic_risk".to_string(),
+                state: *state,
+                bytes_total: Some(0),
+            })
+            .await
+            .expect("method inserts");
+        }
+        id
+    }
+
+    #[tokio::test]
+    async fn create_and_rerun_are_refused_while_an_active_run_exists() {
+        let _g = rootfs::scoped_data_root(test_data_dir("active-409"));
+        let pool = merged_pool().await;
+        let runtime = Arc::new(RunRuntime::new());
+        let env = Arc::new(FakeEnv::new(Duration::from_millis(50)));
+        let executor = Arc::new(FakeExecutor::new(Duration::from_millis(50)));
+        let req = cohort_run_request(&["ctdna-tf-four-group"], 2, false);
+        let first = start_run(
+            pool.clone(),
+            runtime.clone(),
+            env.clone(),
+            executor.clone(),
+            owner(),
+            req.clone(),
+        )
+        .await
+        .expect("create");
+
+        let second = start_run(
+            pool.clone(),
+            runtime.clone(),
+            env.clone(),
+            executor.clone(),
+            owner(),
+            req,
+        )
+        .await;
+        let err = second.expect_err("a second create while one is active");
+        assert_eq!(err.error_code(), "RUN_ALREADY_ACTIVE");
+        assert_eq!(err.status_code(), 409);
+
+        // The rerun path inherits the guard (rerunning a STILL-ACTIVE run
+        // would spawn a second fleet).
+        let rerun = rerun_run(
+            pool.clone(),
+            runtime.clone(),
+            env.clone(),
+            executor.clone(),
+            owner(),
+            first.id,
+        )
+        .await;
+        let err = rerun.expect_err("rerun of an active run");
+        assert_eq!(err.error_code(), "RUN_ALREADY_ACTIVE");
+
+        // After the run turns terminal the same rerun succeeds.
+        let repo = TxrRepository::new(pool.clone());
+        let _ = wait_terminal(&repo, first.id).await;
+        let rerun = rerun_run(pool, runtime, env, executor, owner(), first.id)
+            .await
+            .expect("rerun of a terminal run");
+        let _ = wait_terminal(&repo, rerun.id).await;
+    }
+
+    #[tokio::test]
+    async fn stop_all_db_path_marks_methods_and_finalizes_stopped() {
+        let pool = merged_pool().await;
+        let runtime = Arc::new(RunRuntime::new());
+        let run_id = seed_live_run(
+            &pool,
+            &[
+                ("m-running", TxrMethodState::Running),
+                ("m-waiting", TxrMethodState::Waiting),
+                ("m-downloading", TxrMethodState::Downloading),
+            ],
+            TxrRunStatus::Running,
+        )
+        .await;
+
+        stop_run(pool.clone(), runtime.clone(), run_id)
+            .await
+            .expect("stop all");
+
+        let repo = TxrRepository::new(pool.clone());
+        let row = repo.get_run(run_id).await.expect("get").expect("row");
+        assert_eq!(row.status().expect("parses"), TxrRunStatus::Stopped);
+        let methods = repo.methods_for_run(run_id).await.expect("methods");
+        let by_id: std::collections::HashMap<_, _> = methods
+            .into_iter()
+            .map(|m| (m.method_id.clone(), m))
+            .collect();
+        assert_eq!(by_id["m-running"].state, "stopped");
+        assert_eq!(
+            by_id["m-running"].reason_code.as_deref(),
+            Some("ABORTED"),
+            "running → stopped + ABORTED (PROV-EE-6)"
+        );
+        assert_eq!(by_id["m-waiting"].state, "skipped");
+        assert_eq!(by_id["m-downloading"].state, "skipped");
+        let (logs, _, _) = repo.logs_page(run_id, None, 0, 10).await.expect("logs");
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].content, "stopped by the user");
+
+        // Idempotent stop of the stopped run.
+        stop_run(pool.clone(), runtime.clone(), run_id)
+            .await
+            .expect("stop again is a no-op success");
+        // Stop of a FINISHED run is 409 RUN_NOT_ACTIVE.
+        repo.finish_run(
+            run_id,
+            TxrRunStatus::Finished,
+            1,
+            &repo.method_counts(run_id).await.expect("counts"),
+            false,
+            None,
+        )
+        .await
+        .expect("finish");
+        let err = stop_run(pool, runtime, run_id).await.expect_err("terminal stop");
+        assert_eq!(err.error_code(), "RUN_NOT_ACTIVE");
+        assert_eq!(err.status_code(), 409);
+    }
+
+    #[tokio::test]
+    async fn stop_skip_method_db_paths_and_their_refusals() {
+        let pool = merged_pool().await;
+        let runtime = Arc::new(RunRuntime::new());
+        let run_id = seed_live_run(
+            &pool,
+            &[
+                ("m-running", TxrMethodState::Running),
+                ("m-waiting", TxrMethodState::Waiting),
+                ("m-done", TxrMethodState::Finished),
+            ],
+            TxrRunStatus::Running,
+        )
+        .await;
+        let repo = TxrRepository::new(pool.clone());
+
+        // Skip of a waiting method → skipped; skip of a RUNNING method is
+        // refused (it must be stopped first).
+        skip_method(pool.clone(), run_id, "m-waiting")
+            .await
+            .expect("skip waiting");
+        let m = repo
+            .get_method(run_id, "m-waiting")
+            .await
+            .expect("get")
+            .expect("row");
+        assert_eq!(m.state, "skipped");
+        let err = skip_method(pool.clone(), run_id, "m-running")
+            .await
+            .expect_err("skip running");
+        assert_eq!(err.error_code(), "METHOD_NOT_SKIPPABLE");
+        assert_eq!(err.status_code(), 409);
+        let err = skip_method(pool.clone(), run_id, "m-done")
+            .await
+            .expect_err("skip finished");
+        assert_eq!(err.error_code(), "METHOD_NOT_SKIPPABLE");
+
+        // Stop of the running method → stopped + ABORTED; stop of a finished
+        // method is refused.
+        stop_method(pool.clone(), run_id, "m-running")
+            .await
+            .expect("stop running");
+        let m = repo
+            .get_method(run_id, "m-running")
+            .await
+            .expect("get")
+            .expect("row");
+        assert_eq!(m.state, "stopped");
+        assert_eq!(m.reason_code.as_deref(), Some("ABORTED"));
+        let err = stop_method(pool.clone(), run_id, "m-done")
+            .await
+            .expect_err("stop finished");
+        assert_eq!(err.error_code(), "METHOD_NOT_ACTIVE");
+
+        // Unknown method / run answers 404.
+        let err = stop_method(pool.clone(), run_id, "nope")
+            .await
+            .expect_err("unknown method");
+        assert_eq!(err.error_code(), "METHOD_NOT_FOUND");
+        assert_eq!(err.status_code(), 404);
+        let err = skip_method(pool.clone(), uuid::Uuid::new_v4(), "m-running")
+            .await
+            .expect_err("unknown run");
+        assert_eq!(err.error_code(), "RUN_NOT_FOUND");
+    }
+
+    #[tokio::test]
+    async fn at_a_time_is_gated_and_updates_the_persisted_config() {
+        let pool = merged_pool().await;
+        let runtime = Arc::new(RunRuntime::new());
+        let run_id = seed_live_run(&pool, &[("m-waiting", TxrMethodState::Waiting)], TxrRunStatus::Running)
+            .await;
+
+        let err = set_at_a_time_run(pool.clone(), run_id, 0)
+            .await
+            .expect_err("below the floor");
+        assert_eq!(err.error_code(), "INVALID_AT_A_TIME");
+        assert_eq!(err.status_code(), 400);
+
+        let summary = set_at_a_time_run(pool.clone(), run_id, 5)
+            .await
+            .expect("lane change");
+        assert_eq!(summary.config.at_a_time, 5);
+        let m = TxrRepository::new(pool.clone())
+            .get_run(run_id)
+            .await
+            .expect("get")
+            .expect("row");
+        assert_eq!(
+            TxrRepository::new(pool.clone())
+                .get_run_summary(run_id)
+                .await
+                .expect("summary")
+                .expect("row")
+                .config
+                .at_a_time,
+            5,
+            "the persisted config serves the change"
+        );
+
+        // A terminal run is 409 RUN_NOT_ACTIVE.
+        TxrRepository::new(pool.clone())
+            .finish_run(
+                run_id,
+                TxrRunStatus::Finished,
+                1,
+                &TxrRepository::new(pool.clone())
+                    .method_counts(run_id)
+                    .await
+                    .expect("counts"),
+                false,
+                None,
+            )
+            .await
+            .expect("finish");
+        let err = set_at_a_time_run(pool, run_id, 3)
+            .await
+            .expect_err("terminal lane change");
+        assert_eq!(err.error_code(), "RUN_NOT_ACTIVE");
     }
 }

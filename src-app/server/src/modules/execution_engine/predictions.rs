@@ -574,6 +574,41 @@ pub fn coverage(rows: &[PredictionRow]) -> TxrCoverage {
     }
 }
 
+/// The per-method normalized column artifact — `output/<method_id>/chance.csv`
+/// (ITEM-10's read surface of PROV-EE-7): the assembled per-patient chance
+/// column the heatmap + the CSV download serve, written by the executor at
+/// the point the rows are final.
+///
+/// The container's raw `predictions.csv` stays the provenance (TEST-EE-18
+/// pins it + `run.json`); THIS file is the engine's record of what it
+/// validated and, where the method wrote no native probability, what it
+/// recalibrated — the converted column cannot be re-derived from the raw
+/// file (the conversion's training scores are per-call), so the records it
+/// served are persisted instead of recomputed at read time. The shape is the
+/// module's own: `patient_id,probability,note` — 6-decimal probability, empty
+/// when abstained, the per-patient note (skip reason / explicit abstention)
+/// escaped by the module's one codec ([`crate::modules::execution_engine::bundle::csv_cell`]).
+pub fn write_chance_column(
+    run_dir: &std::path::Path,
+    method_id: &str,
+    rows: &[PredictionRow],
+) -> std::io::Result<()> {
+    let out_dir = run_dir.join("output").join(method_id);
+    std::fs::create_dir_all(&out_dir)?;
+    let mut csv = String::from("patient_id,probability,note\n");
+    for r in rows {
+        csv.push_str(&crate::modules::execution_engine::bundle::csv_cell(&r.patient_id));
+        csv.push(',');
+        if let Some(p) = r.probability {
+            csv.push_str(&format!("{p:.6}"));
+        }
+        csv.push(',');
+        csv.push_str(&crate::modules::execution_engine::bundle::csv_cell(&r.note));
+        csv.push('\n');
+    }
+    std::fs::write(out_dir.join("chance.csv"), csv)
+}
+
 /// The outcome-scoped risk values of every scored patient, in `expected`
 /// order (the package's `take_scores` band over `risk_col`): the
 /// per-outcome risks ITEM-6's conversion fitting reads off the training
@@ -2044,6 +2079,61 @@ mod tests {
         assert_eq!(task_outcome(TxrTask::Pfs), "progression");
         assert_eq!(task_outcome(TxrTask::Os), "death");
         assert_eq!(task_outcome(TxrTask::Response), "no_response");
+    }
+
+    /// The recorded chance-column artifact (ITEM-10's PROV-EE-7 read
+    /// surface) round-trips the rows it was written from: the output dir
+    /// placement, the 6-decimal probability, the empty cell for an
+    /// abstention and the codec-escaped notes (incl. a comma-carrying one).
+    #[test]
+    fn chance_column_round_trips_through_the_recorded_artifact() {
+        let run_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/txr-execution-engine-item10/chance-column")
+            .join(uuid::Uuid::new_v4().simple().to_string());
+        let rows = vec![
+            PredictionRow {
+                patient_id: "P001".to_string(),
+                risk: Some(0.5),
+                probability: Some(0.666666666),
+                note: String::new(),
+            },
+            PredictionRow {
+                patient_id: "P002".to_string(),
+                risk: None,
+                probability: None,
+                note: "fewer than 3 draws by day 56".to_string(),
+            },
+            PredictionRow {
+                patient_id: "P003".to_string(),
+                risk: Some(0.2),
+                probability: None,
+                note: "a note, with a comma and \"quotes\"".to_string(),
+            },
+        ];
+        write_chance_column(&run_dir, "dynforest", &rows).expect("writes");
+        let table = parse_csv(
+            &std::fs::read_to_string(
+                run_dir.join("output").join("dynforest").join("chance.csv"),
+            )
+            .expect("chance.csv present"),
+        )
+        .expect("parses with the module codec");
+
+        let ids = table.col("patient_id").expect("patient_id column");
+        assert_eq!(ids, &["P001", "P002", "P003"]);
+        let probs = table.col("probability").expect("probability column");
+        assert_eq!(probs[0], "0.666667");
+        assert!(probs[1].is_empty(), "abstained → the cell is empty");
+        assert!(probs[2].is_empty(), "no native probability → empty here");
+        let notes = table.col("note").expect("note column");
+        assert!(notes[0].is_empty());
+        assert_eq!(notes[1], "fewer than 3 draws by day 56");
+        assert_eq!(
+            notes[2],
+            "a note, with a comma and \"quotes\"",
+            "the codec's escaping survives the round trip"
+        );
+        let _ = std::fs::remove_dir_all(&run_dir);
     }
 
     // ── the risk band is outcome-scoped ─────────────────────────────────────
