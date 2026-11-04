@@ -175,3 +175,37 @@ conversion band (the raw file cannot be re-derived into it).
 - No new crate, no new permission, no guard edit: the engine reuses the jobs
   module's admission/cancel machinery, the sandbox module's run seam and the
   providers' typed in-process surfaces.
+
+## Verification
+
+The module's suite + the guard legs, targeted to this node (the aggregate
+`just check` gate's full run stays the landing gate; on a shared box run these
+first):
+
+```sh
+# The module's unit suite (in-crate tests of every file above).
+cargo test --lib modules::execution_engine
+
+# The ITEM-11 integration suite (the spawned server + the in-process drive
+# legs; real-stack legs self-skip via target/test-skip-ledger.tsv unless the
+# published layers are staged at the manifest digests).
+cargo test --test integration_tests execution_engine
+
+# The guard legs this node must keep green (no guard file is edited):
+scripts/check-network-allowlist.sh          # INV-5: zero host literal
+scripts/check-no-format-crates.sh           # no `csv`-family crate linked
+scripts/check-guard-integrity.sh            # pins unchanged
+scripts/check-no-study-domain-literals.sh   # pre-existing libs/viz redness
+cargo run --bin cytoanalyst -- --generate-openapi ../ui/openapi
+                                               # TEST-EE-29 parity: the
+                                               # regen must be byte-idempotent
+                                               # (clean `git diff` after;
+                                               # from `src-app/server`, with
+                                               # `config/dev.yaml` in place)
+```
+
+Run the integration tests from `src-app/server`; `TXR_TEST_SCRATCH` relocates
+the fixture run dirs when the build area is elsewhere (never `/tmp`). The
+manifests' embedded-data regeneration runbooks are the ones in the table
+above; the actual methods' outputs come from the published layers, staged by
+the environment pipeline (this module never fetches them itself).

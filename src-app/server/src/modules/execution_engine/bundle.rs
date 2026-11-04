@@ -159,8 +159,8 @@ impl BundleSettings {
     /// The settings for a run config: the engine pins `baseline_max_day` to
     /// the file-validator's default (0) and `seed` to the contract default
     /// (1); `threads` is the per-method lane CPU count DEC-12 computes for
-    /// each method (so it is an argument here — a methods's params.threads is
-    /// never the "unset" placeholder).
+    /// each method (so it is an argument here — a method's params.threads is
+    /// never the unset sentinel).
     pub fn for_run(config: &RunConfig, threads: u32) -> Self {
         Self {
             decision_day: config.decision_day,
