@@ -61,6 +61,7 @@ pub struct ExecutionEngineModule {
     pool: Option<Arc<SqlitePool>>,
     runtime: Option<Arc<runtime::RunRuntime>>,
     env: Option<Arc<dyn orchestrator::EnvProvider>>,
+    executor: Option<Arc<dyn orchestrator::MethodExecutor>>,
 }
 
 impl ExecutionEngineModule {
@@ -69,7 +70,19 @@ impl ExecutionEngineModule {
             pool: None,
             runtime: None,
             env: None,
+            executor: None,
         }
+    }
+
+    /// The run route's executor arm (ITEM-9's real [`orchestrator::MethodExecutor`]
+    /// — the per-method bundle write + `run_method_in_stack` + predictions
+    /// ingest + model collection behind one hook; installed at init).
+    /// Consumed by ITEM-10's routes (the `mcp` field precedent).
+    #[allow(dead_code)]
+    pub(crate) fn executor(&self) -> Arc<dyn orchestrator::MethodExecutor> {
+        self.executor
+            .clone()
+            .expect("init installs the executor (module init order)")
     }
 }
 
@@ -114,11 +127,15 @@ impl AppModule for ExecutionEngineModule {
 
         // The per-run runtime (ITEM-8): one instance per module, the
         // broadcaster + run-stop registry the drive loops and the SSE routes
-        // share. The real env provider is installed the same way (the run
-        // route hands it to `orchestrator::start_run`; ITEM-9's executor is
-        // handed alongside, both made of accessors below).
+        // share. The real env provider + the real method executor (ITEM-9)
+        // are installed the same way — the run route hands both to
+        // `orchestrator::start_run` (the env seam's accessor is the
+        // `jobs::seams` install precedent).
         self.runtime = Some(Arc::new(runtime::RunRuntime::new()));
         self.env = Some(orchestrator::real_env_provider());
+        self.executor = Some(Arc::new(orchestrator::StackMethodExecutor::new(
+            (*pool).clone(),
+        )));
         tracing::info!(
             envs = envmanifest::envs().len(),
             "execution engine module initialized (embedded env manifest loaded)"
@@ -217,6 +234,7 @@ mod tests {
             memory_total_bytes: None,
             cpus: Some(4),
             seed: 1,
+            estimate: None,
         };
         repo.insert_run(&run).await.expect("run");
         repo.insert_method(&NewMethod {

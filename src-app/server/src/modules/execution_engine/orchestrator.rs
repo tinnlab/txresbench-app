@@ -58,21 +58,28 @@ use super::repository::{MethodPatch, NewMethod, NewRun, TxrRepository};
 use super::runtime::RunRuntime;
 use super::types::{
     CreateRunRequest, EngineReasonCode, RunConfig, TxrCoverage, TxrLimits, TxrLogStream,
-    TxrMethodState, TxrPhase, TxrProbSource, TxrRequestError, TxrRunCounts, TxrRunInputSummary,
-    TxrRunReason, TxrRunStatus, TxrRunSummary, TxrTask,
+    TxrMethodState, TxrPhase, TxrProbSource, TxrRequestError, TxrRunCounts, TxrRunEstimate,
+    TxrRunInputSummary, TxrRunReason, TxrRunStatus, TxrRunSummary, TxrTask,
 };
 use crate::modules::file_validator::types::{
     CanonicalBundle, CanonicalPatient, JoinOffer, MarkerMapping, ParsedTable, ValidationMode,
     ValidationRequest, DEFAULT_BASELINE_MAX_DAY,
 };
 use crate::modules::method_catalogue::eligibility;
-use crate::modules::method_catalogue::types::{EligibilityRequest, EligibilityStatus, Method};
+use crate::modules::method_catalogue::estimate;
+use crate::modules::method_catalogue::types::{
+    EligibilityRequest, EligibilityStatus, EstimateRequest, Method, TimingQuality,
+};
 use crate::modules::rootfs;
+use crate::modules::sandbox::backend::{MilestoneFrame, ProgressFrame, ProgressSink};
 use crate::modules::sandbox::method_env::{
     EnvKind, MethodEnvManager, MethodEnvStatus, ProvidedMount,
 };
-use crate::modules::sandbox::stack::{EnvRef, TXR_BASE_REGISTRY_PREFIX};
+use crate::modules::sandbox::stack::{
+    EnvRef, MethodRunMode, MethodRunRequest, MethodRunResult, ModelMount, TXR_BASE_REGISTRY_PREFIX,
+};
 
+use super::bundle;
 use super::envmanifest;
 
 /// How often the drive loop polls an in-flight env download (PLAN ITEM-8:
@@ -331,7 +338,8 @@ pub struct MethodRunContext {
     pub config: RunConfig,
     /// Detected at run start (DEC-12 — the F header's "on N CPUs").
     pub cpus: u32,
-    /// The train-side canonical bundle (train mode).
+    /// The train-side canonical bundle (train mode, or reuse with a patients
+    /// table — its outcomes are then the reuse conversion's training side).
     pub train: Option<Arc<CanonicalBundle>>,
     /// The predict-side canonical bundle (path 2/3).
     pub predict: Option<Arc<CanonicalBundle>>,
@@ -341,6 +349,11 @@ pub struct MethodRunContext {
     pub run_dir: PathBuf,
     /// Whether `/model` outputs are saved (board E's checkbox).
     pub save_models: bool,
+    /// What the drive runs (train method vs a resolved reuse asset).
+    pub target: RunTarget,
+    /// ITEM-9's live channel back into the drive (log lines + progress
+    /// frames — the sandbox sink's frames ride this seam).
+    pub sink: Arc<dyn MethodSink>,
 }
 
 /// The terminal facts the executor learned (the drive loop applies them to
@@ -380,6 +393,68 @@ pub trait MethodExecutor: Send + Sync {
     async fn execute(&self, ctx: MethodRunContext) -> Result<MethodOutcome, AppError>;
 }
 
+/// ITEM-9's live channel back into the drive: one method's wrapper log lines
+/// + progress frames (the sandbox `ProgressSink`'s frames ride this seam —
+/// CONS-EE-5 GAP-1/GAP-2, the log pane streams during the run instead of
+/// buffering to completion). The drive's [`RunMethodSink`] appends to
+/// `txr_run_logs` + broadcasts `log`/`progress` SSE frames; the method row's
+/// `phase` column follows the milestone frames.
+pub trait MethodSink: Send + Sync {
+    /// One wrapper stdout/stderr line (the sandbox's `log.stdout` /
+    /// `log.stderr` frames).
+    fn line(&self, stream: TxrLogStream, content: String);
+    /// A milestone/progress sample (the sandbox's `fit`/`predict` frames).
+    fn progress(&self, phase: TxrPhase, pct: Option<f64>, message: Option<String>);
+}
+
+/// The drive-side [`MethodSink`]: an mpsc channel the drain task consumes
+/// (the executor's calls never block on a DB write — the sink's frames are
+/// enqueued and the drive's drainer appends them, bounded by the module's
+/// log cap + the SSE quota).
+pub(crate) enum SinkMessage {
+    Line {
+        stream: TxrLogStream,
+        content: String,
+    },
+    Progress {
+        phase: TxrPhase,
+        pct: Option<f64>,
+        message: Option<String>,
+    },
+}
+
+#[derive(Clone)]
+pub(crate) struct RunMethodSink {
+    tx: tokio::sync::mpsc::UnboundedSender<SinkMessage>,
+}
+
+impl RunMethodSink {
+    /// The pair the drive wires up per method: the sink (handed to the
+    /// executor) + the drainer's receiver. When the executor drops its
+    /// `Arc` the channel closes and the drain task ends.
+    pub(crate) fn channel() -> (Arc<Self>, tokio::sync::mpsc::UnboundedReceiver<SinkMessage>) {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        (Arc::new(Self { tx }), rx)
+    }
+}
+
+impl MethodSink for RunMethodSink {
+    fn line(&self, stream: TxrLogStream, content: String) {
+        // The line is enqueued and never blocks the executor; the drive's
+        // drainer owns the DB write + the SSE broadcast. A closed channel
+        // (the run is finalizing) drops the line — logs never fail a method.
+        let _ = self.tx.send(SinkMessage::Line { stream, content });
+    }
+
+    fn progress(&self, phase: TxrPhase, pct: Option<f64>, message: Option<String>) {
+        let _ = self.tx.send(SinkMessage::Progress {
+            phase,
+            pct,
+            message,
+        });
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // The run drive + live-drive registry
 // ─────────────────────────────────────────────────────────────────────────────
@@ -405,6 +480,1338 @@ pub enum RunTarget {
     TrainMethod,
     /// Reuse mode: a resolved model asset (DEC-10 — data, not an import).
     ReuseModel { asset: super::types::TxrModelAsset },
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ITEM-9 — the per-method executor: bundle write + the contract 2.0 call
+// orchestration + predictions ingest + model collection (a port of
+// `package/core/src/engine.cpp`'s `fit()` + `predict()`; the plan's "bundle
+// write per method (ITEM-3/4 output), `run_method_in_stack`, result capture,
+// predictions ingest (ITEM-5/6), model-dir collection")
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// The displayed (task, outcome, horizon) of a method's column — one
+/// deterministic derivation (a response-method task → the response outcome
+/// without a horizon; every other runnable method → the run endpoint's
+/// survival outcome at the run's look-ahead; TEST-EE-35). See [`run_task`].
+pub struct TxrRunOutcomeSpec {
+    pub task: TxrTask,
+    /// "progression" | "death" | "no_response".
+    pub outcome: &'static str,
+    /// The survival horizon (None for a response outcome).
+    pub horizon: Option<f64>,
+}
+
+impl TxrRunOutcomeSpec {
+    fn survival(endpoint: super::types::TxrEndpoint, look_ahead: f64) -> Self {
+        match endpoint {
+            super::types::TxrEndpoint::Pfs => Self {
+                task: TxrTask::Pfs,
+                outcome: "progression",
+                horizon: Some(look_ahead),
+            },
+            super::types::TxrEndpoint::Os => Self {
+                task: TxrTask::Os,
+                outcome: "death",
+                horizon: Some(look_ahead),
+            },
+        }
+    }
+
+    fn response() -> Self {
+        Self {
+            task: TxrTask::Response,
+            outcome: super::predictions::RESPONSE_OUTCOME,
+            horizon: None,
+        }
+    }
+}
+
+/// The task + displayed column of one method (DEC-9's per-method task; the
+/// run record and the heatmap column carry it — never the endpoint alone).
+fn run_task(
+    facts: &Method,
+    endpoint: super::types::TxrEndpoint,
+    look_ahead: f64,
+) -> TxrRunOutcomeSpec {
+    if facts
+        .tasks
+        .iter()
+        .any(|t| t.eq_ignore_ascii_case("response"))
+    {
+        TxrRunOutcomeSpec::response()
+    } else {
+        TxrRunOutcomeSpec::survival(endpoint, look_ahead)
+    }
+}
+
+/// The sandbox run seam behind the executor (the injectable boundary): the
+/// real seam wraps [`crate::modules::sandbox::service::run_method_in_stack`],
+/// the scripted fixtures implement the same contract without bwrap — the
+/// ITEM-8 `EnvProvider`/`MethodExecutor` fixture pattern.
+#[async_trait]
+pub trait StackRunSeam: Send + Sync {
+    /// One sandboxed call; `sink` receives the wrapper's live log lines +
+    /// milestone frames (the engine's [`MethodSink`] adaptor).
+    async fn run(
+        &self,
+        req: &MethodRunRequest,
+        job_id: Uuid,
+        sink: Arc<dyn ProgressSink>,
+    ) -> Result<MethodRunResult, AppError>;
+}
+
+/// The production seam: one `run_method_in_stack` call (PROV-SS-1).
+pub struct RealStackSeam {
+    pool: sqlx::SqlitePool,
+}
+
+impl RealStackSeam {
+    pub fn new(pool: sqlx::SqlitePool) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait]
+impl StackRunSeam for RealStackSeam {
+    async fn run(
+        &self,
+        req: &MethodRunRequest,
+        job_id: Uuid,
+        sink: Arc<dyn ProgressSink>,
+    ) -> Result<MethodRunResult, AppError> {
+        crate::modules::sandbox::service::run_method_in_stack(
+            &self.pool,
+            req,
+            &[],
+            job_id,
+            Some(sink),
+        )
+        .await
+    }
+}
+
+/// The sandbox `ProgressSink` → engine [`MethodSink`] adaptor: the provider
+/// forwards the wrapper's stdout/stderr lines as `log.stdout`/`log.stderr`
+/// frames (CONS-EE-5 GAP-2) and the fit/predict milestones as
+/// `MilestoneFrame`s (GAP-1).
+struct StackSink {
+    sink: Arc<dyn MethodSink>,
+}
+
+impl ProgressSink for StackSink {
+    fn progress(&self, frame: ProgressFrame) {
+        let stream = match frame.phase.as_str() {
+            crate::modules::sandbox::service::LOG_PHASE_STDOUT => TxrLogStream::Stdout,
+            crate::modules::sandbox::service::LOG_PHASE_STDERR => TxrLogStream::Stderr,
+            _ => return,
+        };
+        if let Some(line) = frame.message {
+            self.sink.line(stream, line);
+        }
+    }
+
+    fn milestone(&self, frame: MilestoneFrame) {
+        let phase = match frame.id.as_str() {
+            "fit" => TxrPhase::Fit,
+            "predict" => TxrPhase::Predict,
+            _ => return,
+        };
+        self.sink
+            .progress(phase, None, Some(format!("{} {}", frame.id, frame.status)));
+    }
+}
+
+/// The real [`MethodExecutor`]: one method's full contract-2.0 call sequence
+/// (`engine.cpp::fit` + `predict`).
+///
+/// **Train mode** — the marker selection (ITEM-4) over the run's train side →
+/// the train bundle → the calls:
+/// - `saves_model` (the 2.0 switch; the whole shipped catalogue declares it):
+///   `FitOnly` (writes `/model`) → when the displayed probability needs a
+///   conversion, the training-score call (`ReuseModel` over the training
+///   cohort; a `fitted` method runs the 3-fold cross-fit instead — fit on the
+///   rest, predict the fold, so the map is fitted on out-of-fold risks) →
+///   the final `ReuseModel` over the predict surface;
+/// - no `saves_model`: the combined `FitPredict` calls (fit + predict in one
+///   call with the training files kept alongside — the contract's unset
+///   mode);
+/// - the final call's output is validated + assembled (ITEM-5) and the
+///   missing probability filled by the conversion band (ITEM-6);
+///   `prob_source` is native or recalibrated, never mixed (INV-3); the
+///   produced `/model` tree is collected when the run saves models.
+///
+/// **Reuse mode** — no fit: one `ReuseModel` call against the verified asset;
+/// the probabilities are the model's own native column when it declares one,
+/// otherwise the conversion is re-fitted from the reuse run's own outcomes
+/// when it carries them (a predict-only reuse has no training data — the
+/// column reports `prob_source: "none"` + the note, never an invented
+/// number; DRIFT-1 ITEM-9 #3).
+pub struct StackMethodExecutor {
+    pool: sqlx::SqlitePool,
+    seam: Arc<dyn StackRunSeam>,
+}
+
+impl StackMethodExecutor {
+    /// The production executor (the real sandbox seam over the process pool).
+    pub fn new(pool: sqlx::SqlitePool) -> Self {
+        let seam: Arc<dyn StackRunSeam> = Arc::new(RealStackSeam::new(pool.clone()));
+        Self { pool, seam }
+    }
+
+    /// The test seam (scripted calls — no bwrap; the ITEM-8 fixture pattern).
+    pub fn with_seam(pool: sqlx::SqlitePool, seam: Arc<dyn StackRunSeam>) -> Self {
+        Self { pool, seam }
+    }
+}
+
+/// The terminal arm for a machinery/bundle/prediction refusal — `Ok(state:
+/// failed, reason)` (a method that ran and produced bad output is a verdict,
+/// never an `Err` — the trait's contract).
+fn failed_outcome(reason: TxrRunReason) -> MethodOutcome {
+    MethodOutcome {
+        state: TxrMethodState::Failed,
+        reason: Some(reason),
+        exit_code: None,
+        duration_ms: None,
+        prob_source: None,
+        coverage: None,
+        task: None,
+        model: None,
+    }
+}
+
+fn aborted_outcome() -> MethodOutcome {
+    MethodOutcome {
+        state: TxrMethodState::Stopped,
+        reason: Some(TxrRunReason::from_engine(
+            EngineReasonCode::Aborted,
+            "stopped by the user",
+        )),
+        exit_code: None,
+        duration_ms: None,
+        prob_source: None,
+        coverage: None,
+        task: None,
+        model: None,
+    }
+}
+
+/// The engine's typed reason of a bundle refusal (the `BUNDLE_*` code
+/// verbatim + the package's message text).
+fn bundle_failure(e: &bundle::BundleError) -> TxrRunReason {
+    TxrRunReason {
+        code: e.code().to_string(),
+        detail: e.to_string(),
+    }
+}
+
+/// The typed failure line of a call result (the package's wording):
+/// `JOB_TIMEOUT` for the stopped-by-time arm, `PREDICTION_INVALID` for a
+/// non-zero exit (the package's "failed during <mode> (exit code N): last
+/// lines"). `None` = the call was healthy.
+fn call_failure(method_id: &str, mode: &str, r: &MethodRunResult) -> Option<TxrRunReason> {
+    if r.timed_out {
+        return Some(TxrRunReason::from_engine(
+            EngineReasonCode::JobTimeout,
+            format!("method '{method_id}' stopped: the time limit was reached during {mode}"),
+        ));
+    }
+    if r.exit_code != 0 {
+        let last: String = r
+            .stderr
+            .lines()
+            .rev()
+            .take(20)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>()
+            .join("\n");
+        return Some(TxrRunReason::from_engine(
+            EngineReasonCode::PredictionInvalid,
+            format!(
+                "method '{method_id}' failed during {mode} (exit code {}):\n{}",
+                r.exit_code,
+                if last.is_empty() {
+                    "(no stderr)"
+                } else {
+                    &last
+                }
+            ),
+        ));
+    }
+    None
+}
+
+/// The executor-side error shim: an [`AppError`] with the reason's typed code
+/// (the drive's `execution_failure_reason` preserves the code verbatim — one
+/// reason vocabulary).
+fn fail_app(reason: TxrRunReason) -> AppError {
+    AppError::new(
+        axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+        reason.code,
+        reason.detail,
+    )
+}
+
+enum CallOutcome {
+    Ran(MethodRunResult),
+    /// A user stop fired: the method row turns `stopped` + `ABORTED`; the
+    /// in-flight sandbox call is NOT killed — the child runs out under the
+    /// sandbox's own wall clock (its output is never read), a bounded and
+    /// sandboxed tail (DRIFT-1 ITEM-9 #4).
+    Aborted,
+}
+
+#[async_trait]
+impl MethodExecutor for StackMethodExecutor {
+    async fn execute(&self, ctx: MethodRunContext) -> Result<MethodOutcome, AppError> {
+        let method_id = ctx.method_id.clone();
+        // `ctx.method_id` is the plan id — for reuse plans that is the MODEL
+        // id, not a catalogue method id. start_run validated the asset's
+        // catalogue `method_id`; resolve facts from the target, not the plan id.
+        let facts = match &ctx.target {
+            RunTarget::TrainMethod => {
+                envmanifest::facts_for(&method_id).expect("checked at start_run")
+            }
+            RunTarget::ReuseModel { asset } => {
+                envmanifest::facts_for(&asset.method_id).expect("checked at start_run")
+            }
+        };
+        let spec = super::predictions::PredictionSpec::new(facts);
+        let threads = per_method_cpus(ctx.cpus, ctx.config.at_a_time);
+        let settings = bundle::BundleSettings::for_run(&ctx.config, threads);
+        let limits = crate::modules::sandbox::settings_cache::get(&self.pool).await;
+        let timeout_secs = (limits.timeout_secs.max(1) as u64) * 2;
+
+        match &ctx.target {
+            RunTarget::TrainMethod => {
+                self.execute_train(&ctx, facts, &spec, &settings, timeout_secs)
+                    .await
+            }
+            RunTarget::ReuseModel { asset } => {
+                self.execute_reuse(&ctx, facts, &spec, &settings, timeout_secs, asset)
+                    .await
+            }
+        }
+    }
+}
+
+impl StackMethodExecutor {
+    /// Train mode (path 1/2): fit + the prediction calls + conversion +
+    /// model collection.
+    #[allow(clippy::too_many_lines)]
+    async fn execute_train(
+        &self,
+        ctx: &MethodRunContext,
+        facts: &Method,
+        spec: &super::predictions::PredictionSpec<'_>,
+        settings: &bundle::BundleSettings,
+        timeout_secs: u64,
+    ) -> Result<MethodOutcome, AppError> {
+        let method_id = ctx.method_id.clone();
+        let train = ctx
+            .train
+            .clone()
+            .expect("train mode always carries the train side");
+
+        // The per-method marker set (ITEM-4): a refusal is terminal with the
+        // typed `BUNDLE_*` code — the method never runs on the wrong markers.
+        let selection = match bundle::method_marker_set(
+            &train,
+            &facts.markers,
+            facts.required_markers.as_ref(),
+        ) {
+            Ok(s) => s,
+            Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+        };
+        let train_bundle =
+            match bundle::train_bundle_with_markers(&train, settings, ctx.min_draws, &selection) {
+                Ok(b) => b,
+                Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+            };
+        // The predict surface: the separate predict file when given, else the
+        // training cohort (path 2's heatmap rows are the uploaded patients —
+        // the prediction surface is the cohort when no predict file is
+        // mounted; DRIFT-1 ITEM-9 #1).
+        let (predict_bundle, predict_patients): (
+            Arc<CanonicalBundle>,
+            Option<&[CanonicalPatient]>,
+        ) = match &ctx.predict {
+            Some(p) => (p.clone(), None),
+            None => (train.clone(), Some(&train.patients)),
+        };
+        let test_bundle = match bundle::test_bundle_with_markers(
+            predict_patients,
+            &predict_bundle,
+            settings,
+            ctx.min_draws,
+            &selection,
+        ) {
+            Ok(b) => b,
+            Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+        };
+        let outcome_spec = run_task(facts, ctx.config.endpoint, settings.look_ahead_day);
+
+        let bundle_dir = ctx.run_dir.join("bundles").join(&method_id);
+        let outputs_dir = ctx.run_dir.join("output").join(&method_id);
+        let model_dir = ctx.run_dir.join("models").join(&method_id);
+        let mut duration_ms: u64 = 0;
+        let mut model_digest: Option<String> = None;
+
+        // ── the fit call (X1's `SIGBENCH_MODE=fit`) ─────────────────────────
+        if facts.saves_model {
+            if let Err(e) = write_call_input(&bundle_dir, Some(&train_bundle), None) {
+                return Ok(failed_outcome(io_failure(&e)));
+            }
+            ctx.sink
+                .progress(TxrPhase::Fit, None, Some(format!("{method_id}: fitting")));
+            let req = MethodRunRequest {
+                base: ctx.env.base.clone(),
+                layer: ctx.env.layer.clone(),
+                mode: MethodRunMode::FitOnly,
+                bundle_dir: bundle_dir.clone(),
+                outputs_dir: outputs_dir.clone(),
+                model: None,
+                model_out_dir: Some(model_dir.clone()),
+                n_cpu: settings.threads,
+                timeout_secs: Some(timeout_secs),
+            };
+            match self.run_one(ctx, &req, &mut duration_ms).await? {
+                CallOutcome::Aborted => return Ok(aborted_outcome()),
+                CallOutcome::Ran(r) => {
+                    if let Some(reason) = call_failure(&method_id, "fit", &r) {
+                        return Ok(failed_outcome(reason));
+                    }
+                    model_digest = match r.model_out_digest {
+                        Some(d) => Some(d),
+                        None => {
+                            // The fit wrote no /model tree — the reuse bind
+                            // would verify a digest that does not exist; name
+                            // it as the model failure (INV-2's reason).
+                            return Ok(failed_outcome(TxrRunReason::from_engine(
+                                EngineReasonCode::ModelVerifyFailed,
+                                format!(
+                                    "method '{method_id}' wrote no /model during fit; nothing can be reused"
+                                ),
+                            )));
+                        }
+                    };
+                }
+            }
+        }
+
+        // ── the training scores (the conversion band's input) ───────────────
+        let needs = needs_list(facts, &train_bundle.outcomes, settings);
+        let mut score_tables: Vec<bundle::CsvTable> = Vec::new();
+        if !needs.is_empty() {
+            if facts.fitted {
+                // The inner 3-fold cross-fit (engine.cpp): the per-fold method
+                // runs are the item's v1 calls — fit on the rest, predict the
+                // fold, so the map is fitted on out-of-fold risks.
+                let folds = super::predictions::crossfit_folds(
+                    train_bundle.patient_ids.len(),
+                    TxrLimits::SEED as u64,
+                    super::predictions::CROSS_FIT_FOLDS,
+                );
+                for k in 0..super::predictions::CROSS_FIT_FOLDS {
+                    let (rest, fold) = split_folds(&train, &train_bundle.patient_ids, &folds, k);
+                    let sub_bundle = match bundle::train_bundle_with_markers(
+                        &rest,
+                        settings,
+                        ctx.min_draws,
+                        &selection,
+                    ) {
+                        Ok(b) => b,
+                        Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+                    };
+                    let fold_test = match bundle::test_bundle_with_markers(
+                        Some(&fold.patients),
+                        &fold,
+                        settings,
+                        ctx.min_draws,
+                        &selection,
+                    ) {
+                        Ok(b) => b,
+                        Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+                    };
+                    ctx.sink.progress(
+                        TxrPhase::Fit,
+                        None,
+                        Some(format!(
+                            "cross-fit {} of {} for the probability conversion",
+                            k + 1,
+                            super::predictions::CROSS_FIT_FOLDS
+                        )),
+                    );
+                    // The fold's own /model tree (engine.cpp: each fold fits
+                    // into its OWN work dir — the produced model tree is never
+                    // overwritten, so the final predict's digest still
+                    // verifies against the main fit's tree).
+                    let fold_model_dir = outputs_dir.join(".crossfit").join(k.to_string());
+                    let fold_digest = if facts.saves_model {
+                        if let Err(e) = write_call_input(&bundle_dir, Some(&sub_bundle), None) {
+                            return Ok(failed_outcome(io_failure(&e)));
+                        }
+                        let req = MethodRunRequest {
+                            base: ctx.env.base.clone(),
+                            layer: ctx.env.layer.clone(),
+                            mode: MethodRunMode::FitOnly,
+                            bundle_dir: bundle_dir.clone(),
+                            outputs_dir: outputs_dir.clone(),
+                            model: None,
+                            model_out_dir: Some(fold_model_dir.clone()),
+                            n_cpu: settings.threads,
+                            timeout_secs: Some(timeout_secs),
+                        };
+                        match self.run_one(ctx, &req, &mut duration_ms).await? {
+                            CallOutcome::Aborted => return Ok(aborted_outcome()),
+                            CallOutcome::Ran(r) => {
+                                if let Some(reason) = call_failure(&method_id, "fit", &r) {
+                                    return Ok(failed_outcome(reason));
+                                }
+                                match r.model_out_digest {
+                                    Some(d) => d,
+                                    None => {
+                                        return Ok(failed_outcome(TxrRunReason::from_engine(
+                                            EngineReasonCode::ModelVerifyFailed,
+                                            format!(
+                                                "method '{method_id}' wrote no /model during cross-fit fold {}",
+                                                k + 1
+                                            ),
+                                        )));
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        String::new()
+                    };
+                    let score = self
+                        .predict_call(
+                            ctx,
+                            facts,
+                            settings,
+                            timeout_secs,
+                            &method_id,
+                            spec,
+                            &outcome_spec,
+                            &train_bundle.outcomes,
+                            &sub_bundle.params,
+                            (!facts.saves_model).then_some(&sub_bundle),
+                            &fold_test,
+                            facts
+                                .saves_model
+                                .then_some((fold_digest.as_str(), fold_model_dir.as_path())),
+                            (!facts.saves_model).then_some(fold_model_dir.as_path()),
+                            &bundle_dir,
+                            &outputs_dir,
+                            &mut duration_ms,
+                        )
+                        .await?;
+                    let Some(score) = score else {
+                        return Ok(aborted_outcome());
+                    };
+                    score_tables.push(score.table);
+                }
+            } else {
+                // One call over the training cohort (engine.cpp's
+                // `test_from_train`): the model's scores of the patients it
+                // was trained on — the conversion band's training side.
+                let cohort_test = match bundle::test_bundle_with_markers(
+                    Some(&train.patients),
+                    &train,
+                    settings,
+                    ctx.min_draws,
+                    &selection,
+                ) {
+                    Ok(b) => b,
+                    Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+                };
+                let score = self
+                    .predict_call(
+                        ctx,
+                        facts,
+                        settings,
+                        timeout_secs,
+                        &method_id,
+                        spec,
+                        &outcome_spec,
+                        &train_bundle.outcomes,
+                        &train_bundle.params,
+                        (!facts.saves_model).then_some(&train_bundle),
+                        &cohort_test,
+                        model_digest.as_deref().map(|d| (d, model_dir.as_path())),
+                        (!facts.saves_model).then_some(model_dir.as_path()),
+                        &bundle_dir,
+                        &outputs_dir,
+                        &mut duration_ms,
+                    )
+                    .await?;
+                let Some(score) = score else {
+                    return Ok(aborted_outcome());
+                };
+                score_tables.push(score.table);
+            }
+        }
+
+        // ── the conversion (ITEM-6's band; one map for the displayed
+        //    (outcome, horizon) — INV-3's one-source-per-column rule) ────────
+        let outcomes_csv = bundle::parse_csv(
+            &train_bundle
+                .files
+                .iter()
+                .find(|f| f.name == "outcomes.csv")
+                .map(|f| f.csv.clone())
+                .unwrap_or_default(),
+        )
+        .unwrap_or_else(|_| bundle::CsvTable::empty());
+        let conversion = if super::predictions::own_probability(
+            &facts.own_outputs,
+            outcome_spec.outcome,
+            outcome_spec.horizon,
+        ) {
+            None
+        } else {
+            let map = score_map_for(&score_tables, spec, &outcome_spec.outcome);
+            match super::predictions::fit_recalibration(
+                spec,
+                &outcomes_csv,
+                &map,
+                outcome_spec.outcome,
+                outcome_spec.horizon,
+            ) {
+                Ok(c) => Some(c),
+                Err(e) => {
+                    let reason = TxrRunReason::from_engine(e.engine_code(), e.detail());
+                    return Ok(failed_outcome(reason));
+                }
+            }
+        };
+
+        // ── the final predict call over the predict surface ─────────────────
+        let score = self
+            .predict_call(
+                ctx,
+                facts,
+                settings,
+                timeout_secs,
+                &method_id,
+                spec,
+                &outcome_spec,
+                &train_bundle.outcomes,
+                &train_bundle.params,
+                (!facts.saves_model).then_some(&train_bundle),
+                &test_bundle,
+                model_digest.as_deref().map(|d| (d, model_dir.as_path())),
+                (!facts.saves_model).then_some(model_dir.as_path()),
+                &bundle_dir,
+                &outputs_dir,
+                &mut duration_ms,
+            )
+            .await?;
+        let Some(score) = score else {
+            return Ok(aborted_outcome());
+        };
+        // The last call's exit code is 0 here (`call_failure` already refused
+        // any non-zero / timed-out result — a healthy last call).
+        let exit_code = Some(0);
+
+        // The recorded bundle: the final contract state (params + train +
+        // the predict surface) — a rerun reproduces `bundles/<method_id>/`
+        // byte-for-byte (ITEM-3's entity rule).
+        if let Err(e) = write_recorded_bundle(&bundle_dir, &train_bundle, &test_bundle) {
+            return Ok(failed_outcome(io_failure(&e)));
+        }
+
+        let (prob_source, rows) = match conversion {
+            Some(c) => (
+                TxrProbSource::Recalibrated,
+                super::predictions::converted_rows(&c, &score.rows),
+            ),
+            None => (TxrProbSource::Native, score.rows),
+        };
+        let coverage = super::predictions::coverage(&rows);
+
+        // The produced model: ONLY a `saves_model` method has a `/model` tree
+        // (the fit's `model_out_digest`); a combined method's "model" is its
+        // train files — recorded in the bundle, never a TxrProducedModel
+        // (engine.cpp's `train_files`, not `model_files`).
+        let model = if ctx.save_models && facts.saves_model {
+            model_digest.as_ref().map(|digest| ProducedModelFacts {
+                model_out_digest: digest.clone(),
+                dir: model_dir.display().to_string(),
+                trained_on_patients: train_bundle.patient_ids.len() as u32,
+                size_bytes: dir_size(&model_dir),
+                own_auc: own_auc(
+                    &score_tables,
+                    spec,
+                    &train_bundle,
+                    &outcome_spec.outcome,
+                    outcome_spec.horizon,
+                ),
+            })
+        } else {
+            None
+        };
+
+        Ok(MethodOutcome {
+            state: TxrMethodState::Finished,
+            reason: None,
+            exit_code,
+            duration_ms: Some(duration_ms),
+            prob_source: Some(prob_source),
+            coverage: Some(coverage),
+            task: Some(outcome_spec.task),
+            model,
+        })
+    }
+
+    /// Reuse mode: one `ReuseModel` call against the verified asset.
+    async fn execute_reuse(
+        &self,
+        ctx: &MethodRunContext,
+        facts: &Method,
+        spec: &super::predictions::PredictionSpec<'_>,
+        settings: &bundle::BundleSettings,
+        timeout_secs: u64,
+        asset: &super::types::TxrModelAsset,
+    ) -> Result<MethodOutcome, AppError> {
+        let method_id = ctx.method_id.clone();
+        let predict = ctx
+            .predict
+            .clone()
+            .expect("reuse mode always carries the predict side");
+        let selection = match bundle::method_marker_set(
+            &predict,
+            &facts.markers,
+            facts.required_markers.as_ref(),
+        ) {
+            Ok(s) => s,
+            Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+        };
+        let test_bundle = match bundle::test_bundle_with_markers(
+            ctx.predict_patients.as_deref(),
+            &predict,
+            settings,
+            ctx.min_draws,
+            &selection,
+        ) {
+            Ok(b) => b,
+            Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+        };
+        let outcome_spec = run_task(facts, ctx.config.endpoint, settings.look_ahead_day);
+
+        // The reuse run's own outcomes (Files-mode reuse) are the model's
+        // predict params' `outcomes`; a predict-only reuse carries the empty
+        // list (the schema allows it — the predict call has no training data).
+        let reuse_train = ctx.train.clone();
+        let reuse_outcomes: Vec<String> = match &reuse_train {
+            Some(t) => {
+                match bundle::train_bundle_with_markers(t, settings, ctx.min_draws, &selection) {
+                    Ok(b) => b.outcomes,
+                    Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+                }
+            }
+            None => Vec::new(),
+        };
+        let params = params_value(settings, &reuse_outcomes, &selection.mains());
+
+        let bundle_dir = ctx.run_dir.join("bundles").join(&method_id);
+        let outputs_dir = ctx.run_dir.join("output").join(&method_id);
+        let mut duration_ms: u64 = 0;
+
+        if let Err(e) = write_call_input_with_params(&bundle_dir, &params, None, Some(&test_bundle))
+        {
+            return Ok(failed_outcome(io_failure(&e)));
+        }
+        let req = MethodRunRequest {
+            base: ctx.env.base.clone(),
+            layer: ctx.env.layer.clone(),
+            mode: MethodRunMode::ReuseModel,
+            bundle_dir: bundle_dir.clone(),
+            outputs_dir: outputs_dir.clone(),
+            model: Some(ModelMount {
+                host_path: PathBuf::from(&asset.host_dir),
+                tree_sha256: asset.tree_sha256.clone(),
+            }),
+            model_out_dir: None,
+            n_cpu: settings.threads,
+            timeout_secs: Some(timeout_secs),
+        };
+        let result = match self.run_one(ctx, &req, &mut duration_ms).await? {
+            CallOutcome::Aborted => return Ok(aborted_outcome()),
+            CallOutcome::Ran(r) => r,
+        };
+        if let Some(reason) = call_failure(&method_id, "predict", &result) {
+            return Ok(failed_outcome(reason));
+        }
+
+        // The assembly's validation outcomes: the model's trained set when
+        // known (Files mode), else the displayed one when the method declares
+        // a native column for it (so the declared-columns check runs — an
+        // all-empty accepted column is never silently served).
+        let validation_outcomes: Vec<String> = if reuse_outcomes.is_empty()
+            && super::predictions::own_probability(
+                &facts.own_outputs,
+                outcome_spec.outcome,
+                outcome_spec.horizon,
+            ) {
+            vec![outcome_spec.outcome.to_string()]
+        } else {
+            reuse_outcomes
+        };
+        let csv = std::fs::read_to_string(outputs_dir.join("predictions.csv")).unwrap_or_default();
+        let has_csv = !csv.is_empty();
+        let run_json = std::fs::read_to_string(outputs_dir.join("run.json")).unwrap_or_default();
+        let score = match super::predictions::method_predictions(
+            if has_csv { Some(&csv) } else { None },
+            &run_json,
+            spec,
+            &test_bundle.scored,
+            &test_bundle.skipped,
+            &validation_outcomes,
+            &[settings.look_ahead_day],
+            outcome_spec.outcome,
+            outcome_spec.horizon,
+        ) {
+            Ok(m) => m,
+            Err(e) => {
+                let reason = TxrRunReason::from_engine(e.engine_code(), e.detail());
+                return Ok(failed_outcome(reason));
+            }
+        };
+
+        let (prob_source, rows) = if score.native_column.is_some() {
+            (TxrProbSource::Native, score.rows)
+        } else if let Some(train) = reuse_train {
+            // A data-carrying reuse run: the conversion is re-fitted from the
+            // model's scores over the run's own cohort (the honest
+            // training-side band).
+            let selection2 = match bundle::method_marker_set(
+                &train,
+                &facts.markers,
+                facts.required_markers.as_ref(),
+            ) {
+                Ok(s) => s,
+                Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+            };
+            let train_bundle = match bundle::train_bundle_with_markers(
+                &train,
+                settings,
+                ctx.min_draws,
+                &selection2,
+            ) {
+                Ok(b) => b,
+                Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+            };
+            let cohort_test = match bundle::test_bundle_with_markers(
+                Some(&train.patients),
+                &train,
+                settings,
+                ctx.min_draws,
+                &selection2,
+            ) {
+                Ok(b) => b,
+                Err(e) => return Ok(failed_outcome(bundle_failure(&e))),
+            };
+            let cohort_score = self
+                .predict_call(
+                    ctx,
+                    facts,
+                    settings,
+                    timeout_secs,
+                    &method_id,
+                    spec,
+                    &outcome_spec,
+                    &train_bundle.outcomes,
+                    &train_bundle.params,
+                    (!facts.saves_model).then_some(&train_bundle),
+                    &cohort_test,
+                    Some((&asset.tree_sha256, Path::new(&asset.host_dir))),
+                    None,
+                    &bundle_dir,
+                    &outputs_dir,
+                    &mut duration_ms,
+                )
+                .await?;
+            let Some(cohort_score) = cohort_score else {
+                return Ok(aborted_outcome());
+            };
+            let map = score_map_for(&[cohort_score.table], spec, &outcome_spec.outcome);
+            // The conversion is fitted on the cohort, but APPLIED to the
+            // predict-surface rows (`score` above — the patients the board
+            // scored); the cohort table was only the map's training side.
+            let predict_rows = score.rows;
+            let outcomes_csv = bundle::parse_csv(
+                &train_bundle
+                    .files
+                    .iter()
+                    .find(|f| f.name == "outcomes.csv")
+                    .map(|f| f.csv.clone())
+                    .unwrap_or_default(),
+            )
+            .unwrap_or_else(|_| bundle::CsvTable::empty());
+            match super::predictions::fit_recalibration(
+                spec,
+                &outcomes_csv,
+                &map,
+                outcome_spec.outcome,
+                outcome_spec.horizon,
+            ) {
+                Ok(c) => (
+                    TxrProbSource::Recalibrated,
+                    super::predictions::converted_rows(&c, &predict_rows),
+                ),
+                Err(e) => {
+                    let reason = TxrRunReason::from_engine(e.engine_code(), e.detail());
+                    return Ok(failed_outcome(reason));
+                }
+            }
+        } else {
+            // A predict-only reuse: no training data to fit a conversion. The
+            // honest record names the missing source (`prob_source: "none"`)
+            // instead of an invented number.
+            let rows: Vec<super::predictions::PredictionRow> = score
+                .rows
+                .into_iter()
+                .map(|mut r| {
+                    if r.probability.is_none() && r.risk.is_some() && r.note.is_empty() {
+                        r.note =
+                            "no native probability; a predict-only reuse has no training data to fit the conversion"
+                                .to_string();
+                    }
+                    r
+                })
+                .collect();
+            (TxrProbSource::None, rows)
+        };
+        let coverage = super::predictions::coverage(&rows);
+
+        Ok(MethodOutcome {
+            state: TxrMethodState::Finished,
+            reason: None,
+            exit_code: Some(result.exit_code),
+            duration_ms: Some(duration_ms),
+            prob_source: Some(prob_source),
+            coverage: Some(coverage),
+            task: Some(outcome_spec.task),
+            model: None,
+        })
+    }
+
+    /// One sandboxed call (the seam) + the cancel select: the call runs on
+    /// its own task while the cancel channel is watched, so a user stop
+    /// mid-call returns `Aborted` promptly (the child itself is bounded by
+    /// the sandbox wall clock).
+    async fn run_one(
+        &self,
+        ctx: &MethodRunContext,
+        req: &MethodRunRequest,
+        duration_ms: &mut u64,
+    ) -> Result<CallOutcome, AppError> {
+        if *ctx.cancel.borrow() {
+            return Ok(CallOutcome::Aborted);
+        }
+        let seam = self.seam.clone();
+        let sink: Arc<dyn ProgressSink> = Arc::new(StackSink {
+            sink: ctx.sink.clone(),
+        });
+        let req = req.clone();
+        let job_id = ctx.job_id;
+        let mut cancel = ctx.cancel.clone();
+        let call = tokio::spawn(async move { seam.run(&req, job_id, sink).await });
+        let result = tokio::select! {
+            r = call => r.map_err(|e| AppError::internal_error(format!("method call task join: {e}")))??,
+            _ = cancel.changed() => return Ok(CallOutcome::Aborted),
+        };
+        if *ctx.cancel.borrow() {
+            return Ok(CallOutcome::Aborted);
+        }
+        *duration_ms += result.duration_ms;
+        Ok(CallOutcome::Ran(result))
+    }
+
+    /// One predict-side call (the training-scores or the final surface call):
+    /// writes the call's `/input` (params + the test surface, with the
+    /// training files when the method cannot save a model), runs it
+    /// (`ReuseModel`, or the combined `FitPredict` for a `saves_model: false`
+    /// method), validates + assembles the output (ITEM-5). `Ok(None)` = the
+    /// method was stopped.
+    ///
+    /// `params` is the call's `params.json` (the trained side's
+    /// `make_params` shape); `train_bundle` is the combined call's training
+    /// files (a `saves_model` method's predict never sees `/input/train` —
+    /// X1: only `/model` + `/input/test`); `model_mount` is the verified
+    /// `/model` tree of the reuse call (digest + host path); `model_out` is
+    /// the combined call's `model_out_dir` (the sandbox's fit-mode rule — a
+    /// scratch write; the method's produced model is its train files).
+    #[allow(clippy::too_many_arguments)]
+    async fn predict_call(
+        &self,
+        ctx: &MethodRunContext,
+        facts: &Method,
+        settings: &bundle::BundleSettings,
+        timeout_secs: u64,
+        method_id: &str,
+        spec: &super::predictions::PredictionSpec<'_>,
+        outcome_spec: &TxrRunOutcomeSpec,
+        validation_outcomes: &[String],
+        params: &serde_json::Value,
+        train_bundle: Option<&bundle::TrainBundle>,
+        test_bundle: &bundle::TestBundle,
+        model_mount: Option<(&str, &Path)>,
+        model_out: Option<&Path>,
+        bundle_dir: &Path,
+        outputs_dir: &Path,
+        duration_ms: &mut u64,
+    ) -> Result<Option<super::predictions::MethodPredictions>, AppError> {
+        if *ctx.cancel.borrow() {
+            return Ok(None);
+        }
+        let combined = !facts.saves_model;
+        if let Err(e) =
+            write_call_input_with_params(bundle_dir, params, train_bundle, Some(test_bundle))
+        {
+            return Err(fail_app(io_failure(&e)));
+        }
+        let req = MethodRunRequest {
+            base: ctx.env.base.clone(),
+            layer: ctx.env.layer.clone(),
+            mode: if combined {
+                MethodRunMode::FitPredict
+            } else {
+                MethodRunMode::ReuseModel
+            },
+            bundle_dir: bundle_dir.to_path_buf(),
+            outputs_dir: outputs_dir.to_path_buf(),
+            model: model_mount.map(|(digest, dir)| ModelMount {
+                host_path: dir.to_path_buf(),
+                tree_sha256: digest.to_string(),
+            }),
+            model_out_dir: model_out.map(|p| p.to_path_buf()),
+            n_cpu: settings.threads,
+            timeout_secs: Some(timeout_secs),
+        };
+        let result = match self.run_one(ctx, &req, duration_ms).await? {
+            CallOutcome::Aborted => return Ok(None),
+            CallOutcome::Ran(r) => r,
+        };
+        if let Some(reason) = call_failure(method_id, "predict", &result) {
+            return Err(fail_app(reason));
+        }
+        let csv = std::fs::read_to_string(outputs_dir.join("predictions.csv")).unwrap_or_default();
+        let run_json = std::fs::read_to_string(outputs_dir.join("run.json")).unwrap_or_default();
+        match super::predictions::method_predictions(
+            Some(&csv),
+            &run_json,
+            spec,
+            &test_bundle.scored,
+            &test_bundle.skipped,
+            validation_outcomes,
+            &[settings.look_ahead_day],
+            outcome_spec.outcome,
+            outcome_spec.horizon,
+        ) {
+            Ok(m) => Ok(Some(m)),
+            Err(e) => Err(fail_app(TxrRunReason::from_engine(
+                e.engine_code(),
+                e.detail(),
+            ))),
+        }
+    }
+}
+
+/// The `needs` list (engine.cpp): every learned (outcome, horizon) the method
+/// does not declare a native probability for — the conversion band's inputs.
+fn needs_list(
+    facts: &Method,
+    outcomes: &[String],
+    settings: &bundle::BundleSettings,
+) -> Vec<(String, Option<f64>)> {
+    let mut needs = Vec::new();
+    for o in outcomes {
+        let h = if super::predictions::is_survival(o) {
+            Some(settings.look_ahead_day)
+        } else {
+            None
+        };
+        if !super::predictions::own_probability(&facts.own_outputs, o, h) {
+            needs.push((o.clone(), h));
+        }
+    }
+    needs
+}
+
+/// Write one call's `/input`: `params.json` + the side's files (`train/` from
+/// the train bundle, `test/` from the test bundle). The combined call gets
+/// both.
+fn write_call_input(
+    dir: &Path,
+    train: Option<&bundle::TrainBundle>,
+    test: Option<&bundle::TestBundle>,
+) -> std::io::Result<()> {
+    let params = train
+        .map(|t| t.params.clone())
+        .unwrap_or_else(|| serde_json::json!({}));
+    write_call_input_with_params(dir, &params, train, test)
+}
+
+fn write_call_input_with_params(
+    dir: &Path,
+    params: &serde_json::Value,
+    train: Option<&bundle::TrainBundle>,
+    test: Option<&bundle::TestBundle>,
+) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    std::fs::write(
+        dir.join("params.json"),
+        serde_json::to_vec_pretty(params).unwrap_or_default(),
+    )?;
+    // One call's `/input` is the previous call's dir (the sandbox binds the
+    // WHOLE bundle dir at `/input`): a side the current call does not write
+    // must not survive from an earlier call — a reuse predict never sees
+    // `train/`, a fit never sees `test/` (engine.cpp's per-call input shape;
+    // the recorded bundle is written after the calls with both sides).
+    let clear = |sub: &str| -> std::io::Result<()> {
+        let p = dir.join(sub);
+        if p.exists() {
+            std::fs::remove_dir_all(p)?;
+        }
+        Ok(())
+    };
+    if let Some(t) = train {
+        let tdir = dir.join("train");
+        std::fs::create_dir_all(&tdir)?;
+        for f in &t.files {
+            std::fs::write(tdir.join(f.name), &f.csv)?;
+        }
+    } else {
+        clear("train")?;
+    }
+    if let Some(t) = test {
+        let tdir = dir.join("test");
+        std::fs::create_dir_all(&tdir)?;
+        for f in &t.files {
+            std::fs::write(tdir.join(f.name), &f.csv)?;
+        }
+    } else {
+        clear("test")?;
+    }
+    Ok(())
+}
+
+/// The recorded bundle (`bundles/<method_id>/`): params + `train/` + `test/`
+/// — the run's contract state (TEST-EE-18; a rerun reproduces it).
+fn write_recorded_bundle(
+    dir: &Path,
+    train: &bundle::TrainBundle,
+    test: &bundle::TestBundle,
+) -> std::io::Result<()> {
+    write_call_input(dir, Some(train), Some(test))
+}
+
+/// The params.json value of a reuse call (train mode's calls carry the train
+/// bundle's own params — `make_params`' single shape).
+fn params_value(
+    settings: &bundle::BundleSettings,
+    outcomes: &[String],
+    markers: &[String],
+) -> serde_json::Value {
+    serde_json::json!({
+        "landmark_day": settings.decision_day,
+        "horizons": [settings.look_ahead_day],
+        "outcomes": outcomes,
+        "markers": markers,
+        "baseline_max_day": settings.baseline_max_day,
+        "covariates": settings.covariates,
+        "method_params": {},
+        "seed": settings.seed,
+        "threads": settings.threads,
+    })
+}
+
+/// The engine's reason for an I/O failure of the bundle/staging writes.
+fn io_failure(e: &std::io::Error) -> TxrRunReason {
+    TxrRunReason::from_engine(
+        EngineReasonCode::PredictionInvalid,
+        format!("bundle staging failed: {e}"),
+    )
+}
+
+/// The score map of one outcome: the calls' per-patient risk of the outcome's
+/// `risk_col` (the package's `take_scores`), unioned across the cross-fit
+/// folds (a later fold's score wins — the map is the union of the out-of-fold
+/// risks).
+fn score_map_for(
+    tables: &[bundle::CsvTable],
+    spec: &super::predictions::PredictionSpec<'_>,
+    outcome: &str,
+) -> std::collections::BTreeMap<String, Option<f64>> {
+    let mut map = std::collections::BTreeMap::new();
+    for table in tables {
+        let ids: Vec<String> = table
+            .col("patient_id")
+            .map(|c| c.to_vec())
+            .unwrap_or_default();
+        let risks = super::predictions::outcome_risks(spec, table, &ids, outcome);
+        for (id, r) in ids.iter().zip(risks) {
+            if r.is_some() || !map.contains_key(id) {
+                map.insert(id.clone(), r);
+            }
+        }
+    }
+    map
+}
+
+/// The own-data AUC (Mann–Whitney with half-counted ties) of the method's
+/// score vs the training outcome: the training-score call's risk against the
+/// horizon label (event by h = 1; follow-up beyond h = 0; censored before h =
+/// dropped) for survival, the plain label for response. Null when no scores
+/// or no usable pair (GAP-C's "null when the outcome/the data does not allow
+/// it").
+fn own_auc(
+    tables: &[bundle::CsvTable],
+    spec: &super::predictions::PredictionSpec<'_>,
+    train_bundle: &bundle::TrainBundle,
+    outcome: &str,
+    horizon: Option<f64>,
+) -> Option<f64> {
+    if tables.is_empty() {
+        return None;
+    }
+    let map = score_map_for(tables, spec, outcome);
+    let outcomes_csv = train_bundle
+        .files
+        .iter()
+        .find(|f| f.name == "outcomes.csv")
+        .map(|f| f.csv.clone())?;
+    let table = bundle::parse_csv(&outcomes_csv).ok()?;
+    let labels = super::predictions::training_labels(&table);
+    let mut pairs: Vec<(f64, f64)> = Vec::new();
+    for lbl in &labels {
+        let Some(risk) = map.get(&lbl.patient_id).copied().flatten() else {
+            continue;
+        };
+        let (time, event) = match outcome {
+            "progression" => (lbl.pfs_time, lbl.pfs_event),
+            "death" => (lbl.os_time, lbl.os_event),
+            _ => (None, None),
+        };
+        let label = if outcome == super::predictions::RESPONSE_OUTCOME {
+            lbl.no_response?
+        } else {
+            let (Some(t), Some(e)) = (time, event) else {
+                continue;
+            };
+            if t <= horizon? {
+                if e == 1.0 {
+                    1.0
+                } else {
+                    continue; // censored before the horizon
+                }
+            } else {
+                0.0
+            }
+        };
+        pairs.push((risk, label));
+    }
+    if pairs.len() < 2 {
+        return None;
+    }
+    let mut wins = 0.0;
+    let mut ties = 0.0;
+    let mut cmps = 0.0;
+    for i in 0..pairs.len() {
+        for j in 0..pairs.len() {
+            if i == j || pairs[i].1 == pairs[j].1 {
+                continue;
+            }
+            let (a, b) = (pairs[i].0, pairs[j].0);
+            let hi = if pairs[i].1 > pairs[j].1 {
+                a > b
+            } else {
+                a < b
+            };
+            cmps += 1.0;
+            if hi {
+                wins += 1.0;
+            } else if a == b {
+                ties += 1.0;
+            }
+        }
+    }
+    if cmps == 0.0 {
+        return None;
+    }
+    Some((wins + ties * 0.5) / cmps)
+}
+
+/// The recursive byte size of a tree (the produced model's `size_bytes`).
+fn dir_size(dir: &Path) -> u64 {
+    let mut total = 0u64;
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if p.is_dir() {
+            total += dir_size(&p);
+        } else if let Ok(md) = entry.metadata() {
+            total += md.len();
+        }
+    }
+    total
+}
+
+/// The cross-fit fold split (engine.cpp): `rest` = the cohort minus fold k,
+/// `fold` = the cohort of fold k — canonical subsets (values too, so each
+/// bundle counts the method's own draws per subset).
+fn split_folds(
+    train: &CanonicalBundle,
+    cohort_ids: &[String],
+    folds: &[usize],
+    k: usize,
+) -> (CanonicalBundle, CanonicalBundle) {
+    use std::collections::HashSet;
+    let rest: HashSet<&str> = cohort_ids
+        .iter()
+        .zip(folds)
+        .filter(|(_, f)| **f != k)
+        .map(|(id, _)| id.as_str())
+        .collect();
+    let fold: HashSet<&str> = cohort_ids
+        .iter()
+        .zip(folds)
+        .filter(|(_, f)| **f == k)
+        .map(|(id, _)| id.as_str())
+        .collect();
+    (
+        subset_canonical(train, &rest),
+        subset_canonical(train, &fold),
+    )
+}
+
+fn subset_canonical(
+    bundle: &CanonicalBundle,
+    keep: &std::collections::HashSet<&str>,
+) -> CanonicalBundle {
+    CanonicalBundle {
+        patients: bundle
+            .patients
+            .iter()
+            .filter(|p| keep.contains(p.patient_id.as_str()))
+            .cloned()
+            .collect(),
+        values: bundle
+            .values
+            .iter()
+            .filter(|v| keep.contains(v.patient_id.as_str()))
+            .cloned()
+            .collect(),
+        features: bundle.features.clone(),
+    }
 }
 
 /// One queued method's stop/skip channels.
@@ -583,9 +1990,18 @@ impl RunDrive {
     }
 
     async fn append_log(&self, method_id: Option<&str>, content: &str) {
+        self.append_log_as(method_id, TxrLogStream::Engine, content)
+            .await
+    }
+
+    /// The stream-typed append (the wrapper's stdout/stderr lines from
+    /// ITEM-9's sink; engine lines are the [`TxrLogStream::Engine`] default
+    /// above). One line per broadcast frame — the pane's "All methods" view
+    /// and "Copy the log" both read `txr_run_logs`.
+    async fn append_log_as(&self, method_id: Option<&str>, stream: TxrLogStream, content: &str) {
         if let Err(e) = self
             .repo
-            .append_log(self.run_id, method_id, TxrLogStream::Engine, content)
+            .append_log(self.run_id, method_id, stream, content)
             .await
         {
             tracing::warn!(run_id = %self.run_id, error = %e, "execution engine: log append failed");
@@ -594,7 +2010,7 @@ impl RunDrive {
         let line = super::types::TxrRunLogLine {
             seq: 0,
             method_id: method_id.map(|s| s.to_string()),
-            stream: TxrLogStream::Engine,
+            stream,
             content: content.to_string(),
             created_at: Utc::now(),
         };
@@ -831,6 +2247,29 @@ fn write_input_snapshot(
     Ok(())
 }
 
+/// The rerun record beside the run (`input/run-input.json` — DEC-16's
+/// "copies kept so it can be repeated"): the create request verbatim +
+/// `rerun_of`, so `rerun_run` clones without re-parsing (the record's input
+/// IS the parsed snapshot the same validator accepted).
+fn write_run_input_record(
+    dir: &Path,
+    req: &CreateRunRequest,
+    rerun_of: Option<Uuid>,
+) -> Result<(), AppError> {
+    let record = super::types::RunInputRecord {
+        mode: req.mode,
+        input: req.input.clone(),
+        config: req.config.clone(),
+        method_ids: req.method_ids.clone(),
+        model_ids: req.model_ids.clone(),
+        rerun_of,
+    };
+    let bytes = serde_json::to_vec_pretty(&record)
+        .map_err(|e| AppError::internal_error(format!("run input record serialize: {e}")))?;
+    let path = dir.join("input").join("run-input.json");
+    std::fs::write(&path, bytes).map_err(io_app("write run-input record", path.clone()))
+}
+
 fn file_stem(name: &str, fallback: &str) -> String {
     let stem = Path::new(name)
         .file_stem()
@@ -947,6 +2386,88 @@ pub async fn start_run(
     owner: Uuid,
     req: CreateRunRequest,
 ) -> Result<TxrRunSummary, AppError> {
+    start_run_inner(pool, runtime, env, executor, owner, req, None).await
+}
+
+/// `POST /api/txr/runs/{id}/rerun` (ITEM-10's route seam; PROV-EE-6): clone a
+/// run from its PERSISTED record (`<run_dir>/input/run-input.json` — the
+/// create-time request verbatim; the K board's "Run again with the same
+/// settings"). 404 `RUN_NOT_FOUND` on an unknown id; 400
+/// `RUN_INPUT_RECORD_MISSING` when the run dir holds no record (an engine
+/// before ITEM-9, or pruned files). The new run's own record carries
+/// `rerun_of = <source id>`.
+pub async fn rerun_run(
+    pool: sqlx::SqlitePool,
+    runtime: Arc<RunRuntime>,
+    env: Arc<dyn EnvProvider>,
+    executor: Arc<dyn MethodExecutor>,
+    owner: Uuid,
+    run_id: Uuid,
+) -> Result<TxrRunSummary, AppError> {
+    let repo = TxrRepository::new(pool.clone());
+    let source = repo.get_run(run_id).await?.ok_or_else(|| {
+        AppError::new(
+            axum::http::StatusCode::NOT_FOUND,
+            "RUN_NOT_FOUND",
+            format!("no run {run_id}"),
+        )
+    })?;
+    let record_path = Path::new(&source.dir).join("input").join("run-input.json");
+    let bytes = std::fs::read(&record_path).map_err(|e| {
+        AppError::new(
+            axum::http::StatusCode::BAD_REQUEST,
+            "RUN_INPUT_RECORD_MISSING",
+            format!("run {run_id} input record missing: {e}"),
+        )
+    })?;
+    let record: super::types::RunInputRecord = serde_json::from_slice(&bytes).map_err(|e| {
+        AppError::new(
+            axum::http::StatusCode::BAD_REQUEST,
+            "RUN_INPUT_RECORD_MISSING",
+            format!("run {run_id} input record unreadable: {e}"),
+        )
+    })?;
+    start_run_inner(
+        pool,
+        runtime,
+        env,
+        executor,
+        owner,
+        CreateRunRequest {
+            mode: record.mode,
+            input: record.input,
+            config: record.config,
+            method_ids: record.method_ids,
+            model_ids: record.model_ids,
+        },
+        Some(run_id),
+    )
+    .await
+}
+
+/// Delete a run dir (PLAN ITEM-9's prune path; ITEM-10's `DELETE
+/// ?delete_files=true` tail — the row cascade is the repository's, the FILES
+/// are this): best-effort removal, a missing dir is success (the run's files
+/// were already pruned / never written), and an error is returned for the
+/// caller to surface (a delete that silently keeps a folder would violate
+/// the K board's "copies are not kept").
+pub fn prune_run_dir(dir: &Path) -> Result<(), AppError> {
+    match std::fs::remove_dir_all(dir) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(io_app("prune run dir", dir.to_path_buf())(e)),
+    }
+}
+
+async fn start_run_inner(
+    pool: sqlx::SqlitePool,
+    runtime: Arc<RunRuntime>,
+    env: Arc<dyn EnvProvider>,
+    executor: Arc<dyn MethodExecutor>,
+    owner: Uuid,
+    req: CreateRunRequest,
+    rerun_of: Option<Uuid>,
+) -> Result<TxrRunSummary, AppError> {
     req.validate().map_err(request_error_to_app)?;
     check_methods_known(&req)?;
 
@@ -970,6 +2491,11 @@ pub async fn start_run(
     let dir = run_dir_root().join(run_dir_name(now, run_id));
     let cpus = detect_cpus();
     let config = req.config.clone();
+    // The estimate facts (CONS-EE-9b's "stored on the run"; ITEM-9's estimate
+    // store): the F header's "about 7 minutes left" is a create-time fact —
+    // computed once here, never re-derived (the estimate provider's response
+    // shape; a compute failure is logged and stays NULL, never a run error).
+    let estimate = compute_estimate(&req, &prepared, cpus);
 
     // The row is persisted in `preparing` (the first visible state — a 202
     // reader never sees a run that is not there; `creating` is the instant
@@ -997,6 +2523,7 @@ pub async fn start_run(
         memory_total_bytes: read_memory_total_bytes(),
         cpus: Some(cpus),
         seed: TxrLimits::SEED,
+        estimate,
     })
     .await?;
 
@@ -1017,6 +2544,7 @@ pub async fn start_run(
                 .map_err(io_app("create run subdir", dir.clone()))?;
         }
         write_input_snapshot(&dir, &req.input, canonical_side)?;
+        write_run_input_record(&dir, &req, rerun_of)?;
         persist_plans(&repo, run_id, &prepared.plans).await?;
         let counts = repo.method_counts(run_id).await?;
         repo.update_run_counts(run_id, &counts).await?;
@@ -1121,6 +2649,60 @@ fn selected_count(req: &CreateRunRequest) -> usize {
         super::types::TxrRunMode::Train => req.method_ids.len(),
         super::types::TxrRunMode::Reuse => req.model_ids.len(),
     }
+}
+
+/// The create-time estimate facts (CONS-EE-9b's "the engine stores it on the
+/// run" — the F header's "about 7 minutes left"): the ITEM-4 provider over the
+/// run's QUEUED (not `cannot_run`) plans, the run's patient count, and the
+/// run's own cpus/at_a_time. A provider failure or an empty queued set is
+/// logged and yields `None` — the estimate is a display fact, NEVER a run
+/// error (DRIFT-1 ITEM-9 #6: stored at create, not finalize — the header
+/// needs it while the run is still running).
+fn compute_estimate(
+    req: &CreateRunRequest,
+    prepared: &PreparedRun,
+    cpus: u32,
+) -> Option<TxrRunEstimate> {
+    // Reuse plans carry model_ids as their method_id, but the estimate engine
+    // resolves CATALOGUE ids — the plan's `label` is the catalogue method id
+    // in both modes (train: id == label).
+    let method_ids: Vec<String> = prepared
+        .plans
+        .iter()
+        .filter(|p| !p.cannot_run)
+        .map(|p| p.label.clone())
+        .collect();
+    let patients = match req.mode {
+        super::types::TxrRunMode::Train => prepared.train.as_ref()?.patients.len() as u32,
+        super::types::TxrRunMode::Reuse => prepared.predict.as_ref()?.patients.len() as u32,
+    };
+    let at_a_time = req.config.at_a_time.max(1);
+    let resp = match estimate::estimate(&EstimateRequest {
+        method_ids,
+        patients,
+        cpus,
+        at_a_time,
+    }) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(error = %e, "execution engine: run estimate failed");
+            return None;
+        }
+    };
+    // The run-level quality: the worst of the per-method qualities (the
+    // schedule is only "measured" when every leg is).
+    let quality = resp.methods.iter().fold(TimingQuality::Measured, |q, m| {
+        if q == TimingQuality::Measured && m.estimate_quality == TimingQuality::Estimate {
+            TimingQuality::Estimate
+        } else {
+            q
+        }
+    });
+    Some(TxrRunEstimate {
+        total_seconds: resp.total_seconds,
+        schedule_seconds: resp.schedule_seconds,
+        estimate_quality: quality,
+    })
 }
 
 fn input_summary(req: &CreateRunRequest, prepared: &PreparedRun) -> TxrRunInputSummary {
@@ -1686,6 +3268,17 @@ fn clone_plan(plan: &MethodPlan) -> MethodPlan {
 /// - stopped by the user → `stopped` (EXAMPLE-EE-3);
 /// - otherwise → `finished`, `predictions_ready = finished > 0`.
 async fn finalize_run(drive: &RunDrive) -> Result<(), AppError> {
+    // The `finishing → finished` step (PLAN ITEM-9): the terminal state is
+    // BROADCAST in `finishing` before the final counts/elapsed/predictions-
+    // ready land — the F header's spinner says "finishing" while the row's
+    // last write runs (a crashed finalize leaves a `finishing` row the boot
+    // reconcile fails as `INTERRUPTED`, TEST-EE-19's shape).
+    drive
+        .repo
+        .set_run_status(drive.run_id, TxrRunStatus::Finishing, None)
+        .await?;
+    drive.broadcast_status(TxrRunStatus::Finishing).await;
+
     let counts = drive.repo.method_counts(drive.run_id).await?;
     let predictions_ready = counts.finished > 0;
     let run_stopped = *drive.run_stop.borrow();
@@ -1896,6 +3489,47 @@ async fn run_method_via_lanes(drive: Arc<RunDrive>, prepared: Arc<PreparedRun>, 
     let cancel = crate::modules::jobs::runtime::runtime()
         .cancel_receiver(job_id)
         .unwrap_or_else(|| watch::channel(false).1);
+    let (sink, mut sink_rx) = RunMethodSink::channel();
+    // The drainer: the executor's log lines + progress frames land in
+    // `txr_run_logs` + the SSE stream (the pane streams during the run); it
+    // ends when the executor drops its `Arc<RunMethodSink>` (one channel is
+    // one method's call sequence — per-method seq stays monotone).
+    {
+        let drive = drive.clone();
+        let method_id = method_id.clone();
+        tokio::spawn(async move {
+            while let Some(msg) = sink_rx.recv().await {
+                match msg {
+                    SinkMessage::Line { stream, content } => {
+                        drive
+                            .append_log_as(Some(&method_id), stream, &content)
+                            .await;
+                    }
+                    SinkMessage::Progress {
+                        phase,
+                        pct,
+                        message,
+                    } => {
+                        drive
+                            .broadcast_progress(&method_id, Some(phase), pct, message)
+                            .await;
+                        // The phase column follows the milestone frames (the
+                        // fit/predict ticker); patch is a COALESCE step so the
+                        // row's other fields keep their values.
+                        let _ = drive
+                            .patch(
+                                &method_id,
+                                MethodPatch {
+                                    phase: Some(phase),
+                                    ..Default::default()
+                                },
+                            )
+                            .await;
+                    }
+                }
+            }
+        });
+    }
     let ctx = super::orchestrator::MethodRunContext {
         run_id: drive.run_id,
         method_id: method_id.clone(),
@@ -1913,6 +3547,13 @@ async fn run_method_via_lanes(drive: Arc<RunDrive>, prepared: Arc<PreparedRun>, 
         predict_patients: prepared.predict_patients.clone(),
         run_dir: drive.dir.clone(),
         save_models: drive.config.save_models,
+        target: match &plan.target {
+            RunTarget::TrainMethod => RunTarget::TrainMethod,
+            RunTarget::ReuseModel { asset } => RunTarget::ReuseModel {
+                asset: asset.clone(),
+            },
+        },
+        sink,
     };
     let outcome = drive.executor.execute(ctx).await;
     let failure = outcome.as_ref().err().map(|e| e.to_string());
@@ -2223,9 +3864,10 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
+    use crate::modules::execution_engine::predictions;
     use crate::modules::execution_engine::repository::TxrRepository;
     use crate::modules::execution_engine::types::{
-        CreateRunRequest, RunConfig, TxrMethodEnv, TxrRunInput, TxrRunMode, TxrTask,
+        self, CreateRunRequest, RunConfig, TxrMethodEnv, TxrRunInput, TxrRunMode, TxrTask,
     };
     use crate::modules::file_validator::types::{ParsedTable, ParsedTableSource, TableFormat};
     use crate::modules::sandbox::method_env::{EnvKind, MethodEnvState};
@@ -2297,6 +3939,98 @@ mod tests {
                 .into_iter()
                 .map(|r| r.into_iter().map(Some).collect())
                 .collect(),
+        }
+    }
+
+    /// 30 patients (so each cross-fit fold's REST subset clears
+    /// [`bundle::MIN_TRAINING_PATIENTS`] — 20 per fold — and every learned
+    /// outcome of it is never warning-dropped) × 3 draws, all events strictly
+    /// after the decision day. The survival times STRADDLE the 238-day
+    /// look-ahead (110..=410), so the own-data AUC sees both label classes
+    /// (event by h → 1, event-free beyond h → 0); a fixture with every time
+    /// below h has no usable comparison pair (the engine's null-when-no-data
+    /// rule).
+    fn cohort_patients_table() -> ParsedTable {
+        let mut rows = Vec::new();
+        for i in 1..=30 {
+            let id = format!("C{i:02}");
+            let pfs = 100 + i * 10;
+            let os = 120 + i * 10;
+            rows.push(vec![
+                id,
+                (pfs as f64).to_string(),
+                if i % 2 == 1 { "1" } else { "0" }.to_string(),
+                (os as f64).to_string(),
+                if i % 3 == 0 { "1" } else { "0" }.to_string(),
+            ]);
+        }
+        let rows: Vec<Vec<&str>> = rows
+            .iter()
+            .map(|r| r.iter().map(|s| s.as_str()).collect())
+            .collect();
+        let rows_ref: Vec<&[&str]> = rows.iter().map(|r| r.as_slice()).collect();
+        table(
+            &["patient_id", "pfs_days", "pfs_event", "os_days", "os_event"],
+            &rows_ref,
+        )
+    }
+
+    fn cohort_measurements_table() -> ParsedTable {
+        let mut rows = Vec::new();
+        for i in 1..=30 {
+            let id = format!("C{i:02}");
+            for (day, value) in [("0", "100"), ("28", "110"), ("56", "105")] {
+                rows.push(vec![
+                    id.clone(),
+                    day.to_string(),
+                    "14804-9".to_string(),
+                    value.to_string(),
+                    "U/L".to_string(),
+                ]);
+            }
+        }
+        let columns = vec![
+            "patient_id".to_string(),
+            "day".to_string(),
+            "marker".to_string(),
+            "value".to_string(),
+            "unit".to_string(),
+        ];
+        ParsedTable {
+            source: ParsedTableSource {
+                name: "values.csv".to_string(),
+                format: TableFormat::Csv,
+            },
+            header_row: 1,
+            columns,
+            rows: rows
+                .into_iter()
+                .map(|r| r.into_iter().map(Some).collect())
+                .collect(),
+        }
+    }
+
+    /// The cohort run request: 30 patients, the drive-able methods' fixture.
+    fn cohort_run_request(methods: &[&str], at_a_time: u32, save_models: bool) -> CreateRunRequest {
+        CreateRunRequest {
+            mode: TxrRunMode::Train,
+            input: TxrRunInput {
+                patients: Some(cohort_patients_table()),
+                measurements: cohort_measurements_table(),
+                predict_measurements: None,
+                joins: Vec::new(),
+                mapping: Vec::new(),
+                keep_copies: true,
+            },
+            config: RunConfig {
+                at_a_time,
+                decision_day: 56.0,
+                look_ahead_day: 238.0,
+                save_models,
+                ..Default::default()
+            },
+            method_ids: methods.iter().map(|s| s.to_string()).collect(),
+            model_ids: Vec::new(),
         }
     }
 
@@ -3244,5 +4978,731 @@ mod tests {
             Some("MODEL_TREE_READ_FAILED"),
             "the verify-before-bind refusal, typed, before any spawn"
         );
+    }
+
+    // ── ITEM-9: the executor over scripted sandbox calls ────────────────────
+
+    /// One scripted sandbox call (the assertion side of the seam): what the
+    /// executor handed the sandbox, + the request's own understanding of its
+    /// task (the mount + the fit-model-out request).
+    #[derive(Debug, Clone, PartialEq)]
+    struct SeamCall {
+        mode: MethodRunMode,
+        /// The `ModelMount{host, digest}` of a reuse call (None for a fit).
+        mount: Option<(String, String)>,
+        /// The fit writes its `/model` into this dir (None for a reuse call).
+        model_out: Option<std::path::PathBuf>,
+        /// The scored ids the fake read from `test/patients.csv` (the rows
+        /// the predictions.csv must answer, exactly).
+        scored: Vec<String>,
+        /// The params.json the executor wrote for the call.
+        params: serde_json::Value,
+        /// The training files present? (combined mode writes train/ too).
+        has_train: bool,
+    }
+
+    /// The scripted [`StackRunSeam`]: reads the request's bundle, emits a
+    /// deterministic `predictions.csv` + `run.json`, verifies + records the
+    /// mount, writes a `/model` tree on fit — the bwrap-free executor half
+    /// (the ITEM-8 FakeEnv/FakeExecutor pattern; TEST-EE-18's loopback-free
+    /// fixture.
+    struct FakeStackRunSeam {
+        calls: Arc<Mutex<Vec<SeamCall>>>,
+        /// `Some` = the next call fails with this `(exit_code, timed_out)`.
+        fail: Arc<Mutex<Option<(i32, bool)>>>,
+    }
+
+    impl FakeStackRunSeam {
+        fn new() -> Arc<Self> {
+            Arc::new(Self {
+                calls: Arc::new(Mutex::new(Vec::new())),
+                fail: Arc::new(Mutex::new(None)),
+            })
+        }
+    }
+
+    impl FakeStackRunSeam {
+        fn read_params(bundle_dir: &Path) -> serde_json::Value {
+            std::fs::read_to_string(bundle_dir.join("params.json"))
+                .ok()
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or_else(|| serde_json::json!({}))
+        }
+
+        /// The scored ids of `bundle_dir/test/patients.csv` (column 0).
+        fn read_scored(bundle_dir: &Path) -> Vec<String> {
+            let text = std::fs::read_to_string(bundle_dir.join("test").join("patients.csv"))
+                .unwrap_or_default();
+            text.lines()
+                .skip(1)
+                .filter(|l| !l.trim().is_empty())
+                .map(|l| l.split(',').next().unwrap_or_default().to_string())
+                .collect()
+        }
+
+        /// A valid scripted output: one row per scored patient, risk varying
+        /// (the `>= 5 scored` constant-risk rule), the declared columns
+        /// present (the method in the tests declares risk + call — the fake
+        /// writes the superset the two test methods need).
+        fn write_predictions(outputs_dir: &Path, scored: &[String]) -> std::io::Result<()> {
+            let mut csv = String::from(
+                "patient_id,risk,risk_progression,risk_death,p_progression_H238,p_death_H238,call,note\n",
+            );
+            for (i, id) in scored.iter().enumerate() {
+                let risk = 0.1 + (i as f64) * 0.05;
+                // A fixed cycle keeps the probability inside [0, 1] whatever
+                // the cohort size (the validation's probability band).
+                let prob = 0.2 + ((i % 12) as f64) * 0.05;
+                csv.push_str(&format!("{id},{risk},{risk},{risk},{prob},{prob},1,\n"));
+            }
+            std::fs::create_dir_all(outputs_dir)?;
+            std::fs::write(outputs_dir.join("predictions.csv"), csv)?;
+            std::fs::write(outputs_dir.join("run.json"), "{\"fixture\": true}")?;
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl StackRunSeam for FakeStackRunSeam {
+        async fn run(
+            &self,
+            req: &MethodRunRequest,
+            _job_id: Uuid,
+            sink: Arc<dyn ProgressSink>,
+        ) -> Result<MethodRunResult, AppError> {
+            let scored = Self::read_scored(&req.bundle_dir);
+            let params = Self::read_params(&req.bundle_dir);
+            let has_train = req.bundle_dir.join("train").is_dir();
+            self.calls
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(SeamCall {
+                    mode: req.mode,
+                    mount: req
+                        .model
+                        .as_ref()
+                        .map(|m| (m.host_path.display().to_string(), m.tree_sha256.clone())),
+                    model_out: req.model_out_dir.clone(),
+                    scored: scored.clone(),
+                    params,
+                    has_train,
+                });
+            // The mount is verified like the service's verify-before-bind.
+            if let Some(m) = &req.model {
+                let digest = crate::modules::sandbox::stack::tree_sha256(&m.host_path)?;
+                if digest != m.tree_sha256 {
+                    return Err(AppError::new(
+                        axum::http::StatusCode::BAD_REQUEST,
+                        "MODEL_VERIFY_FAILED",
+                        format!("fixture: digest mismatch of {}", m.host_path.display()),
+                    ));
+                }
+            }
+            let model_out_digest = if let Some(mdir) = &req.model_out_dir {
+                let dir_err =
+                    |e: std::io::Error| AppError::internal_error(format!("fixture model dir: {e}"));
+                std::fs::create_dir_all(mdir).map_err(dir_err)?;
+                std::fs::write(mdir.join("model.rds"), "fixture-model").map_err(dir_err)?;
+                Some(crate::modules::sandbox::stack::tree_sha256(mdir)?)
+            } else {
+                None
+            };
+            // The log line + milestone ride the sink (CONS-EE-5's frames);
+            // the milestone id follows the call mode exactly like the real
+            // wrapper's `sigbench_mode` (stack.rs): fit vs predict.
+            sink.progress(ProgressFrame {
+                phase: crate::modules::sandbox::service::LOG_PHASE_STDOUT.to_string(),
+                pct: None,
+                message: Some("fixture says hi".to_string()),
+            });
+            sink.milestone(MilestoneFrame {
+                id: match req.mode {
+                    MethodRunMode::FitOnly => "fit",
+                    _ => "predict",
+                }
+                .to_string(),
+                status: "done".to_string(),
+                detail: serde_json::Value::Null,
+            });
+            // The scripted failure arm (a non-zero exit / a timeout).
+            let (exit_code, timed_out) = self
+                .fail
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .take()
+                .unwrap_or((0, false));
+            if exit_code != 0 || timed_out {
+                // A failed call writes the outputs the sandbox would have — a
+                // partial file is exactly what a real timeout leaves behind.
+            } else {
+                Self::write_predictions(&req.outputs_dir, &scored)
+                    .map_err(|e| AppError::internal_error(format!("fixture outputs: {e}")))?;
+            }
+            Ok(MethodRunResult {
+                exit_code,
+                stderr: if exit_code != 0 {
+                    "fixture boom\nline two\n".to_string()
+                } else {
+                    String::new()
+                },
+                stdout: String::new(),
+                stdout_truncated: false,
+                stderr_truncated: false,
+                timed_out,
+                duration_ms: 42,
+                base_env_digest: "a".repeat(64),
+                layer_env_digest: "b".repeat(64),
+                model_verified: req.model.is_some(),
+                model_out_digest,
+            })
+        }
+    }
+
+    /// The scripted-`MethodRunContext` helper (the executor unit fixture does
+    /// not need the lane/admission wiring — ctx construction is IN this file).
+    /// The cancel SENDER is returned alongside, and the caller keeps it alive
+    /// for the `execute` call (a dropped sender makes `cancel.changed()`
+    /// error immediately, which the executor reads as an abort).
+    fn executor_ctx(
+        run_dir: &Path,
+        method_id: &str,
+        train: Option<Arc<CanonicalBundle>>,
+        predict: Option<Arc<CanonicalBundle>>,
+        predict_patients: Option<Arc<[CanonicalPatient]>>,
+        save_models: bool,
+        target: RunTarget,
+    ) -> (MethodRunContext, watch::Sender<bool>) {
+        let (cancel_tx, cancel) = watch::channel(false);
+        (
+            MethodRunContext {
+                run_id: Uuid::new_v4(),
+                method_id: method_id.to_string(),
+                label: method_id.to_string(),
+                version: "2.0.0".to_string(),
+                group: "fixture".to_string(),
+                min_draws: 2,
+                env: EnvFacts {
+                    base: crate::modules::sandbox::stack::EnvRef {
+                        oci_ref: "ghcr.io/fixture/base-r@sha256:abc".to_string(),
+                        digest: "c".repeat(64),
+                        tag: None,
+                    },
+                    layer: crate::modules::sandbox::stack::EnvRef {
+                        oci_ref: "ghcr.io/fixture/layer".to_string(),
+                        digest: "d".repeat(64),
+                        tag: None,
+                    },
+                    base_digest: "c".repeat(64),
+                    layer_digest: "d".repeat(64),
+                },
+                job_id: Uuid::new_v4(),
+                cancel,
+                config: RunConfig {
+                    decision_day: 56.0,
+                    look_ahead_day: 238.0,
+                    save_models,
+                    ..Default::default()
+                },
+                cpus: 4,
+                train,
+                predict,
+                predict_patients,
+                run_dir: run_dir.to_path_buf(),
+                save_models,
+                target,
+                sink: RunMethodSink::channel().0,
+            },
+            cancel_tx,
+        )
+    }
+
+    /// The executor's per-method dir skeleton (bundles/output/models).
+    fn make_method_dirs(run_dir: &Path, method_id: &str) -> (PathBuf, PathBuf, PathBuf) {
+        let bundles = run_dir.join("bundles").join(method_id);
+        let outputs = run_dir.join("output").join(method_id);
+        let models = run_dir.join("models").join(method_id);
+        std::fs::create_dir_all(&bundles).unwrap();
+        std::fs::create_dir_all(&outputs).unwrap();
+        std::fs::create_dir_all(&models).unwrap();
+        (bundles, outputs, models)
+    }
+
+    /// The executor fixture's pre-run milestone: the trained `CanonicalBundle`
+    /// (the cohort fixture, validated like the run start's, tightened to the
+    /// 30-patient cohort so the train bundle LEARNS both outcomes and
+    /// each cross-fit fold's rest subset stays learnable).
+    async fn executor_prepared(method_id: &str) -> PreparedRun {
+        let req = cohort_run_request(&[method_id], 2, true);
+        prepare_run(
+            &req.input,
+            &req.config,
+            TxrRunMode::Train,
+            &req.method_ids,
+            &[],
+        )
+        .expect("the cohort fixture validates + classifies")
+    }
+
+    #[tokio::test]
+    async fn executor_drives_risk_only_method_to_recalibrated_predictions() {
+        let _g = rootfs::scoped_data_root(test_data_dir("executor-train"));
+        let pool = merged_pool().await;
+        let seam = FakeStackRunSeam::new();
+        let exec = StackMethodExecutor::with_seam(pool, seam.clone());
+        let prepared = executor_prepared("ctdna-tf-four-group").await;
+        let run_dir = rootfs::data_root();
+        let bundles = run_dir.join("bundles").join("ctdna-tf-four-group");
+        let outputs = run_dir.join("output").join("ctdna-tf-four-group");
+        let models = run_dir.join("models").join("ctdna-tf-four-group");
+        std::fs::create_dir_all(&bundles).unwrap();
+        std::fs::create_dir_all(&outputs).unwrap();
+        std::fs::create_dir_all(&models).unwrap();
+
+        let (ctx, _cancel) = executor_ctx(
+            &run_dir,
+            "ctdna-tf-four-group",
+            prepared.train,
+            None,
+            None,
+            true,
+            RunTarget::TrainMethod,
+        );
+        let outcome = exec
+            .execute(ctx)
+            .await
+            .expect("the executor outcome is an Ok verdict");
+        assert_eq!(outcome.state, TxrMethodState::Finished);
+        assert!(outcome.reason.is_none());
+        assert_eq!(outcome.exit_code, Some(0));
+        assert_eq!(
+            outcome.prob_source,
+            Some(TxrProbSource::Recalibrated),
+            "risk-only method → the conversion band fills the column"
+        );
+        let cov = outcome.coverage.expect("coverage");
+        assert_eq!(
+            (cov.scored, cov.eligible),
+            (30, 30),
+            "every cohort patient is scored + converted"
+        );
+        assert_eq!(outcome.task, Some(TxrTask::Pfs));
+        let model = outcome.model.expect("save_models → produced model");
+        assert_eq!(model.trained_on_patients, 30);
+        assert_eq!(model.model_out_digest.len(), 64);
+        assert!(model.size_bytes > 0, "the /model tree has bytes");
+        assert!(model.own_auc.is_some(), "own-data AUC computed from scores");
+
+        // The call sequence: fit (FitOnly) → training scores (ReuseModel over
+        // the cohort) → final predict (ReuseModel over the surface).
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(calls.len(), 3, "fit + score + final predict");
+        assert_eq!(calls[0].mode, MethodRunMode::FitOnly);
+        assert!(calls[0].model_out.is_some());
+        assert!(calls[0].mount.is_none());
+        assert!(calls[0].has_train, "fit sees the train bundle");
+        assert_eq!(calls[1].mode, MethodRunMode::ReuseModel);
+        assert!(calls[1].mount.is_some());
+        assert_eq!(
+            calls[1].scored.len(),
+            30,
+            "the training-score call scores the cohort"
+        );
+        assert!(!calls[1].has_train, "a reuse call never sees /input/train");
+        assert_eq!(calls[2].mode, MethodRunMode::ReuseModel);
+        assert_eq!(calls[2].scored.len(), 30);
+        // The params carry the run's contract facts (landmark + horizon).
+        for c in calls.iter() {
+            assert_eq!(c.params["landmark_day"], 56.0);
+            assert_eq!(c.params["horizons"], serde_json::json!([238.0]));
+            assert_eq!(c.params["seed"], 1);
+        }
+        drop(calls);
+    }
+
+    #[tokio::test]
+    async fn executor_native_method_reports_native_source_without_crossfit() {
+        let _g = rootfs::scoped_data_root(test_data_dir("executor-native"));
+        let pool = merged_pool().await;
+        let seam = FakeStackRunSeam::new();
+        let exec = StackMethodExecutor::with_seam(pool, seam.clone());
+        let prepared = executor_prepared("jm-lme").await; // declares p_progression_H*
+        let run_dir = rootfs::data_root();
+        make_method_dirs(&run_dir, "jm-lme");
+
+        let (ctx, _cancel) = executor_ctx(
+            &run_dir,
+            "jm-lme",
+            prepared.train,
+            None,
+            None,
+            false,
+            RunTarget::TrainMethod,
+        );
+        let outcome = exec.execute(ctx).await.expect("verdict");
+        assert_eq!(outcome.state, TxrMethodState::Finished);
+        assert_eq!(outcome.prob_source, Some(TxrProbSource::Native));
+        // The native method still needs death's conversion → the method is
+        // fitted → the 3-fold cross-fit runs (engine.cpp's fitted branch); the
+        // DISPLAYED column stays native. Fold calls: 3 × (fit + predict).
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(calls.len(), 2 + 2 * predictions::CROSS_FIT_FOLDS);
+        assert_eq!(calls[0].mode, MethodRunMode::FitOnly);
+        let fold_fits = calls[1..1 + 2 * predictions::CROSS_FIT_FOLDS]
+            .iter()
+            .filter(|c| c.mode == MethodRunMode::FitOnly)
+            .count();
+        assert_eq!(fold_fits, predictions::CROSS_FIT_FOLDS);
+        drop(calls);
+    }
+
+    #[tokio::test]
+    async fn executor_reuse_predict_only_reports_prob_source_none() {
+        let _g = rootfs::scoped_data_root(test_data_dir("executor-reuse"));
+        let pool = merged_pool().await;
+        let seam = FakeStackRunSeam::new();
+        let exec = StackMethodExecutor::with_seam(pool, seam.clone());
+        // The asset: a /model tree the fixture writes + digests (the verify-
+        // before-bind digest of the request).
+        let run_dir = rootfs::data_root();
+        let asset_dir = run_dir.join("asset-model");
+        std::fs::create_dir_all(&asset_dir).unwrap();
+        std::fs::write(asset_dir.join("model.rds"), "fixture-model").unwrap();
+        let digest = crate::modules::sandbox::stack::tree_sha256(&asset_dir).unwrap();
+        make_method_dirs(&run_dir, "m-1");
+        let req = CreateRunRequest {
+            mode: TxrRunMode::Reuse,
+            input: TxrRunInput {
+                patients: None,
+                measurements: cohort_measurements_table(),
+                predict_measurements: Some(cohort_measurements_table()),
+                joins: Vec::new(),
+                mapping: Vec::new(),
+                keep_copies: false,
+            },
+            config: RunConfig {
+                at_a_time: 2,
+                decision_day: 56.0,
+                look_ahead_day: 238.0,
+                ..Default::default()
+            },
+            method_ids: Vec::new(),
+            model_ids: vec![crate::modules::execution_engine::types::TxrModelAsset {
+                model_id: "m-1".to_string(),
+                host_dir: asset_dir.display().to_string(),
+                tree_sha256: digest.clone(),
+                method_id: "ctdna-tf-four-group".to_string(),
+                method_version: "2.0.0".to_string(),
+                env: TxrMethodEnv {
+                    base_digest: "c".repeat(64),
+                    layer_digest: "d".repeat(64),
+                },
+                contract: "2.0".to_string(),
+            }],
+        };
+        let prepared = prepare_run(
+            &req.input,
+            &req.config,
+            TxrRunMode::Reuse,
+            &req.method_ids,
+            &req.model_ids,
+        )
+        .expect("the reuse fixture validates");
+        let (ctx, _cancel) = executor_ctx(
+            &run_dir,
+            "m-1",
+            prepared.train,
+            prepared.predict,
+            prepared.predict_patients,
+            false,
+            RunTarget::ReuseModel {
+                asset: req.model_ids[0].clone(),
+            },
+        );
+        let outcome = exec.execute(ctx).await.expect("verdict");
+        assert_eq!(outcome.state, TxrMethodState::Finished);
+        assert_eq!(
+            outcome.prob_source,
+            Some(TxrProbSource::None),
+            "predict-only reuse of a risk-only method has no conversion source"
+        );
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(calls.len(), 1, "one reuse call");
+        assert_eq!(calls[0].mode, MethodRunMode::ReuseModel);
+        assert_eq!(
+            calls[0].mount.as_ref().map(|(_, d)| d.as_str()),
+            Some(digest.as_str())
+        );
+        drop(calls);
+    }
+
+    #[tokio::test]
+    async fn executor_timeout_and_exit_failures_are_typed() {
+        let _g = rootfs::scoped_data_root(test_data_dir("executor-timeout"));
+        let pool = merged_pool().await;
+
+        // The timeout arm: JOB_TIMEOUT, BEFORE any output is read.
+        let seam = FakeStackRunSeam::new();
+        *seam.fail.lock().unwrap_or_else(|e| e.into_inner()) = Some((0, true));
+        let exec = StackMethodExecutor::with_seam(pool.clone(), seam.clone());
+        let prepared = executor_prepared("ctdna-tf-four-group").await;
+        let run_dir = rootfs::data_root();
+        make_method_dirs(&run_dir, "ctdna-tf-four-group");
+        let (ctx, _cancel) = executor_ctx(
+            &run_dir,
+            "ctdna-tf-four-group",
+            prepared.train,
+            None,
+            None,
+            true,
+            RunTarget::TrainMethod,
+        );
+        let outcome = exec.execute(ctx).await.expect("verdict");
+        assert_eq!(outcome.state, TxrMethodState::Failed);
+        assert_eq!(
+            outcome.reason.as_ref().map(|r| r.code.as_str()),
+            Some("JOB_TIMEOUT")
+        );
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(calls.len(), 1, "the fit call times out — nothing after");
+        drop(calls);
+
+        // The non-zero exit arm: PREDICTION_INVALID + the stderr tail.
+        let seam2 = FakeStackRunSeam::new();
+        *seam2.fail.lock().unwrap_or_else(|e| e.into_inner()) = Some((3, false));
+        let exec2 = StackMethodExecutor::with_seam(pool, seam2);
+        let prepared2 = executor_prepared("ctdna-tf-four-group").await;
+        let run_dir2 = rootfs::data_root();
+        make_method_dirs(&run_dir2, "ctdna-tf-four-group");
+        let (ctx2, _cancel2) = executor_ctx(
+            &run_dir2,
+            "ctdna-tf-four-group",
+            prepared2.train,
+            None,
+            None,
+            true,
+            RunTarget::TrainMethod,
+        );
+        let outcome2 = exec2.execute(ctx2).await.expect("verdict");
+        assert_eq!(outcome2.state, TxrMethodState::Failed);
+        let reason = outcome2.reason.expect("reason");
+        assert_eq!(reason.code, "PREDICTION_INVALID");
+        assert!(reason.detail.contains("exit code 3"), "{}", reason.detail);
+        assert!(
+            reason.detail.contains("fixture boom"),
+            "stderr tail in the detail"
+        );
+    }
+
+    #[tokio::test]
+    async fn executor_bundle_refusal_is_typed_before_any_call() {
+        let _g = rootfs::scoped_data_root(test_data_dir("executor-refusal"));
+        let pool = merged_pool().await;
+        let seam = FakeStackRunSeam::new();
+        let exec = StackMethodExecutor::with_seam(pool, seam.clone());
+        // A marker-count mismatch: a single-marker method over the two-marker
+        // cohort (the fixture's one LOINC + the method's single rule expects
+        // exactly one) → BUNDLE_MARKER_COUNT_UNMET before any sandbox call.
+        let prepared = executor_prepared("landmark-cox-current").await;
+        let run_dir = rootfs::data_root();
+        make_method_dirs(&run_dir, "landmark-cox-current");
+
+        // Force the mismatch: the cohort carries ONE main marker, so pick a
+        // method whose selection rule cannot be met — the fixture's marker is
+        // a single LOINC id, and `marker kind single` + a required list it
+        // does not match still yields the count refusal.
+        let (ctx, _cancel) = executor_ctx(
+            &run_dir,
+            "ca125-auc-cutoff",
+            prepared.train,
+            None,
+            None,
+            false,
+            RunTarget::TrainMethod,
+        );
+        let outcome = exec.execute(ctx).await.expect("verdict");
+        assert_eq!(outcome.state, TxrMethodState::Failed);
+        assert_eq!(
+            outcome.reason.as_ref().map(|r| r.code.as_str()),
+            Some("BUNDLE_MARKER_COUNT_UNMET")
+        );
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(
+            calls.is_empty(),
+            "a bundle refusal never reaches the sandbox"
+        );
+        drop(calls);
+    }
+
+    #[tokio::test]
+    async fn run_input_record_round_trips_and_rerun_clones_it() {
+        let _g = rootfs::scoped_data_root(test_data_dir("rerun"));
+        let pool = merged_pool().await;
+        let runtime = Arc::new(RunRuntime::new());
+        let env = Arc::new(FakeEnv::new(Duration::from_millis(10)));
+        let executor = Arc::new(FakeExecutor::new(Duration::ZERO));
+        let req = cohort_run_request(&["ctdna-tf-four-group"], 2, false);
+        let first = start_run(
+            pool.clone(),
+            runtime.clone(),
+            env.clone(),
+            executor.clone(),
+            owner(),
+            req.clone(),
+        )
+        .await
+        .expect("create");
+        let repo = TxrRepository::new(pool.clone());
+        let _ = wait_terminal(&repo, first.id).await;
+
+        // The record file exists + round-trips the request (the validator
+        // accepted the SAME tables — the clone never re-parses CSVs).
+        let record_path = Path::new(&first.dir).join("input").join("run-input.json");
+        let bytes = std::fs::read(&record_path).expect("run-input.json written");
+        let record: types::RunInputRecord = serde_json::from_slice(&bytes).expect("record parses");
+        assert_eq!(record.mode, TxrRunMode::Train);
+        assert_eq!(record.method_ids, vec!["ctdna-tf-four-group".to_string()]);
+        assert!(record.rerun_of.is_none());
+        assert_eq!(record.config.decision_day, 56.0);
+        assert_eq!(
+            record.input.patients.as_ref().map(|p| p.rows.len()),
+            Some(30)
+        );
+
+        // rerun_run: a NEW run whose record carries the source link.
+        let second = rerun_run(pool.clone(), runtime, env, executor, owner(), first.id)
+            .await
+            .expect("rerun");
+        assert_ne!(second.id, first.id);
+        let second_record: types::RunInputRecord = serde_json::from_slice(
+            &std::fs::read(Path::new(&second.dir).join("input").join("run-input.json"))
+                .expect("second record"),
+        )
+        .expect("parses");
+        assert_eq!(second_record.rerun_of, Some(first.id));
+        assert_eq!(second_record.method_ids, req.method_ids);
+
+        // prune: not-found is fine; a real dir goes away.
+        prune_run_dir(Path::new("/no/such/run-dir")).expect("missing dir is success");
+        let _ = wait_terminal(&repo, second.id).await;
+        prune_run_dir(Path::new(&second.dir)).expect("prune removes the tree");
+        assert!(!Path::new(&second.dir).exists());
+        prune_run_dir(Path::new(&second.dir)).expect("idempotent");
+    }
+
+    #[tokio::test]
+    async fn estimate_facts_are_stored_on_the_run_row() {
+        let _g = rootfs::scoped_data_root(test_data_dir("estimate"));
+        let pool = merged_pool().await;
+        let runtime = Arc::new(RunRuntime::new());
+        let env = Arc::new(FakeEnv::new(Duration::from_millis(10)));
+        let executor = Arc::new(FakeExecutor::new(Duration::ZERO));
+        let req = cohort_run_request(&["ctdna-tf-four-group"], 2, false);
+        let summary = start_run(pool.clone(), runtime, env, executor, owner(), req)
+            .await
+            .expect("create");
+        let repo = TxrRepository::new(pool.clone());
+        let row = repo.get_run(summary.id).await.expect("get").expect("row");
+        let estimate = row.estimate().expect("estimate parses").expect("stored");
+        assert!(
+            estimate.total_seconds > 0.0,
+            "the FIFO of the catalogue estimate"
+        );
+        assert!(estimate.schedule_seconds > 0.0);
+        let _ = wait_terminal(&repo, summary.id).await;
+    }
+
+    #[tokio::test]
+    async fn drive_uses_the_real_executor_with_the_sink_drainer() {
+        let _g = rootfs::scoped_data_root(test_data_dir("drive-executor"));
+        let pool = merged_pool().await;
+        let runtime = Arc::new(RunRuntime::new());
+        let env = Arc::new(FakeEnv::new(Duration::from_millis(10)));
+        let seam = FakeStackRunSeam::new();
+        let exec = StackMethodExecutor::with_seam(pool.clone(), seam.clone());
+        let req = cohort_run_request(&["ctdna-tf-four-group"], 2, true);
+        let summary = start_run(
+            pool.clone(),
+            runtime.clone(),
+            env,
+            Arc::new(exec),
+            owner(),
+            req,
+        )
+        .await
+        .expect("create");
+        let repo = TxrRepository::new(pool.clone());
+        let row = wait_terminal(&repo, summary.id).await;
+        assert_eq!(row.status().expect("parses"), TxrRunStatus::Finished);
+
+        let methods = repo.methods_for_run(summary.id).await.expect("methods");
+        assert_eq!(methods.len(), 1);
+        let m = &methods[0];
+        assert_eq!(m.state, "finished", "{}", m.method_id);
+        assert_eq!(m.prob_source.as_deref(), Some("recalibrated"));
+        assert_eq!(m.coverage_scored, Some(30));
+        assert!(m.model_out_digest.as_deref().is_some_and(|d| d.len() == 64));
+        assert_eq!(m.trained_on_patients, Some(30));
+        assert!(m.exit_code == Some(0), "{m:?}");
+
+        // The drainer moved the seam's log line + milestone into the log rows
+        // and the phase patch (the frames the sink carried to the drive).
+        let (logs, _, _) = repo
+            .logs_page(summary.id, Some("ctdna-tf-four-group"), 0, 100)
+            .await
+            .expect("logs");
+        assert!(
+            logs.iter()
+                .any(|l| l.stream == "stdout" && l.content.contains("fixture says hi")),
+            "the sandbox log line landed in txr_run_logs"
+        );
+        let m2 = repo
+            .get_method(summary.id, &m.method_id)
+            .await
+            .expect("get")
+            .expect("row");
+        assert_eq!(
+            m2.phase.as_deref(),
+            Some("predict"),
+            "the milestone patched the phase"
+        );
+    }
+
+    #[tokio::test]
+    async fn crossfit_fod_model_dirs_never_overwrite_the_produced_tree() {
+        let _g = rootfs::scoped_data_root(test_data_dir("executor-crossfit-dirs"));
+        let pool = merged_pool().await;
+        let seam = FakeStackRunSeam::new();
+        let exec = StackMethodExecutor::with_seam(pool, seam.clone());
+        let prepared = executor_prepared("cox-cutpoint-risk").await;
+        let run_dir = rootfs::data_root();
+        let (_, outputs, models) = make_method_dirs(&run_dir, "cox-cutpoint-risk");
+        let (ctx, _cancel) = executor_ctx(
+            &run_dir,
+            "cox-cutpoint-risk",
+            prepared.train,
+            None,
+            None,
+            false,
+            RunTarget::TrainMethod,
+        );
+        let outcome = exec.execute(ctx).await.expect("verdict");
+        assert_eq!(outcome.state, TxrMethodState::Finished);
+        assert!(
+            models.join("model.rds").exists(),
+            "the MAIN fit's tree stays"
+        );
+        for k in 0..predictions::CROSS_FIT_FOLDS {
+            let fold_dir = outputs.join(".crossfit").join(k.to_string());
+            assert!(
+                fold_dir.join("model.rds").exists(),
+                "fold {k} has its own tree"
+            );
+        }
+        let calls = seam.calls.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(
+            calls.len() >= 3 * 2,
+            "fit + 3×(fit + predict) for a fitted method"
+        );
+        drop(calls);
     }
 }

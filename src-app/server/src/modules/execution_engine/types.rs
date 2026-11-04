@@ -373,6 +373,23 @@ pub struct CreateRunRequest {
     pub model_ids: Vec<TxrModelAsset>,
 }
 
+/// The rerun record the engine persists beside a run (`<run_dir>/input/
+/// run-input.json` — DEC-16's "copies kept so it can be repeated"): the
+/// create-time request verbatim plus the source-run link, so `rerun_run`
+/// clones a run WITHOUT re-parsing the table CSVs (the record's `input` IS
+/// the parsed snapshot the SAME validator accepted). An internal durable
+/// artifact, never a wire type (not JsonSchema'd).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunInputRecord {
+    pub mode: TxrRunMode,
+    pub input: TxrRunInput,
+    pub config: RunConfig,
+    pub method_ids: Vec<String>,
+    pub model_ids: Vec<TxrModelAsset>,
+    /// The run this one was cloned from (a fresh create is `None`).
+    pub rerun_of: Option<Uuid>,
+}
+
 /// The input snapshot the engine validates + bundles (CONS-EE-11: it replays
 /// the SAME parsed tables the screens POSTed — one code path, DEC-15).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

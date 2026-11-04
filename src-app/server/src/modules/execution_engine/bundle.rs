@@ -781,6 +781,13 @@ impl CsvTable {
         Self { names, cols }
     }
 
+    /// The empty table (the executor's fallback when `outcomes.csv` cannot be
+    /// parsed — that path is the method's own typed verdict already; the
+    /// conversion arm never panics on a missing label file).
+    pub(crate) fn empty() -> Self {
+        Self::with_names(Vec::new())
+    }
+
     fn push_row(&mut self, cells: &[String]) {
         debug_assert!(cells.len() == self.cols.len(), "{cells:?} vs {:?}", self.names);
         for (col, cell) in self.cols.iter_mut().zip(cells) {

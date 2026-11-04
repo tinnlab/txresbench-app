@@ -250,6 +250,7 @@ mod tests {
             memory_total_bytes: None,
             cpus: Some(4),
             seed: 1,
+            estimate: None,
         }
     }
 

@@ -38,8 +38,9 @@ use ziee_core::AppError;
 
 use super::types::{
     EngineReasonCode, RunConfig, TxrAppConfig, TxrCoverage, TxrLogStream, TxrMethodEnv,
-    TxrMethodState, TxrPhase, TxrProbSource, TxrProducedModel, TxrRunCounts, TxrRunInputSummary,
-    TxrRunLogLine, TxrRunMethod, TxrRunMode, TxrRunReason, TxrRunStatus, TxrRunSummary, TxrTask,
+    TxrMethodState, TxrPhase, TxrProbSource, TxrProducedModel, TxrRunCounts, TxrRunEstimate,
+    TxrRunInputSummary, TxrRunLogLine, TxrRunMethod, TxrRunMode, TxrRunReason, TxrRunStatus,
+    TxrRunSummary, TxrTask,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -71,6 +72,9 @@ pub struct RunRow {
     pub finished_at: Option<DateTime<Utc>>,
     pub predictions_ready: bool,
     pub seed: i32,
+    /// The estimate facts JSON (PROV-MC-6's response shape; the `0006`
+    /// additive column — NULL = never computed, a display fact).
+    pub estimate: Option<Json>,
 }
 
 impl RunRow {
@@ -118,6 +122,16 @@ impl RunRow {
             dir: self.dir.clone(),
             input_summary,
         })
+    }
+
+    /// The run's estimate facts (the `0006` column; `None` = never computed —
+    /// a legacy row or a create-time compute failure; the estimate is a
+    /// display fact, never a run failure).
+    pub fn estimate(&self) -> Result<Option<TxrRunEstimate>, AppError> {
+        match &self.estimate {
+            Some(v) => json_parse(v, "txr_runs.estimate").map(Some),
+            None => Ok(None),
+        }
     }
 }
 
@@ -340,6 +354,9 @@ pub struct NewRun {
     pub memory_total_bytes: Option<u64>,
     pub cpus: Option<u32>,
     pub seed: u32,
+    /// The estimate facts (None = never computed — CONS-EE-9b's "stores it on
+    /// the run"; the provider's response is only a display fact).
+    pub estimate: Option<TxrRunEstimate>,
 }
 
 /// The new method row (the F screen's row at classification time; the rest of
@@ -449,6 +466,10 @@ impl TxrRepository {
             Some(json_value(&new.model_ids, "model_ids")?)
         };
         let counts = json_value(&new.counts, "counts")?;
+        let estimate = match &new.estimate {
+            Some(e) => Some(json_value(e, "estimate")?),
+            None => None,
+        };
         // Every bind is a LOCAL (the macro's generated block drops statement
         // temporaries before the executor borrows them).
         let status = new.status.as_str();
@@ -462,8 +483,8 @@ impl TxrRepository {
             RunRow,
             r#"INSERT INTO txr_runs
                  (id, created_at, status, mode, config, input_summary, model_ids,
-                  method_count, counts, dir, memory_total_bytes, cpus, seed)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                  method_count, counts, dir, memory_total_bytes, cpus, seed, estimate)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
                RETURNING id as "id: Uuid", created_at as "created_at: DateTime<Utc>",
                          status, mode,
                          config as "config: serde_json::Value",
@@ -474,7 +495,8 @@ impl TxrRepository {
                          error, started_at as "started_at?: DateTime<Utc>",
                          finished_at as "finished_at?: DateTime<Utc>",
                          predictions_ready as "predictions_ready: bool",
-                         seed as "seed: i32""#,
+                         seed as "seed: i32",
+                         estimate as "estimate?: serde_json::Value""#,
             new.id,
             created_at,
             status,
@@ -488,6 +510,7 @@ impl TxrRepository {
             memory_total_bytes,
             cpus,
             seed,
+            estimate,
         )
         .fetch_one(&self.pool)
         .await
@@ -508,7 +531,8 @@ impl TxrRepository {
                       error, started_at as "started_at?: DateTime<Utc>",
                       finished_at as "finished_at?: DateTime<Utc>",
                       predictions_ready as "predictions_ready: bool",
-                      seed as "seed: i32"
+                      seed as "seed: i32",
+                      estimate as "estimate?: serde_json::Value"
                FROM txr_runs WHERE id = $1"#,
             id
         )
@@ -533,7 +557,8 @@ impl TxrRepository {
                       error, started_at as "started_at?: DateTime<Utc>",
                       finished_at as "finished_at?: DateTime<Utc>",
                       predictions_ready as "predictions_ready: bool",
-                      seed as "seed: i32"
+                      seed as "seed: i32",
+                      estimate as "estimate?: serde_json::Value"
                FROM txr_runs
                ORDER BY created_at DESC, id DESC
                LIMIT $1 OFFSET $2"#,
@@ -1304,6 +1329,7 @@ mod tests {
             memory_total_bytes: Some(16 * 1024 * 1024 * 1024),
             cpus: Some(4),
             seed: 1,
+            estimate: None,
         }
     }
 

@@ -115,12 +115,21 @@ nothing.
   and the 500 ms status poll driving the row counters and the SSE frames),
   the admission wrapper (`admit_within`, job_type `"sandbox"`, cancel
   registered before the admit, `close_slot` in the finally-shaped tail),
-  stop/skip on the queue, and the `MethodExecutor` trait — the ITEM-9 seam
-  (bundle write + `run_method_in_stack` + predictions ingest + model
-  collection sit behind one method hook); `migrations/2026102600{01..05}_*.sql` —
+  stop/skip on the queue, and `StackMethodExecutor` — the ITEM-9 executor:
+  per-method bundle writes + the sandbox call sequence (fit →
+  training scores over the cohort — the 3-fold cross-fit for a `fitted`
+  method — → the final predict over the surface), the conversion band
+  application (`prob_source` native/recalibrated/none, INV-3), the live
+  log/progress frames (the drainer appends to `txr_run_logs` + broadcasts
+  the SSE frames), result capture (duration/exit code/digests), the
+  produced-model facts (`save_models` only), the reuse path (one verified
+  `ReuseModel` call against the asset), the create-time estimate, the
+  `rerun_of` record + prune path and the run finalize
+  (`finishing → finished`); `migrations/2026102600{01..06}_*.sql` —
   the four module-owned tables the consumers bind (`txr_runs`,
   `txr_run_methods`, `txr_run_logs`, `txr_app_config`) + the additive `0005`
-  produced-model columns of `txr_run_methods`.
+  produced-model columns of `txr_run_methods` + the additive `0006` run
+  estimate column of `txr_runs`.
 
 ## Data hygiene rules
 
