@@ -68,9 +68,11 @@ nothing.
   module doc; `types.rs` — the typed request/response contract (PROV-EE-2..9,
   the closed state-machine vocabularies, the `TxrRunEvent` SSE vocabulary via
   `sse_event_enum!`); `envmanifest.rs` — the embedded-data seam (manifest
-  model + boot validation + lookups + the catalogue-facts shim);
-  `migrations/2026102600{01..04}_*.sql` — the four module-owned tables the
-  consumers bind (`txr_runs`, `txr_run_methods`, `txr_run_logs`,
+  model + boot validation + lookups + the catalogue-facts shim); `bundle.rs` —
+  the contract-bundle assembly (canonical rows → the `/input` files +
+  `params.json`, the package contract 2.0 port of `prepare.cpp`, pure
+  functions); `migrations/2026102600{01..04}_*.sql` — the four module-owned
+  tables the consumers bind (`txr_runs`, `txr_run_methods`, `txr_run_logs`,
   `txr_app_config`).
 
 ## Data hygiene rules

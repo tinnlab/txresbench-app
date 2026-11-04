@@ -33,6 +33,7 @@
 //! loop follows the `provenance::verify` finally-close discipline. The engine
 //! adds its own per-run lane semaphore (the board's "run N at a time").
 
+pub mod bundle;
 pub mod envmanifest;
 pub mod types;
 
