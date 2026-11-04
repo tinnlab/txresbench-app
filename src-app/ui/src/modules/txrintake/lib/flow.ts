@@ -32,7 +32,11 @@
  *   claimed by (a)/(b).
  * - `patientsStatus` / `measurementsStatus` — the green card box lines,
  *   data-filled from the validate response (board strings; the numbers are
- *   the provider's, never design examples).
+ *   the provider's, never design examples). `measurementsStatus` is the C
+ *   screen's box (the board-N line with the C "Ready." terminator, per
+ *   ITEM-6); `predictMeasurementsStatus` is the N screen's OWN box — the
+ *   same line with the board-N continuation ("Next you choose the models
+ *   that can run on it.", ITEM-7).
  */
 
 import type {
@@ -306,6 +310,37 @@ const STATUS_MARKER_CLIP = 6
  */
 export function measurementsStatus(response: ValidationResponse): CardStatus {
   const measurements = response.measurements
+  return {
+    heading: `✓ ${measurements.patients} patients read`,
+    line: `${measurementsDetail(response)}. Ready.`,
+  }
+}
+
+/**
+ * "✓ 38 patients read | Found 1,102 rows: markers ctDNA, LDH, …; draws at
+ * day 0, 14, 28 and 56. Next you choose the models that can run on it." —
+ * the N screen's green box (board PredictFiles.dc.html, ITEM-7): the same
+ * data-filled detail as `measurementsStatus` with the board's own
+ * continuation in place of the C screen's "Ready." terminator. The doubled
+ * detail builder keeps the two boards' terminators in one place; the
+ * heading ("✓ N patients read") and the marker/draw facts are the
+ * provider's, never design examples.
+ */
+export function predictMeasurementsStatus(response: ValidationResponse): CardStatus {
+  const measurements = response.measurements
+  return {
+    heading: `✓ ${measurements.patients} patients read`,
+    line: `${measurementsDetail(response)}. Next you choose the models that can run on it.`,
+  }
+}
+
+/**
+ * The measurements detail line's body — "Found 1,102 rows: markers ctDNA,
+ * LDH, …; draws at day 0, 14, 28 and 56" — the shared part of the two
+ * status lines (C's "Ready." terminator, N's board continuation).
+ */
+function measurementsDetail(response: ValidationResponse): string {
+  const measurements = response.measurements
   const markers = response.markers.map(column => column.key)
   const shown = markers.slice(0, STATUS_MARKER_CLIP)
   const clipped = markers.length > STATUS_MARKER_CLIP ? '…' : ''
@@ -314,11 +349,7 @@ export function measurementsStatus(response: ValidationResponse): CardStatus {
   if (measurements.distinct_draw_days.length > 0) {
     line += `; draws at day ${joinNames(measurements.distinct_draw_days.map(String))}`
   }
-  line += '. Ready.'
-  return {
-    heading: `✓ ${measurements.patients} patients read`,
-    line,
-  }
+  return line
 }
 
 /**

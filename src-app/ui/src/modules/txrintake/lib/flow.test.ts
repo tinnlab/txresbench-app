@@ -28,6 +28,7 @@ import {
   inspectRequest,
   measurementsStatus,
   patientsStatus,
+  predictMeasurementsStatus,
   resolveJoins,
   resolveMapping,
   validateRequest,
@@ -352,5 +353,38 @@ describe('lib/flow.ts (TEST-INT-3, ITEM-6)', () => {
       heading: '✓ 38 patients read',
       line: 'Found 102 rows: markers ldh and cea; draws at day 0, 14, 28 and 56. Ready.',
     })
+  })
+
+  it('predictMeasurementsStatus fills the board-N box with the N continuation (ITEM-7)', () => {
+    // The N screen's OWN green line (PredictFiles.dc.html): the same detail
+    // body as the C box, ending with the board's "Next you choose the
+    // models…" continuation instead of "Ready."
+    expect(predictMeasurementsStatus(responseOf())).toEqual({
+      heading: '✓ 38 patients read',
+      line: 'Found 102 rows: markers ldh and cea; draws at day 0, 14, 28 and 56. Next you choose the models that can run on it.',
+    })
+  })
+
+  it('the two measurements status lines share ONE detail body (C terminator vs N continuation)', () => {
+    const c = measurementsStatus(responseOf())
+    const n = predictMeasurementsStatus(responseOf())
+    expect(n.heading).toBe(c.heading)
+    expect(n.line).toBe(c.line.replace('. Ready.', '. Next you choose the models that can run on it.'))
+  })
+
+  it('predictMeasurementsStatus clips long marker lists like the C box', () => {
+    const many = responseOf()
+    many.markers = [
+      markerColumn(),
+      markerColumn({ key: 'cea', spellings: ['cea'] }),
+      markerColumn({ key: 'wbc', spellings: ['wbc'] }),
+      markerColumn({ key: 'plt', spellings: ['plt'] }),
+      markerColumn({ key: 'nse', spellings: ['nse'] }),
+      markerColumn({ key: 'cyfra', spellings: ['cyfra'] }),
+      markerColumn({ key: 'cea2', spellings: ['cea2'] }),
+    ]
+    expect(predictMeasurementsStatus(many).line).toBe(
+      'Found 102 rows: markers ldh, cea, wbc, plt, nse and cyfra…; draws at day 0, 14, 28 and 56. Next you choose the models that can run on it.',
+    )
   })
 })
