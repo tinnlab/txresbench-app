@@ -8,3 +8,4 @@
  * the same entry.
  */
 export * from './types'
+export * from './stores/TxrIntake.store'
