@@ -103,6 +103,21 @@ pub enum MethodGroup {
     DynamicRisk,
 }
 
+impl MethodGroup {
+    /// The wire spelling (the serde derive's kebab-case — the single form the
+    /// HTTP consumers and the run rows' `group` column store; added for the
+    /// execution engine's row insert, which takes the catalogue id as a
+    /// string rather than the enum).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MethodGroup::ResponseCall => "response-call",
+            MethodGroup::ResponseProbability => "response-probability",
+            MethodGroup::StaticRisk => "static-risk",
+            MethodGroup::DynamicRisk => "dynamic-risk",
+        }
+    }
+}
+
 /// Whether a method's inputs include patient covariates beyond the markers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]

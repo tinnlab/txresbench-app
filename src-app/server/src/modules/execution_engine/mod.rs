@@ -35,9 +35,11 @@
 
 pub mod bundle;
 pub mod envmanifest;
+pub mod orchestrator;
 pub mod predictions;
 pub mod reconcile;
 pub mod repository;
+pub mod runtime;
 pub mod types;
 
 use std::sync::Arc;
@@ -51,14 +53,23 @@ use ziee_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
 /// The module instance. It holds the process pool for the boot-time work this
 /// node owns (CONS-EE-1: `database::get_database_pool`'s single pool; the
 /// routes receive the same pool as the `axum::Extension<SqlitePool>` the
-/// framework layers — CONS-EE-1b).
+/// framework layers — CONS-EE-1b), plus the per-run [`RunRuntime`] the ITEM-8
+/// drive loops and ITEM-10's SSE routes share, and the real [`EnvProvider`]
+/// (TEST-EE-01 note (b)'s "init installs the pool + the RunRuntime" half; the
+/// env seam is the `jobs::seams` install precedent).
 pub struct ExecutionEngineModule {
     pool: Option<Arc<SqlitePool>>,
+    runtime: Option<Arc<runtime::RunRuntime>>,
+    env: Option<Arc<dyn orchestrator::EnvProvider>>,
 }
 
 impl ExecutionEngineModule {
     pub fn new() -> Self {
-        Self { pool: None }
+        Self {
+            pool: None,
+            runtime: None,
+            env: None,
+        }
     }
 }
 
@@ -100,6 +111,14 @@ impl AppModule for ExecutionEngineModule {
         // query, never as a silent empty.
         let pool: Arc<SqlitePool> = ctx.db_pool.clone();
         self.pool = Some(pool.clone());
+
+        // The per-run runtime (ITEM-8): one instance per module, the
+        // broadcaster + run-stop registry the drive loops and the SSE routes
+        // share. The real env provider is installed the same way (the run
+        // route hands it to `orchestrator::start_run`; ITEM-9's executor is
+        // handed alongside, both made of accessors below).
+        self.runtime = Some(Arc::new(runtime::RunRuntime::new()));
+        self.env = Some(orchestrator::real_env_provider());
         tracing::info!(
             envs = envmanifest::envs().len(),
             "execution engine module initialized (embedded env manifest loaded)"
@@ -321,6 +340,50 @@ mod tests {
         let mut module2 = ExecutionEngineModule::new();
         module2.init(&ctx2).expect("lazy-pool init succeeds");
         assert!(module2.pool.is_some());
+    }
+
+    /// TEST-EE-01 note (b)'s deferred half, landed by the item that owns
+    /// `runtime.rs` (ITEM-8): init installs the per-run RunRuntime AND the
+    /// real env provider, and the installed runtime is live (a subscribe →
+    /// broadcast round-trip reaches the stream — the drive loops and the SSE
+    /// routes share this exact instance).
+    #[tokio::test]
+    async fn init_installs_the_run_runtime_and_env_provider() {
+        let pool = SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("in-memory pool connects");
+        let cfg: ziee_core::ServerConfig = serde_norway::from_str(
+            "database:\n  path: \"\"\nserver:\n  host: \"127.0.0.1\"\n  port: 3100\n  api_prefix: \"/api\"\njwt:\n  secret: \"test-secret-for-the-engine-module-over-32-chars\"\n  issuer: \"cytoanalyst\"\n  audience: \"cytoanalyst-api\"\n  access_token_expiry_hours: 24\n  refresh_token_expiry_days: 30\n",
+        )
+        .expect("test config parses");
+        let ctx = ModuleContext::new(
+            Arc::new(pool),
+            Arc::new(cfg),
+            Arc::new(()) as Arc<dyn std::any::Any + Send + Sync>,
+        );
+
+        let mut module = ExecutionEngineModule::new();
+        module.init(&ctx).expect("init succeeds");
+        let rt = module.runtime.as_ref().expect("init installs the RunRuntime");
+        assert!(
+            module.env.is_some(),
+            "init installs the real env provider (the run route's seam)"
+        );
+
+        // The installed instance is live: subscribe, broadcast, receive.
+        let run = uuid::Uuid::new_v4();
+        let mut rx = rt.subscribe(run).expect("under cap → Some");
+        rt.broadcast(
+            run,
+            axum::response::sse::Event::default().data("hi"),
+        );
+        let event = tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv())
+            .await
+            .expect("frame arrives")
+            .expect("stream open")
+            .expect("event ok");
+        assert!(format!("{event:?}").contains("hi"));
+        rt.close_run(run);
     }
 
     /// TEST-EE-01 (node half): the module-owned migrations are declared

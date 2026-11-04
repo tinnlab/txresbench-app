@@ -102,7 +102,22 @@ nothing.
   `INTERRUPTED` at boot, its in-flight method rows fail with the code, a
   finished method's result stays readable, one "interrupted on restart" line
   lands, nothing auto-reruns (idempotent; armed exactly once per process);
-  `migrations/2026102600{01..05}_*.sql` —
+  `runtime.rs` — the per-run SSE + run-stop registry (the `jobs::runtime`
+  mirror for one analysis run: the module-installed broadcaster the stream
+  route subscribes to and the run-stop channel the drive loop selects on,
+  capped at `TxrLimits::SSE_CLIENTS_MAX`); `orchestrator.rs` — the run
+  drive: `start_run` (validate the request, validate + canonicalize the
+  in-memory tables once per run, persist the `preparing` row, write the run
+  dir + input snapshot, classify every selected method — the providers'
+  verdicts + the env-manifest entry — then spawn the detached drive task),
+  the lane gate (`at_a_time` permits, mid-run lane change, never a revoked
+  permit), the env phase (base + layer `ensure` with the `downloading` state
+  and the 500 ms status poll driving the row counters and the SSE frames),
+  the admission wrapper (`admit_within`, job_type `"sandbox"`, cancel
+  registered before the admit, `close_slot` in the finally-shaped tail),
+  stop/skip on the queue, and the `MethodExecutor` trait — the ITEM-9 seam
+  (bundle write + `run_method_in_stack` + predictions ingest + model
+  collection sit behind one method hook); `migrations/2026102600{01..05}_*.sql` —
   the four module-owned tables the consumers bind (`txr_runs`,
   `txr_run_methods`, `txr_run_logs`, `txr_app_config`) + the additive `0005`
   produced-model columns of `txr_run_methods`.

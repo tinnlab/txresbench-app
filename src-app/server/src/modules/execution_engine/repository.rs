@@ -364,6 +364,11 @@ pub struct NewMethod {
 #[derive(Debug, Clone, Default)]
 pub struct MethodPatch {
     pub state: Option<TxrMethodState>,
+    /// The reason as ONE record (ITEM-8's classification + executor arms:
+    /// the one-vocabulary reasons — provider codes verbatim OR engine codes —
+    /// write BOTH columns in one patch; wins over the typed arm below when
+    /// both are present).
+    pub reason: Option<TxrRunReason>,
     pub reason_code: Option<EngineReasonCode>,
     pub reason_detail: Option<String>,
     pub phase: Option<TxrPhase>,
@@ -807,7 +812,16 @@ impl TxrRepository {
         patch: &MethodPatch,
     ) -> Result<MethodRow, AppError> {
         let state = patch.state.map(|s| s.as_str());
-        let reason_code = patch.reason_code.map(|c| c.as_str());
+        let reason_code: Option<String> = match &patch.reason {
+            Some(r) => Some(r.code.clone()),
+            None => patch.reason_code.map(|c| c.as_str().to_string()),
+        };
+        let reason_detail: Option<String> = match &patch.reason {
+            Some(r) => Some(r.detail.clone()),
+            None => patch.reason_detail.clone(),
+        };
+        let reason_code = reason_code.as_deref();
+        let reason_detail = reason_detail.as_deref();
         let phase = patch.phase.map(|p| p.as_str());
         let prob_source = patch.prob_source.map(|p| p.as_str());
         let task = patch.task.map(|t| t.as_str());
@@ -819,7 +833,6 @@ impl TxrRepository {
         let coverage_eligible = patch.coverage_eligible.map(|v| v as i64);
         let trained_on_patients = patch.trained_on_patients.map(|v| v as i64);
         let size_bytes = patch.size_bytes.map(|v| v as i64);
-        let reason_detail = patch.reason_detail.as_deref();
         let env_base_digest = patch.env_base_digest.as_deref();
         let env_layer_digest = patch.env_layer_digest.as_deref();
         let model_out_digest = patch.model_out_digest.as_deref();

@@ -742,7 +742,7 @@ fn int_cell(v: Option<i64>) -> String {
 
 /// Quote a CSV cell only when it needs it (the package's `put_cell`:
 /// RFC-4180 quoting, `"` doubled).
-fn csv_cell(s: &str) -> String {
+pub(crate) fn csv_cell(s: &str) -> String {
     if s.contains([',', '"', '\r', '\n']) {
         let mut out = String::with_capacity(s.len() + 2);
         out.push('"');
