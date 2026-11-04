@@ -71,9 +71,12 @@ nothing.
   model + boot validation + lookups + the catalogue-facts shim); `bundle.rs` —
   the contract-bundle assembly (canonical rows → the `/input` files +
   `params.json`, the package contract 2.0 port of `prepare.cpp`, pure
-  functions); `migrations/2026102600{01..04}_*.sql` — the four module-owned
-  tables the consumers bind (`txr_runs`, `txr_run_methods`, `txr_run_logs`,
-  `txr_app_config`).
+  functions) plus per-method marker sets (the package's count rule: a method
+  named on a fixed marker list gets exactly its markers; a method without one
+  takes the file's markers or refuses) and the task-compatibility check (the
+  provider's reason codes verbatim); `migrations/2026102600{01..04}_*.sql` —
+  the four module-owned tables the consumers bind (`txr_runs`,
+  `txr_run_methods`, `txr_run_logs`, `txr_app_config`).
 
 ## Data hygiene rules
 

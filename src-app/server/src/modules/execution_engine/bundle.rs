@@ -1,6 +1,6 @@
-//! The contract bundle — `bundle.rs` (PLAN ITEM-3, re-pinned by DRIFT-2 to
-//! package contract 2.0): the canonical rows → the files a method receives
-//! under `/input/` (`train/long.csv`, `train/long_full.csv`,
+//! The contract bundle — `bundle.rs` (PLAN ITEM-3 + ITEM-4, re-pinned by
+//! DRIFT-2 to package contract 2.0): the canonical rows → the files a method
+//! receives under `/input/` (`train/long.csv`, `train/long_full.csv`,
 //! `train/outcomes.csv`, `train/covariates.csv`, `test/long.csv`,
 //! `test/patients.csv`, `test/covariates.csv`) plus `/input/params.json`.
 //!
@@ -21,6 +21,13 @@
 //!   cohort = baseline + on-treatment + `≥ min_draws` distinct samples.
 //!   Companion rows (`<marker>__detected` / `<marker>__lod`) never count as
 //!   draws — they are data the method receives, not evidence.
+//! - **Per-method marker set (ITEM-4)**: contract 2.0's caller-passed-marker
+//!   rule — the engine selects exactly the markers the method declares
+//!   ([`method_marker_set`] + the package's `check_marker_count` count rule),
+//!   and every bundle file, the cohort draw status and `params.markers` are
+//!   scoped to that set; companions follow their base; the test side must
+//!   carry the same set ("predict gets markers the model was not trained on,
+//!   or lacks one it was").
 //! - **Outcomes** (`outcomes.csv` is the FIXED column set of contract 2.0:
 //!   `pfs_time, pfs_event, os_time, os_event, no_response,
 //!   progressive_disease, progression_H<h>, death_H<h>`; an empty cell = not
@@ -32,6 +39,9 @@
 //!   [`MIN_TRAINING_PATIENTS`] eligible patients is not learned (a warning is
 //!   carried, never a silent drop); a bundle with no learnable outcome is a
 //!   typed refusal.
+//! - **Task compatibility (ITEM-4)**: [`task_compatibility`] is the engine's
+//!   own check of the method's `tasks` against the file's resolved outcome
+//!   columns, returning the provider's reason codes verbatim.
 //! - **History**: `train/long.csv` holds every draw up to the landmark;
 //!   `train/long_full.csv` holds, additionally, every draw before the
 //!   patient's own (earliest) outcome time — the method's history window.
@@ -42,10 +52,11 @@
 //!   declared (number or text, one type per column — never guessed).
 //!   Companion rows ride along in the CSV files exactly as declared.
 //! - **`params.json`** (contract 2.0): `landmark_day, horizons [the run's
-//!   single look-ahead], outcomes, markers (every main marker, sorted,
-//!   without the companions), baseline_max_day, covariates (bool),
-//!   method_params {}, seed 1, threads`. No `task`/`endpoint`/`features`/
-//!   `marker_ranking` — those were contract v1.2 shapes (DRIFT-2).
+//!   single look-ahead], outcomes, markers (the method's selected main
+//!   markers, sorted, without the companions), baseline_max_day,
+//!   covariates (bool), method_params {}, seed 1, threads`. No
+//!   `task`/`endpoint`/`features`/`marker_ranking` — those were contract v1.2
+//!   shapes (DRIFT-2).
 //! - **Run endpoint**: the bundle is endpoint-agnostic by the contract — the
 //!   package learns every outcome the tables support; the run's `endpoint`
 //!   picks the PRIMARY outcome the results screen renders (ITEM-5's
@@ -58,8 +69,12 @@ use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 
 use crate::modules::execution_engine::types::RunConfig;
-use crate::modules::file_validator::types::{CanonCell, CanonicalBundle, CanonicalPatient, CanonicalValue};
+use crate::modules::file_validator::rules::companion_base;
+use crate::modules::file_validator::types::{CanonCell, CanonicalBundle, CanonicalFeature, CanonicalPatient, CanonicalValue};
 use crate::modules::method_catalogue::eligibility::is_companion;
+use crate::modules::method_catalogue::types::{
+    FileOutcomes, MarkerKind, MethodMarkers, ReasonCode, RequiredMarker, RequiredMarkers,
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Contract 2.0 constants (the package's `core/include/txresbench/*.hpp`)
@@ -201,6 +216,56 @@ pub struct TestBundle {
     pub marker_names: Vec<String>,
 }
 
+/// The per-method marker set — ITEM-4's selection (contract 2.0: the caller
+/// passes the markers it wants used; `MethodSpec::check_marker_count` is the
+/// package's count rule, so the engine picks exactly what the method declares
+/// and writes `/input` from it). The mains are what `params.markers` lists;
+/// companions (`__detected`/`__lod`) ride along in the CSV rows only when
+/// their base marker is in the set.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MarkerSelection {
+    /// The main (non-companion) marker names the method receives, sorted.
+    pub mains: Vec<String>,
+    /// The companion names whose base marker is selected, sorted.
+    pub companions: Vec<String>,
+}
+
+impl MarkerSelection {
+    /// The selection the engine applies when a method is marker-agnostic or
+    /// declares no fixed list: every main marker of the bundle.
+    pub fn all(bundle: &CanonicalBundle) -> Self {
+        Self::with_mains(main_markers(bundle), bundle)
+    }
+
+    /// The `params.markers` list (the mains, sorted).
+    pub fn mains(&self) -> &[String] {
+        &self.mains
+    }
+
+    /// Whether a feature name belongs to the method's bundle (a selected main
+    /// or a companion of one).
+    pub fn contains(&self, feature: &str) -> bool {
+        self.mains.iter().any(|m| m == feature)
+            || self.companions.iter().any(|c| c == feature)
+    }
+
+    /// The companion names from the bundle's own rows whose base marker is
+    /// selected — a companion never rides without its base (and never counts
+    /// as a draw; `draw_status` skips it).
+    fn with_mains(mains: Vec<String>, bundle: &CanonicalBundle) -> Self {
+        let base: std::collections::BTreeSet<&str> = mains.iter().map(|s| s.as_str()).collect();
+        let mut companions: Vec<String> = bundle
+            .values
+            .iter()
+            .map(|v| v.feature.clone())
+            .filter(|f| is_companion(f) && base.contains(companion_base(f)))
+            .collect();
+        companions.sort();
+        companions.dedup();
+        Self { mains, companions }
+    }
+}
+
 /// A bundle construction refusal (the package's thrown `Error`s, typed). The
 /// orchestrator maps each onto the run/method row's reason — a method whose
 /// bundle cannot be built is a failure with the named code, never a silent
@@ -223,6 +288,23 @@ pub enum BundleError {
     /// A scored predict patient has no row in the predict patients table
     /// while covariates are on.
     TestPatientWithoutCovariateRow { patient_id: String },
+    /// The bundle carries no main (non-companion) marker — the package's
+    /// "needs at least one marker" refusal of `check_marker_count`.
+    NoMainMarker,
+    /// The method's declared marker-count rule is not satisfied by the
+    /// per-method marker set (the package's `check_marker_count` message:
+    /// "takes exactly one marker, but 2 were passed (M1, M2)").
+    MarkerCountUnmet {
+        /// The declared count (`1` for `single`, the `count` for
+        /// `multi`/`panel`).
+        expected: usize,
+        /// The markers the set held.
+        names: Vec<String>,
+    },
+    /// The predict side carries no row for a marker the train side / model
+    /// was trained on (the contract's "predict gets markers the model was
+    /// not trained on, or lacks one it was").
+    TestMarkerMissing { marker: String },
 }
 
 impl BundleError {
@@ -235,6 +317,9 @@ impl BundleError {
             BundleError::CovariatesWithoutColumns => "BUNDLE_COVARIATES_MISSING",
             BundleError::TestCovariatesNeedPatients => "BUNDLE_TEST_COVARIATES_MISSING",
             BundleError::TestPatientWithoutCovariateRow { .. } => "BUNDLE_TEST_PATIENT_UNKNOWN",
+            BundleError::NoMainMarker => "BUNDLE_NO_MAIN_MARKER",
+            BundleError::MarkerCountUnmet { .. } => "BUNDLE_MARKER_COUNT_UNMET",
+            BundleError::TestMarkerMissing { .. } => "BUNDLE_TEST_MARKER_MISSING",
         }
     }
 }
@@ -265,6 +350,30 @@ impl fmt::Display for BundleError {
             BundleError::TestPatientWithoutCovariateRow { patient_id } => write!(
                 f,
                 "{}: predict patient `{patient_id}` has no row, but covariates are on",
+                self.code()
+            ),
+            BundleError::NoMainMarker => write!(
+                f,
+                "{}: the file carries no main (non-companion) marker — the method needs at least one",
+                self.code()
+            ),
+            BundleError::MarkerCountUnmet { expected, names } => {
+                let rule = if *expected == 1 {
+                    "exactly one marker".to_string()
+                } else {
+                    format!("exactly {expected} markers")
+                };
+                let list = names.join(", ");
+                write!(
+                    f,
+                    "{}: the method takes {rule}, but {} were passed ({list})",
+                    self.code(),
+                    names.len()
+                )
+            }
+            BundleError::TestMarkerMissing { marker } => write!(
+                f,
+                "{}: the predict table carries no row for marker `{marker}`, but the train side was built on it",
                 self.code()
             ),
         }
@@ -448,6 +557,165 @@ fn main_markers(bundle: &CanonicalBundle) -> Vec<String> {
     names
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ITEM-4 — the per-method marker set (contract 2.0's count rule), the fixed
+// list resolution and the task-compatibility check
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Whether one required marker ids a bundle feature: the mapped vocabulary id
+/// equality (a curated `(system, id)` and the file column's resolved
+/// `marker_id` are ids of the same marker vocabulary) plus the
+/// `other`-system name fallback (a required marker whose id system is
+/// `other` is matched by its curated name, exactly the eligibility engine's
+/// fallback path).
+fn required_marker_matches(required: &RequiredMarker, feature: &CanonicalFeature) -> bool {
+    let rid = required.id.trim().to_ascii_lowercase();
+    if rid.is_empty() {
+        return false;
+    }
+    if feature
+        .marker_id
+        .as_deref()
+        .is_some_and(|m| m.trim().eq_ignore_ascii_case(&rid))
+    {
+        return true;
+    }
+    // The `other`-system name fallback (data.py's matching rule for a
+    // required marker without a structured system identifier).
+    if required.id_system.eq_ignore_ascii_case("other") {
+        return feature
+            .feature
+            .trim()
+            .eq_ignore_ascii_case(&required.name)
+            || feature.feature.trim().eq_ignore_ascii_case(&rid);
+    }
+    false
+}
+
+/// The per-method marker set — the engine's side of contract 2.0's
+/// caller-passed-marker rule plus `MethodSpec::check_marker_count`:
+///
+/// - a method with a **fixed marker list** (`required_markers`; every
+///   `single`/`panel` method that names its markers) gets exactly the list's
+///   markers as resolved in the FILE — the extras of a multi-marker upload
+///   are not passed (the package would refuse "takes exactly N markers, but
+///   M were passed");
+/// - a method with **no fixed list** (`any`; `single`/`multi` without one)
+///   gets the file's main markers, so its declared count rule is the file's
+///   own marker count — a mismatch is a typed refusal before anything runs
+///   (the package's "before anything is fitted");
+/// - companions (`__detected`/`__lod`) follow their base: their rows are
+///   written only when the base marker is selected, `params.markers` never
+///   lists them.
+///
+/// The count rule is `single` → 1, `multi`/`panel` → `count`, `any` → ≥ 1;
+/// `BUNDLE_MARKER_COUNT_UNMET`/`BUNDLE_NO_MAIN_MARKER` carry the machine
+/// verdict (the package's own message text, quoted in the detail).
+pub fn method_marker_set(
+    bundle: &CanonicalBundle,
+    declared: &MethodMarkers,
+    required: Option<&RequiredMarkers>,
+) -> Result<MarkerSelection, BundleError> {
+    let file_mains = main_markers(bundle);
+    let main_features: Vec<&CanonicalFeature> = bundle
+        .features
+        .iter()
+        .filter(|f| !f.is_detection_companion)
+        .collect();
+
+    let selected = match required {
+        // The fixed list: resolve it in the file, deduplicated (two entries
+        // may hit one file marker — the eligibility engine's pointer-identity
+        // dedup semantics).
+        Some(req) if declared.kind != MarkerKind::Any => {
+            let mut matched: Vec<String> = Vec::new();
+            for r in &req.markers {
+                if r.id.trim().is_empty() {
+                    continue;
+                }
+                if let Some(f) = main_features
+                    .iter()
+                    .find(|f| required_marker_matches(r, f))
+                {
+                    let name = f.feature.clone();
+                    if !matched.contains(&name) {
+                        matched.push(name);
+                    }
+                }
+            }
+            matched.sort();
+            matched
+        }
+        _ => file_mains.clone(),
+    };
+
+    match declared.kind {
+        MarkerKind::Any if selected.is_empty() => return Err(BundleError::NoMainMarker),
+        MarkerKind::Single if selected.len() != 1 => {
+            return Err(BundleError::MarkerCountUnmet {
+                expected: 1,
+                names: selected,
+            });
+        }
+        MarkerKind::Multi | MarkerKind::Panel if selected.len() != declared.count as usize => {
+            return Err(BundleError::MarkerCountUnmet {
+                expected: declared.count as usize,
+                names: selected,
+            });
+        }
+        _ => {}
+    }
+
+    Ok(MarkerSelection::with_mains(selected, bundle))
+}
+
+/// The bundle restricted to a marker set: values + features of the selected
+/// mains and their companions (the package receives exactly the markers the
+/// caller wants used; `draw_status` then counts the method's own draws).
+fn filter_to_selection(
+    bundle: &CanonicalBundle,
+    selection: &MarkerSelection,
+) -> CanonicalBundle {
+    CanonicalBundle {
+        patients: bundle.patients.clone(),
+        values: bundle
+            .values
+            .iter()
+            .filter(|v| selection.contains(&v.feature))
+            .cloned()
+            .collect(),
+        features: bundle
+            .features
+            .iter()
+            .filter(|f| selection.contains(&f.feature))
+            .cloned()
+            .collect(),
+    }
+}
+
+/// The task-compatibility check (TEST-EE-11; the same truth table as the
+/// eligibility engine's outcome-availability verdicts, so one vocabulary):
+/// the method's declared `tasks` (an empty list = any outcome) against the
+/// file's resolved outcome columns. The codes returned are the provider's
+/// own ([`ReasonCode`]) — passed through verbatim onto the method row.
+pub fn task_compatibility(tasks: &[String], outcomes: &FileOutcomes) -> Option<ReasonCode> {
+    let has_response = outcomes.has_responder && outcomes.has_response_day;
+    let has_survival = outcomes.has_event && outcomes.has_survival_day;
+    let task_response = tasks.iter().any(|t| t.eq_ignore_ascii_case("response"));
+    let task_survival = tasks.iter().any(|t| t.eq_ignore_ascii_case("survival"));
+    if task_response && !has_response {
+        Some(ReasonCode::ResponseLabelMissing)
+    } else if task_survival && !has_survival {
+        Some(ReasonCode::SurvivalOutcomeMissing)
+    } else if (has_response || has_survival)
+        && !((task_response && has_response) || (task_survival && has_survival))
+    {
+        Some(ReasonCode::TaskIncompatible)
+    } else {
+        None
+    }
+}
+
 fn num_cell(v: f64) -> String {
     if v.is_nan() {
         return String::new();
@@ -601,18 +869,35 @@ fn cov_column_names(rows: &[(String, Vec<(String, CanonCell)>)]) -> Vec<String> 
 // train_bundle
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Build the `train/` bundle of one method (the port of `build_train` +
-/// `train_files` + `make_params`).
+/// Build the `train/` bundle over EVERY main marker of the file (the marker-
+/// agnostic convenience: the ENGINE's per-method path is
+/// [`train_bundle_with_markers`], which the marker-selection step feeds).
 pub fn train_bundle(
     bundle: &CanonicalBundle,
     settings: &BundleSettings,
     min_draws: u32,
 ) -> Result<TrainBundle, BundleError> {
+    let selection = MarkerSelection::all(bundle);
+    train_bundle_with_markers(bundle, settings, min_draws, &selection)
+}
+
+/// Build the `train/` bundle of one method over its marker set (the port of
+/// `build_train` + `train_files` + `make_params`): the draws, the cohort
+/// counts and `params.markers` are all scoped to the selection — a method
+/// that takes one marker never sees another marker's rows, and the draw
+/// status counts the samples those rows give.
+pub fn train_bundle_with_markers(
+    bundle: &CanonicalBundle,
+    settings: &BundleSettings,
+    min_draws: u32,
+    selection: &MarkerSelection,
+) -> Result<TrainBundle, BundleError> {
+    let bundle = filter_to_selection(bundle, selection);
     if settings.covariates && bundle.patients.iter().all(|p| p.covariates.is_empty()) {
         return Err(BundleError::CovariatesWithoutColumns);
     }
     let horizons = [settings.look_ahead_day];
-    let status = draw_status(bundle, settings);
+    let status = draw_status(&bundle, settings);
 
     // The cohort rows, with their covariate (name, cell) pairs.
     let mut rows: Vec<(OutcomeRow, Vec<(String, CanonCell)>)> = Vec::new();
@@ -751,7 +1036,7 @@ pub fn train_bundle(
         });
     }
 
-    let markers = main_markers(bundle);
+    let markers = main_markers(&bundle);
     let params = serde_json::json!({
         "landmark_day": settings.decision_day,
         "horizons": [settings.look_ahead_day],
@@ -779,16 +1064,42 @@ pub fn train_bundle(
 // test_bundle
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Build the `test/` bundle of one method (the port of `build_test` +
-/// `write_test`): the predict-side row set, its per-patient skip reasons and
-/// the files the method predicts from.
+/// Build the `test/` bundle over EVERY main marker of the predict file (the
+/// marker-agnostic convenience; the engine's per-method path is
+/// [`test_bundle_with_markers`]).
 pub fn test_bundle(
     predict_patients: Option<&[CanonicalPatient]>,
     bundle: &CanonicalBundle,
     settings: &BundleSettings,
     min_draws: u32,
 ) -> Result<TestBundle, BundleError> {
-    let status = draw_status(bundle, settings);
+    let selection = MarkerSelection::all(bundle);
+    test_bundle_with_markers(predict_patients, bundle, settings, min_draws, &selection)
+}
+
+/// Build the `test/` bundle of one method (the port of `build_test` +
+/// `write_test`): the predict-side row set scoped to the SAME marker set the
+/// train side (or the loaded model) was built on, its per-patient skip
+/// reasons and the files the method predicts from. A selected marker with no
+/// predict-side row is a typed refusal (the contract's "predict gets markers
+/// the model was not trained on, or lacks one it was"); markers outside the
+/// set are never written — the method receives exactly what it was trained
+/// on.
+pub fn test_bundle_with_markers(
+    predict_patients: Option<&[CanonicalPatient]>,
+    bundle: &CanonicalBundle,
+    settings: &BundleSettings,
+    min_draws: u32,
+    selection: &MarkerSelection,
+) -> Result<TestBundle, BundleError> {
+    let bundle = filter_to_selection(bundle, selection);
+    let present = main_markers(&bundle);
+    for m in selection.mains() {
+        if !present.contains(m) {
+            return Err(BundleError::TestMarkerMissing { marker: m.clone() });
+        }
+    }
+    let status = draw_status(&bundle, settings);
 
     // The predict-side ids: the measurement rows' distinct patients in
     // first-appearance order, then the predict patients table's ids (the
@@ -886,7 +1197,7 @@ pub fn test_bundle(
             files,
             scored,
             skipped,
-            marker_names: main_markers(bundle),
+            marker_names: main_markers(&bundle),
         });
     }
     if settings.covariates {
@@ -901,7 +1212,7 @@ pub fn test_bundle(
         files,
         scored,
         skipped,
-        marker_names: main_markers(bundle),
+        marker_names: main_markers(&bundle),
     })
 }
 
@@ -914,6 +1225,7 @@ pub fn test_bundle(
 mod tests {
     use super::*;
     use crate::modules::file_validator::types::{CanonicalBundle, CanonicalFeature};
+    use crate::modules::method_catalogue::types::MatchMode;
 
     // ── the synthetic fixture (TEST-EE-22: ids S0000.., markers M1/M2) ──────
 
@@ -1601,5 +1913,464 @@ mod tests {
                 "the fixture must not name a data path: {forbidden}"
             );
         }
+    }
+
+    // ── TEST-EE-10 — the per-method marker set (contract 2.0's count rule;      ──
+    //    the plan's D5 ranking is superseded by DRIFT-2) and the fixed-list
+    //    resolution; the fixtures are the same synthetic construct family
+    //    (P0000.., markers LDH/CEA/CA199 + companions)
+
+    fn declared(kind: MarkerKind, count: u32) -> MethodMarkers {
+        MethodMarkers { kind, count }
+    }
+
+    fn required(entries: &[(&str, &str, &str)]) -> RequiredMarkers {
+        RequiredMarkers {
+            markers: entries
+                .iter()
+                .map(|(name, id_system, id)| RequiredMarker {
+                    name: name.to_string(),
+                    id_system: id_system.to_string(),
+                    id: id.to_string(),
+                })
+                .collect(),
+            match_mode: MatchMode::All,
+            min_fraction: 1.0,
+            list_source: "synthetic in-test construct".to_string(),
+        }
+    }
+
+    fn feats(items: &[(&str, Option<&str>, bool)]) -> Vec<CanonicalFeature> {
+        items
+            .iter()
+            .map(|(name, id, companion)| CanonicalFeature {
+                feature: name.to_string(),
+                unit: None,
+                marker_id: id.map(|s| s.to_string()),
+                is_detection_companion: *companion,
+            })
+            .collect()
+    }
+
+    /// The ITEM-4 fixture: 12 training patients (P0000..P0011), three main
+    /// markers LDH/CEA/CA199 + companions, every patient event-free at the
+    /// landmark (pfs 100, os 300) with 3 distinct draw days (the day-14 CEA
+    /// draw is the only marker at that visit). Synthetic in-test construct.
+    fn item4_fixture() -> CanonicalBundle {
+        let mut patients = Vec::new();
+        let mut values = Vec::new();
+        for i in 0..12 {
+            let id = format!("P{i:04}");
+            patients.push(patient(
+                &id,
+                Some((100.0, 1)),
+                Some((300.0, 0)),
+                None,
+                None,
+                &[],
+            ));
+            values.push(value(&id, 0.0, "LDH", 100.0 + i as f64));
+            values.push(value(&id, 0.0, "CEA", 10.0 + i as f64));
+            values.push(value(&id, 0.0, "CA199", 2.0 + i as f64));
+            values.push(value(&id, 14.0, "CEA", 12.0 + i as f64));
+            values.push(value(&id, 28.0, "LDH", 110.0 + i as f64));
+        }
+        values.push(value("P0000", 0.0, "CEA__detected", 1.0));
+        values.push(value("P0000", 14.0, "CEA__detected", 1.0));
+        values.push(value("P0000", 0.0, "CEA__lod", 0.1));
+        values.push(value("P0000", 0.0, "LDH__detected", 1.0));
+        CanonicalBundle {
+            patients,
+            values,
+            features: feats(&[
+                ("LDH", Some("14804-9"), false),
+                ("CEA", Some("2039-6"), false),
+                ("CA199", None, false),
+                ("CEA__detected", None, true),
+                ("CEA__lod", None, true),
+                ("LDH__detected", None, true),
+            ]),
+        }
+    }
+
+    /// The predict side of the ITEM-4 fixture: P0000-style rows on new ids.
+    /// N0000 has 3 method-scoped samples, N0001 only the day-0 CEA (the
+    /// day-14 CA199 draw is outside the method's set), N0002 has 2 LDH days.
+    fn item4_predict_fixture(include_ldh: bool) -> CanonicalBundle {
+        let mut values = Vec::new();
+        values.push(value("N0000", 0.0, "CEA", 5.0));
+        if include_ldh {
+            values.push(value("N0000", 0.0, "LDH", 200.0));
+        }
+        values.push(value("N0000", 14.0, "CEA", 6.0));
+        if include_ldh {
+            values.push(value("N0000", 28.0, "LDH", 201.0));
+        }
+        values.push(value("N0001", 0.0, "CEA", 5.0));
+        values.push(value("N0001", 14.0, "CA199", 3.0));
+        if include_ldh {
+            values.push(value("N0002", 0.0, "LDH", 200.0));
+            values.push(value("N0002", 14.0, "LDH", 205.0));
+        }
+        CanonicalBundle {
+            patients: vec![],
+            values,
+            features: feats(&[("LDH", None, false), ("CEA", None, false), ("CA199", None, false)]),
+        }
+    }
+
+    #[test]
+    fn ee10_any_marker_kind_takes_every_main_marker_and_its_companions() {
+        let b = item4_fixture();
+        let sel =
+            method_marker_set(&b, &declared(MarkerKind::Any, 0), None).expect("any: no count rule");
+        assert_eq!(sel.mains, vec!["CA199", "CEA", "LDH"]);
+        assert_eq!(
+            sel.companions,
+            vec!["CEA__detected", "CEA__lod", "LDH__detected"]
+        );
+        let t = train_bundle_with_markers(&b, &settings(), 2, &sel).expect("bundle builds");
+        assert_eq!(
+            t.params["markers"],
+            serde_json::json!(["CA199", "CEA", "LDH"]),
+            "params.markers is the full set, never the companions"
+        );
+        let long = file_of(&t.files, "long.csv");
+        assert!(split_lines(long).iter().any(|l| l.starts_with("P0000,0,CEA__lod,")));
+        assert!(split_lines(long).iter().any(|l| l.starts_with("P0000,0,LDH__detected,")));
+    }
+
+    #[test]
+    fn ee10_single_resolves_the_fixed_list_and_scopes_the_bundle() {
+        let b = item4_fixture();
+        let req = Some(required(&[("LDH", "LOINC", "14804-9")]));
+        let sel = method_marker_set(&b, &declared(MarkerKind::Single, 1), req.as_ref())
+            .expect("the file carries the required marker");
+        assert_eq!(sel.mains, vec!["LDH"]);
+        assert_eq!(sel.companions, vec!["LDH__detected"]);
+        let t = train_bundle_with_markers(&b, &settings(), 2, &sel).expect("bundle builds");
+        assert_eq!(t.params["markers"], serde_json::json!(["LDH"]));
+        let long = file_of(&t.files, "long.csv");
+        assert!(
+            split_lines(long)
+                .iter()
+                .skip(1)
+                .all(|l| l.contains(",LDH,") || l.contains("LDH__detected")),
+            "only the selected marker + its companion reach long.csv: {}",
+            split_lines(long).join(" | ")
+        );
+        // The draw status is scoped to the marker set: day 14 (CEA only) does
+        // not count, so the 3-distinct-day patients have TWO LDH samples here
+        // and drop out at min_draws 3 — the package's own counting.
+        assert_eq!(
+            train_bundle_with_markers(&b, &settings(), 3, &sel),
+            Err(BundleError::NoTrainingPatient { min_draws: 3 })
+        );
+    }
+
+    #[test]
+    fn ee10_required_marker_matching_is_id_or_other_system_name() {
+        let b = item4_fixture();
+        // Structured id equality (case-insensitive).
+        let sel = method_marker_set(
+            &b,
+            &declared(MarkerKind::Single, 1),
+            Some(&required(&[("LDH (U/L)", "LOINC", "14804-9")])),
+        )
+        .expect("mapped id matches");
+        assert_eq!(sel.mains, vec!["LDH"]);
+        // The `other`-system name fallback.
+        let sel = method_marker_set(
+            &b,
+            &declared(MarkerKind::Single, 1),
+            Some(&required(&[("CEA", "other", "serum cea")])),
+        )
+        .expect("name fallback matches");
+        assert_eq!(sel.mains, vec!["CEA"]);
+        // A structured id the file does not carry resolves to an empty set.
+        assert_eq!(
+            method_marker_set(
+                &b,
+                &declared(MarkerKind::Single, 1),
+                Some(&required(&[("LDH", "LOINC", "9999-9")])),
+            ),
+            Err(BundleError::MarkerCountUnmet {
+                expected: 1,
+                names: vec![]
+            })
+        );
+        // An `other` entry neither the feature name nor any id spells.
+        assert_eq!(
+            method_marker_set(
+                &b,
+                &declared(MarkerKind::Single, 1),
+                Some(&required(&[("something else", "other", "something else")])),
+            ),
+            Err(BundleError::MarkerCountUnmet {
+                expected: 1,
+                names: vec![]
+            })
+        );
+    }
+
+    #[test]
+    fn ee10_single_without_a_fixed_list_is_exactly_one_file_marker() {
+        let b = item4_fixture();
+        assert_eq!(
+            method_marker_set(&b, &declared(MarkerKind::Single, 1), None),
+            Err(BundleError::MarkerCountUnmet {
+                expected: 1,
+                names: vec!["CA199".to_string(), "CEA".to_string(), "LDH".to_string()]
+            })
+        );
+        // A one-marker file satisfies the rule.
+        let mut one = item4_fixture();
+        one.values.retain(|v| v.feature == "LDH" || v.feature == "LDH__detected");
+        one.features.retain(|f| f.feature == "LDH" || f.feature == "LDH__detected");
+        let sel = method_marker_set(&one, &declared(MarkerKind::Single, 1), None).expect("one marker");
+        assert_eq!(sel.mains, vec!["LDH"]);
+    }
+
+    #[test]
+    fn ee10_multi_count_is_the_file_set_and_panel_is_the_fixed_list() {
+        let b = item4_fixture();
+        // multi 2 on a 3-marker file: refused (the package's count message).
+        assert_eq!(
+            method_marker_set(&b, &declared(MarkerKind::Multi, 2), None),
+            Err(BundleError::MarkerCountUnmet {
+                expected: 2,
+                names: vec!["CA199".to_string(), "CEA".to_string(), "LDH".to_string()]
+            })
+        );
+        // multi 2 on a 2-marker file: exactly the file's markers.
+        let mut two = item4_fixture();
+        two.values.retain(|v| v.feature == "LDH" || v.feature == "CEA" || v.feature == "LDH__detected");
+        two.features.retain(|f| f.feature == "LDH" || f.feature == "CEA" || f.feature == "LDH__detected");
+        let sel = method_marker_set(&two, &declared(MarkerKind::Multi, 2), None).expect("two markers");
+        assert_eq!(sel.mains, vec!["CEA", "LDH"]);
+        // panel 2 = the fixed list; the file's extra marker is not passed.
+        let sel = method_marker_set(
+            &b,
+            &declared(MarkerKind::Panel, 2),
+            Some(&required(&[("LDH", "LOINC", "14804-9"), ("CEA", "LOINC", "2039-6")])),
+        )
+        .expect("panel list resolves");
+        assert_eq!(sel.mains, vec!["CEA", "LDH"]);
+        let t = train_bundle_with_markers(&b, &settings(), 2, &sel).expect("bundle builds");
+        assert_eq!(t.params["markers"], serde_json::json!(["CEA", "LDH"]));
+        let long = file_of(&t.files, "long.csv");
+        assert!(
+            !split_lines(long).iter().any(|l| l.contains(",CA199,")),
+            "the file's unlisted marker is never passed"
+        );
+        // The catalogue's under-declared fixed list (count 3, one named
+        // marker) is a refusal, never a guessed set.
+        assert_eq!(
+            method_marker_set(
+                &b,
+                &declared(MarkerKind::Panel, 3),
+                Some(&required(&[("LDH", "LOINC", "14804-9")])),
+            ),
+            Err(BundleError::MarkerCountUnmet {
+                expected: 3,
+                names: vec!["LDH".to_string()]
+            })
+        );
+    }
+
+    #[test]
+    fn ee10_companions_follow_their_base_only() {
+        let b = item4_fixture();
+        let sel = method_marker_set(
+            &b,
+            &declared(MarkerKind::Single, 1),
+            Some(&required(&[("CEA", "LOINC", "2039-6")])),
+        )
+        .expect("CEA resolves");
+        assert_eq!(sel.companions, vec!["CEA__detected", "CEA__lod"]);
+        let t = train_bundle_with_markers(&b, &settings(), 2, &sel).expect("bundle builds");
+        let long = file_of(&t.files, "long.csv");
+        assert!(split_lines(long).iter().any(|l| l.starts_with("P0000,0,CEA__lod,")));
+        assert!(
+            !split_lines(long)
+                .iter()
+                .any(|l| l.contains("LDH__detected") || l.contains(",LDH,")),
+            "an unselected base's companion never rides along"
+        );
+    }
+
+    #[test]
+    fn ee10_no_main_marker_is_a_typed_refusal() {
+        let mut only_companions = item4_fixture();
+        only_companions
+            .values
+            .retain(|v| v.feature.contains("__"));
+        // A marker-agnostic method needs at least one main marker (the
+        // package's "needs at least one marker").
+        assert_eq!(
+            method_marker_set(&only_companions, &declared(MarkerKind::Any, 0), None),
+            Err(BundleError::NoMainMarker)
+        );
+    }
+
+    #[test]
+    fn ee10_count_refusal_carries_the_package_message() {
+        let b = item4_fixture();
+        let err = method_marker_set(&b, &declared(MarkerKind::Single, 1), None)
+            .expect_err("three markers for a single-marker method");
+        let msg = err.to_string();
+        assert!(msg.starts_with("BUNDLE_MARKER_COUNT_UNMET: "), "{msg}");
+        assert!(
+            msg.contains("takes exactly one marker, but 3 were passed (CA199, CEA, LDH)"),
+            "{msg}"
+        );
+    }
+
+    #[test]
+    fn ee10_test_bundle_uses_the_same_marker_set_and_draw_rule() {
+        let b = item4_fixture();
+        let sel = method_marker_set(
+            &b,
+            &declared(MarkerKind::Panel, 2),
+            Some(&required(&[("LDH", "LOINC", "14804-9"), ("CEA", "LOINC", "2039-6")])),
+        )
+        .expect("panel");
+        let predict = item4_predict_fixture(true);
+        let tb =
+            test_bundle_with_markers(None, &predict, &settings(), 2, &sel).expect("test bundle");
+        assert_eq!(tb.scored, vec!["N0000", "N0002"]);
+        assert_eq!(
+            tb.skipped,
+            vec![(
+                "N0001".to_string(),
+                "no draw during treatment by day 56".to_string()
+            )],
+            "N0001's day-14 CA199 draw is outside the method's set and does not count"
+        );
+        assert_eq!(tb.marker_names, sel.mains);
+        let long = file_of(&tb.files, "long.csv");
+        assert!(
+            !split_lines(long).iter().any(|l| l.contains(",CA199,")),
+            "the predict file's extra marker never reaches the method"
+        );
+        // A selected marker with no predict-side row refuses (the contract's
+        // predict-marker check), rather than running a model on a table that
+        // lacks a trained marker.
+        let missing = item4_predict_fixture(false);
+        assert_eq!(
+            test_bundle_with_markers(None, &missing, &settings(), 2, &sel),
+            Err(BundleError::TestMarkerMissing {
+                marker: "LDH".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn ee10_selection_is_deterministic_and_the_legacy_wrappers_keep_all_markers() {
+        let b = item4_fixture();
+        let sel = method_marker_set(
+            &b,
+            &declared(MarkerKind::Panel, 2),
+            Some(&required(&[("CEA", "LOINC", "2039-6"), ("LDH", "LOINC", "14804-9")])),
+        )
+        .expect("panel");
+        let again = method_marker_set(
+            &b,
+            &declared(MarkerKind::Panel, 2),
+            Some(&required(&[("CEA", "LOINC", "2039-6"), ("LDH", "LOINC", "14804-9")])),
+        )
+        .expect("panel");
+        assert_eq!(sel, again, "the selection is order-insensitive");
+        // The ITEM-3 entry points are preserved as the all-markers path.
+        assert_eq!(
+            train_bundle(&b, &settings(), 2),
+            train_bundle_with_markers(&b, &settings(), 2, &MarkerSelection::all(&b))
+        );
+    }
+
+    // ── TEST-EE-11 — the task-compatibility check (the provider's codes
+    //    pass through verbatim) ─────────────────────────────────────────────
+
+    fn outcomes(
+        has_responder: bool,
+        has_response_day: bool,
+        has_event: bool,
+        has_survival_day: bool,
+    ) -> FileOutcomes {
+        FileOutcomes {
+            has_responder,
+            has_response_day,
+            has_event,
+            has_survival_day,
+        }
+    }
+
+    #[test]
+    fn ee11_task_compatibility_mirrors_the_eligibility_truth_table() {
+        let response = vec!["response".to_string()];
+        let survival = vec!["survival".to_string()];
+        let none: Vec<String> = Vec::new();
+        // A response method on a file without the response label columns.
+        assert_eq!(
+            task_compatibility(&response, &outcomes(false, false, true, true)),
+            Some(ReasonCode::ResponseLabelMissing)
+        );
+        // Both columns are needed (a responder without the assessment day).
+        assert_eq!(
+            task_compatibility(&response, &outcomes(true, false, false, false)),
+            Some(ReasonCode::ResponseLabelMissing)
+        );
+        // A survival method on a file without event / survival-day columns.
+        assert_eq!(
+            task_compatibility(&survival, &outcomes(true, true, false, false)),
+            Some(ReasonCode::SurvivalOutcomeMissing)
+        );
+        // The specific missing-column code wins over the mismatch (the
+        // eligibility engine's priority): a response method on a
+        // survival-only file names the missing label, not the mismatch.
+        let surv_only = outcomes(false, false, true, true);
+        assert_eq!(
+            task_compatibility(&response, &surv_only),
+            Some(ReasonCode::ResponseLabelMissing)
+        );
+        let resp_only = outcomes(true, true, false, false);
+        assert_eq!(
+            task_compatibility(&survival, &resp_only),
+            Some(ReasonCode::SurvivalOutcomeMissing)
+        );
+        // Tasks that name no outcome kind the file has are the mismatch — the
+        // provider's own odd-task case (and its task-less real-data verdict:
+        // a method with no declared task covers no file outcome).
+        let odd = vec!["none".to_string()];
+        assert_eq!(
+            task_compatibility(&odd, &resp_only),
+            Some(ReasonCode::TaskIncompatible)
+        );
+        // Compatible: the file carries the method's task (both, or the one).
+        assert_eq!(task_compatibility(&response, &outcomes(true, true, true, true)), None);
+        assert_eq!(task_compatibility(&survival, &outcomes(true, true, true, true)), None);
+        assert_eq!(task_compatibility(&response, &resp_only), None);
+        // No declared task: the same verdict the eligibility engine gives on
+        // an outcome-carrying file (one truth table, one vocabulary).
+        assert_eq!(
+            task_compatibility(&none, &surv_only),
+            Some(ReasonCode::TaskIncompatible)
+        );
+        assert_eq!(
+            task_compatibility(&none, &outcomes(true, true, true, true)),
+            Some(ReasonCode::TaskIncompatible)
+        );
+    }
+
+    #[test]
+    fn ee11_task_reasons_are_the_provider_codes_verbatim() {
+        // The method row's reason.code is the provider's own vocabulary —
+        // never a re-spelled engine copy.
+        assert_eq!(ReasonCode::TaskIncompatible.as_str(), "TASK_INCOMPATIBLE");
+        assert_eq!(ReasonCode::ResponseLabelMissing.as_str(), "RESPONSE_LABEL_MISSING");
+        assert_eq!(
+            ReasonCode::SurvivalOutcomeMissing.as_str(),
+            "SURVIVAL_OUTCOME_MISSING"
+        );
     }
 }
