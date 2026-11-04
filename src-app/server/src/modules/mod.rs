@@ -23,6 +23,14 @@ pub mod file;
 // the canonical bundle rows for the engine and embedded template/example
 // assets. DB-free, stateless, boot-validated embed (like method_catalogue).
 pub mod file_validator;
+// TxResBench: the run engine — one analysis = one persisted run row
+// (config + input snapshot + selected methods/models), per-method sandboxed
+// stacks through the `sandbox` seam, run-scoped logs + SSE progress, the
+// contract predictions + produced-model surface, and the sticky analysis
+// config store. Depends on the in-process providers ordered before it
+// (method_catalogue 47, file_validator 48); its own tables are module-owned
+// migrations applied at boot like every module's.
+pub mod execution_engine;
 pub mod health;
 pub mod mcp;
 // TxResBench: the app-owned method catalogue (embedded facts + eligibility /

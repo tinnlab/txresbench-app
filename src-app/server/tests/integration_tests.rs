@@ -20,6 +20,9 @@ mod dataset;
 mod datatype;
 mod domain_surface;
 mod drafts;
+// The `execution_engine` suites (ITEM-11's file set — TEST-EE-05/12/13/14/
+// 15/17/18/19/20/21/25/26/27/30/32/33/34/35/36).
+mod execution_engine;
 mod geneset;
 mod extensions;
 mod features;

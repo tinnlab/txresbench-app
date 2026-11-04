@@ -1274,6 +1274,24 @@ export interface CreateProjectRequest {
   name: string
 }
 
+/**
+ * `POST /api/txr/runs` — the run the engine persists and drives. One
+ *  analysis = one run row holding the analysis config + the input snapshot +
+ *  the selected methods (train) or the resolved model assets (reuse).
+ */
+export interface CreateRunRequest {
+  config: RunConfig
+  input: TxrRunInput
+  /** Train mode: the selected catalogue method ids (≥ 1 — validate()). */
+  method_ids?: string[]
+  mode: TxrRunMode
+  /**
+   * Reuse mode: the resolved model assets (`model-store`'s join shape,
+   *  DEC-10 — assets are DATA to the engine, never an import).
+   */
+  model_ids?: TxrModelAsset[]
+}
+
 export interface CreateShareRequest {
   email: string
   /** `viewer` | `editor`. */
@@ -4582,6 +4600,23 @@ export interface RootfsStatus {
   supported: boolean
 }
 
+/**
+ * The run's analysis configuration (board E). Defaults are the documented
+ *  wire defaults (PROV-EE-2); `cpus: null` means "detect at run start"
+ *  (DEC-12) and `label_day: null` means "derive from the file's response_day
+ *  column" (DEC-9's D3 guard).
+ */
+export interface RunConfig {
+  at_a_time?: number
+  covariates?: boolean
+  cpus?: number
+  decision_day?: number
+  endpoint?: TxrEndpoint
+  label_day?: number
+  look_ahead_day?: number
+  save_models?: boolean
+}
+
 /** A run node (from the `provenance_run_repro` sidecar) — the trust view row. */
 export interface RunNodeDto {
   acting_user?: string
@@ -5081,6 +5116,488 @@ export interface TokenPair {
   refresh_token: string
   token_type: string
 }
+
+/**
+ * The sticky E-screen settings (`txr_app_config` singleton; `config: null` is
+ *  an honest never-configured value when the copies were cleared).
+ */
+export interface TxrAppConfig {
+  config?: RunConfig
+  last_input_summary?: TxrLastInputSummary
+}
+
+/**
+ * The mid-run lane change body (the F board's lane select; GROWN at
+ *  reconcile, CONS-UI-RUN-11).
+ */
+export interface TxrAtATimeRequest {
+  at_a_time: number
+}
+
+/**
+ * The per-patient coverage record (the board's "needs 3 or more draws; 120 of
+ *  151 have them" is renderable from this).
+ */
+export interface TxrCoverage {
+  eligible: number
+  fraction: number
+  scored: number
+}
+
+/**
+ * `DELETE /api/txr/runs/{id}` (+ `DELETE /api/txr/runs`): delete_files=false
+ *  keeps the run dir under the app data root (K's "Do not keep copies" sends
+ *  true — DEC-16's mechanics are this flag; history-store owns the policy).
+ */
+export interface TxrDeleteQuery {
+  delete_files?: boolean
+}
+
+/** The run's endpoint verb (board E's outcome choice). */
+export type TxrEndpoint = 'pfs' | 'os'
+
+/** One confirmed join of a measurements column to the patients table. */
+export interface TxrJoin {
+  /** The join key (the column key the validator resolved). */
+  key: string
+  /** The marker variants the column matched (spellings / ids). */
+  variants: string[]
+}
+
+/** The last input's count facts (what E restores without re-parsing files). */
+export interface TxrLastInputSummary {
+  markers: number
+  patients?: number
+  predict_patients?: number
+}
+
+/**
+ * A log line's stream (engine-authored state lines vs the method's captured
+ *  stdout/stderr).
+ */
+export type TxrLogStream = 'stdout' | 'stderr' | 'engine'
+
+/** One confirmed marker mapping (column key → catalogue marker id). */
+export interface TxrMapping {
+  key: string
+  marker_id: string
+}
+
+/**
+ * The env digest pair recorded on a method row / produced model (base + the
+ *  method's layer — provenance against the manifest, CONS-EE-8).
+ */
+export interface TxrMethodEnv {
+  base_digest: string
+  layer_digest: string
+}
+
+/**
+ * The per-method state machine (INV-2 — one sandboxed environment per method,
+ *  a method never runs twice in the same stack). `cannot_run` is the
+ *  classification verdict from run start (eligibility reason kept on the row);
+ *  `skipped` is a user skip of a waiting/downloading method; `failed` carries
+ *  its `reason`.
+ */
+export type TxrMethodState = 'waiting' | 'downloading' | 'running' | 'finished' | 'failed' | 'stopped' | 'skipped' | 'cannot_run'
+
+/**
+ * A resolved model asset (DEC-10: data, not an import). The engine verifies
+ *  `host_dir` with `tree_sha256` (CONS-EE-6) and binds it read-only; the
+ *  digested env record is provenance against the manifest (EXAMPLE-EE-7).
+ */
+export interface TxrModelAsset {
+  contract: string
+  env: TxrMethodEnv
+  host_dir: string
+  method_id: string
+  method_version: string
+  model_id: string
+  /** 64-hex sha256 of the model tree — the verify-before-bind digest. */
+  tree_sha256: string
+}
+
+/**
+ * The method's execution phase (the F screen's phase column): `env` =
+ *  environment ensure (base + layer), `fit`/`predict` = the two contract
+ *  steps of one `run_method_in_stack` call (X1), `done` = terminal.
+ */
+export type TxrPhase = 'idle' | 'env' | 'fit' | 'predict' | 'done'
+
+/**
+ * One finished method's column (prob_source + coverage beside every value —
+ *  INV-3).
+ */
+export interface TxrPredictionMethod {
+  coverage: TxrCoverage
+  group: string
+  group_label: string
+  method_id: string
+  notes: string | null[]
+  prob_source: TxrProbSource
+  probabilities: number | null[]
+  task: TxrTask
+}
+
+/**
+ * `GET /api/txr/runs/{id}/predictions` — one aligned array per patient, one
+ *  entry per finished method (partial while the run continues — the G screen's
+ *  "11 of 12 methods finished" live). A null probability is an abstain; its
+ *  note is carried in the aligned `notes` array.
+ */
+export interface TxrPredictionsResponse {
+  /** Per-patient mean over non-null method values (DEC-11). */
+  average: number | null[]
+  endpoint: TxrEndpoint
+  generated_at: string
+  horizon: number
+  methods: TxrPredictionMethod[]
+  /** The predict patient ids, in `test/patients.csv` order. */
+  patients: string[]
+  run_id: string
+}
+
+/**
+ * Where a method column's probabilities come from (INV-3: never mixed
+ *  silently in one column; U2 recalibration is recorded per method).
+ */
+export type TxrProbSource = 'native' | 'recalibrated' | 'none'
+
+/**
+ * A produced model (X1's `/model` tree + the digests `model-store` binds to —
+ *  PROV-EE-9). `size_bytes` and `own_auc` are known at finalize (the grown
+ *  record, reconcile GAP-B/GAP-C).
+ */
+export interface TxrProducedModel {
+  dir: string
+  env: TxrMethodEnv
+  method_id: string
+  method_version: string
+  model_out_digest: string
+  own_auc?: number
+  size_bytes: number
+  trained_on_patients: number
+  /** Same value as `model_out_digest` — the model-store bind key. */
+  tree_sha256: string
+}
+
+/**
+ * Per-run method-state counts (the F header's done/running/downloading/…
+ *  line, the G header's "11 of 12 methods finished").
+ */
+export interface TxrRunCounts {
+  cannot_run: number
+  downloading: number
+  failed: number
+  finished: number
+  running: number
+  skipped: number
+  stopped: number
+  waiting: number
+}
+
+/**
+ * The run detail = the summary + the per-method rows + the produced models +
+ *  the derivation facts (PROV-EE-3; the admission + estimate + outcome lines
+ *  of the F/G headers). The summary is FLATTENED so the wire is one object
+ *  (the `sse`/`jobs` precedent of a flat detail payload).
+ */
+export interface TxrRunDetail {
+  config: RunConfig
+  counts: TxrRunCounts
+  /** Detected at run start (DEC-12) — the F header's "on <n> CPUs". */
+  cpus: number
+  created_at: string
+  /** The run dir (absolute), `<data_root>/analysis-<UTC ts>-<id8>`. */
+  dir: string
+  elapsed_secs?: number
+  /**
+   * The create-time estimate facts (PROV-MC-6's shape); `None` = never
+   *  computed (a provider failure / an empty queued set — a display fact
+   *  the consumer renders only when the run carries it, D36; never a
+   *  fabricated zero).
+   */
+  estimate?: TxrRunEstimate
+  finished_at?: string
+  id: string
+  input_summary: TxrRunInputSummary
+  log_lines: number
+  /** Read once at run start (Linux /proc/meminfo), display-only (DEC-12). */
+  memory_total_bytes?: number
+  method_ids: string[]
+  methods: TxrRunMethod[]
+  mode: TxrRunMode
+  /** The RESOLVED asset ids the reuse run consumed ([] in train mode). */
+  model_ids: string[]
+  models: TxrProducedModel[]
+  outcome: TxrRunOutcome
+  predictions_ready: boolean
+  started_at?: string
+  status: TxrRunStatus
+}
+
+/**
+ * The run's estimate facts (PROV-MC-6's response shape, stored on the run at
+ *  create — the F header's "about 7 minutes left" source).
+ */
+export interface TxrRunEstimate {
+  estimate_quality: TimingQuality
+  /**
+   * The lane-packed makespan at the run's at_a_time (estimate-quality per
+   *  method carried by the same provider response).
+   */
+  schedule_seconds: number
+  total_seconds: number
+}
+
+/**
+ * Frames pushed on `GET /api/txr/runs/{id}/stream`: a run `status`
+ *  change, a per-method `method` transition, a captured `log` line, a
+ *  `progress` sample, or a finished `prediction` column. camelCase event
+ *  names (PROV-EE-4's vocabulary).
+ */
+export type TxrRunEvent = {
+  status: TxrRunStatusFrame
+} | {
+  method: TxrRunMethodFrame
+} | {
+  log: TxrRunLogLine
+} | {
+  progress: TxrRunProgressFrame
+} | {
+  prediction: TxrRunPredictionFrame
+}
+
+/**
+ * The uploaded source names, captured at create from the parsed tables
+ *  (reconcile GAP-HS-1: never derived from the run dir stem).
+ */
+export interface TxrRunFileNames {
+  measurements: string
+  patients?: string
+  predict_measurements?: string
+}
+
+/**
+ * The input snapshot the engine validates + bundles (CONS-EE-11: it replays
+ *  the SAME parsed tables the screens POSTed — one code path, DEC-15).
+ */
+export interface TxrRunInput {
+  /**
+   * The confirmed joins (one per measurement column group; the validator's
+   *  join semantics — CONS-EE-11). Column ids or index keys. Empty = the
+   *  simple one-table case.
+   */
+  joins?: TxrJoin[]
+  /**
+   * K board's "Copies are kept with this run so it can be repeated" —
+   *  default true (DEC-16); the history UI's "Do not keep copies" sends
+   *  false.
+   */
+  keep_copies?: boolean
+  /** The confirmed marker mapping (column key → catalogue marker id). */
+  mapping?: TxrMapping[]
+  /**
+   * The uploaded measurements table (train and predict in one file, or the
+   *  train table when a separate predict file is given).
+   */
+  measurements: ParsedTable
+  /**
+   * Training patients (nullable in reuse mode, where the predict table is
+   *  the run's only input).
+   */
+  patients?: ParsedTable
+  /** The separate predict-patients file (path 3: reuse on NEW patients). */
+  predict_measurements?: ParsedTable
+}
+
+/**
+ * The input snapshot summary (K's files/settings facts; `markers` = distinct
+ *  resolved marker facts count after joins/mapping).
+ */
+export interface TxrRunInputSummary {
+  events?: number
+  file_names: TxrRunFileNames
+  markers: number
+  patients?: number
+  predict_patients?: number
+}
+
+/**
+ * `GET /api/txr/runs` query (paged — DEC-21; `limit` has the named default +
+ *  ceiling).
+ */
+export interface TxrRunListQuery {
+  limit?: number
+  offset?: number
+}
+
+/** One paged History page (PROV-EE-3). */
+export interface TxrRunListResponse {
+  limit: number
+  offset: number
+  runs: TxrRunSummary[]
+  total: number
+}
+
+/** One run-scoped log line (the F screen's log panel + "Copy the log"). */
+export interface TxrRunLogLine {
+  content: string
+  created_at: string
+  method_id?: string
+  seq: number
+  stream: TxrLogStream
+}
+
+/** The logs endpoint query. */
+export interface TxrRunLogsQuery {
+  after_seq?: number
+  limit?: number
+  method_id?: string
+}
+
+/** `GET /api/txr/runs/{id}/logs` (paged after `after_seq` — DEC-21). */
+export interface TxrRunLogsResponse {
+  lines: TxrRunLogLine[]
+  next_seq: number
+  total: number
+}
+
+/** One method's row of the run (the F screen's per-method line). */
+export interface TxrRunMethod {
+  bytes_downloaded: number
+  bytes_total?: number
+  coverage?: TxrCoverage
+  duration_ms?: number
+  elapsed_secs?: number
+  env?: TxrMethodEnv
+  exit_code?: number
+  finished_at?: string
+  group: string
+  group_label: string
+  /** The catalogue id (the board's monospace method name). */
+  label: string
+  method_id: string
+  phase?: TxrPhase
+  prob_source?: TxrProbSource
+  /**
+   * Download progress only (the manifest size_bytes ratio; null outside
+   *  the env phase).
+   */
+  progress_pct?: number
+  /**
+   * The failure / cannot-run reason when the row did not reach `finished` —
+   *  INV-2's "failure kept with its reason".
+   */
+  reason?: TxrRunReason
+  started_at?: string
+  state: TxrMethodState
+  /** The outcome task this method ran as (null until classified). */
+  task?: TxrTask
+  version: string
+}
+
+/**
+ * A method-row transition frame (state / reason / phase + the env download
+ *  counters).
+ */
+export interface TxrRunMethodFrame {
+  bytes_downloaded: number
+  bytes_total?: number
+  elapsed_secs?: number
+  method_id: string
+  phase?: string
+  reason_code?: string
+  state: string
+}
+
+/**
+ * The run's mode: `train` fits on the uploaded training inputs; `reuse`
+ *  applies resolved saved models (path 3 of the FLOW) — the request then
+ *  carries `model_ids` instead of a training method list.
+ */
+export type TxrRunMode = 'train' | 'reuse'
+
+/**
+ * The outcome facts of the run (the detail's `task_is_mixed` = the heatmap
+ *  mixes tasks — INV-3's record beside every probability).
+ */
+export interface TxrRunOutcome {
+  endpoint: TxrEndpoint
+  horizon: number
+  task_is_mixed: boolean
+}
+
+/** A finished-column announcement (the G screen appends the column live). */
+export interface TxrRunPredictionFrame {
+  coverage_fraction: number
+  eligible: number
+  method_id: string
+  prob_source: string
+  scored: number
+}
+
+/**
+ * A progress frame (download pct + fit/predict phase; message is the phase
+ *  line).
+ */
+export interface TxrRunProgressFrame {
+  message?: string
+  method_id: string
+  pct?: number
+  phase?: string
+}
+
+/**
+ * One structured reason (code from the ONE vocabulary — the provider's
+ *  [`ReasonCode`] for eligibility, [`EngineReasonCode`] for the machinery);
+ *  `detail` is the human line the F/H/K screens show.
+ */
+export interface TxrRunReason {
+  code: string
+  detail: string
+}
+
+/**
+ * The run-level state machine (INV-2): the F/G/K screens switch on these
+ *  exactly. `creating` is the instant before the run row is committed;
+ *  `preparing` covers input copy + validation + eligibility classification;
+ *  `running` spans the lane dispatch; `finishing` is the aggregate finalize;
+ *  terminal states are `finished` / `failed` (incl. `INTERRUPTED` at boot) /
+ *  `stopped`.
+ */
+export type TxrRunStatus = 'creating' | 'preparing' | 'running' | 'finishing' | 'finished' | 'failed' | 'stopped'
+
+/** A status-transition frame (also the stream's terminal signal). */
+export interface TxrRunStatusFrame {
+  status: string
+}
+
+/** The run row the History list (K) and the F screen header render. */
+export interface TxrRunSummary {
+  config: RunConfig
+  counts: TxrRunCounts
+  created_at: string
+  /** The run dir (absolute), `<data_root>/analysis-<UTC ts>-<id8>`. */
+  dir: string
+  elapsed_secs?: number
+  finished_at?: string
+  id: string
+  input_summary: TxrRunInputSummary
+  method_ids: string[]
+  mode: TxrRunMode
+  /** The RESOLVED asset ids the reuse run consumed ([] in train mode). */
+  model_ids: string[]
+  predictions_ready: boolean
+  started_at?: string
+  status: TxrRunStatus
+}
+
+/**
+ * The outcome task a method ran as (the enumerated vocabulary ui-results
+ *  normalizes — CONS-UR-8; a run can mix tasks, `task_is_mixed` says so).
+ */
+export type TxrTask = 'pfs' | 'os' | 'response'
 
 /**
  * The unit family a marker's values are measured in — the unit-compatibility
@@ -5704,6 +6221,22 @@ export type ApiEndpointParameters = {
   'Sandbox.methodRun': MethodRunRequest
   'Sandbox.updateSettings': UpdateSandboxResourceLimits
   'Sync.subscribe': void
+  'Txr.clearRuns': { delete_files?: boolean }
+  'Txr.createRun': CreateRunRequest
+  'Txr.deleteRun': { id: string; delete_files?: boolean }
+  'Txr.downloadPredictions': { id: string }
+  'Txr.getAnalysisConfig': void
+  'Txr.getPredictions': { id: string }
+  'Txr.getRun': { id: string }
+  'Txr.listRunLogs': { id: string; after_seq?: number; limit?: number; method_id?: string }
+  'Txr.listRuns': { limit?: number; offset?: number }
+  'Txr.rerunRun': { id: string }
+  'Txr.setAtATime': { id: string } & TxrAtATimeRequest
+  'Txr.skipMethod': { id: string; method_id: string }
+  'Txr.stopMethod': { id: string; method_id: string }
+  'Txr.stopRun': { id: string }
+  'Txr.streamRun': { id: string }
+  'Txr.updateAnalysisConfig': TxrAppConfig
   'Workstore.deleteArtifact': { project_id: string; id: string }
   'Workstore.getArtifact': { id: string }
   'Workstore.getArtifactBytesPresence': { project_id: string }
@@ -5892,6 +6425,22 @@ export type ApiEndpointResponses = {
   'Sandbox.methodRun': MethodRunResult
   'Sandbox.updateSettings': SandboxResourceLimits
   'Sync.subscribe': SyncSseEvent
+  'Txr.clearRuns': void
+  'Txr.createRun': TxrRunSummary
+  'Txr.deleteRun': void
+  'Txr.downloadPredictions': void
+  'Txr.getAnalysisConfig': TxrAppConfig
+  'Txr.getPredictions': TxrPredictionsResponse
+  'Txr.getRun': TxrRunDetail
+  'Txr.listRunLogs': TxrRunLogsResponse
+  'Txr.listRuns': TxrRunListResponse
+  'Txr.rerunRun': TxrRunSummary
+  'Txr.setAtATime': TxrRunSummary
+  'Txr.skipMethod': any
+  'Txr.stopMethod': any
+  'Txr.stopRun': any
+  'Txr.streamRun': TxrRunEvent
+  'Txr.updateAnalysisConfig': void
   'Workstore.deleteArtifact': void
   'Workstore.getArtifact': Artifact
   'Workstore.getArtifactBytesPresence': BytesPresenceReport
