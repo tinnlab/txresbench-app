@@ -4,9 +4,10 @@ import TxrLayout from './TxrLayout'
 
 /**
  * txrshell — TxResBench's own shell: the top-nav layout (New analysis / Models /
- * History / Help, per the design boards) + the four routes it owns. The app
- * opens straight on `/` (New analysis). The analysis screens themselves are the
- * next build step; these routes render the shell page scaffold only.
+ * History / Help, per the design boards) + the three routes it owns. The `/`
+ * route is handed to the `txrintake` module (screen A Start — the analysis-flow
+ * home the "New analysis" nav link opens); this module keeps `/models`,
+ * `/history` and `/help`, which render the shell page scaffold.
  */
 
 export const TxrLayoutDef = {
@@ -22,12 +23,6 @@ export default createModule({
   },
   dependencies: ['router'],
   routes: [
-    {
-      path: '/',
-      element: <ShellPage title="New analysis" />,
-      requiresAuth: true,
-      layout: TxrLayoutDef,
-    },
     {
       path: '/models',
       element: <ShellPage title="Models" />,
