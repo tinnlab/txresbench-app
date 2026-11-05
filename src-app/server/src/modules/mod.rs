@@ -31,6 +31,13 @@ pub mod file_validator;
 // (method_catalogue 47, file_validator 48); its own tables are module-owned
 // migrations applied at boot like every module's.
 pub mod execution_engine;
+// TxResBench: the saved-model home — named sets of produced /model trees
+// (content-addressed, immutable), .txr import/export, verified reuse
+// resolution for the engine, per-model eligibility for the shared list.
+// Depends on the in-process providers ordered before it (method_catalogue 47,
+// execution_engine 49); its own tables are module-owned migrations applied at
+// boot like every module's.
+pub mod model_store;
 pub mod health;
 pub mod mcp;
 // TxResBench: the app-owned method catalogue (embedded facts + eligibility /
