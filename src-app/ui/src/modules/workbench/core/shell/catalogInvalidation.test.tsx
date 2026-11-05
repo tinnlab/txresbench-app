@@ -95,12 +95,18 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('the workbench derives its catalog epoch from the sync channel', () => {
+  // Every `EventBus.emit` below spells its `K` explicitly: the emit generic
+  // only appears inside `Omit<AppEvents[K], 'timestamp'>`, so it cannot be
+  // inferred — and with the app's txr save-model events on `AppEvents`, the
+  // union fallback no longer accepts a `sync:*` payload (see
+  // `modules/txrresults/events.ts`). Type-only; the emitted events are
+  // unchanged.
   it('refetches on sync:project for THIS project (attach/detach from another device)', async () => {
     mount()
     await waitFor(() => expect(shown()).toBe('art-1'))
     // A dataset was attached elsewhere: the project's artifact set grew.
     rows = [row('art-1'), row('art-2')]
-    await EventBus.emit({ type: 'sync:project', data: { action: 'update', id: 'p1' } })
+    await EventBus.emit<'sync:project'>({ type: 'sync:project', data: { action: 'update', id: 'p1' } })
     await waitFor(() => expect(shown()).toBe('art-1,art-2'))
   })
 
@@ -109,7 +115,7 @@ describe('the workbench derives its catalog epoch from the sync channel', () => 
     await waitFor(() => expect(shown()).toBe('art-1'))
     const before = catalogReads
     rows = [row('art-1'), row('art-2')]
-    await EventBus.emit({ type: 'sync:project', data: { action: 'update', id: 'other-project' } })
+    await EventBus.emit<'sync:project'>({ type: 'sync:project', data: { action: 'update', id: 'other-project' } })
     // Give any (wrongly) scheduled refetch more than the coalesce window to land.
     await new Promise(r => setTimeout(r, 300))
     expect(shown()).toBe('art-1')
@@ -120,7 +126,7 @@ describe('the workbench derives its catalog epoch from the sync channel', () => 
     mount()
     await waitFor(() => expect(shown()).toBe('art-1'))
     rows = []
-    await EventBus.emit({ type: 'sync:artifact', data: { action: 'delete', id: 'art-1' } })
+    await EventBus.emit<'sync:artifact'>({ type: 'sync:artifact', data: { action: 'delete', id: 'art-1' } })
     await waitFor(() => expect(shown()).toBe(''))
   })
 
@@ -128,7 +134,7 @@ describe('the workbench derives its catalog epoch from the sync channel', () => 
     mount()
     await waitFor(() => expect(shown()).toBe('art-1'))
     rows = []
-    await EventBus.emit({ type: 'sync:dataset', data: { action: 'delete', id: 'ds-1' } })
+    await EventBus.emit<'sync:dataset'>({ type: 'sync:dataset', data: { action: 'delete', id: 'ds-1' } })
     await waitFor(() => expect(shown()).toBe(''))
   })
 
@@ -136,7 +142,7 @@ describe('the workbench derives its catalog epoch from the sync channel', () => 
     mount()
     await waitFor(() => expect(shown()).toBe('art-1'))
     rows = [row('art-1'), row('art-2')]
-    await EventBus.emit({ type: 'sync:reconnect', data: {} })
+    await EventBus.emit<'sync:reconnect'>({ type: 'sync:reconnect', data: {} })
     await waitFor(() => expect(shown()).toBe('art-1,art-2'))
   })
 
@@ -146,7 +152,7 @@ describe('the workbench derives its catalog epoch from the sync channel', () => 
     permitted = false
     const before = catalogReads
     rows = [row('art-1'), row('art-2')]
-    await EventBus.emit({ type: 'sync:reconnect', data: {} })
+    await EventBus.emit<'sync:reconnect'>({ type: 'sync:reconnect', data: {} })
     await new Promise(r => setTimeout(r, 300))
     expect(catalogReads).toBe(before)
   })
@@ -157,7 +163,7 @@ describe('the workbench derives its catalog epoch from the sync channel', () => 
     const before = catalogReads
     rows = [row('art-1'), row('art-2')]
     for (let i = 0; i < 8; i++) {
-      await EventBus.emit({ type: 'sync:artifact', data: { action: 'create', id: `art-${i}` } })
+      await EventBus.emit<'sync:artifact'>({ type: 'sync:artifact', data: { action: 'create', id: `art-${i}` } })
     }
     await waitFor(() => expect(shown()).toBe('art-1,art-2'))
     await new Promise(r => setTimeout(r, 300))
