@@ -10126,6 +10126,825 @@
         ]
       }
     },
+    "/api/txr/models/save": {
+      "post": {
+        "tags": [
+          "models"
+        ],
+        "description": "Save the run's produced models into a set (L's \"Name of this set\" = a new set; L2's \"into an existing set\" = `set_id`), copying each produced tree into the content-addressed store, recording the requirements + how-it-did facts, optionally copying the training files and optionally writing the one-off `.txr` export. 201 with the set + the saved rows + the export record; 400 EMPTY_METHODS / INVALID_SET_NAME / INVALID_TARGET; 404 RUN_NOT_FOUND / MODEL_ASSET_UNKNOWN; 409 SET_NAME_TAKEN / METHOD_NOT_FINISHED / METHOD_NOT_IN_CATALOGUE.",
+        "operationId": "Models.saveModels",
+        "requestBody": {
+          "description": "`POST /api/txr/models/save` (PROV-MS-3): save the run's produced models into\n a new or existing set, optionally keeping the training files + writing the\n one-off `.txr` export.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveModelsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "The save response (201): the set (created or grown), the saved rows and the\n optional one-off export.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelSaveResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "EMPTY_METHODS / INVALID_SET_NAME / INVALID_TARGET"
+          },
+          "404": {
+            "description": "RUN_NOT_FOUND / MODEL_ASSET_UNKNOWN"
+          },
+          "409": {
+            "description": "SET_NAME_TAKEN / METHOD_NOT_FINISHED / METHOD_NOT_IN_CATALOGUE"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      }
+    },
+    "/api/txr/models/import": {
+      "post": {
+        "tags": [
+          "models"
+        ],
+        "description": "Import a `.txr` container (a colleague's model file, board J): multipart `file` part, streamed to disk and verified on arrival (magic/version, per-file sha256, restored-tree digest, path safety, size cap); an optional `set_id` form field merges into an existing set, else the container's recorded set is recreated (kind set) or the model stands alone (kind model). 201 with the restored rows; 400 INVALID_CONTAINER / CONTAINER_TOO_LARGE / UNSAFE_PATH / INVALID_SET_ID / MODEL_VERIFY_FAILED / MISSING_FILE; 404 SET_NOT_FOUND.",
+        "operationId": "Models.importModel",
+        "requestBody": {
+          "description": "multipart form data",
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "array"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "`POST /api/txr/models/import` (201) — the restored rows + the set they were\n imported into. `set_id` is null when the multipart carried no `set_id`\n form field (the container's recorded set is then recreated fresh); the\n reader's default-set rule lives in `store.rs`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportOutcome"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_CONTAINER / CONTAINER_TOO_LARGE / UNSAFE_PATH / INVALID_SET_ID / MODEL_VERIFY_FAILED / MISSING_FILE"
+          },
+          "404": {
+            "description": "SET_NOT_FOUND"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      }
+    },
+    "/api/txr/models": {
+      "get": {
+        "tags": [
+          "models"
+        ],
+        "description": "The saved-model inventory (unpaged, DEC-19): the J screen's model lines and the I screen's per-run rows, with optional `set_id` / `q` (case-insensitive substring on name or method id) / `provenance` filters. `models_dir` is the store's folder (J's \"Open the folder\", forwarded from the engine after the app move).",
+        "operationId": "Models.listModels",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "provenance",
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ModelProvenance"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null
+            },
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "set_id",
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid",
+              "default": null
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "`GET /api/txr/models` (PROV-MS-2; no pagination — DEC-19).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelListResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      }
+    },
+    "/api/txr/models/{id}": {
+      "get": {
+        "tags": [
+          "models"
+        ],
+        "description": "One model's full recorded fact set: the summary flatten plus the tree digest + dir, contract, env digests, the recorded requirements and the catalogue-consistency warnings. Unknown id → 404 MODEL_NOT_FOUND.",
+        "operationId": "Models.getModel",
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "`GET /api/txr/models/{id}` (PROV-MS-2) — the summary flattened (the\n engine's detail flatten precedent: the wire is one object) plus the\n recorded requirements/digests the J footer, the engine bind and the\n eligibility engine read.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown model id (MODEL_NOT_FOUND)"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      },
+      "delete": {
+        "tags": [
+          "models"
+        ],
+        "description": "Delete a model (board J: \"Deleting a model removes its file\"): the row goes, the tree dir is pruned when no other row references its digest; run records are never touched (results already made stay in History). 204; unknown id → 404 MODEL_NOT_FOUND.",
+        "operationId": "Models.deleteModel",
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "no content"
+          },
+          "404": {
+            "description": "Unknown model id (MODEL_NOT_FOUND)"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      },
+      "patch": {
+        "tags": [
+          "models"
+        ],
+        "description": "Rename a model's display label (board J's Rename; a label is not an identity — 1..=80 chars, no uniqueness). Unknown id → 404 MODEL_NOT_FOUND.",
+        "operationId": "Models.renameModel",
+        "requestBody": {
+          "description": "The rename body (models + sets — board J's Rename).",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "The inventory list row (the J screen's model line + the I screen's\n per-model rows). Query-parameter projections are optional and\n `serde(default)`-free inside list responses: `models_dir` is grown at\n reconcile (CONS-UM-4 — \"Open the folder\" + \"Models are stored in …\"\n render the real path; null renders the footnote pathless).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelSummary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown model id (MODEL_NOT_FOUND)"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      }
+    },
+    "/api/txr/models/{id}/export": {
+      "get": {
+        "tags": [
+          "models"
+        ],
+        "description": "The single-model `.txr` container, streamed as an attachment (`<name>.txr`; the sanitized name has no path separators). The export is verified against the recorded tree digest before the first byte. Unknown id → 404 MODEL_NOT_FOUND.",
+        "operationId": "Models.exportModel",
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "application/octet-stream — the .txr container"
+          },
+          "404": {
+            "description": "Unknown model id (MODEL_NOT_FOUND)"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      }
+    },
+    "/api/txr/model-sets": {
+      "get": {
+        "tags": [
+          "model-sets"
+        ],
+        "description": "The set inventory (unpaged, DEC-19): each set with its model count + summed tree sizes, newest first — the J screen's saved sets and the I screen's run headers.",
+        "operationId": "ModelSets.listSets",
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "`GET /api/txr/model-sets` (PROV-MS-4; no pagination — DEC-19).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelSetListResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      }
+    },
+    "/api/txr/model-sets/{id}": {
+      "delete": {
+        "tags": [
+          "model-sets"
+        ],
+        "description": "Delete a set and its models (DEC-10/D14's cascade default): the rows go and the now-unreferenced trees + the set's training dir are pruned; `keep_files=true` removes the rows only and leaves the files. 204; unknown id → 404 SET_NOT_FOUND.",
+        "operationId": "ModelSets.deleteSet",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "keep_files",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "no content"
+          },
+          "404": {
+            "description": "Unknown set id (SET_NOT_FOUND)"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      },
+      "patch": {
+        "tags": [
+          "model-sets"
+        ],
+        "description": "Rename a set (case-insensitively unique — 409 SET_NAME_TAKEN; a case-only self-rename is a no-op success). Unknown id → 404 SET_NOT_FOUND.",
+        "operationId": "ModelSets.renameSet",
+        "requestBody": {
+          "description": "The rename body (models + sets — board J's Rename).",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "A set row of the J/I screens (PROV-MS-4).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetSummary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown set id (SET_NOT_FOUND)"
+          },
+          "409": {
+            "description": "SET_NAME_TAKEN"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      }
+    },
+    "/api/txr/model-sets/{id}/export": {
+      "get": {
+        "tags": [
+          "model-sets"
+        ],
+        "description": "The whole-set `.txr` container, streamed as an attachment (`<set-name>.txr`): every model of the set + the kept training files. Unknown id → 404 SET_NOT_FOUND; an empty set refuses (409 EMPTY_SET — the format's set container carries at least one model).",
+        "operationId": "ModelSets.exportSet",
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "application/octet-stream — the .txr container"
+          },
+          "404": {
+            "description": "Unknown set id (SET_NOT_FOUND)"
+          },
+          "409": {
+            "description": "An empty set (EMPTY_SET)"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      }
+    },
+    "/api/txr/models/resolve": {
+      "post": {
+        "tags": [
+          "models"
+        ],
+        "description": "Resolve model ids to the verified asset records the run engine binds on reuse (PROV-MS-8): each asset's host_dir is re-verified against the recorded tree digest before it leaves, so the engine only ever sees an honest asset. The response element shape is byte-compatible with `CreateRunRequest.model_ids[]` (the caller-side join — the engine never imports this module). 400 EMPTY_MODELS / TOO_MANY_MODELS; 404 MODEL_NOT_FOUND; 409 MODEL_VERIFY_FAILED.",
+        "operationId": "Models.resolveModels",
+        "requestBody": {
+          "description": "`POST /api/txr/models/resolve` (PROV-MS-8): the ids to re-verify + hand off.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "`ResolveResponse` (PROV-MS-8).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResolveResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "EMPTY_MODELS / TOO_MANY_MODELS"
+          },
+          "404": {
+            "description": "Unknown model id (MODEL_NOT_FOUND)"
+          },
+          "409": {
+            "description": "A host_dir no longer matches its recorded digest (MODEL_VERIFY_FAILED)"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      }
+    },
+    "/api/txr/models/eligibility": {
+      "post": {
+        "tags": [
+          "models"
+        ],
+        "description": "The per-model eligibility verdicts for the I list: each model's RECORDED requirements against the file's inventory (the same `InventoryEligibilityRequest` one component feeds both eligibility providers). Verdicts use the PROV-MC-5 reason vocabulary plus MODEL_REQUIREMENTS_UNRECORDED (an imported container with no requirements is cannot_run — the store never invents requirements); the times come from the catalogue's estimator. 400 EMPTY_MODELS / TOO_MANY_MODELS; 404 MODEL_NOT_FOUND.",
+        "operationId": "Models.checkEligibility",
+        "requestBody": {
+          "description": "The one request shape `ui-list` feeds both eligibility engines: the file\n inventory PROV-MC-5's `InventoryEligibilityRequest` carries (VERBATIM — this\n module imports the provider's type, it does not restate it), plus the\n model ids to score.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelEligibilityRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "The eligibility response: per-model verdicts plus the screen totals.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelEligibilityResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "EMPTY_MODELS / TOO_MANY_MODELS"
+          },
+          "404": {
+            "description": "Unknown model id (MODEL_NOT_FOUND)"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      }
+    },
     "/api/sandbox/status": {
       "get": {
         "tags": [
@@ -13831,6 +14650,22 @@
           "is_numeric"
         ]
       },
+      "CovariateFacts": {
+        "description": "The covariate facts of a saved model: the catalogue's mode + whether the\n run actually ran with covariates on (both recorded at save — the J screen's\n \"uses age\" is `used`, never a re-derivation).",
+        "type": "object",
+        "properties": {
+          "catalogue": {
+            "$ref": "#/components/schemas/CovariateMode"
+          },
+          "used": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "catalogue",
+          "used"
+        ]
+      },
       "CovariateMode": {
         "description": "Whether a method's inputs include patient covariates beyond the markers.",
         "type": "string",
@@ -15576,6 +16411,28 @@
           "export_id"
         ]
       },
+      "ExportTarget": {
+        "description": "The one-off export record of a save (PROV-MS-3's `also_export` arm) — the\n file is already written; `dir` is where the user's \"Open the folder\" points.",
+        "type": "object",
+        "properties": {
+          "dir": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "name",
+          "size_bytes",
+          "dir"
+        ]
+      },
       "ExtensionManifest": {
         "description": "One extension = one `manifest.yaml` folder. The registry holds one of these per\n discovered `extensions/<id>/manifest.yaml`.",
         "type": "object",
@@ -16367,6 +17224,28 @@
         "required": [
           "name",
           "mount_path"
+        ]
+      },
+      "ImportOutcome": {
+        "description": "`POST /api/txr/models/import` (201) — the restored rows + the set they were\n imported into. `set_id` is null when the multipart carried no `set_id`\n form field (the container's recorded set is then recreated fresh); the\n reader's default-set rule lives in `store.rs`.",
+        "type": "object",
+        "properties": {
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelSummary"
+            }
+          },
+          "set_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "models"
         ]
       },
       "IngestSpec": {
@@ -17582,6 +18461,49 @@
           "patients_with_value",
           "patients_with_baseline",
           "patients_with_ontreatment"
+        ]
+      },
+      "MarkerFacts": {
+        "description": "The marker-input facts recorded on a saved model at save time (the\n catalogue's [`MarkerKind`]/[`UsesHistory`] vocabulary verbatim — a model\n INSTANCE's facts, since the D5-selected feature set is per instance).",
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "kind": {
+            "$ref": "#/components/schemas/MarkerKind"
+          },
+          "marker_groups_required": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "min_draws": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "needs_baseline": {
+            "type": "boolean"
+          },
+          "needs_detection_call": {
+            "type": "boolean"
+          },
+          "uses_history": {
+            "$ref": "#/components/schemas/UsesHistory"
+          }
+        },
+        "required": [
+          "kind",
+          "count",
+          "min_draws",
+          "needs_baseline",
+          "uses_history",
+          "needs_detection_call",
+          "marker_groups_required"
         ]
       },
       "MarkerGroup": {
@@ -18842,6 +19764,406 @@
           "display_name"
         ]
       },
+      "ModelDetail": {
+        "description": "`GET /api/txr/models/{id}` (PROV-MS-2) — the summary flattened (the\n engine's detail flatten precedent: the wire is one object) plus the\n recorded requirements/digests the J footer, the engine bind and the\n eligibility engine read.",
+        "type": "object",
+        "properties": {
+          "contract": {
+            "description": "The container contract version the tree was produced under (X1's\n contract, e.g. \"2.0\").",
+            "type": "string"
+          },
+          "covariates": {
+            "$ref": "#/components/schemas/CovariateFacts"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "decision_day": {
+            "type": "number",
+            "format": "double"
+          },
+          "dir": {
+            "description": "Absolute path of the tree (J's \"Open the folder\" + the engine bind).",
+            "type": "string"
+          },
+          "embeds_training_data": {
+            "description": "The catalogue's `embeds_training_data` fact verbatim (GAP-A / DEC-9 —\n the L dialog's ⚠ is data, never app-invented).",
+            "type": "boolean"
+          },
+          "endpoint": {
+            "$ref": "#/components/schemas/TxrEndpoint"
+          },
+          "env": {
+            "$ref": "#/components/schemas/TxrMethodEnv"
+          },
+          "features": {
+            "description": "The run's selected feature keys (the engine's params — recorded, never\n re-derived).",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "group": {
+            "type": "string"
+          },
+          "group_label": {
+            "type": "string"
+          },
+          "horizon": {
+            "type": "number",
+            "format": "double"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "imported_from": {
+            "description": "The `.txr` file name for `imported` provenance (board J: \"opened from\n breast-panel.txr\").",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "licence": {
+            "description": "The data licence declared at install (`pretrained` always; `null` for\n a user's own rows — the J board's \"not recorded\").",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "marker_count": {
+            "description": "Mirrors the row's `marker_facts.count` (TEST-MS-24 — the J \"N markers\"\n subline with no per-row detail fetch).",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32",
+            "minimum": 0
+          },
+          "marker_facts": {
+            "$ref": "#/components/schemas/MarkerFacts"
+          },
+          "method_id": {
+            "type": "string"
+          },
+          "method_version": {
+            "type": "string"
+          },
+          "name": {
+            "description": "The display label (default = the catalogue label at save).",
+            "type": "string"
+          },
+          "own_auc": {
+            "description": "The engine-computed cross-check (GAP-C — \"own data, cross-checked:\n AUC 0.66\"; null when the outcome/data does not allow it).",
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "own_c": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "pretrained_catalogue_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pretrained_catalogue_version": {
+            "description": "The asset version of the pretrained row, so a strict id+version match\n can be made without a detail fetch (GAP-PC-3 / TEST-MS-24).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/ModelProvenance"
+          },
+          "required_markers": {
+            "description": "The catalogue's required-marker rule (verbatim — PROV-MC-1).",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RequiredMarkers"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "set_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "set_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "size_bytes": {
+            "description": "Sum of the tree files (the run record's size — the engine's dir walk;\n GAP-B).",
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "task": {
+            "description": "The outcome task the model was fitted as (`null` until the run's method\n row classifies it — the run seam's [`TxrTask`]).",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TxrTask"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "trained_at": {
+            "description": "The run's `finished_at` (RFC3339 UTC — the I board's \"trained 19 Oct\").",
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "trained_on_patients": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32",
+            "minimum": 0
+          },
+          "tree_sha256": {
+            "description": "64-hex sha256 of the model tree (the store's content-addressed key —\n PROV-SS-3's algorithm, the engine's own digest).",
+            "type": "string"
+          },
+          "uses_covariates": {
+            "description": "Mirrors the row's `covariates.used` (the J \"uses age\" subline).",
+            "type": "boolean"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelWarning"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "method_id",
+          "method_version",
+          "group",
+          "group_label",
+          "provenance",
+          "decision_day",
+          "endpoint",
+          "horizon",
+          "size_bytes",
+          "embeds_training_data",
+          "uses_covariates",
+          "created_at",
+          "tree_sha256",
+          "dir",
+          "contract",
+          "env",
+          "features",
+          "marker_facts",
+          "covariates",
+          "warnings"
+        ]
+      },
+      "ModelEligibility": {
+        "description": "One model's I-list verdict (PROV-MS-9). `task` is the model's recorded\n outcome task and `endpoint` its recorded endpoint — the verdict is always\n about the model the user saved, never about the catalogue entry alone.",
+        "type": "object",
+        "properties": {
+          "coverage": {
+            "$ref": "#/components/schemas/Coverage"
+          },
+          "endpoint": {
+            "$ref": "#/components/schemas/TxrEndpoint"
+          },
+          "estimate_quality": {
+            "description": "The estimator's fact quality (measured from the benchmark, else the\n language fallback) — the plan's PROV-MC-6 pairing.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TimingQuality"
+              }
+            ]
+          },
+          "estimated_seconds": {
+            "description": "The catalogue estimator's value for the model's method; null when the\n method is absent from the catalogue (an imported model of a method the\n app no longer ships — the verdict still stands without a time).",
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "id": {
+            "type": "string"
+          },
+          "min_draws": {
+            "$ref": "#/components/schemas/MinDraws"
+          },
+          "missing_markers": {
+            "description": "The provider's [`MissingMarker`] shape (the board's \"2 lack LDH\" list).",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MissingMarker"
+            }
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelReason"
+            }
+          },
+          "status": {
+            "$ref": "#/components/schemas/EligibilityStatus"
+          },
+          "task": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TxrTask"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "endpoint",
+          "status",
+          "reasons",
+          "missing_markers",
+          "coverage",
+          "min_draws",
+          "estimate_quality"
+        ]
+      },
+      "ModelEligibilityRequest": {
+        "description": "The one request shape `ui-list` feeds both eligibility engines: the file\n inventory PROV-MC-5's `InventoryEligibilityRequest` carries (VERBATIM — this\n module imports the provider's type, it does not restate it), plus the\n model ids to score.",
+        "type": "object",
+        "properties": {
+          "inventory": {
+            "$ref": "#/components/schemas/InventoryEligibilityRequest"
+          },
+          "model_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "model_ids",
+          "inventory"
+        ]
+      },
+      "ModelEligibilityResponse": {
+        "description": "The eligibility response: per-model verdicts plus the screen totals.",
+        "type": "object",
+        "properties": {
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelEligibility"
+            }
+          },
+          "total_cannot": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "total_fit": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "total_some": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "models",
+          "total_fit",
+          "total_some",
+          "total_cannot"
+        ]
+      },
+      "ModelListQuery": {
+        "description": "The inventory list's optional filters (all optional; `q` is a substring on\n the model's name / method id).",
+        "type": "object",
+        "properties": {
+          "provenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelProvenance"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "q": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "set_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "default": null
+          }
+        }
+      },
+      "ModelListResponse": {
+        "description": "`GET /api/txr/models` (PROV-MS-2; no pagination — DEC-19).",
+        "type": "object",
+        "properties": {
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelSummary"
+            }
+          },
+          "models_dir": {
+            "description": "`<data_root>/models` (exposed ONCE here — CONS-UM-4's \"Open the\n folder\"; `null` renders the pathless footnote).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "models",
+          "total"
+        ]
+      },
       "ModelMount": {
         "description": "A saved model dir the reuse run binds READ-ONLY at `/model` after\n verification (PROV-SS-3, DEC-7).",
         "type": "object",
@@ -18859,6 +20181,284 @@
         "required": [
           "host_path",
           "tree_sha256"
+        ]
+      },
+      "ModelProvenance": {
+        "description": "A model's provenance kind (DEC-16: the user's own `.txr` file needs no\n licence — the J board's \"not recorded\" rows; pretrained installs require\n one, enforced at the pretrained seam).",
+        "type": "string",
+        "enum": [
+          "run",
+          "imported",
+          "pretrained"
+        ]
+      },
+      "ModelReason": {
+        "description": "One structured reason of a model verdict (code + per-code params; the\n display strings are the consumer's).",
+        "type": "object",
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ModelReasonCode"
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "code"
+        ]
+      },
+      "ModelReasonCode": {
+        "description": "The model eligibility reason-code vocabulary: PROV-MC-5's [`ReasonCode`]\n set (the SAME wire strings — a per-code renderer in the UI never meets an\n undocumented code) plus the store's own `MODEL_REQUIREMENTS_UNRECORDED`\n (DEC-6: a container that carried no requirements is `cannot_run` with that\n reason — the store never invents requirements). The `from_catalogue` mapper\n is exhaustive: a new provider code fails to compile here instead of\n silently passing through.",
+        "type": "string",
+        "enum": [
+          "REQUIRED_MARKER_MISSING",
+          "MARKER_GROUP_MISSING",
+          "DETECTION_CALL_MISSING",
+          "MIN_DRAWS_UNMET",
+          "COVARIATE_MISSING",
+          "COVARIATE_REQUIRED_UNMET",
+          "UNIT_MISMATCH",
+          "DECISION_DAY_UNMET",
+          "NOT_RUNNABLE",
+          "TASK_INCOMPATIBLE",
+          "RESPONSE_LABEL_MISSING",
+          "SURVIVAL_OUTCOME_MISSING",
+          "MODEL_REQUIREMENTS_UNRECORDED"
+        ]
+      },
+      "ModelSaveResponse": {
+        "description": "The save response (201): the set (created or grown), the saved rows and the\n optional one-off export.",
+        "type": "object",
+        "properties": {
+          "export": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExportTarget"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelSummary"
+            }
+          },
+          "set": {
+            "$ref": "#/components/schemas/SetSummary"
+          }
+        },
+        "required": [
+          "set",
+          "models"
+        ]
+      },
+      "ModelSetListResponse": {
+        "description": "`GET /api/txr/model-sets` (PROV-MS-4; no pagination — DEC-19).",
+        "type": "object",
+        "properties": {
+          "sets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SetSummary"
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "sets",
+          "total"
+        ]
+      },
+      "ModelSummary": {
+        "description": "The inventory list row (the J screen's model line + the I screen's\n per-model rows). Query-parameter projections are optional and\n `serde(default)`-free inside list responses: `models_dir` is grown at\n reconcile (CONS-UM-4 — \"Open the folder\" + \"Models are stored in …\"\n render the real path; null renders the footnote pathless).",
+        "type": "object",
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "decision_day": {
+            "type": "number",
+            "format": "double"
+          },
+          "embeds_training_data": {
+            "description": "The catalogue's `embeds_training_data` fact verbatim (GAP-A / DEC-9 —\n the L dialog's ⚠ is data, never app-invented).",
+            "type": "boolean"
+          },
+          "endpoint": {
+            "$ref": "#/components/schemas/TxrEndpoint"
+          },
+          "group": {
+            "type": "string"
+          },
+          "group_label": {
+            "type": "string"
+          },
+          "horizon": {
+            "type": "number",
+            "format": "double"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "imported_from": {
+            "description": "The `.txr` file name for `imported` provenance (board J: \"opened from\n breast-panel.txr\").",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "licence": {
+            "description": "The data licence declared at install (`pretrained` always; `null` for\n a user's own rows — the J board's \"not recorded\").",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "marker_count": {
+            "description": "Mirrors the row's `marker_facts.count` (TEST-MS-24 — the J \"N markers\"\n subline with no per-row detail fetch).",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32",
+            "minimum": 0
+          },
+          "method_id": {
+            "type": "string"
+          },
+          "method_version": {
+            "type": "string"
+          },
+          "name": {
+            "description": "The display label (default = the catalogue label at save).",
+            "type": "string"
+          },
+          "own_auc": {
+            "description": "The engine-computed cross-check (GAP-C — \"own data, cross-checked:\n AUC 0.66\"; null when the outcome/data does not allow it).",
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "pretrained_catalogue_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pretrained_catalogue_version": {
+            "description": "The asset version of the pretrained row, so a strict id+version match\n can be made without a detail fetch (GAP-PC-3 / TEST-MS-24).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/ModelProvenance"
+          },
+          "set_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "set_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "size_bytes": {
+            "description": "Sum of the tree files (the run record's size — the engine's dir walk;\n GAP-B).",
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "task": {
+            "description": "The outcome task the model was fitted as (`null` until the run's method\n row classifies it — the run seam's [`TxrTask`]).",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TxrTask"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "trained_at": {
+            "description": "The run's `finished_at` (RFC3339 UTC — the I board's \"trained 19 Oct\").",
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "trained_on_patients": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32",
+            "minimum": 0
+          },
+          "uses_covariates": {
+            "description": "Mirrors the row's `covariates.used` (the J \"uses age\" subline).",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "method_id",
+          "method_version",
+          "group",
+          "group_label",
+          "provenance",
+          "decision_day",
+          "endpoint",
+          "horizon",
+          "size_bytes",
+          "embeds_training_data",
+          "uses_covariates",
+          "created_at"
+        ]
+      },
+      "ModelWarning": {
+        "description": "A detail-level warning the inventory renders flag-only (board D18: the UI\n renders the copy — the store carries the code + fact).",
+        "type": "object",
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ModelWarningCode"
+          },
+          "detail": {
+            "description": "The fact-bearing detail line (e.g. the recorded vs current version).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "detail"
+        ]
+      },
+      "ModelWarningCode": {
+        "description": "The warning code vocabulary. `MODEL_VERSION_MISMATCH` / `DIGEST_MISMATCH`\n compare the RECORDED values against the catalogue's current ones — the\n run's own provenance is kept either way, mirroring PROV-EE-9's\n \"row records both digests\". `REQUIREMENTS_UNRECORDED` is an imported\n container that carried no requirements (the store never invents them).",
+        "type": "string",
+        "enum": [
+          "MODEL_VERSION_MISMATCH",
+          "DIGEST_MISMATCH",
+          "REQUIREMENTS_UNRECORDED"
         ]
       },
       "Notification": {
@@ -20366,6 +21966,18 @@
           "name"
         ]
       },
+      "RenameRequest": {
+        "description": "The rename body (models + sets — board J's Rename).",
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
       "RequiredMarker": {
         "description": "One required standard-id marker of a method (`required_markers.markers[]`).\n `id_system` is the raw registry spelling (matches the RULE, case-insensitively,\n in the engine port).",
         "type": "object",
@@ -20443,6 +22055,72 @@
           "invitation_id",
           "invite_token",
           "expires_at"
+        ]
+      },
+      "ResolveRequest": {
+        "description": "`POST /api/txr/models/resolve` (PROV-MS-8): the ids to re-verify + hand off.",
+        "type": "object",
+        "properties": {
+          "model_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "model_ids"
+        ]
+      },
+      "ResolveResponse": {
+        "description": "`ResolveResponse` (PROV-MS-8).",
+        "type": "object",
+        "properties": {
+          "assets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResolvedAsset"
+            }
+          }
+        },
+        "required": [
+          "assets"
+        ]
+      },
+      "ResolvedAsset": {
+        "description": "One verified asset (PROV-MS-8 / CONS-MS-9) — byte-compatible with\n `execution_engine::types::TxrModelAsset`'s `model_ids[]` element so\n `ui-models` passes the response straight through into\n `CreateRunRequest.model_ids` (DEC-10: the join happens at the caller; the\n engine never imports this module).",
+        "type": "object",
+        "properties": {
+          "contract": {
+            "type": "string"
+          },
+          "env": {
+            "$ref": "#/components/schemas/TxrMethodEnv"
+          },
+          "host_dir": {
+            "type": "string"
+          },
+          "method_id": {
+            "type": "string"
+          },
+          "method_version": {
+            "type": "string"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "tree_sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_id",
+          "host_dir",
+          "tree_sha256",
+          "method_id",
+          "method_version",
+          "env",
+          "contract"
         ]
       },
       "RestoreVersionRequest": {
@@ -20991,6 +22669,79 @@
           "env_moving_tag"
         ]
       },
+      "SaveModelsRequest": {
+        "description": "`POST /api/txr/models/save` (PROV-MS-3): save the run's produced models into\n a new or existing set, optionally keeping the training files + writing the\n one-off `.txr` export.",
+        "type": "object",
+        "properties": {
+          "also_export": {
+            "description": "Also write `<data_root>/models/exports/<set-name-slug>-<id8>.txr`\n (the L board's \"Also save as a file to move to another computer\").",
+            "type": "boolean",
+            "default": false
+          },
+          "keep_training_files": {
+            "description": "Copy the run dir's `input/` files into `<data_root>/models/training/\n <set_id>/` (the L board's \"keep the training files\" checkbox; default\n false).",
+            "type": "boolean",
+            "default": false
+          },
+          "method_ids": {
+            "description": "The run's produced models to save (≥ 1 — the run seam's method ids).",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "run_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "source_label": {
+            "description": "The source file's name the save dialog showed (e.g. `patients.csv`);\n recorded on the set for the I-board \"trained on patients.csv\" line.\n The engine-grown run `input_summary.file_names.patients` is the\n fallback when omitted (CONS-MS-6b / GAP-D) — always engine truth,\n never the run dir stem.",
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "target": {
+            "$ref": "#/components/schemas/SaveTarget"
+          }
+        },
+        "required": [
+          "run_id",
+          "method_ids",
+          "target"
+        ]
+      },
+      "SaveTarget": {
+        "description": "The save target — EXACTLY one of the two arms (L's \"Name of this set\" is\n `set_name`, L2's \"into an existing set\" is `set_id`). `deny_unknown_fields`\n on the untagged enum makes a payload carrying BOTH arms fail as loud as one\n carrying neither (an untagged match would otherwise silently keep the first\n arm and ignore the second).",
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "set_name": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "set_name"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "set_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "set_id"
+            ]
+          }
+        ]
+      },
       "SectionContribution": {
         "description": "ONE `contributes.sections[]` entry — a block in a pane's stack (ITEM-1).\n\n `deny_unknown_fields` on purpose, mirroring [`ActionContribution`]: the FIELD SET IS\n THE CONTRACT. `pane:` is the key that says which stack this belongs to, and it is\n deliberately not spelled `area` / `region` / `role` — those three words all name the\n *docking* vocabulary a section must never reach. Denial is what makes that a parse\n error naming the key rather than a section that silently never renders.",
         "type": "object",
@@ -21109,6 +22860,16 @@
           "updated_at"
         ]
       },
+      "SetDeleteQuery": {
+        "description": "`DELETE /api/txr/model-sets/{id}` (PROV-MS-4): `keep_files=true` leaves the\n tree + training files and removes the rows only (the I board's \"Delete the\n run's models\" escape); the default (`false`) is the cascade that prunes\n unreferenced trees.",
+        "type": "object",
+        "properties": {
+          "keep_files": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
       "SetFeatureFlagRequest": {
         "description": "`PUT /api/admin/features/{flag_key}` body. `account_id = None` sets the GLOBAL\n default; `Some(_)` sets a per-account override.",
         "type": "object",
@@ -21139,6 +22900,65 @@
         },
         "required": [
           "role"
+        ]
+      },
+      "SetSummary": {
+        "description": "A set row of the J/I screens (PROV-MS-4).",
+        "type": "object",
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "keep_training_files": {
+            "type": "boolean"
+          },
+          "model_count": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "source_label": {
+            "description": "The `patients.csv`-style label the save dialog showed (engine truth,\n never the run dir stem).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_run_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "total_size_bytes": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "training_dir": {
+            "description": "`<data_root>/models/training/<set_id>` (null when not kept).",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "created_at",
+          "keep_training_files",
+          "model_count",
+          "total_size_bytes"
         ]
       },
       "ShareDatasetRequest": {
