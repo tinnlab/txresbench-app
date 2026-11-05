@@ -1129,6 +1129,16 @@ export interface CovariateColumn {
   name: string
 }
 
+/**
+ * The covariate facts of a saved model: the catalogue's mode + whether the
+ *  run actually ran with covariates on (both recorded at save — the J screen's
+ *  "uses age" is `used`, never a re-derivation).
+ */
+export interface CovariateFacts {
+  catalogue: CovariateMode
+  used: boolean
+}
+
 /** Whether a method's inputs include patient covariates beyond the markers. */
 export type CovariateMode = 'none' | 'optional' | 'required'
 
@@ -2213,6 +2223,16 @@ export interface ExportResponse {
 }
 
 /**
+ * The one-off export record of a save (PROV-MS-3's `also_export` arm) — the
+ *  file is already written; `dir` is where the user's "Open the folder" points.
+ */
+export interface ExportTarget {
+  dir: string
+  name: string
+  size_bytes: number
+}
+
+/**
  * One extension = one `manifest.yaml` folder. The registry holds one of these per
  *  discovered `extensions/<id>/manifest.yaml`.
  */
@@ -2584,6 +2604,17 @@ export interface HostResourceRequirement {
    *  letters, digits, `_` and `-`; uppercased with `-`→`_` to form the env var.
    */
   name: string
+}
+
+/**
+ * `POST /api/txr/models/import` (201) — the restored rows + the set they were
+ *  imported into. `set_id` is null when the multipart carried no `set_id`
+ *  form field (the container's recorded set is then recreated fresh); the
+ *  reader's default-set rule lives in `store.rs`.
+ */
+export interface ImportOutcome {
+  models: ModelSummary[]
+  set_id?: string
 }
 
 /**
@@ -3230,6 +3261,21 @@ export interface MarkerCoverage {
   patients_with_value: number
 }
 
+/**
+ * The marker-input facts recorded on a saved model at save time (the
+ *  catalogue's [`MarkerKind`]/[`UsesHistory`] vocabulary verbatim — a model
+ *  INSTANCE's facts, since the D5-selected feature set is per instance).
+ */
+export interface MarkerFacts {
+  count: number
+  kind: MarkerKind
+  marker_groups_required: string[]
+  min_draws: number
+  needs_baseline: boolean
+  needs_detection_call: boolean
+  uses_history: UsesHistory
+}
+
 /** One of the 7 board marker groups (screen B checkbox row). */
 export interface MarkerGroup {
   display_name: string
@@ -3805,6 +3851,120 @@ export interface MissingMarker {
 }
 
 /**
+ * `GET /api/txr/models/{id}` (PROV-MS-2) — the summary flattened (the
+ *  engine's detail flatten precedent: the wire is one object) plus the
+ *  recorded requirements/digests the J footer, the engine bind and the
+ *  eligibility engine read.
+ */
+export interface ModelDetail {
+  /**
+   * The container contract version the tree was produced under (X1's
+   *  contract, e.g. "2.0").
+   */
+  contract: string
+  covariates: CovariateFacts
+  created_at: string
+  decision_day: number
+  /** Absolute path of the tree (J's "Open the folder" + the engine bind). */
+  dir: string
+  /**
+   * The catalogue's `embeds_training_data` fact verbatim (GAP-A / DEC-9 —
+   *  the L dialog's ⚠ is data, never app-invented).
+   */
+  embeds_training_data: boolean
+  endpoint: TxrEndpoint
+  env: TxrMethodEnv
+  /**
+   * The run's selected feature keys (the engine's params — recorded, never
+   *  re-derived).
+   */
+  features: string[]
+  group: string
+  group_label: string
+  horizon: number
+  id: string
+  /**
+   * The `.txr` file name for `imported` provenance (board J: "opened from
+   *  breast-panel.txr").
+   */
+  imported_from?: string
+  /**
+   * The data licence declared at install (`pretrained` always; `null` for
+   *  a user's own rows — the J board's "not recorded").
+   */
+  licence?: string
+  /**
+   * Mirrors the row's `marker_facts.count` (TEST-MS-24 — the J "N markers"
+   *  subline with no per-row detail fetch).
+   */
+  marker_count?: number
+  marker_facts: MarkerFacts
+  method_id: string
+  method_version: string
+  /** The display label (default = the catalogue label at save). */
+  name: string
+  /**
+   * The engine-computed cross-check (GAP-C — "own data, cross-checked:
+   *  AUC 0.66"; null when the outcome/data does not allow it).
+   */
+  own_auc?: number
+  own_c?: number
+  pretrained_catalogue_id?: string
+  /**
+   * The asset version of the pretrained row, so a strict id+version match
+   *  can be made without a detail fetch (GAP-PC-3 / TEST-MS-24).
+   */
+  pretrained_catalogue_version?: string
+  provenance: ModelProvenance
+  /** The catalogue's required-marker rule (verbatim — PROV-MC-1). */
+  required_markers?: RequiredMarkers
+  set_id?: string
+  set_name?: string
+  /**
+   * Sum of the tree files (the run record's size — the engine's dir walk;
+   *  GAP-B).
+   */
+  size_bytes: number
+  /**
+   * The outcome task the model was fitted as (`null` until the run's method
+   *  row classifies it — the run seam's [`TxrTask`]).
+   */
+  task?: TxrTask
+  /** The run's `finished_at` (RFC3339 UTC — the I board's "trained 19 Oct"). */
+  trained_at?: string
+  trained_on_patients?: number
+  /**
+   * 64-hex sha256 of the model tree (the store's content-addressed key —
+   *  PROV-SS-3's algorithm, the engine's own digest).
+   */
+  tree_sha256: string
+  /** Mirrors the row's `covariates.used` (the J "uses age" subline). */
+  uses_covariates: boolean
+  warnings: ModelWarning[]
+}
+
+/**
+ * The inventory list's optional filters (all optional; `q` is a substring on
+ *  the model's name / method id).
+ */
+export interface ModelListQuery {
+  provenance?: ModelProvenance
+  q?: string
+  set_id?: string
+}
+
+/** `GET /api/txr/models` (PROV-MS-2; no pagination — DEC-19). */
+export interface ModelListResponse {
+  models: ModelSummary[]
+  /**
+   * `<data_root>/models` (exposed ONCE here — CONS-UM-4's "Open the
+   *  folder"; `null` renders the pathless footnote).
+   */
+  models_dir?: string
+  total: number
+}
+
+/**
  * A saved model dir the reuse run binds READ-ONLY at `/model` after
  *  verification (PROV-SS-3, DEC-7).
  */
@@ -3817,6 +3977,118 @@ export interface ModelMount {
    */
   tree_sha256: string
 }
+
+/**
+ * A model's provenance kind (DEC-16: the user's own `.txr` file needs no
+ *  licence — the J board's "not recorded" rows; pretrained installs require
+ *  one, enforced at the pretrained seam).
+ */
+export type ModelProvenance = 'run' | 'imported' | 'pretrained'
+
+/**
+ * The save response (201): the set (created or grown), the saved rows and the
+ *  optional one-off export.
+ */
+export interface ModelSaveResponse {
+  export?: ExportTarget
+  models: ModelSummary[]
+  set: SetSummary
+}
+
+/** `GET /api/txr/model-sets` (PROV-MS-4; no pagination — DEC-19). */
+export interface ModelSetListResponse {
+  sets: SetSummary[]
+  total: number
+}
+
+/**
+ * The inventory list row (the J screen's model line + the I screen's
+ *  per-model rows). Query-parameter projections are optional and
+ *  `serde(default)`-free inside list responses: `models_dir` is grown at
+ *  reconcile (CONS-UM-4 — "Open the folder" + "Models are stored in …"
+ *  render the real path; null renders the footnote pathless).
+ */
+export interface ModelSummary {
+  created_at: string
+  decision_day: number
+  /**
+   * The catalogue's `embeds_training_data` fact verbatim (GAP-A / DEC-9 —
+   *  the L dialog's ⚠ is data, never app-invented).
+   */
+  embeds_training_data: boolean
+  endpoint: TxrEndpoint
+  group: string
+  group_label: string
+  horizon: number
+  id: string
+  /**
+   * The `.txr` file name for `imported` provenance (board J: "opened from
+   *  breast-panel.txr").
+   */
+  imported_from?: string
+  /**
+   * The data licence declared at install (`pretrained` always; `null` for
+   *  a user's own rows — the J board's "not recorded").
+   */
+  licence?: string
+  /**
+   * Mirrors the row's `marker_facts.count` (TEST-MS-24 — the J "N markers"
+   *  subline with no per-row detail fetch).
+   */
+  marker_count?: number
+  method_id: string
+  method_version: string
+  /** The display label (default = the catalogue label at save). */
+  name: string
+  /**
+   * The engine-computed cross-check (GAP-C — "own data, cross-checked:
+   *  AUC 0.66"; null when the outcome/data does not allow it).
+   */
+  own_auc?: number
+  pretrained_catalogue_id?: string
+  /**
+   * The asset version of the pretrained row, so a strict id+version match
+   *  can be made without a detail fetch (GAP-PC-3 / TEST-MS-24).
+   */
+  pretrained_catalogue_version?: string
+  provenance: ModelProvenance
+  set_id?: string
+  set_name?: string
+  /**
+   * Sum of the tree files (the run record's size — the engine's dir walk;
+   *  GAP-B).
+   */
+  size_bytes: number
+  /**
+   * The outcome task the model was fitted as (`null` until the run's method
+   *  row classifies it — the run seam's [`TxrTask`]).
+   */
+  task?: TxrTask
+  /** The run's `finished_at` (RFC3339 UTC — the I board's "trained 19 Oct"). */
+  trained_at?: string
+  trained_on_patients?: number
+  /** Mirrors the row's `covariates.used` (the J "uses age" subline). */
+  uses_covariates: boolean
+}
+
+/**
+ * A detail-level warning the inventory renders flag-only (board D18: the UI
+ *  renders the copy — the store carries the code + fact).
+ */
+export interface ModelWarning {
+  code: ModelWarningCode
+  /** The fact-bearing detail line (e.g. the recorded vs current version). */
+  detail: string
+}
+
+/**
+ * The warning code vocabulary. `MODEL_VERSION_MISMATCH` / `DIGEST_MISMATCH`
+ *  compare the RECORDED values against the catalogue's current ones — the
+ *  run's own provenance is kept either way, mirroring PROV-EE-9's
+ *  "row records both digests". `REQUIREMENTS_UNRECORDED` is an imported
+ *  container that carried no requirements (the store never invents them).
+ */
+export type ModelWarningCode = 'MODEL_VERSION_MISMATCH' | 'DIGEST_MISMATCH' | 'REQUIREMENTS_UNRECORDED'
 
 /** A row of `notifications`. */
 export interface Notification {
@@ -4527,6 +4799,11 @@ export interface RenameDatasetRequest {
   name: string
 }
 
+/** The rename body (models + sets — board J's Rename). */
+export interface RenameRequest {
+  name: string
+}
+
 /**
  * One required standard-id marker of a method (`required_markers.markers[]`).
  *  `id_system` is the raw registry spelling (matches the RULE, case-insensitively,
@@ -4802,6 +5079,46 @@ export interface SandboxStatus {
 }
 
 /**
+ * `POST /api/txr/models/save` (PROV-MS-3): save the run's produced models into
+ *  a new or existing set, optionally keeping the training files + writing the
+ *  one-off `.txr` export.
+ */
+export interface SaveModelsRequest {
+  /**
+   * Also write `<data_root>/models/exports/<set-name-slug>-<id8>.txr`
+   *  (the L board's "Also save as a file to move to another computer").
+   */
+  also_export?: boolean
+  /**
+   * Copy the run dir's `input/` files into `<data_root>/models/training/
+   *  <set_id>/` (the L board's "keep the training files" checkbox; default
+   *  false).
+   */
+  keep_training_files?: boolean
+  /** The run's produced models to save (≥ 1 — the run seam's method ids). */
+  method_ids: string[]
+  run_id: string
+  /**
+   * The source file's name the save dialog showed (e.g. `patients.csv`);
+   *  recorded on the set for the I-board "trained on patients.csv" line.
+   *  The engine-grown run `input_summary.file_names.patients` is the
+   *  fallback when omitted (CONS-MS-6b / GAP-D) — always engine truth,
+   *  never the run dir stem.
+   */
+  source_label?: string
+  target: SaveTarget
+}
+
+/**
+ * The save target — EXACTLY one of the two arms (L's "Name of this set" is
+ *  `set_name`, L2's "into an existing set" is `set_id`). `deny_unknown_fields`
+ *  on the untagged enum makes a payload carrying BOTH arms fail as loud as one
+ *  carrying neither (an untagged match would otherwise silently keep the first
+ *  arm and ignore the second).
+ */
+export type SaveTarget = { set_name: string } | { set_id: string }
+
+/**
  * ONE `contributes.sections[]` entry — a block in a pane's stack (ITEM-1).
  *
  *  `deny_unknown_fields` on purpose, mirroring [`ActionContribution`]: the FIELD SET IS
@@ -4902,6 +5219,16 @@ export interface SessionSettings {
 }
 
 /**
+ * `DELETE /api/txr/model-sets/{id}` (PROV-MS-4): `keep_files=true` leaves the
+ *  tree + training files and removes the rows only (the I board's "Delete the
+ *  run's models" escape); the default (`false`) is the cascade that prunes
+ *  unreferenced trees.
+ */
+export interface SetDeleteQuery {
+  keep_files?: boolean
+}
+
+/**
  * `PUT /api/admin/features/{flag_key}` body. `account_id = None` sets the GLOBAL
  *  default; `Some(_)` sets a per-account override.
  */
@@ -4916,6 +5243,24 @@ export interface SetFeatureFlagRequest {
  */
 export interface SetRoleRequest {
   role: AccountRole
+}
+
+/** A set row of the J/I screens (PROV-MS-4). */
+export interface SetSummary {
+  created_at: string
+  id: string
+  keep_training_files: boolean
+  model_count: number
+  name: string
+  /**
+   * The `patients.csv`-style label the save dialog showed (engine truth,
+   *  never the run dir stem).
+   */
+  source_label?: string
+  source_run_id?: string
+  total_size_bytes: number
+  /** `<data_root>/models/training/<set_id>` (null when not kept). */
+  training_dir?: string
 }
 
 /** Share-dataset request body. */
@@ -6159,6 +6504,17 @@ export type ApiEndpointParameters = {
   'MethodCatalogue.estimate': EstimateRequest
   'MethodCatalogue.list': { frozen?: boolean; group?: MethodGroup; q?: string; runnable?: boolean }
   'MethodCatalogue.markers': void
+  'ModelSets.deleteSet': { id: string; keep_files?: boolean }
+  'ModelSets.exportSet': { id: string }
+  'ModelSets.listSets': void
+  'ModelSets.renameSet': { id: string } & RenameRequest
+  'Models.deleteModel': { id: string }
+  'Models.exportModel': { id: string }
+  'Models.getModel': { id: string }
+  'Models.importModel': FormData
+  'Models.listModels': { provenance?: ModelProvenance; q?: string; set_id?: string }
+  'Models.renameModel': { id: string } & RenameRequest
+  'Models.saveModels': SaveModelsRequest
   'Notification.delete': { id: string }
   'Notification.get': { id: string }
   'Notification.kinds': void
@@ -6363,6 +6719,17 @@ export type ApiEndpointResponses = {
   'MethodCatalogue.estimate': EstimateResponse
   'MethodCatalogue.list': MethodListResponse
   'MethodCatalogue.markers': MarkerVocabularyResponse
+  'ModelSets.deleteSet': void
+  'ModelSets.exportSet': void
+  'ModelSets.listSets': ModelSetListResponse
+  'ModelSets.renameSet': SetSummary
+  'Models.deleteModel': void
+  'Models.exportModel': void
+  'Models.getModel': ModelDetail
+  'Models.importModel': ImportOutcome
+  'Models.listModels': ModelListResponse
+  'Models.renameModel': ModelSummary
+  'Models.saveModels': ModelSaveResponse
   'Notification.delete': void
   'Notification.get': Notification
   'Notification.kinds': NotificationKindDescriptor[]

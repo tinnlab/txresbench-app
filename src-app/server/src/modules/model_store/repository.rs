@@ -498,6 +498,119 @@ impl ModelStoreRepository {
         .map_err(AppError::database_error)?;
         Ok(row.refs)
     }
+
+    /// One set WITH its aggregates (the save response's set summary — the
+    /// created set may already hold earlier rows when the save grew an
+    /// existing set, so the response's counts are the whole set's, never the
+    /// save's). The single-row variant of [`list_sets`]'s projection.
+    pub async fn get_set_with_counts(&self, id: Uuid) -> Result<Option<SetListRow>, AppError> {
+        sqlx::query_as!(
+            SetListRow,
+            r#"SELECT s.id as "id: Uuid", s.name,
+                      s.created_at as "created_at: DateTime<Utc>",
+                      s.source_run_id as "source_run_id?: Uuid", s.source_label,
+                      s.keep_training_files as "keep_training_files: bool", s.training_dir,
+                      s.updated_at as "updated_at?: DateTime<Utc>",
+                      COUNT(m.id) as "model_count!: i64",
+                      COALESCE(SUM(m.size_bytes), 0) as "total_size_bytes!: i64"
+               FROM txr_model_sets s
+               LEFT JOIN txr_models m ON m.set_id = s.id
+               WHERE s.id = $1
+               GROUP BY s.id"#,
+            id,
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(AppError::database_error)
+    }
+
+    /// Is a model row with EXACTLY this (set, tree, method) already present?
+    /// The `UNIQUE(tree_sha256, method_id, set_id)` constraint's own predicate
+    /// — the idempotence check of the save/import flows (re-saving / re-
+    /// importing the same tree+method into the same set is the SAME model:
+    /// rows-only once, per DEC-3's row-is-a-reference rule). A NULL set_id is
+    /// NOT part of the uniqueness (SQLite treats NULLs as distinct), so a
+    /// standalone model is never deduped — the check is set-scoped.
+    pub async fn model_ref_exists(
+        &self,
+        set_id: Option<Uuid>,
+        tree_sha256: &str,
+        method_id: &str,
+    ) -> Result<bool, AppError> {
+        let exists = sqlx::query_scalar!(
+            r#"SELECT EXISTS (
+                    SELECT 1 FROM txr_models
+                    WHERE tree_sha256 = $1 AND method_id = $2
+                      AND ((set_id = $3) OR (set_id IS NULL AND $3 IS NULL))
+               ) as "exists!: bool""#,
+            tree_sha256,
+            method_id,
+            set_id,
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(AppError::database_error)?;
+        Ok(exists)
+    }
+
+    /// The one row of a (set, tree, method) triple — the idempotence reuse
+    /// answer (`model_ref_exists`'s row half). Only ever used with a set id.
+    pub async fn get_model_by_ref(
+        &self,
+        set_id: Option<Uuid>,
+        tree_sha256: &str,
+        method_id: &str,
+    ) -> Result<Option<ModelRow>, AppError> {
+        sqlx::query_as!(
+            ModelRow,
+            r#"SELECT id as "id: Uuid", set_id as "set_id?: Uuid", name, method_id,
+                      method_version, "group", group_label, task, provenance,
+                      imported_from, pretrained_catalogue_id,
+                      pretrained_catalogue_version, licence, tree_sha256, dir,
+                      size_bytes, contract, env_base_digest, env_layer_digest,
+                      trained_on_patients, trained_at as "trained_at?: DateTime<Utc>",
+                      decision_day, endpoint, horizon,
+                      features as "features: serde_json::Value",
+                      required_markers as "required_markers?: serde_json::Value",
+                      marker_facts as "marker_facts: serde_json::Value",
+                      covariates as "covariates: serde_json::Value",
+                      embeds_training_data as "embeds_training_data: bool",
+                      own_auc, own_c, created_at as "created_at: DateTime<Utc>"
+               FROM txr_models
+               WHERE tree_sha256 = $1 AND method_id = $2
+                 AND ((set_id = $3) OR (set_id IS NULL AND $3 IS NULL))"#,
+            tree_sha256,
+            method_id,
+            set_id,
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(AppError::database_error)
+    }
+
+    /// Record the set's training facts AFTER the tree/training copies landed
+    /// (the save/import flows do not know the set's id before the row exists,
+    /// and an existing set may gain the training files on a later save).
+    /// `keep` + `training_dir` are the row's truth — an import/save that kept
+    /// training files sets both, a merge that did not touch them changes
+    /// neither.
+    pub async fn set_training_facts(
+        &self,
+        id: Uuid,
+        keep: bool,
+        training_dir: Option<&str>,
+    ) -> Result<bool, AppError> {
+        let res = sqlx::query!(
+            "UPDATE txr_model_sets SET keep_training_files = $2, training_dir = $3 WHERE id = $1",
+            id,
+            keep,
+            training_dir,
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(AppError::database_error)?;
+        Ok(res.rows_affected() > 0)
+    }
 }
 
 /// The domain conflict (DEC-10): a set name is taken case-insensitively.

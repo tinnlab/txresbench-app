@@ -56,15 +56,33 @@
 //! [`remove_training_dir`] removes a set's training copy. Rows-only deletes
 //! (the set delete's `keep_files=true`) simply skip both.
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use axum::http::StatusCode;
+use serde_json::Value as Json;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 use ziee_core::AppError;
 
-use super::repository::ModelStoreRepository;
+use super::container::{
+    read_container, read_container_bytes, write_container, ContainerExport, ContainerModelFacts,
+    ContainerModelSpec, ContainerProvenance, ContainerReadResult, ContainerSet,
+    ContainerTrainingSpec,
+};
+use super::repository::{ModelRow, ModelStoreRepository, NewModel, SetListRow, SetRow};
+use super::types::{
+    CovariateFacts, ExportTarget, MarkerFacts, ModelDetail, ModelProvenance, ModelSaveResponse,
+    ModelStoreLimits, ModelSummary, ModelWarning, ModelWarningCode, SaveModelsRequest, SaveTarget,
+    SetSummary,
+};
+use crate::modules::execution_engine::repository::{MethodRow, TxrRepository};
+use crate::modules::execution_engine::types::{
+    TxrEndpoint, TxrMethodEnv, TxrMethodState, TxrProducedModel, TxrRunSummary, TxrTask,
+};
+use crate::modules::method_catalogue::catalogue;
+use crate::modules::method_catalogue::types::RequiredMarkers;
 use crate::modules::{rootfs, sandbox};
 
 /// `<data_root>/models` — the store's root under the app data root (DEC-2;
@@ -320,6 +338,990 @@ pub fn write_tree_file(digest: &str, relpath: &str, bytes: &[u8]) -> Result<(), 
             "stored model trees are immutable (INV-2); a write into trees/{digest}/ is refused"
         ),
     ))
+}
+
+#[derive(Debug, Clone)]
+pub enum Provenance {
+    /// A user's own `.txr` file; `source_name` is the file name (board J's
+    /// "opened from breast-panel.txr").
+    Imported { source_name: String },
+    /// The pretrained-catalogue install seam: id + version + licence
+    /// (licence mandatory — INV-8's refusal, DEC-16).
+    Pretrained {
+        catalogue_id: String,
+        version: String,
+        licence: String,
+    },
+}
+
+/// The seam's import options.
+#[derive(Debug, Clone)]
+pub struct ImportOptions {
+    /// The target set (an existing set to import into, the merge path). None →
+    /// the container's recorded set is recreated fresh (kind `set`) or the
+    /// model lands standalone (kind `model`).
+    pub set_id: Option<Uuid>,
+    pub provenance: Provenance,
+}
+
+/// The seam's outcome (PROV-MS-10): the restored row ids + the wire summaries.
+#[derive(Debug, Clone)]
+pub struct ImportOutcome {
+    pub model_ids: Vec<String>,
+    pub models: Vec<ModelSummary>,
+    /// The set the models landed in: a fresh set for a kind-`set` container
+    /// without a target, the merge target when one was given; null for a
+    /// kind-`model` import without one (the model stands alone).
+    pub set_id: Option<Uuid>,
+}
+
+/// The import's staging root — under `<data_root>/models/` (never the store's
+/// content-addressed tree dirs): `<models>/.import-<uuid>`. The reader wipes
+/// it on ANY failure; the install moves the verified trees out and removes
+/// the rest.
+fn import_staging_dir() -> PathBuf {
+    models_dir().join(format!(".import-{}", Uuid::new_v4()))
+}
+
+/// Read a `.txr` container from a file and install every verified model into
+/// the store (PROV-MS-6/10's path seam — a large cached asset or a staged
+/// multipart streams from disk under the container byte cap instead of being
+/// buffered whole; GAP-PC-2). Same code path, same verification as
+/// [`install_imported`].
+pub async fn install_imported_from_path(
+    pool: &SqlitePool,
+    path: &Path,
+    opts: &ImportOptions,
+) -> Result<ImportOutcome, AppError> {
+    let staging = import_staging_dir();
+    let staging_c = staging.clone();
+    let path_c = path.to_path_buf();
+    let result = tokio::task::spawn_blocking(move || -> Result<ContainerReadResult, AppError> {
+        let file = std::fs::File::open(&path_c).map_err(|e| {
+            AppError::internal_error(format!(
+                "open the staged .txr container {}: {e}",
+                path_c.display()
+            ))
+        })?;
+        read_container(file, &staging_c, ModelStoreLimits::MAX_CONTAINER_BYTES)
+    })
+    .await
+    .map_err(|e| AppError::internal_error(format!("container read task join: {e}")))?;
+    let result = result?;
+    install_verified(pool, &result, &staging, opts).await
+}
+
+/// Read a `.txr` container from bytes and install every verified model
+/// (PROV-MS-10's bytes seam — the pretrained-catalogue import path, small
+/// already-verified assets).
+pub async fn install_imported(
+    pool: &SqlitePool,
+    bytes: &[u8],
+    opts: &ImportOptions,
+) -> Result<ImportOutcome, AppError> {
+    let staging = import_staging_dir();
+    let staging_c = staging.clone();
+    let bytes = bytes.to_vec();
+    let result = tokio::task::spawn_blocking(move || {
+        read_container_bytes(&bytes, &staging_c, ModelStoreLimits::MAX_CONTAINER_BYTES)
+    })
+    .await
+    .map_err(|e| AppError::internal_error(format!("container read task join: {e}")))?;
+    let result = result?;
+    install_verified(pool, &result, &staging, opts).await
+}
+
+/// The install half after the reader's verification — every tree is already
+/// hash- and digest-verified; this moves bytes into the content-addressed
+/// store and stamps the rows. On ANY local failure the staging root is
+/// removed (a failed import lands nothing new beyond what the store layer's
+/// reuse rule already kept).
+async fn install_verified(
+    pool: &SqlitePool,
+    result: &ContainerReadResult,
+    staging: &Path,
+    opts: &ImportOptions,
+) -> Result<ImportOutcome, AppError> {
+    // INV-8's licence rule is the INSTALL path's own gate (DEC-16): a
+    // pretrained install without a recorded data licence refuses before any
+    // byte is moved (422 LICENCE_REQUIRED — the pretrained seam's named
+    // refusal; a user's own file needs no licence).
+    if let Provenance::Pretrained { licence, .. } = &opts.provenance {
+        if licence.trim().is_empty() {
+            return Err(AppError::unprocessable_entity(
+                "LICENCE_REQUIRED",
+                "a pretrained model install requires its data licence to be recorded",
+            ));
+        }
+    }
+    let repo = ModelStoreRepository::new(pool.clone());
+
+    // The target set: the caller's merge target, else the container's
+    // recorded set recreated fresh, else none (kind `model` without a
+    // target — the model stands alone).
+    let target_id = match opts.set_id {
+        Some(id) => {
+            if repo.get_set(id).await?.is_none() {
+                return Err(AppError::new(
+                    StatusCode::NOT_FOUND,
+                    "SET_NOT_FOUND",
+                    format!("no set {id}"),
+                ));
+            }
+            Some(id)
+        }
+        None => match result.header.set.as_ref() {
+            Some(recorded) => {
+                let keep = recorded.keep_training_files;
+                let row = repo
+                    .insert_set(
+                        &recorded.name,
+                        None,
+                        recorded.source_label.as_deref(),
+                        keep,
+                        None,
+                    )
+                    .await?;
+                Some(row.id)
+            }
+            None => None,
+        },
+    };
+
+    let set_name = match target_id {
+        Some(id) => repo.get_set(id).await?.map(|s| s.name),
+        None => None,
+    };
+
+    let mut outcome = ImportOutcome {
+        model_ids: Vec::with_capacity(result.models.len()),
+        models: Vec::with_capacity(result.models.len()),
+        set_id: target_id,
+    };
+
+    for restored in &result.models {
+        let facts = &restored.header.facts;
+        // DEC-3's row-is-a-reference rule: the same tree+method already saved
+        // into the target set is the SAME model — the existing row is the
+        // outcome's answer, never a second row (a UNIQUE violation could
+        // never surface as a clean refusal anyway). Set-scoped: a NULL set_id
+        // is not unique per SQLite, so standalone imports are never deduped.
+        if let Some(target) = target_id {
+            if repo
+                .model_ref_exists(Some(target), &restored.header.tree_sha256, &facts.method_id)
+                .await?
+            {
+                let existing = repo
+                    .get_model_by_ref(Some(target), &restored.header.tree_sha256, &facts.method_id)
+                    .await?
+                    .ok_or_else(|| {
+                        AppError::internal_error(
+                            "the idempotence check found a row that vanished",
+                        )
+                    })?;
+                outcome.model_ids.push(existing.id.to_string());
+                outcome.models.push(summary_from(&existing, set_name.as_deref())?);
+                continue;
+            }
+        }
+        let stored = copy_tree(&restored.dir, &restored.header.tree_sha256)?;
+        let new = NewModel {
+            set_id: target_id,
+            name: facts.name.clone(),
+            method_id: facts.method_id.clone(),
+            method_version: facts.method_version.clone(),
+            group: facts.group.clone(),
+            group_label: facts.group_label.clone(),
+            task: facts.task.map(|t| t.as_str().to_string()),
+            provenance: match &opts.provenance {
+                Provenance::Imported { .. } => crate::modules::model_store::types::ModelProvenance::Imported.as_str().to_string(),
+                Provenance::Pretrained { .. } => crate::modules::model_store::types::ModelProvenance::Pretrained.as_str().to_string(),
+            },
+            imported_from: match &opts.provenance {
+                Provenance::Imported { source_name } => Some(source_name.clone()),
+                _ => None,
+            },
+            pretrained_catalogue_id: match &opts.provenance {
+                Provenance::Pretrained { catalogue_id, .. } => Some(catalogue_id.clone()),
+                _ => None,
+            },
+            pretrained_catalogue_version: match &opts.provenance {
+                Provenance::Pretrained { version, .. } => Some(version.clone()),
+                _ => None,
+            },
+            licence: match &opts.provenance {
+                Provenance::Pretrained { licence, .. } => Some(licence.clone()),
+                _ => None,
+            },
+            tree_sha256: restored.header.tree_sha256.clone(),
+            dir: stored.display().to_string(),
+            size_bytes: restored.header.size_bytes as i64,
+            contract: facts.contract.clone(),
+            env_base_digest: Some(facts.env.base_digest.clone()),
+            env_layer_digest: Some(facts.env.layer_digest.clone()),
+            trained_on_patients: facts.trained_on_patients.map(|v| v as i64),
+            trained_at: facts.trained_at,
+            decision_day: facts.decision_day,
+            endpoint: endpoint_wire(facts.endpoint)?,
+            horizon: facts.horizon,
+            features: json_value(&facts.features, "features")?,
+            required_markers: match &facts.required_markers {
+                Some(rm) => Some(json_value(rm, "required_markers")?),
+                None => None,
+            },
+            marker_facts: json_value(&facts.marker_facts, "marker_facts")?,
+            covariates: json_value(&facts.covariates, "covariates")?,
+            embeds_training_data: facts.embeds_training_data,
+            own_auc: facts.own_auc,
+            own_c: facts.own_c,
+        };
+        let row = repo.insert_model(&new).await?;
+        outcome.model_ids.push(row.id.to_string());
+        outcome.models.push(summary_from(&row, set_name.as_deref())?);
+    }
+
+    // The restored training files — the set keeps them (the container said
+    // so); the set's training facts are set to match.
+    if !result.training.is_empty() {
+        let set_id = target_id.expect("training files only ride a set container with a target");
+        let dir = training_dir_for(set_id);
+        let copied = (|| -> Result<(), AppError> {
+            fs::create_dir_all(&dir)
+                .map_err(|e| io_app("create training dir", dir.clone())(e))?;
+            for tf in &result.training {
+                let to = dir.join(&tf.relpath);
+                fs::copy(&tf.path, &to)
+                    .map_err(|e| io_app("copy restored training file", to.clone())(e))?;
+            }
+            Ok(())
+        })();
+        if let Err(err) = copied {
+            let _ = fs::remove_dir_all(staging);
+            return Err(err);
+        }
+        let training_dir_str = dir.display().to_string();
+        repo.set_training_facts(set_id, true, Some(&training_dir_str)).await?;
+    }
+
+    let _ = fs::remove_dir_all(staging);
+    Ok(outcome)
+}
+
+/// The pretrained rows (PROV-MS-10 / GAP-PC-3): the in-process query the
+/// strict id+version install match binds (`installed_model_id`), with an
+/// optional catalogue id filter.
+pub async fn list_pretrained(
+    pool: &SqlitePool,
+    catalogue_id: Option<&str>,
+) -> Result<Vec<ModelSummary>, AppError> {
+    let repo = ModelStoreRepository::new(pool.clone());
+    let rows = repo.list_models(None, None, Some("pretrained")).await?;
+    let set_names = set_name_map(&repo).await?;
+    let mut out = Vec::new();
+    for row in rows {
+        if catalogue_id
+            .is_some_and(|id| row.pretrained_catalogue_id.as_deref() != Some(id))
+        {
+            continue;
+        }
+        let set_name = row
+            .set_id
+            .as_ref()
+            .and_then(|sid| set_names.get(sid))
+            .map(|s| s.as_str());
+        out.push(summary_from(&row, set_name)?);
+    }
+    Ok(out)
+}
+
+/// The one set-name map for a caller-side join (DEC-10's seam rule: the
+/// repository returns table rows; the response-level join happens here).
+pub async fn set_name_map(repo: &ModelStoreRepository) -> Result<std::collections::HashMap<Uuid, String>, AppError> {
+    let mut out = std::collections::HashMap::new();
+    for s in repo.list_sets().await? {
+        out.insert(s.id, s.name);
+    }
+    Ok(out)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Row → wire projections (the store's data shapes — ITEM-5 renders these from
+// the persisted facts; the JSON cells are the recorded facts verbatim, never
+// re-derived)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A recorded task string as the engine's typed vocabulary.
+pub fn parse_task(task: &Option<String>) -> Result<Option<TxrTask>, AppError> {
+    match task {
+        Some(s) => serde_json::from_value::<TxrTask>(Json::String(s.clone()))
+            .map(Some)
+            .map_err(|e| AppError::internal_error(format!("txr_models.task: {e}"))),
+        None => Ok(None),
+    }
+}
+
+/// A recorded endpoint string as the engine's typed vocabulary.
+pub fn parse_endpoint(endpoint: &str) -> Result<TxrEndpoint, AppError> {
+    serde_json::from_value::<TxrEndpoint>(Json::String(endpoint.to_string()))
+        .map_err(|e| AppError::internal_error(format!("txr_models.endpoint: {e}")))
+}
+
+/// The endpoint's stored/wire spelling (the engine's serde `snake_case` — the
+/// row cell is the same string a consumer switches on).
+fn endpoint_wire(endpoint: TxrEndpoint) -> Result<String, AppError> {
+    serde_json::to_value(endpoint)
+        .map(|v| v.as_str().expect("an endpoint serializes to a string").to_string())
+        .map_err(|e| AppError::internal_error(format!("serialize endpoint: {e}")))
+}
+
+/// A recorded fact serialized back into its row JSON cell (the facts were
+/// typed at save/import; serialization failure is a local defect, never a
+/// client input).
+fn json_value<T: serde::Serialize>(v: &T, what: &str) -> Result<Json, AppError> {
+    serde_json::to_value(v)
+        .map_err(|e| AppError::internal_error(format!("serialize {what}: {e}")))
+}
+
+/// A recorded provenance string as the module's typed vocabulary.
+pub fn parse_provenance(provenance: &str) -> Result<ModelProvenance, AppError> {
+    serde_json::from_value::<ModelProvenance>(Json::String(provenance.to_string()))
+        .map_err(|e| AppError::internal_error(format!("txr_models.provenance: {e}")))
+}
+
+/// The recorded facts a model carries; `row` is the DB row's verbatim JSON.
+fn parse_row<T: serde::de::DeserializeOwned>(v: &Json, what: &str) -> Result<T, AppError> {
+    serde_json::from_value(v.clone())
+        .map_err(|e| AppError::internal_error(format!("{what}: {e}")))
+}
+
+/// The J/I list row (PROV-MS-2) — the marker-count + covariates subline facts
+/// mirror the recorded JSON (TEST-MS-24: no per-row detail fetch).
+pub fn summary_from(row: &ModelRow, set_name: Option<&str>) -> Result<ModelSummary, AppError> {
+    let marker_facts: MarkerFacts = parse_row(&row.marker_facts, "txr_models.marker_facts")?;
+    let covariates: CovariateFacts = parse_row(&row.covariates, "txr_models.covariates")?;
+    Ok(ModelSummary {
+        id: row.id,
+        set_id: row.set_id,
+        set_name: set_name.map(|s| s.to_string()),
+        name: row.name.clone(),
+        method_id: row.method_id.clone(),
+        method_version: row.method_version.clone(),
+        group: row.group.clone(),
+        group_label: row.group_label.clone(),
+        task: parse_task(&row.task)?,
+        provenance: parse_provenance(&row.provenance)?,
+        imported_from: row.imported_from.clone(),
+        pretrained_catalogue_id: row.pretrained_catalogue_id.clone(),
+        pretrained_catalogue_version: row.pretrained_catalogue_version.clone(),
+        licence: row.licence.clone(),
+        trained_on_patients: row.trained_on_patients.map(|v| v as u32),
+        trained_at: row.trained_at,
+        decision_day: row.decision_day,
+        endpoint: parse_endpoint(&row.endpoint)?,
+        horizon: row.horizon,
+        size_bytes: row.size_bytes as u64,
+        embeds_training_data: row.embeds_training_data,
+        own_auc: row.own_auc,
+        marker_count: Some(marker_facts.count),
+        uses_covariates: covariates.used,
+        created_at: row.created_at,
+    })
+}
+
+/// DEC-6's honesty predicate: the row carries NO requirement fact at all (no
+/// marker rule, no features, no marker count) — the state the codec's writer
+/// never emits, checked so an imported/foreign row is never presented as
+/// runnable on absent facts (ITEM-6's `MODEL_REQUIREMENTS_UNRECORDED` reads
+/// the same predicate; one definition).
+pub fn requirements_unrecorded(row: &ModelRow) -> bool {
+    if row.required_markers.is_some() {
+        return false;
+    }
+    let features: Vec<String> = parse_row(&row.features, "txr_models.features").unwrap_or_default();
+    if !features.is_empty() {
+        return false;
+    }
+    parse_row::<MarkerFacts>(&row.marker_facts, "txr_models.marker_facts")
+        .map(|m| m.count == 0)
+        .unwrap_or(true)
+}
+
+/// The detail (PROV-MS-2) — the summary flatten plus the recorded digests,
+/// requirements and the catalogue-consistency warnings.
+pub fn detail_from(row: &ModelRow, set_name: Option<&str>) -> Result<ModelDetail, AppError> {
+    let summary = summary_from(row, set_name)?;
+    let required_markers: Option<RequiredMarkers> = match &row.required_markers {
+        Some(v) => Some(parse_row(v, "txr_models.required_markers")?),
+        None => None,
+    };
+    let marker_facts: MarkerFacts = parse_row(&row.marker_facts, "txr_models.marker_facts")?;
+    let covariates: CovariateFacts = parse_row(&row.covariates, "txr_models.covariates")?;
+    let features: Vec<String> = parse_row(&row.features, "txr_models.features")?;
+    let mut warnings = Vec::new();
+    if let Some(cat) = catalogue::method(&row.method_id) {
+        if cat.version != row.method_version {
+            warnings.push(ModelWarning {
+                code: ModelWarningCode::ModelVersionMismatch,
+                detail: format!(
+                    "recorded method version {}; the catalogue ships {}",
+                    row.method_version, cat.version
+                ),
+            });
+        }
+        if let Some(entry) = crate::modules::execution_engine::envmanifest::env_for(&row.method_id) {
+            let current_base = entry
+                .base_digest
+                .strip_prefix("sha256:")
+                .unwrap_or(&entry.base_digest);
+            let layer_mismatch = row
+                .env_layer_digest
+                .as_deref()
+                .is_some_and(|d| d != entry.layer_sha256);
+            let base_mismatch = row
+                .env_base_digest
+                .as_deref()
+                .is_some_and(|d| d != current_base);
+            if layer_mismatch || base_mismatch {
+                warnings.push(ModelWarning {
+                    code: ModelWarningCode::DigestMismatch,
+                    detail: "recorded environment digests differ from the current environment image".to_string(),
+                });
+            }
+        }
+    }
+    if requirements_unrecorded(row) {
+        warnings.push(ModelWarning {
+            code: ModelWarningCode::RequirementsUnrecorded,
+            detail: "this model carries no recorded requirements (markers, features, draws)".to_string(),
+        });
+    }
+    let (base_digest, layer_digest) = match (&row.env_base_digest, &row.env_layer_digest) {
+        (Some(b), Some(l)) => (b.clone(), l.clone()),
+        _ => {
+            return Err(AppError::internal_error(format!(
+                "model {} records no environment digest — a corrupt row",
+                row.id
+            )))
+        }
+    };
+    Ok(ModelDetail {
+        summary,
+        own_c: row.own_c,
+        tree_sha256: row.tree_sha256.clone(),
+        dir: row.dir.clone(),
+        contract: row.contract.clone(),
+        env: TxrMethodEnv {
+            base_digest,
+            layer_digest,
+        },
+        features,
+        required_markers,
+        marker_facts,
+        covariates,
+        warnings,
+    })
+}
+
+/// The set summary (PROV-MS-4) — the aggregates row's one projection.
+pub fn set_summary_from(row: &SetListRow) -> SetSummary {
+    SetSummary {
+        id: row.id,
+        name: row.name.clone(),
+        created_at: row.created_at,
+        source_run_id: row.source_run_id,
+        source_label: row.source_label.clone(),
+        keep_training_files: row.keep_training_files,
+        training_dir: row.training_dir.clone(),
+        model_count: row.model_count as u32,
+        total_size_bytes: row.total_size_bytes as u64,
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The save flow (PROV-MS-3 — the route's core)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Save the run's produced models into a set (new or existing), copying each
+/// tree byte-for-byte into the content-addressed store, recording the
+/// requirements (DEC-6: run facts + `params.json` + the catalogue facts,
+/// never re-derived), copying the training files when asked and writing the
+/// one-off `.txr` export when asked.
+///
+/// Error order (the plan's named set): validation 400s; `RUN_NOT_FOUND`;
+/// `MODEL_ASSET_UNKNOWN` (a method id the run has no method row for);
+/// `METHOD_NOT_FINISHED` (the method row is not terminal-finished with its
+/// produced dir yet); `SET_NOT_FOUND` / `SET_NAME_TAKEN`; and the defensive
+/// `METHOD_NOT_IN_CATALOGUE` (a method the shipped catalogue no longer knows
+/// cannot have its requirements recorded — DEC-6's never-invent rule).
+pub async fn save_from_run(
+    pool: &SqlitePool,
+    req: &SaveModelsRequest,
+) -> Result<ModelSaveResponse, AppError> {
+    req.validate().map_err(|e| {
+        AppError::bad_request(e.code.code(), e.to_string())
+    })?;
+
+    let engine = TxrRepository::new(pool.clone());
+    let run = engine
+        .get_run(req.run_id)
+        .await?
+        .ok_or_else(|| AppError::new(StatusCode::NOT_FOUND, "RUN_NOT_FOUND", format!("no run {}", req.run_id)))?;
+    let summary = run.summarize(Vec::new())?;
+    let produced =
+        crate::modules::execution_engine::repository::produced_models(pool, req.run_id).await?;
+    let produced_by: BTreeMap<&str, &TxrProducedModel> =
+        produced.iter().map(|m| (m.method_id.as_str(), m)).collect();
+
+    // Check EVERY requested method BEFORE any mutation: a save either lands
+    // the full requested set or nothing user-visible.
+    let mut chosen = Vec::with_capacity(req.method_ids.len());
+    for mid in &req.method_ids {
+        match produced_by.get(mid.as_str()) {
+            Some(_) => {}
+            None => {
+                let row = engine.get_method(req.run_id, mid).await?;
+                if row.is_none() {
+                    return Err(AppError::new(
+                        StatusCode::NOT_FOUND,
+                        "MODEL_ASSET_UNKNOWN",
+                        format!("the run has no model produced by method {mid}"),
+                    ));
+                }
+                return Err(AppError::new(
+                    StatusCode::CONFLICT,
+                    "METHOD_NOT_FINISHED",
+                    format!("method {mid} has not finished with a produced model yet"),
+                ));
+            }
+        }
+        let state = engine
+            .get_method(req.run_id, mid)
+            .await?
+            .ok_or_else(|| {
+                AppError::new(
+                    StatusCode::NOT_FOUND,
+                    "MODEL_ASSET_UNKNOWN",
+                    format!("the run has no method row for {mid}"),
+                )
+            })?
+            .state()?;
+        if state != TxrMethodState::Finished {
+            return Err(AppError::new(
+                StatusCode::CONFLICT,
+                "METHOD_NOT_FINISHED",
+                format!("method {mid} is not finished; its produced model cannot be saved yet"),
+            ));
+        }
+        chosen.push(mid.clone());
+    }
+
+    // The source label is engine truth (GAP-D): the request may carry the
+    // dialog's free text, but the default is the run's recorded source name —
+    // never the run dir stem.
+    let source_label = req
+        .source_label
+        .clone()
+        .or_else(|| summary.input_summary.file_names.patients.clone());
+
+    let repo = ModelStoreRepository::new(pool.clone());
+    let (set_row, _) = match &req.target {
+        SaveTarget::NewSet { set_name } => {
+            let row = repo
+                .insert_set(set_name, Some(summary.id), source_label.as_deref(), req.keep_training_files, None)
+                .await?;
+            (row, true)
+        }
+        SaveTarget::ExistingSet { set_id } => {
+            let row = repo.get_set(*set_id).await?.ok_or_else(|| {
+                AppError::new(StatusCode::NOT_FOUND, "SET_NOT_FOUND", format!("no set {set_id}"))
+            })?;
+            (row, false)
+        }
+    };
+    let set_name = set_row.name.clone();
+    let set_id = set_row.id;
+
+    // The recorded facts per chosen method, then copy + insert. A failed copy
+    // after the set row exists leaves the set (possibly empty) — a save
+    // failure is reported, and the unreferenced trees are prunable; the
+    // copy itself never lands a partial tree (staging + atomic rename).
+    let mut saved_rows = Vec::with_capacity(chosen.len());
+    for mid in &chosen {
+        let pm = produced_by[mid.as_str()];
+        let method_row = engine
+            .get_method(req.run_id, mid)
+            .await?
+            .expect("checked above");
+        let facts = save_facts(&summary, &method_row, pm)?;
+        // DEC-3's row-is-a-reference rule at the save boundary too: saving
+        // the same produced tree+method into the same set again is the SAME
+        // model — the existing row stands (a second row would violate the
+        // UNIQUE triple, and "the model you already saved" is the honest
+        // answer, not a duplicate).
+        if repo
+            .model_ref_exists(Some(set_id), &pm.tree_sha256, &pm.method_id)
+            .await?
+        {
+            let existing = repo
+                .get_model_by_ref(Some(set_id), &pm.tree_sha256, &pm.method_id)
+                .await?
+                .expect("checked above");
+            saved_rows.push(existing);
+            continue;
+        }
+        let stored = copy_tree(Path::new(&pm.dir), &pm.tree_sha256)?;
+        let row = repo
+            .insert_model(&NewModel {
+                set_id: Some(set_id),
+                name: method_row.label.clone(),
+                method_id: pm.method_id.clone(),
+                method_version: pm.method_version.clone(),
+                group: facts.cat.group.as_str().to_string(),
+                group_label: facts.cat.group_label.clone(),
+                task: facts.task.as_ref().map(|t| t.as_str().to_string()),
+                provenance: ModelProvenance::Run.as_str().to_string(),
+                imported_from: None,
+                pretrained_catalogue_id: None,
+                pretrained_catalogue_version: None,
+                licence: None,
+                tree_sha256: pm.tree_sha256.clone(),
+                dir: stored.display().to_string(),
+                size_bytes: pm.size_bytes as i64,
+                contract: facts.cat.env.contract.clone(),
+                env_base_digest: Some(pm.env.base_digest.clone()),
+                env_layer_digest: Some(pm.env.layer_digest.clone()),
+                trained_on_patients: Some(pm.trained_on_patients as i64),
+                trained_at: summary.finished_at,
+                decision_day: summary.config.decision_day,
+                endpoint: endpoint_wire(summary.config.endpoint)?,
+                horizon: summary.config.look_ahead_day,
+                features: json_value(&facts.features, "features")?,
+                required_markers: match &facts.cat.required_markers {
+                    Some(rm) => Some(json_value(rm, "required_markers")?),
+                    None => None,
+                },
+                marker_facts: json_value(&facts.marker_facts, "marker_facts")?,
+                covariates: json_value(&facts.covariates, "covariates")?,
+                embeds_training_data: facts.cat.embeds_training_data,
+                own_auc: pm.own_auc,
+                own_c: None,
+            })
+            .await?;
+        saved_rows.push(row);
+    }
+
+    // The training files (L's "keep the training files" checkbox).
+    if req.keep_training_files {
+        let input = Path::new(&summary.dir).join("input");
+        copy_training_files(&input, set_id)?;
+        let training_dir_str = training_dir_for(set_id).display().to_string();
+        repo.set_training_facts(set_id, true, Some(&training_dir_str)).await?;
+    }
+
+    // The one-off export (L's "Also save as a file to move to another
+    // computer") — the SET's container, written after the training copy so
+    // the export carries what the set carries.
+    let export = if req.also_export {
+        let training = if req.keep_training_files {
+            Some(training_dir_for(set_id))
+        } else {
+            None
+        };
+        let set_export = export_set_rows(set_row, &saved_rows, training.as_deref())?;
+        let slug = set_slug(&set_name);
+        let file_name = format!("{slug}-{}.txr", &set_id.simple().to_string()[..8]);
+        let (path, size) = write_export_file(&file_name, &set_export)?;
+        Some(ExportTarget {
+            name: file_name,
+            size_bytes: size,
+            dir: path
+                .parent()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default(),
+        })
+    } else {
+        None
+    };
+
+    let set_summary_row = repo
+        .get_set_with_counts(set_id)
+        .await?
+        .ok_or_else(|| AppError::internal_error("the saved set is gone after the save"))?;
+    let mut models = Vec::with_capacity(saved_rows.len());
+    for row in &saved_rows {
+        models.push(summary_from(row, Some(&set_name))?);
+    }
+    Ok(ModelSaveResponse {
+        set: set_summary_from(&set_summary_row),
+        models,
+        export,
+    })
+}
+
+/// The recorded facts' sources of a save: the catalogue entry (fact set, the
+/// method's group/label/requirements — CONS-MS-7) + the run bundle's
+/// `markers` (the D5-selected feature keys, contract 2.0's params.json field
+/// set) + the run method row's task. The catalogue is the one source that can
+/// make a model UNRECORDABLE (DEC-6: never invent a method fact).
+struct SaveFacts<'a> {
+    cat: &'a crate::modules::method_catalogue::types::Method,
+    features: Vec<String>,
+    task: Option<TxrTask>,
+    marker_facts: MarkerFacts,
+    covariates: CovariateFacts,
+}
+
+fn save_facts(
+    summary: &TxrRunSummary,
+    method_row: &MethodRow,
+    produced: &TxrProducedModel,
+) -> Result<SaveFacts<'static>, AppError> {
+    let cat = catalogue::method(&produced.method_id).ok_or_else(|| {
+        AppError::new(
+            StatusCode::CONFLICT,
+            "METHOD_NOT_IN_CATALOGUE",
+            format!(
+                "method {} is not in the shipped catalogue; its requirements cannot be recorded",
+                produced.method_id
+            ),
+        )
+    })?;
+    // The bundle's params.json (contract 2.0 field set — TEST-EE-18's
+    // documented layout; DRIFT-1: the `features` key of contract v1.2 was
+    // replaced by `markers` in 2.0, the method's received marker list).
+    let bundle_params = Path::new(&summary.dir)
+        .join("bundles")
+        .join(&produced.method_id)
+        .join("params.json");
+    let features: Vec<String> = {
+        let text = fs::read_to_string(&bundle_params).map_err(|e| {
+            AppError::internal_error(format!(
+                "read {}: {e}",
+                bundle_params.display()
+            ))
+        })?;
+        let params: Json = serde_json::from_str(&text)
+            .map_err(|e| AppError::internal_error(format!("{}: {e}", bundle_params.display())))?;
+        params
+            .get("markers")
+            .and_then(|m| serde_json::from_value::<Vec<String>>(m.clone()).ok())
+            .unwrap_or_default()
+    };
+    let task = parse_task(&method_row.task)?;
+    let marker_facts = MarkerFacts {
+        kind: cat.markers.kind,
+        count: cat.markers.count,
+        min_draws: cat.min_draws,
+        needs_baseline: cat.needs_baseline,
+        uses_history: cat.uses_history,
+        needs_detection_call: cat.needs_detection_call,
+        marker_groups_required: cat.marker_groups_required.clone(),
+    };
+    let covariates = CovariateFacts {
+        catalogue: cat.covariates,
+        used: summary.config.covariates,
+    };
+    Ok(SaveFacts {
+        cat,
+        features,
+        task,
+        marker_facts,
+        covariates,
+    })
+}
+
+/// A set export request built from the set's rows + kept training files
+/// (PROV-MS-7's set route; `training_dir` is Some only when the set's kept
+/// files actually exist — the export carries what the store holds).
+pub fn export_set(
+    set: &SetRow,
+    rows: &[ModelRow],
+    training_dir: Option<&Path>,
+) -> Result<ContainerExport, AppError> {
+    export_set_rows(set.clone(), rows, training_dir)
+}
+
+/// A set export request built from the set's rows + kept training files.
+fn export_set_rows(
+    set: SetRow,
+    rows: &[ModelRow],
+    training_dir: Option<&Path>,
+) -> Result<ContainerExport, AppError> {
+    let mut specs = Vec::with_capacity(rows.len());
+    for row in rows {
+        specs.push(ContainerModelSpec {
+            token: row.id.to_string(),
+            facts: facts_from_row(row)?,
+            tree_sha256: row.tree_sha256.clone(),
+            tree_dir: PathBuf::from(&row.dir),
+        });
+    }
+    let mut training = Vec::new();
+    if let Some(dir) = training_dir {
+        let mut entries: Vec<_> = fs::read_dir(dir)
+            .map_err(|e| io_app("list training dir", dir.to_path_buf())(e))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| io_app("list training dir", dir.to_path_buf())(e))?;
+        entries.sort_by_key(|e| e.file_name());
+        for entry in entries {
+            let ft = entry
+                .file_type()
+                .map_err(|e| io_app("stat", entry.path())(e))?;
+            if ft.is_file() {
+                training.push(ContainerTrainingSpec {
+                    relpath: entry.file_name().to_string_lossy().into_owned(),
+                    src: entry.path(),
+                });
+            }
+        }
+    }
+    Ok(ContainerExport {
+        set: Some(ContainerSet {
+            name: set.name,
+            created_at: set.created_at,
+            source_label: set.source_label,
+            keep_training_files: set.keep_training_files,
+        }),
+        models: specs,
+        training,
+    })
+}
+
+/// A single-model export request.
+pub fn export_model(row: &ModelRow) -> Result<ContainerExport, AppError> {
+    Ok(ContainerExport {
+        set: None,
+        models: vec![ContainerModelSpec {
+            token: row.id.to_string(),
+            facts: facts_from_row(row)?,
+            tree_sha256: row.tree_sha256.clone(),
+            tree_dir: PathBuf::from(&row.dir),
+        }],
+        training: vec![],
+    })
+}
+
+/// The row's container facts (the export's recorded-facts block; the env
+/// digests are REQUIRED by the format — a row without them cannot be carried).
+fn facts_from_row(row: &ModelRow) -> Result<ContainerModelFacts, AppError> {
+    let (base_digest, layer_digest) = match (&row.env_base_digest, &row.env_layer_digest) {
+        (Some(b), Some(l)) => (b.clone(), l.clone()),
+        _ => {
+            return Err(AppError::internal_error(format!(
+                "model {} records no environment digest — a corrupt row",
+                row.id
+            )))
+        }
+    };
+    Ok(ContainerModelFacts {
+        name: row.name.clone(),
+        method_id: row.method_id.clone(),
+        method_version: row.method_version.clone(),
+        group: row.group.clone(),
+        group_label: row.group_label.clone(),
+        task: parse_task(&row.task)?,
+        provenance: ContainerProvenance {
+            kind: parse_provenance(&row.provenance)?,
+            imported_from: row.imported_from.clone(),
+            catalogue_id: row.pretrained_catalogue_id.clone(),
+            licence: row.licence.clone(),
+        },
+        trained_on_patients: row.trained_on_patients.map(|v| v as u32),
+        trained_at: row.trained_at,
+        decision_day: row.decision_day,
+        endpoint: parse_endpoint(&row.endpoint)?,
+        horizon: row.horizon,
+        contract: row.contract.clone(),
+        env: TxrMethodEnv {
+            base_digest,
+            layer_digest,
+        },
+        features: parse_row(&row.features, "txr_models.features")?,
+        required_markers: match &row.required_markers {
+            Some(v) => Some(parse_row(v, "txr_models.required_markers")?),
+            None => None,
+        },
+        marker_facts: parse_row(&row.marker_facts, "txr_models.marker_facts")?,
+        covariates: parse_row(&row.covariates, "txr_models.covariates")?,
+        embeds_training_data: row.embeds_training_data,
+        own_auc: row.own_auc,
+        own_c: row.own_c,
+    })
+}
+
+/// The exports file name's slug (PROV-MS-3's `<set-name-slug>-<id8>.txr`):
+/// alphanumeric ASCII + `-`/`_` kept, every other character a `-` — a safe
+/// path component on every platform, not merely one without path separators.
+pub fn set_slug(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for c in name.chars() {
+        if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+            out.push(c);
+        } else {
+            out.push('-');
+        }
+    }
+    let out = out.trim_matches('-').to_string();
+    if out.is_empty() {
+        "models".to_string()
+    } else {
+        out
+    }
+}
+
+/// The attachment's `filename="<name>.txr"` value (PROV-MS-7: sanitized, no
+/// path separators) — separators, quotes and control characters become `_`,
+/// so a name can never escape the header value.
+pub fn sanitize_attachment_name(name: &str) -> String {
+    let out: String = name
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | '"' | ':' | '\0' => '_',
+            c if c.is_control() => '_',
+            c => c,
+        })
+        .collect();
+    let out = out.trim().to_string();
+    if out.is_empty() {
+        "model".to_string()
+    } else {
+        out
+    }
+}
+
+/// Write a `.txr` export into `<data_root>/models/exports/` (complete-or-
+/// absent: staging + atomic rename, the tree store's own idiom) and return
+/// the file path + its byte size.
+pub fn write_export_file(name: &str, export: &ContainerExport) -> Result<(PathBuf, u64), AppError> {
+    ensure_dirs()?;
+    let target = exports_dir().join(name);
+    let staging = exports_dir().join(format!(".staging-{name}-{}", Uuid::new_v4()));
+    let written = (|| -> Result<u64, AppError> {
+        let file = fs::File::create(&staging)
+            .map_err(|e| io_app("create export staging", staging.clone())(e))?;
+        let mut writer = std::io::BufWriter::new(file);
+        // The writer returns the total byte size while every byte is still in
+        // the writer; the flush below is what makes the staged file complete
+        // before the rename (an error must not rename a half-written container).
+        let size = write_container(&mut writer, export)?;
+        std::io::Write::flush(&mut writer)
+            .map_err(|e| io_app("flush export staging", staging.clone())(e))?;
+        Ok(size)
+    })();
+    let size = match written {
+        Ok(s) => s,
+        Err(e) => {
+            let _ = fs::remove_file(&staging);
+            return Err(e);
+        }
+    };
+    match fs::rename(&staging, &target) {
+        Ok(()) => Ok((target, size)),
+        Err(e) => {
+            let _ = fs::remove_file(&staging);
+            Err(io_app("rename export into place", target.clone())(e))
+        }
+    }
 }
 
 fn remove_tree_dir(digest: &str) -> Result<bool, AppError> {

@@ -39,6 +39,10 @@ mod sandbox;
 mod jobs;
 mod mcp;
 mod method_catalogue;
+// The `model_store` suites (ITEM-5's TEST-MS-08/09/10/15/16 — the save flow,
+// inventory + set CRUD, the .txr round trip over the real routes, the
+// pretrained import seam, the route matrix; ITEM-6 adds eligibility_test.rs).
+mod model_store;
 mod model_coverage;
 mod notification;
 mod predicate_removed;

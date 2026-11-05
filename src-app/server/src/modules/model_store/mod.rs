@@ -63,6 +63,7 @@
 
 pub mod container;
 pub mod repository;
+pub mod routes;
 pub mod store;
 pub mod types;
 
@@ -127,13 +128,14 @@ impl AppModule for ModelStoreModule {
     }
 
     fn register_routes(&self, router: ApiRouter) -> ApiRouter {
-        // The 13 endpoints of PROV-MS-2..MS-9 register under
+        // The routes of PROV-MS-2..MS-7 register under
         // `/api/txr/models*` + `/api/txr/model-sets*` (the app-owned free
         // namespace) with the reused `JobsUse` permission (DEC-14 — no new
         // permission, A10 not triggered; the engine's gate). The doc ids
         // they bind are `types::ROUTE_DOC_IDS`; the routes' own suite pins
-        // the registered set to that vocabulary.
-        router
+        // the registered set to that vocabulary. Resolve (PROV-MS-8) and
+        // eligibility (PROV-MS-9) join here with ITEM-6's `eligibility.rs`.
+        router.merge(routes::model_store_routes())
     }
 }
 
