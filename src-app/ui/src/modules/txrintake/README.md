@@ -59,6 +59,21 @@ payloads and the inspect/validate bodies are memory only, so a reload shows
 the file cards' "name, choose the file again" state and the user re-drops
 the files.
 
+## The shared file surface (PROV-UI-INTAKE-5)
+
+One card surface serves the three file mounts: screen C's patients and
+measurements cards, screen N's measurements card, and ui-run's E-screen
+"Change files" / predict slots (DEC-21 — E never builds a second picker).
+The barrel re-exports `TxrFileCard` (the composed card) and its parts
+(`TxrFileDrop`, `TxrProblemList`, `TxrJoinOffer`, `TxrVocabOffer`); a host
+mounts `TxrFileCard` with the PROV-UI-INTAKE-5 props — `kind`, `mode`
+(`'study'` for the C cards, `'predict'` for N), `file`, `busy`, `error`,
+`onPick`, `onRemove`, the four offer answers and the two download
+callbacks — and wires the `TxrIntake` store actions, exactly as the intake
+pages do. The card is controlled (no flow state inside); its one store read
+is the shared `validation` slot, so any of the mounts renders the same
+validation facts the E/D/I screens read.
+
 ## Provider contracts
 
 The module consumes only generated / provider-owned surfaces: the browser
