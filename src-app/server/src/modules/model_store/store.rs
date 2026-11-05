@@ -74,8 +74,8 @@ use super::container::{
 use super::repository::{ModelRow, ModelStoreRepository, NewModel, SetListRow, SetRow};
 use super::types::{
     CovariateFacts, ExportTarget, MarkerFacts, ModelDetail, ModelProvenance, ModelSaveResponse,
-    ModelStoreLimits, ModelSummary, ModelWarning, ModelWarningCode, SaveModelsRequest, SaveTarget,
-    SetSummary,
+    ModelStoreLimits, ModelSummary, ModelWarning, ModelWarningCode, ResolvedAsset,
+    SaveModelsRequest, SaveTarget, SetSummary,
 };
 use crate::modules::execution_engine::repository::{MethodRow, TxrRepository};
 use crate::modules::execution_engine::types::{
@@ -728,22 +728,19 @@ pub fn summary_from(row: &ModelRow, set_name: Option<&str>) -> Result<ModelSumma
     })
 }
 
-/// DEC-6's honesty predicate: the row carries NO requirement fact at all (no
-/// marker rule, no features, no marker count) — the state the codec's writer
-/// never emits, checked so an imported/foreign row is never presented as
-/// runnable on absent facts (ITEM-6's `MODEL_REQUIREMENTS_UNRECORDED` reads
-/// the same predicate; one definition).
+/// DEC-6's honesty predicate: the row records NO marker set — no required
+/// rule, no feature list — so the model's input schema cannot be transcribed.
+/// An imported/foreign row in that state is never presented as runnable on
+/// absent facts: ITEM-6's eligibility guard answers `cannot_run` +
+/// `MODEL_REQUIREMENTS_UNRECORDED` and the detail's warning names the same
+/// state (one definition; a marker-facts-only row is included — the count
+/// without the marker set is not a requirement that can be checked).
 pub fn requirements_unrecorded(row: &ModelRow) -> bool {
     if row.required_markers.is_some() {
         return false;
     }
     let features: Vec<String> = parse_row(&row.features, "txr_models.features").unwrap_or_default();
-    if !features.is_empty() {
-        return false;
-    }
-    parse_row::<MarkerFacts>(&row.marker_facts, "txr_models.marker_facts")
-        .map(|m| m.count == 0)
-        .unwrap_or(true)
+    features.is_empty()
 }
 
 /// The detail (PROV-MS-2) — the summary flatten plus the recorded digests,
@@ -835,6 +832,74 @@ pub fn set_summary_from(row: &SetListRow) -> SetSummary {
         model_count: row.model_count as u32,
         total_size_bytes: row.total_size_bytes as u64,
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reuse resolution (PROV-MS-8 — the `execution-engine` reuse contract)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// PROV-MS-8's core (no HTTP) — id → the VERIFIED asset record the engine
+/// binds on reuse. Each asset's `host_dir` is re-verified against the row's
+/// recorded `tree_sha256` (PROV-SS-3 — the same verification the engine ran
+/// at fit time, DEC-5) BEFORE the asset leaves: the engine only ever sees an
+/// honest asset. The verification is binary at this boundary — a mismatch, an
+/// unreadable dir or a vanished tree each answer `409 MODEL_VERIFY_FAILED`
+/// (the row's bytes are not the recorded artifact today; the caller's
+/// alternative is a re-import, never a run on unverified bytes). The
+/// `ResolvedAsset` shape is byte-compatible with
+/// `execution_engine::types::TxrModelAsset` (the engine never imports this
+/// module — the caller-side join, DEC-EE-10).
+pub async fn resolve_assets(
+    pool: &SqlitePool,
+    ids: &[String],
+) -> Result<Vec<ResolvedAsset>, AppError> {
+    let repo = ModelStoreRepository::new(pool.clone());
+    let mut assets = Vec::with_capacity(ids.len());
+    for id in ids {
+        let uuid = Uuid::parse_str(id).map_err(|_| {
+            AppError::new(
+                StatusCode::NOT_FOUND,
+                "MODEL_NOT_FOUND",
+                format!("no model {id}"),
+            )
+        })?;
+        let row = repo.get_model(uuid).await?.ok_or_else(|| {
+            AppError::new(
+                StatusCode::NOT_FOUND,
+                "MODEL_NOT_FOUND",
+                format!("no model {id}"),
+            )
+        })?;
+        sandbox::stack::verify_model_tree(Path::new(&row.dir), &row.tree_sha256).map_err(|err| {
+            AppError::new(
+                StatusCode::CONFLICT,
+                "MODEL_VERIFY_FAILED",
+                format!("model {id}: {}", err),
+            )
+        })?;
+        let (base_digest, layer_digest) = match (&row.env_base_digest, &row.env_layer_digest) {
+            (Some(b), Some(l)) => (b.clone(), l.clone()),
+            _ => {
+                return Err(AppError::internal_error(format!(
+                    "model {} records no environment digest — a corrupt row",
+                    row.id
+                )))
+            }
+        };
+        assets.push(ResolvedAsset {
+            model_id: id.clone(),
+            host_dir: row.dir,
+            tree_sha256: row.tree_sha256,
+            method_id: row.method_id,
+            method_version: row.method_version,
+            env: TxrMethodEnv {
+                base_digest,
+                layer_digest,
+            },
+            contract: row.contract,
+        });
+    }
+    Ok(assets)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1909,6 +1974,66 @@ mod tests {
             .expect("count runs");
         assert_eq!(runs, 1, "the run row survives every store delete");
         assert!(!tree_dir(&digest).exists());
+
+        pool.close().await;
+        let _ = fs::remove_file(&path);
+    }
+
+    /// TEST-MS-14 (store half): `resolve_assets` — the PROV-MS-8 core returns
+    /// the engine's asset shape for a verified tree, refuses a tampered host
+    /// dir with 409 `MODEL_VERIFY_FAILED` BEFORE the asset leaves (DEC-5), and
+    /// answers 404 `MODEL_NOT_FOUND` for an unknown or unparseable id. The
+    /// tamper is one byte flipped in a STORED tree — content addressing means
+    /// the row's digest no longer matches the bytes.
+    #[tokio::test]
+    async fn resolve_assets_verifies_before_any_asset_leaves() {
+        let (root, _guard) = scratch_root("resolve");
+        let (pool, path) = test_pool().await;
+        let repo = ModelStoreRepository::new(pool.clone());
+
+        let (src, digest, _) = fixture_tree(&root, "resolve");
+        let dir = copy_tree(&src, &digest).expect("tree");
+        let row = repo
+            .insert_model(&row_for(&dir, &digest, None, "dynforest"))
+            .await
+            .expect("row");
+        let id = row.id.to_string();
+
+        // The verified asset: the engine's element shape (model_id, host_dir,
+        // tree_sha256, method_id, method_version, env, contract).
+        let assets = resolve_assets(&pool, &[id.clone()]).await.expect("resolve");
+        assert_eq!(assets.len(), 1);
+        let a = &assets[0];
+        assert_eq!(a.model_id, id);
+        assert_eq!(a.host_dir, dir.display().to_string());
+        assert_eq!(a.tree_sha256, digest);
+        assert_eq!(a.method_id, "dynforest");
+        assert_eq!(a.method_version, "1.2.0");
+        assert_eq!(a.contract, "2.0");
+        assert_eq!(a.env.base_digest, "sha256:base0000");
+        assert_eq!(a.env.layer_digest, "sha256:layer000");
+
+        // A tampered byte in the STORED tree: the resolve refuses with the
+        // seam's code at 409 (the plan's MODEL_VERIFY_FAILED) — and NO asset
+        // returns (the failure is per-request in the caller's selection; the
+        // engine only ever receives honest assets).
+        fs::write(dir.join("model.json"), b"tampered once").expect("tamper");
+        let err = resolve_assets(&pool, &[id.clone()]).await.expect_err("must refuse");
+        assert_eq!(err.status_code(), 409);
+        assert_eq!(err.error_code(), "MODEL_VERIFY_FAILED");
+        assert!(err.to_string().contains(&digest), "the failure names the digest");
+
+        // Unknown id → 404 MODEL_NOT_FOUND; an unparseable id → the same.
+        let err = resolve_assets(&pool, &[Uuid::new_v4().to_string()])
+            .await
+            .expect_err("unknown");
+        assert_eq!(err.status_code(), 404);
+        assert_eq!(err.error_code(), "MODEL_NOT_FOUND");
+        let err = resolve_assets(&pool, &["not-a-uuid".to_string()])
+            .await
+            .expect_err("unparseable");
+        assert_eq!(err.status_code(), 404);
+        assert_eq!(err.error_code(), "MODEL_NOT_FOUND");
 
         pool.close().await;
         let _ = fs::remove_file(&path);

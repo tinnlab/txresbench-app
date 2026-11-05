@@ -688,6 +688,8 @@ async fn the_route_matrix_is_401_403_with_the_health_control() {
         ("GET", format!("/txr/models/{id}/export")),
         ("PATCH", format!("/txr/models/{id}")),
         ("DELETE", format!("/txr/models/{id}")),
+        ("POST", "/txr/models/resolve".to_string()),
+        ("POST", "/txr/models/eligibility".to_string()),
         ("GET", "/txr/model-sets".to_string()),
         ("PATCH", format!("/txr/model-sets/{id}")),
         ("DELETE", format!("/txr/model-sets/{id}")),
@@ -838,4 +840,134 @@ async fn the_typed_request_validation_refusals() {
         .expect("blank rename");
     assert_eq!(resp.status().as_u16(), 400);
     assert_eq!(error_code(&resp.json().await.expect("body")), "INVALID_NAME");
+}
+
+/// TEST-MS-14 (acceptance, INV-3) — PROV-MS-8 over the real route:
+/// `POST /api/txr/models/resolve` returns the PROV-EE-9 asset shape (each
+/// element deserializes into the engine's own `TxrModelAsset` — the caller-
+/// side join's byte-compatibility), a tampered host_dir → 409
+/// `MODEL_VERIFY_FAILED` and NO asset (DEC-5: resolved assets are honest at
+/// hand-off), an unknown id → 404 `MODEL_NOT_FOUND`, an empty list → 400
+/// `EMPTY_MODELS`.
+#[tokio::test]
+async fn resolve_returns_verified_engine_assets() {
+    let server = TestServer::spawn().await;
+    let token = owner_token(&server).await;
+    let repo = TxrRepository::new(pool(&server).await);
+    let (run_id, _run_dir) =
+        seed_run_with_models(&server, &repo, "resolve-ms14", &[METHOD_A]).await;
+
+    let resp = server
+        .client
+        .post(server.api_url("/txr/models/save"))
+        .bearer_auth(&token)
+        .json(&json!({
+            "run_id": run_id,
+            "method_ids": [METHOD_A],
+            "target": {"set_name": "resolve cohort"},
+        }))
+        .send()
+        .await
+        .expect("save");
+    assert_eq!(resp.status().as_u16(), 201);
+    let saved: Value = resp.json().await.expect("save json");
+    let id = saved["models"][0]["id"].as_str().expect("id").to_string();
+
+    let resp = server
+        .client
+        .post(server.api_url("/txr/models/resolve"))
+        .bearer_auth(&token)
+        .json(&json!({"model_ids": [id]}))
+        .send()
+        .await
+        .expect("resolve");
+    assert_eq!(resp.status().as_u16(), 200);
+    let body: Value = resp.json().await.expect("resolve json");
+    let assets = body["assets"].as_array().expect("assets");
+    assert_eq!(assets.len(), 1);
+    let asset = &assets[0];
+    assert_eq!(asset["model_id"], json!(id));
+    assert_eq!(asset["method_id"], json!(METHOD_A));
+    let prod =
+        cytoanalyst::modules::execution_engine::repository::produced_models(&pool(&server).await, run_id)
+            .await
+            .expect("produced");
+    assert_eq!(asset["tree_sha256"], json!(prod[0].tree_sha256));
+    // The resolved host_dir is the STORE's content-addressed copy (DEC-2/3 —
+    // the row references the stored tree, never the run dir, which a later
+    // run delete can remove), under `<data_root>/models/trees/<digest>`.
+    let host_dir = asset["host_dir"].as_str().expect("host_dir");
+    let trees_root = server
+        .data_dir()
+        .join("models")
+        .join("trees")
+        .to_string_lossy()
+        .into_owned();
+    assert!(
+        host_dir.starts_with(trees_root.as_str()),
+        "resolved host_dir is the store's tree: {host_dir}"
+    );
+    assert!(host_dir.ends_with(&prod[0].tree_sha256));
+    assert!(std::path::Path::new(host_dir).is_dir());
+
+    // The engine's own element shape accepts the response verbatim (the
+    // caller-side join; the engine never imports this module).
+    let engine_asset: cytoanalyst::modules::execution_engine::types::TxrModelAsset =
+        serde_json::from_value(asset.clone()).expect("byte-compatible with TxrModelAsset");
+    assert_eq!(engine_asset.model_id, id);
+    assert_eq!(engine_asset.method_id, METHOD_A);
+    assert_eq!(engine_asset.tree_sha256, prod[0].tree_sha256);
+
+    // A tampered host dir (one byte flipped in the stored tree): 409
+    // MODEL_VERIFY_FAILED, no asset — the engine only ever receives honest
+    // assets.
+    let host_dir = std::path::PathBuf::from(asset["host_dir"].as_str().expect("host_dir"));
+    assert!(host_dir.is_dir());
+    let entry = std::fs::read_dir(&host_dir)
+        .expect("tree dir")
+        .map(|e| e.expect("entry").path())
+        .find(|p| p.is_file())
+        .expect("a model file");
+    let bytes = std::fs::read(&entry).expect("read");
+    let mut tampered = bytes.clone();
+    if let Some(last) = tampered.last_mut() {
+        *last = last.wrapping_add(1);
+    }
+    std::fs::write(&entry, tampered).expect("tamper");
+    let resp = server
+        .client
+        .post(server.api_url("/txr/models/resolve"))
+        .bearer_auth(&token)
+        .json(&json!({"model_ids": [id]}))
+        .send()
+        .await
+        .expect("resolve tampered");
+    assert_eq!(resp.status().as_u16(), 409);
+    assert_eq!(
+        error_code(&resp.json().await.expect("body")),
+        "MODEL_VERIFY_FAILED"
+    );
+
+    // Unknown id → 404; empty list → 400 EMPTY_MODELS.
+    let resp = server
+        .client
+        .post(server.api_url("/txr/models/resolve"))
+        .bearer_auth(&token)
+        .json(&json!({"model_ids": [Uuid::new_v4().to_string()]}))
+        .send()
+        .await
+        .expect("unknown resolve");
+    assert_eq!(resp.status().as_u16(), 404);
+    assert_eq!(error_code(&resp.json().await.expect("body")), "MODEL_NOT_FOUND");
+
+    let resp = server
+        .client
+        .post(server.api_url("/txr/models/resolve"))
+        .bearer_auth(&token)
+        .json(&json!({"model_ids": []}))
+        .send()
+        .await
+        .expect("empty resolve");
+    assert_eq!(resp.status().as_u16(), 400);
+    assert_eq!(error_code(&resp.json().await.expect("body")), "EMPTY_MODELS");
 }

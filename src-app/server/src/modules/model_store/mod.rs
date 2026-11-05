@@ -62,6 +62,7 @@
 //! this module computes no metrics, reads no CSV).
 
 pub mod container;
+pub mod eligibility;
 pub mod repository;
 pub mod routes;
 pub mod store;

@@ -1,8 +1,9 @@
-//! The model store's HTTP surface (PLAN Phase E, PROV-MS-2..MS-7) — the
+//! The model store's HTTP surface (PLAN Phase E + F, PROV-MS-2..MS-9) — the
 //! inventory (J/I), the save flow (L/L2), the `.txr` import/export (J's "open
-//! a model file" / L's "also save as a file") and the set CRUD. Resolution
-//! (PROV-MS-8) and eligibility (PROV-MS-9) register with ITEM-6; the doc ids
-//! for all thirteen are declared in [`super::types::ROUTE_DOC_IDS`].
+//! a model file" / L's "also save as a file"), the set CRUD, the verified
+//! reuse resolution (PROV-MS-8) and the per-model eligibility (PROV-MS-9,
+//! ITEM-6's `eligibility.rs`). The doc ids for all thirteen are declared in
+//! [`super::types::ROUTE_DOC_IDS`].
 //!
 //! All routes mount through [`super::ModelStoreModule::register_routes`] under
 //! the framework's `/api` prefix — `/api/txr/models*` +
@@ -32,8 +33,10 @@
 //!   `INVALID_SET_ID`) + the seam's `MODEL_VERIFY_FAILED`.
 //! - `404` — `MODEL_NOT_FOUND`, `SET_NOT_FOUND`, `RUN_NOT_FOUND`,
 //!   `MODEL_ASSET_UNKNOWN`.
-//! - `409` — `SET_NAME_TAKEN` (the repository's domain conflict), and the
-//!   save flow's `METHOD_NOT_FINISHED` / `METHOD_NOT_IN_CATALOGUE`.
+//! - `409` — `SET_NAME_TAKEN` (the repository's domain conflict), the
+//!   save flow's `METHOD_NOT_FINISHED` / `METHOD_NOT_IN_CATALOGUE`, and the
+//!   resolve flow's `MODEL_VERIFY_FAILED` (a host_dir that no longer matches
+//!   its recorded digest — the asset does not leave).
 //! - `422 LICENCE_REQUIRED` — never through the REST import (a reservation
 //!   for the pretrained seam, PROV-MS-6).
 //! - A body that is syntactically invalid JSON is the framework's `400`
@@ -58,11 +61,13 @@ use crate::modules::jobs::JobsUse;
 use crate::modules::model_store::types::ImportOutcome;
 use crate::modules::permissions::{with_permission, RequirePermissions};
 
+use super::eligibility;
 use super::repository::ModelStoreRepository;
 use super::store;
 use super::types::{
-    ModelDetail, ModelListQuery, ModelListResponse, ModelRequestError, ModelSaveResponse,
-    ModelSetListResponse, ModelSummary, RenameRequest, SaveModelsRequest, SetDeleteQuery,
+    ModelDetail, ModelEligibilityRequest, ModelEligibilityResponse, ModelListQuery,
+    ModelListResponse, ModelRequestError, ModelSaveResponse, ModelSetListResponse, ModelSummary,
+    RenameRequest, ResolveRequest, ResolveResponse, SaveModelsRequest, SetDeleteQuery,
     SetSummary,
 };
 
@@ -94,6 +99,14 @@ pub fn model_store_routes() -> ApiRouter {
         .api_route(
             "/txr/model-sets/{id}/export",
             get_with(export_set, export_set_docs).layer(DefaultBodyLimit::disable()),
+        )
+        .api_route(
+            "/txr/models/resolve",
+            post_with(resolve_models, resolve_models_docs),
+        )
+        .api_route(
+            "/txr/models/eligibility",
+            post_with(check_eligibility, check_eligibility_docs),
         )
 }
 
@@ -468,6 +481,48 @@ async fn delete_set(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PROV-MS-8 — POST /api/txr/models/resolve
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `POST /api/txr/models/resolve` (200) — the verified-artifact resolution
+/// (the `execution-engine` reuse contract): each id → the row's asset record
+/// with its `host_dir` RE-VERIFIED against the recorded `tree_sha256` before
+/// it leaves (409 `MODEL_VERIFY_FAILED` — the engine only ever sees an honest
+/// asset); the response's element shape is byte-compatible with
+/// `CreateRunRequest.model_ids[]`, so `ui-models` passes it straight through.
+async fn resolve_models(
+    _auth: RequirePermissions<(JobsUse,)>,
+    Extension(pool): Extension<SqlitePool>,
+    Json(req): Json<ResolveRequest>,
+) -> ApiResult<Json<ResolveResponse>> {
+    req.validate().map_err(request_err)?;
+    let assets = store::resolve_assets(&pool, &req.model_ids).await.map_err(e)?;
+    Ok((StatusCode::OK, Json(ResolveResponse { assets })))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROV-MS-9 — POST /api/txr/models/eligibility
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `POST /api/txr/models/eligibility` (200) — the I list's per-model verdicts:
+/// each model's RECORDED requirements against the file's inventory (the same
+/// `InventoryEligibilityRequest` object `file-validator`'s validation carries
+/// — one component feeds both eligibility providers). The verdicts use the
+/// PROV-MC-5 reason vocabulary + `MODEL_REQUIREMENTS_UNRECORDED`; the times
+/// come from the catalogue estimator.
+async fn check_eligibility(
+    _auth: RequirePermissions<(JobsUse,)>,
+    Extension(pool): Extension<SqlitePool>,
+    Json(req): Json<ModelEligibilityRequest>,
+) -> ApiResult<Json<ModelEligibilityResponse>> {
+    req.validate().map_err(request_err)?;
+    let resp = eligibility::eligible(&pool, &req.model_ids, &req.inventory)
+        .await
+        .map_err(e)?;
+    Ok((StatusCode::OK, Json(resp)))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Route docs (the 13 doc ids are pinned by `types::ROUTE_DOC_IDS`; the ids
 // below are the ITEM-5 half of that vocabulary — resolve + eligibility
 // register with ITEM-6)
@@ -573,4 +628,25 @@ fn export_set_docs(op: TransformOperation) -> TransformOperation {
         .response_with::<200, (), _>(|r| r.description("application/octet-stream — the .txr container"))
         .response_with::<404, (), _>(|r| r.description("Unknown set id (SET_NOT_FOUND)"))
         .response_with::<409, (), _>(|r| r.description("An empty set (EMPTY_SET)"))
+}
+
+fn resolve_models_docs(op: TransformOperation) -> TransformOperation {
+    with_permission::<(JobsUse,)>(op)
+        .description("Resolve model ids to the verified asset records the run engine binds on reuse (PROV-MS-8): each asset's host_dir is re-verified against the recorded tree digest before it leaves, so the engine only ever sees an honest asset. The response element shape is byte-compatible with `CreateRunRequest.model_ids[]` (the caller-side join — the engine never imports this module). 400 EMPTY_MODELS / TOO_MANY_MODELS; 404 MODEL_NOT_FOUND; 409 MODEL_VERIFY_FAILED.")
+        .id("Models.resolveModels")
+        .tag("models")
+        .response::<200, Json<ResolveResponse>>()
+        .response_with::<400, (), _>(|r| r.description("EMPTY_MODELS / TOO_MANY_MODELS"))
+        .response_with::<404, (), _>(|r| r.description("Unknown model id (MODEL_NOT_FOUND)"))
+        .response_with::<409, (), _>(|r| r.description("A host_dir no longer matches its recorded digest (MODEL_VERIFY_FAILED)"))
+}
+
+fn check_eligibility_docs(op: TransformOperation) -> TransformOperation {
+    with_permission::<(JobsUse,)>(op)
+        .description("The per-model eligibility verdicts for the I list: each model's RECORDED requirements against the file's inventory (the same `InventoryEligibilityRequest` one component feeds both eligibility providers). Verdicts use the PROV-MC-5 reason vocabulary plus MODEL_REQUIREMENTS_UNRECORDED (an imported container with no requirements is cannot_run — the store never invents requirements); the times come from the catalogue's estimator. 400 EMPTY_MODELS / TOO_MANY_MODELS; 404 MODEL_NOT_FOUND.")
+        .id("Models.checkEligibility")
+        .tag("models")
+        .response::<200, Json<ModelEligibilityResponse>>()
+        .response_with::<400, (), _>(|r| r.description("EMPTY_MODELS / TOO_MANY_MODELS"))
+        .response_with::<404, (), _>(|r| r.description("Unknown model id (MODEL_NOT_FOUND)"))
 }

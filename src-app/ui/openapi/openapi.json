@@ -10804,6 +10804,147 @@
         ]
       }
     },
+    "/api/txr/models/resolve": {
+      "post": {
+        "tags": [
+          "models"
+        ],
+        "description": "Resolve model ids to the verified asset records the run engine binds on reuse (PROV-MS-8): each asset's host_dir is re-verified against the recorded tree digest before it leaves, so the engine only ever sees an honest asset. The response element shape is byte-compatible with `CreateRunRequest.model_ids[]` (the caller-side join — the engine never imports this module). 400 EMPTY_MODELS / TOO_MANY_MODELS; 404 MODEL_NOT_FOUND; 409 MODEL_VERIFY_FAILED.",
+        "operationId": "Models.resolveModels",
+        "requestBody": {
+          "description": "`POST /api/txr/models/resolve` (PROV-MS-8): the ids to re-verify + hand off.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "`ResolveResponse` (PROV-MS-8).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResolveResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "EMPTY_MODELS / TOO_MANY_MODELS"
+          },
+          "404": {
+            "description": "Unknown model id (MODEL_NOT_FOUND)"
+          },
+          "409": {
+            "description": "A host_dir no longer matches its recorded digest (MODEL_VERIFY_FAILED)"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      }
+    },
+    "/api/txr/models/eligibility": {
+      "post": {
+        "tags": [
+          "models"
+        ],
+        "description": "The per-model eligibility verdicts for the I list: each model's RECORDED requirements against the file's inventory (the same `InventoryEligibilityRequest` one component feeds both eligibility providers). Verdicts use the PROV-MC-5 reason vocabulary plus MODEL_REQUIREMENTS_UNRECORDED (an imported container with no requirements is cannot_run — the store never invents requirements); the times come from the catalogue's estimator. 400 EMPTY_MODELS / TOO_MANY_MODELS; 404 MODEL_NOT_FOUND.",
+        "operationId": "Models.checkEligibility",
+        "requestBody": {
+          "description": "The one request shape `ui-list` feeds both eligibility engines: the file\n inventory PROV-MC-5's `InventoryEligibilityRequest` carries (VERBATIM — this\n module imports the provider's type, it does not restate it), plus the\n model ids to score.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelEligibilityRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "The eligibility response: per-model verdicts plus the screen totals.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelEligibilityResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "EMPTY_MODELS / TOO_MANY_MODELS"
+          },
+          "404": {
+            "description": "Unknown model id (MODEL_NOT_FOUND)"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      }
+    },
     "/api/sandbox/status": {
       "get": {
         "tags": [
@@ -19841,6 +19982,128 @@
           "warnings"
         ]
       },
+      "ModelEligibility": {
+        "description": "One model's I-list verdict (PROV-MS-9). `task` is the model's recorded\n outcome task and `endpoint` its recorded endpoint — the verdict is always\n about the model the user saved, never about the catalogue entry alone.",
+        "type": "object",
+        "properties": {
+          "coverage": {
+            "$ref": "#/components/schemas/Coverage"
+          },
+          "endpoint": {
+            "$ref": "#/components/schemas/TxrEndpoint"
+          },
+          "estimate_quality": {
+            "description": "The estimator's fact quality (measured from the benchmark, else the\n language fallback) — the plan's PROV-MC-6 pairing.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TimingQuality"
+              }
+            ]
+          },
+          "estimated_seconds": {
+            "description": "The catalogue estimator's value for the model's method; null when the\n method is absent from the catalogue (an imported model of a method the\n app no longer ships — the verdict still stands without a time).",
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "id": {
+            "type": "string"
+          },
+          "min_draws": {
+            "$ref": "#/components/schemas/MinDraws"
+          },
+          "missing_markers": {
+            "description": "The provider's [`MissingMarker`] shape (the board's \"2 lack LDH\" list).",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MissingMarker"
+            }
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelReason"
+            }
+          },
+          "status": {
+            "$ref": "#/components/schemas/EligibilityStatus"
+          },
+          "task": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TxrTask"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "endpoint",
+          "status",
+          "reasons",
+          "missing_markers",
+          "coverage",
+          "min_draws",
+          "estimate_quality"
+        ]
+      },
+      "ModelEligibilityRequest": {
+        "description": "The one request shape `ui-list` feeds both eligibility engines: the file\n inventory PROV-MC-5's `InventoryEligibilityRequest` carries (VERBATIM — this\n module imports the provider's type, it does not restate it), plus the\n model ids to score.",
+        "type": "object",
+        "properties": {
+          "inventory": {
+            "$ref": "#/components/schemas/InventoryEligibilityRequest"
+          },
+          "model_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "model_ids",
+          "inventory"
+        ]
+      },
+      "ModelEligibilityResponse": {
+        "description": "The eligibility response: per-model verdicts plus the screen totals.",
+        "type": "object",
+        "properties": {
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelEligibility"
+            }
+          },
+          "total_cannot": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "total_fit": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "total_some": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "models",
+          "total_fit",
+          "total_some",
+          "total_cannot"
+        ]
+      },
       "ModelListQuery": {
         "description": "The inventory list's optional filters (all optional; `q` is a substring on\n the model's name / method id).",
         "type": "object",
@@ -19927,6 +20190,41 @@
           "run",
           "imported",
           "pretrained"
+        ]
+      },
+      "ModelReason": {
+        "description": "One structured reason of a model verdict (code + per-code params; the\n display strings are the consumer's).",
+        "type": "object",
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ModelReasonCode"
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "code"
+        ]
+      },
+      "ModelReasonCode": {
+        "description": "The model eligibility reason-code vocabulary: PROV-MC-5's [`ReasonCode`]\n set (the SAME wire strings — a per-code renderer in the UI never meets an\n undocumented code) plus the store's own `MODEL_REQUIREMENTS_UNRECORDED`\n (DEC-6: a container that carried no requirements is `cannot_run` with that\n reason — the store never invents requirements). The `from_catalogue` mapper\n is exhaustive: a new provider code fails to compile here instead of\n silently passing through.",
+        "type": "string",
+        "enum": [
+          "REQUIRED_MARKER_MISSING",
+          "MARKER_GROUP_MISSING",
+          "DETECTION_CALL_MISSING",
+          "MIN_DRAWS_UNMET",
+          "COVARIATE_MISSING",
+          "COVARIATE_REQUIRED_UNMET",
+          "UNIT_MISMATCH",
+          "DECISION_DAY_UNMET",
+          "NOT_RUNNABLE",
+          "TASK_INCOMPATIBLE",
+          "RESPONSE_LABEL_MISSING",
+          "SURVIVAL_OUTCOME_MISSING",
+          "MODEL_REQUIREMENTS_UNRECORDED"
         ]
       },
       "ModelSaveResponse": {
@@ -21757,6 +22055,72 @@
           "invitation_id",
           "invite_token",
           "expires_at"
+        ]
+      },
+      "ResolveRequest": {
+        "description": "`POST /api/txr/models/resolve` (PROV-MS-8): the ids to re-verify + hand off.",
+        "type": "object",
+        "properties": {
+          "model_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "model_ids"
+        ]
+      },
+      "ResolveResponse": {
+        "description": "`ResolveResponse` (PROV-MS-8).",
+        "type": "object",
+        "properties": {
+          "assets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResolvedAsset"
+            }
+          }
+        },
+        "required": [
+          "assets"
+        ]
+      },
+      "ResolvedAsset": {
+        "description": "One verified asset (PROV-MS-8 / CONS-MS-9) — byte-compatible with\n `execution_engine::types::TxrModelAsset`'s `model_ids[]` element so\n `ui-models` passes the response straight through into\n `CreateRunRequest.model_ids` (DEC-10: the join happens at the caller; the\n engine never imports this module).",
+        "type": "object",
+        "properties": {
+          "contract": {
+            "type": "string"
+          },
+          "env": {
+            "$ref": "#/components/schemas/TxrMethodEnv"
+          },
+          "host_dir": {
+            "type": "string"
+          },
+          "method_id": {
+            "type": "string"
+          },
+          "method_version": {
+            "type": "string"
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "tree_sha256": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "model_id",
+          "host_dir",
+          "tree_sha256",
+          "method_id",
+          "method_version",
+          "env",
+          "contract"
         ]
       },
       "RestoreVersionRequest": {

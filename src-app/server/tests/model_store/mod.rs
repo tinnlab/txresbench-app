@@ -1,17 +1,16 @@
-//! The `model_store` integration suites (TEST-MS-08/09/10/15/16, the ITEM-5
-//! surface): the save-from-run flow, the inventory/set CRUD, the `.txr`
-//! import/export round trip over the real multipart route, the pretrained
-//! import seam and the route matrix — all over the real spawned server
-//! (`TestServer` + the local-owner mint) with rows seeded through the engine's
-//! own repository over the per-test DB (the `execution_engine` suite's
-//! discipline: no method runs here, every stateful shape is seeded, and the
-//! produced trees are synthetic opaque bytes — patient ids S0000.., markers
-//! M1/M2 — never real data, never the restricted trees).
-//!
-//! ITEM-6 will add `eligibility_test.rs` (TEST-MS-11..14) and ITEM-7 the
-//! guard runbook + README; the files here are the routes' verification.
+//! The `model_store` integration suites (TEST-MS-08..16): the save-from-run
+//! flow, the inventory/set CRUD, the `.txr` import/export round trip over the
+//! real multipart route, the pretrained import seam, the per-model eligibility
+//! (TEST-MS-13), the verified reuse resolution (TEST-MS-14) and the route
+//! matrix — all over the real spawned server (`TestServer` + the local-owner
+//! mint) with rows seeded through the engine's own repository over the
+//! per-test DB (the `execution_engine` suite's discipline: no method runs
+//! here, every stateful shape is seeded, and the produced trees are synthetic
+//! opaque bytes — patient ids S0000.., markers M1/M2 — never real data, never
+//! the restricted trees). ITEM-7 adds the guard runbook + README.
 
 mod api_test;
+mod eligibility_test;
 mod roundtrip_test;
 
 use std::path::{Path, PathBuf};

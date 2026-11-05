@@ -3944,6 +3944,53 @@ export interface ModelDetail {
 }
 
 /**
+ * One model's I-list verdict (PROV-MS-9). `task` is the model's recorded
+ *  outcome task and `endpoint` its recorded endpoint — the verdict is always
+ *  about the model the user saved, never about the catalogue entry alone.
+ */
+export interface ModelEligibility {
+  coverage: Coverage
+  endpoint: TxrEndpoint
+  /**
+   * The estimator's fact quality (measured from the benchmark, else the
+   *  language fallback) — the plan's PROV-MC-6 pairing.
+   */
+  estimate_quality: TimingQuality
+  /**
+   * The catalogue estimator's value for the model's method; null when the
+   *  method is absent from the catalogue (an imported model of a method the
+   *  app no longer ships — the verdict still stands without a time).
+   */
+  estimated_seconds?: number
+  id: string
+  min_draws: MinDraws
+  /** The provider's [`MissingMarker`] shape (the board's "2 lack LDH" list). */
+  missing_markers: MissingMarker[]
+  reasons: ModelReason[]
+  status: EligibilityStatus
+  task?: TxrTask
+}
+
+/**
+ * The one request shape `ui-list` feeds both eligibility engines: the file
+ *  inventory PROV-MC-5's `InventoryEligibilityRequest` carries (VERBATIM — this
+ *  module imports the provider's type, it does not restate it), plus the
+ *  model ids to score.
+ */
+export interface ModelEligibilityRequest {
+  inventory: InventoryEligibilityRequest
+  model_ids: string[]
+}
+
+/** The eligibility response: per-model verdicts plus the screen totals. */
+export interface ModelEligibilityResponse {
+  models: ModelEligibility[]
+  total_cannot: number
+  total_fit: number
+  total_some: number
+}
+
+/**
  * The inventory list's optional filters (all optional; `q` is a substring on
  *  the model's name / method id).
  */
@@ -3984,6 +4031,26 @@ export interface ModelMount {
  *  one, enforced at the pretrained seam).
  */
 export type ModelProvenance = 'run' | 'imported' | 'pretrained'
+
+/**
+ * One structured reason of a model verdict (code + per-code params; the
+ *  display strings are the consumer's).
+ */
+export interface ModelReason {
+  code: ModelReasonCode
+  params?: any
+}
+
+/**
+ * The model eligibility reason-code vocabulary: PROV-MC-5's [`ReasonCode`]
+ *  set (the SAME wire strings — a per-code renderer in the UI never meets an
+ *  undocumented code) plus the store's own `MODEL_REQUIREMENTS_UNRECORDED`
+ *  (DEC-6: a container that carried no requirements is `cannot_run` with that
+ *  reason — the store never invents requirements). The `from_catalogue` mapper
+ *  is exhaustive: a new provider code fails to compile here instead of
+ *  silently passing through.
+ */
+export type ModelReasonCode = 'REQUIRED_MARKER_MISSING' | 'MARKER_GROUP_MISSING' | 'DETECTION_CALL_MISSING' | 'MIN_DRAWS_UNMET' | 'COVARIATE_MISSING' | 'COVARIATE_REQUIRED_UNMET' | 'UNIT_MISMATCH' | 'DECISION_DAY_UNMET' | 'NOT_RUNNABLE' | 'TASK_INCOMPATIBLE' | 'RESPONSE_LABEL_MISSING' | 'SURVIVAL_OUTCOME_MISSING' | 'MODEL_REQUIREMENTS_UNRECORDED'
 
 /**
  * The save response (201): the set (created or grown), the saved rows and the
@@ -4848,6 +4915,33 @@ export interface ResendInvitationResponse {
    *  does. Resending invalidates the previous token.
    */
   invite_token: string
+}
+
+/** `POST /api/txr/models/resolve` (PROV-MS-8): the ids to re-verify + hand off. */
+export interface ResolveRequest {
+  model_ids: string[]
+}
+
+/** `ResolveResponse` (PROV-MS-8). */
+export interface ResolveResponse {
+  assets: ResolvedAsset[]
+}
+
+/**
+ * One verified asset (PROV-MS-8 / CONS-MS-9) — byte-compatible with
+ *  `execution_engine::types::TxrModelAsset`'s `model_ids[]` element so
+ *  `ui-models` passes the response straight through into
+ *  `CreateRunRequest.model_ids` (DEC-10: the join happens at the caller; the
+ *  engine never imports this module).
+ */
+export interface ResolvedAsset {
+  contract: string
+  env: TxrMethodEnv
+  host_dir: string
+  method_id: string
+  method_version: string
+  model_id: string
+  tree_sha256: string
 }
 
 /** Body for `POST /files/{id}/restore`. */
@@ -6508,12 +6602,14 @@ export type ApiEndpointParameters = {
   'ModelSets.exportSet': { id: string }
   'ModelSets.listSets': void
   'ModelSets.renameSet': { id: string } & RenameRequest
+  'Models.checkEligibility': ModelEligibilityRequest
   'Models.deleteModel': { id: string }
   'Models.exportModel': { id: string }
   'Models.getModel': { id: string }
   'Models.importModel': FormData
   'Models.listModels': { provenance?: ModelProvenance; q?: string; set_id?: string }
   'Models.renameModel': { id: string } & RenameRequest
+  'Models.resolveModels': ResolveRequest
   'Models.saveModels': SaveModelsRequest
   'Notification.delete': { id: string }
   'Notification.get': { id: string }
@@ -6723,12 +6819,14 @@ export type ApiEndpointResponses = {
   'ModelSets.exportSet': void
   'ModelSets.listSets': ModelSetListResponse
   'ModelSets.renameSet': SetSummary
+  'Models.checkEligibility': ModelEligibilityResponse
   'Models.deleteModel': void
   'Models.exportModel': void
   'Models.getModel': ModelDetail
   'Models.importModel': ImportOutcome
   'Models.listModels': ModelListResponse
   'Models.renameModel': ModelSummary
+  'Models.resolveModels': ResolveResponse
   'Models.saveModels': ModelSaveResponse
   'Notification.delete': void
   'Notification.get': Notification
