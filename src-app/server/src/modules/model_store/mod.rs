@@ -61,6 +61,7 @@
 //! code; `size_bytes` / `own_auc` are the ENGINE's recorded fields (GAP-B/C —
 //! this module computes no metrics, reads no CSV).
 
+pub mod container;
 pub mod repository;
 pub mod store;
 pub mod types;
