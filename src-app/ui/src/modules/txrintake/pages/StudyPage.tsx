@@ -160,6 +160,7 @@ const PILL_SELECTED: CSSProperties = {
 
 const BUTTON_ROW: CSSProperties = {
   display: 'flex',
+  flexWrap: 'wrap',
   alignItems: 'center',
   gap: 14,
   paddingTop: 20,

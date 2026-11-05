@@ -218,7 +218,7 @@ const EXAMPLE_CODE: CSSProperties = {
   fontFamily: "'Source Code Pro', monospace",
 }
 
-const DOWNLOADS: CSSProperties = { display: 'flex', gap: 14, alignItems: 'center' }
+const DOWNLOADS: CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center' }
 const DOWNLOAD_LINK: CSSProperties = {
   fontSize: 13.5,
   color: '#1d4e89',
