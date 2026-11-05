@@ -7,6 +7,7 @@ import {
   moduleNameFromPath,
   type DiscoveredGallery,
   type ModuleGallery,
+  type SpecialRoute,
 } from '@ziee/gallery'
 import {
   ACCENT_ORDER,
@@ -27,10 +28,13 @@ import '@/index.css'
 // Per-module `gallery.tsx` surfaces (overlays / seeded / cassettes). None yet —
 // pages are auto-enumerated from the router store. `import.meta.glob` MUST live
 // in the app (Vite-only), which is why the gallery injects `discoverGalleries`.
-const moduleGalleries = import.meta.glob<{ gallery?: ModuleGallery }>(
-  '../../modules/**/gallery.{ts,tsx}',
-  { eager: true },
-)
+// A module may also ship byte/error mock routes (`txrMockRoutes` — the txrresults
+// module answers its SSE stream and CSV download, which the JSON cassette cannot
+// express); they are gathered here and passed to `mountGallery({ specialRoutes })`.
+const moduleGalleries = import.meta.glob<{
+  gallery?: ModuleGallery
+  txrMockRoutes?: Array<{ route: SpecialRoute }>
+}>('../../modules/**/gallery.{ts,tsx}', { eager: true })
 
 mountGallery({
   discoverGalleries: (): DiscoveredGallery[] =>
@@ -43,6 +47,7 @@ mountGallery({
 
   apiEndpoints: ApiEndpoints as unknown as Record<string, string>,
   crawlCassette: galleryCassette,
+  specialRoutes: Object.values(moduleGalleries).flatMap(m => m.txrMockRoutes?.flatMap(e => e.route) ?? []),
 
   loadModules,
   seedAuth,
