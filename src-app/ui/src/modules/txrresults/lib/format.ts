@@ -1,0 +1,329 @@
+/**
+ * txrresults board copy formatters (ITEM-3) — every user-facing string the
+ * G/H screens derive from a number or a structured fact, written verbatim
+ * from `BusyResults.dc.html` / `Results.dc.html`, plus the copy constants the
+ * compare card templates.
+ *
+ * The boards are the copy source (PROV-UR-5, README's "Copy source"): the
+ * subtitle segments (the counts segment, the learned-from segment, the
+ * decision-day segment, the took segment — board-joined with " · "), the
+ * outcome-tab labels ("Progression or death by day 238"), the banner
+ * sentence ("could not run: LDH is not in your measurements."), the
+ * compare-card sentences and the legend. The boards' NUMBERS (their patient
+ * and method counts, the day values, the P0xxx ids) are design examples,
+ * never data — these formatters only format whatever the engine's run
+ * detail/predictions response passes.
+ *
+ * The formatters are pure and never blank: a null datum yields a null SEGMENT
+ * (the header omits it — a run whose elapsed time is unknown shows no
+ * "took …" piece, never an empty run in the sentence), and
+ * `formatReasonText` always returns a non-empty sentence (the engine's
+ * detail verbatim when it has one, a constant fallback line otherwise —
+ * DEC-15: the display text is the consumer's; this node never reconstructs
+ * the provider's per-code reasons).
+ *
+ * DEC-10: `formatTook` is module-local. `txrlist`'s `formatDurationShort`
+ * renders the list-screen row time ("about 5 min") — a different rendering
+ * from the results subtitle's precise "11 minutes 20 seconds"; no cross-node
+ * seam is created for it.
+ */
+import type { TxrOutcomeKey } from '../types'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The compare-card copy constants (DEC-7 / OWNER-UR-2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The divergent-only window: a patient "differs" when the two methods'
+ * chances differ by ≥ 10 percentage points (the compare card's "Show only
+ * the patients where they differ" filter). A named constant, never an inline
+ * magic number — the owner-question default (OWNER-UR-2: 3 names / 3 names /
+ * 10 points, confirmed D43).
+ */
+export const DIVERGENCE_PP = 10
+
+/** The compare-card title (`Results.dc.html`: "How the two methods compare"). */
+export const COMPARE_CARD_TITLE = 'How the two methods compare'
+
+/** The first compare sentence's lead — "Both methods put <patients> …". */
+export const SHARED_TOP_LEAD = 'Both methods put'
+
+/** The first compare sentence's tail — "… among their five highest chances." */
+export const SHARED_TOP_TAIL = 'among their five highest chances'
+
+/** The first compare sentence when the top-5 sets do not intersect. */
+export const SHARED_TOP_NONE = 'Both methods share no patients among their five highest chances'
+
+/** The second compare sentence's lead — "They differ most for <patients> (a% and b%)". */
+export const DIFFER_LEAD = 'They differ most for'
+
+/** The second compare sentence when no patient diverges at all. */
+export const DIFFER_NONE = 'They do not differ for any patient'
+
+/** The divergent-only toggle label (`Results.dc.html`, verbatim). */
+export const DIVERGENT_TOGGLE = 'Show only the patients where they differ'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// `formatTook` — the subtitle's "took 11 minutes 20 seconds" duration
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The precise duration the G/H subtitle carries (the board's "took 11
+ * minutes 20 seconds" — deliberately NOT `txrlist`'s "about N min" row
+ * form, DEC-10):
+ *
+ * - a null / non-finite / negative datum → `null` (the header omits the
+ *   "took …" segment — never a fabricated zero);
+ * - under a minute → "under a minute" (the board's short form; the
+ *   tested pins: 45 → "under a minute", 59 → "under a minute");
+ * - an exact minute count → "1 minute" / "N minutes" (60 → "1 minute");
+ * - otherwise the exact minutes + seconds, singular/plural per part
+ *   (90 → "1 minute 30 seconds", 680 → "11 minutes 20 seconds").
+ *
+ * Durations of an hour or more keep counting minutes (the board's longest
+ * duration unit is minutes; a 5000-second run reads "83 minutes 20
+ * seconds", never a new hours render).
+ */
+export function formatTook(seconds: number | null): string | null {
+  if (seconds === null || !Number.isFinite(seconds) || seconds < 0) return null
+  if (seconds < 60) return 'under a minute'
+  let mins = Math.floor(seconds / 60)
+  let secs = Math.round(seconds - mins * 60)
+  if (secs === 60) {
+    mins += 1
+    secs = 0
+  }
+  const minutePart = `${mins} ${mins === 1 ? 'minute' : 'minutes'}`
+  if (secs === 0) return minutePart
+  return `${minutePart} ${secs} ${secs === 1 ? 'second' : 'seconds'}`
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// `formatPct` — whole percents
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A chance as a whole percent string ("77%") — the heatmap value labels, the
+ * Average column and the compare card's "(77% and 52%)".
+ *
+ * - null / non-finite → `null` (an abstain value renders empty, never "0%");
+ * - rounded to the nearest whole percent and clamped to the board's 0–100
+ *   legend (a provider value outside the window is a percentage of 0–100,
+ *   never "101%");
+ * - the returned digits are plain ASCII 0–9, so the tabular-numeral
+ *   rendering (`font-variant-numeric: tabular-nums` on the value, PROV-UR-5)
+ *   has fixed-width digits to work on.
+ */
+export function formatPct(value: number | null): string | null {
+  if (value === null || !Number.isFinite(value)) return null
+  const whole = Math.round(value)
+  return `${Math.min(100, Math.max(0, whole))}%`
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// `formatTaskLabel` — the outcome-tab labels (DEC-4)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The outcome-tab label for one task (DEC-4, the G/H tablist):
+ *
+ * - `pfs` → "Progression or death by day <horizon>" (the board's tab 1);
+ * - `os` → "Death by day <horizon>" (the board's tab 2);
+ * - `response` → "No response by day <horizon>" — the third tab appears
+ *   only when a finished method's task normalizes to `response` (OWNER-UR-1
+ *   default, confirmed D42: the response horizon is the run's label day
+ *   when present, else the run horizon — the CALLER resolves the day, this
+ *   formatter only spells it).
+ */
+export function formatTaskLabel(key: TxrOutcomeKey, horizon: number): string {
+  switch (key) {
+    case 'pfs':
+      return `Progression or death by day ${horizon}`
+    case 'os':
+      return `Death by day ${horizon}`
+    case 'response':
+      return `No response by day ${horizon}`
+  }
+  // Exhaustive over TxrOutcomeKey: a new outcome key added to the pinned
+  // union fails THIS line at compile time until its board label is spelled.
+  const _exhaustive: never = key
+  return _exhaustive
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The header subtitle segments (PROV-UR-5)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The facts the G/H header subtitle formats (PROV-UR-5). */
+export interface TxrSubtitleFacts {
+  /** `run.counts.finished` — methods that reached `finished`. */
+  finished: number | null
+  /** The run's selected-method count (`run.counts` total or `method_ids.length`). */
+  total: number | null
+  /** `run.input_summary.patients` — the training cohort size ("learned from …"). */
+  trainedOn: number | null
+  /** `run.config.decision_day`. */
+  decisionDay: number | null
+  /** `run.elapsed_secs` — null while the run has no elapsed time yet. */
+  tookSeconds: number | null
+}
+
+/**
+ * The counts segment ("<n> of <m> methods finished"). Either count null →
+ * `null` (the header omits the segment); the noun is singular at a
+ * single-method run ("0 of 1 method finished"), the board's plural stays
+ * verbatim otherwise.
+ */
+export function formatCounts(finished: number | null, total: number | null): string | null {
+  if (finished === null || total === null || !Number.isFinite(finished) || !Number.isFinite(total)) {
+    return null
+  }
+  return `${finished} of ${total} ${total === 1 ? 'method' : 'methods'} finished`
+}
+
+/**
+ * The learned-from segment ("learned from <n> patients", OWNER-UR-6,
+ * confirmed D47: a reuse-mode run whose `input_summary.patients` is null
+ * omits the segment).
+ */
+export function formatLearnedFrom(patients: number | null): string | null {
+  if (patients === null || !Number.isFinite(patients)) return null
+  return `learned from ${patients} ${patients === 1 ? 'patient' : 'patients'}`
+}
+
+/** The "decision day 56" segment. Null day → `null` (segment omitted). */
+export function formatDecisionDay(day: number | null): string | null {
+  if (day === null || !Number.isFinite(day)) return null
+  return `decision day ${day}`
+}
+
+/**
+ * The full subtitle, segment-wise: each segment is omitted when its datum is
+ * null (no empty runs in the sentence — a run with no elapsed time yet
+ * reads the counts, learned-from and decision-day segments only), and the
+ * segments join with the board's " · " separator. For a fully-populated run
+ * the board's verbatim bytes are:
+ *
+ * `<n> of <m> methods finished · learned from <p> patients · decision day <d> · took <s> minutes <z> seconds`
+ */
+export function formatSubtitle(facts: TxrSubtitleFacts): string {
+  const segments: string[] = []
+  const counts = formatCounts(facts.finished, facts.total)
+  const learned = formatLearnedFrom(facts.trainedOn)
+  const day = formatDecisionDay(facts.decisionDay)
+  const took = formatTook(facts.tookSeconds)
+  if (counts !== null) segments.push(counts)
+  if (learned !== null) segments.push(learned)
+  if (day !== null) segments.push(day)
+  if (took !== null) segments.push(`took ${took}`)
+  return segments.join(' \u00b7 ')
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// `formatReasonText` — the cannot-run banner's reason sentence (DEC-15)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The fallback sentence when the engine's reason carries no readable detail
+ * (never a blank line — DEC-15). Points at the banner's own "Show the log"
+ * affordance.
+ */
+export const REASON_FALLBACK = 'see the log for the reason'
+
+/** A sentence ending: a detail already terminated stays as the engine wrote it. */
+function ensureSentenceEnd(text: string): string {
+  const trimmed = text.trim()
+  if (/[.!?]$/.test(trimmed)) return trimmed
+  return `${trimmed}.`
+}
+
+/**
+ * The banner's reason sentence ("LDH is not in your measurements.",
+ * `BusyResults.dc.html`). Display text is the consumer's (DEC-15): when the
+ * engine's `reason.detail` is present it is rendered VERBATIM (trimmed,
+ * sentence-terminated — the banner composes "could not run: <this>. The
+ * other N methods are shown."); when it is empty, the code is unknown or
+ * none exists, the constant `REASON_FALLBACK` sentence is returned — never a
+ * blank or a bare code string (this node does not re-render `reason.code`s:
+ * those are the intake/list screens' and the logs').
+ */
+export function formatReasonText(
+  code: string | null | undefined,
+  detail: string | null | undefined,
+): string {
+  void code
+  const d = detail?.trim()
+  if (d && d.length > 0) return ensureSentenceEnd(d)
+  return ensureSentenceEnd(REASON_FALLBACK)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// `formatSavedIn` — the "Saved in <path>" display path
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The run directory as the H aside's "Saved in" line shows it (the board's
+ * mono span, `Results.dc.html`: "Documents/TxResBench/analysis-2026-10-21-1002/").
+ * The engine's `run.dir` is the absolute path the run lives at (D01's hidden
+ * app-data folder); this formatter returns it trimmed, with exactly one
+ * trailing slash so the folder presentation matches the board's span. A
+ * null/empty/whitespace dir → `null` (the aside omits the line — never a
+ * blank path). The board's "Documents/TxResBench/…" shortening is a design
+ * example; the real configured path renders as-is.
+ */
+export function formatSavedIn(dir: string | null | undefined): string | null {
+  if (dir === null || dir === undefined) return null
+  const trimmed = dir.trim()
+  if (trimmed.length === 0) return null
+  const withoutSlash = trimmed.replace(/\/+$/, '')
+  if (withoutSlash.length === 0) return '/'
+  return `${withoutSlash}/`
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The compare-card sentence builders (DEC-7)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Patient ids as the compare card names them: "S0081, S0092 and S0093"
+ * (comma-joined, "and" before the last — the board's own punctuation, no
+ * Oxford comma). One id → the id alone; none → "".
+ */
+export function formatPatientList(patientIds: ReadonlyArray<string>): string {
+  const ids = patientIds.filter(id => id.length > 0)
+  if (ids.length === 0) return ''
+  if (ids.length === 1) return ids[0]
+  return `${ids.slice(0, -1).join(', ')} and ${ids[ids.length - 1]}`
+}
+
+/**
+ * The compare card's first sentence: "Both methods put S0081, S0092 and
+ * S0093 among their five highest chances." — the intersection of the two
+ * methods' top-5 sets, at most three names (DEC-7's cap is the report's;
+ * this formatter spells whatever the report carries). An empty intersection
+ * reads the constant `SHARED_TOP_NONE` sentence — never a blank line.
+ */
+export function formatSharedTopSentence(rows: ReadonlyArray<{ patientId: string }>): string {
+  const ids = rows.map(r => r.patientId)
+  if (ids.length === 0) return `${SHARED_TOP_NONE}.`
+  return `${SHARED_TOP_LEAD} ${formatPatientList(ids)} ${SHARED_TOP_TAIL}.`
+}
+
+/**
+ * The compare card's second sentence: "They differ most for S0099 (77% and
+ * 52%) and S0101 (35% and 57%)." — the top divergences with both methods'
+ * chances as whole percents, joined the board's way ("and", no Oxford
+ * comma). A null chance (an abstain) renders "—" in that slot; a card with
+ * no differing patient reads the constant `DIFFER_NONE` sentence.
+ */
+export function formatDifferSentence(
+  rows: ReadonlyArray<{ patientId: string; a: number | null; b: number | null }>,
+): string {
+  const parts = rows.map(row => {
+    const a = formatPct(row.a) ?? '\u2014'
+    const b = formatPct(row.b) ?? '\u2014'
+    return `${row.patientId} (${a} and ${b})`
+  })
+  if (parts.length === 0) return `${DIFFER_NONE}.`
+  return `${DIFFER_LEAD} ${parts.join(' and ')}.`
+}
