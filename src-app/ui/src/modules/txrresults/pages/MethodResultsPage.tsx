@@ -3,11 +3,10 @@ import type { CSSProperties } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useStore } from 'zustand'
 import { Button, ErrorState, Skeleton } from '@ziee/kit'
-import { isDesktop } from '@/core/platform'
 import type { TxrRunDetail } from '@/api-client/types'
 import { TxrResults, useTxrResultsStore } from '../stores/Results.store'
 import { buildColumns, compareReport, divergentPatients, sortByFirstMethod, viewOf } from '../lib/heatmap'
-import { compareResultsPath, methodResultsPath } from '../routes'
+import { compareResultsPath, methodResultsPath, downloadPredictionsCsv, revealRunDir } from '../index'
 import { TxrResultsHeader } from '../components/TxrResultsHeader'
 import { TxrCannotRunBanner } from '../components/TxrCannotRunBanner'
 import { TxrMethodTabs } from '../components/TxrMethodTabs'
@@ -17,7 +16,6 @@ import { TxrCompareCard } from '../components/TxrCompareCard'
 import { TxrMethodAside } from '../components/TxrMethodAside'
 import { TxrChanceDialog } from '../components/TxrChanceDialog'
 import { TxrLogDialog } from '../components/TxrLogDialog'
-import { downloadPredictions } from './ResultsPage'
 import type { TxrOutcomeKey } from '../types'
 
 /**
@@ -111,24 +109,6 @@ const DOWNLOAD_ERROR: CSSProperties = {
 function endpointKeyOf(run: TxrRunDetail): TxrOutcomeKey {
   const endpoint = run.outcome?.endpoint ?? run.config?.endpoint
   return endpoint === 'os' ? 'os' : 'pfs'
-}
-
-/**
- * The folder-reveal seam's page wiring (PROV-UR-7, staged here until
- * ITEM-10's `lib/reveal.ts` takes it over — the ITEM-8 download-plumbing
- * precedent): only ever invoked under `isDesktop()`; a failed reveal is
- * swallowed to the path-only rendering (web mode renders no button at all,
- * TEST-UR-16's positive control).
- */
-function revealRunDir(dir: string): Promise<void> {
-  if (!isDesktop()) return Promise.resolve()
-  const tauri = (window as unknown as { __TAURI__?: { core?: { invoke: (cmd: string, args?: unknown) => Promise<unknown> } } }).__TAURI__
-  const invoke = tauri?.core?.invoke
-  if (!invoke) return Promise.resolve()
-  return invoke('reveal_in_file_manager', { path: dir }).then(
-    () => undefined,
-    () => undefined,
-  )
 }
 
 function LoadingResults() {
@@ -313,7 +293,7 @@ export function MethodResultsPage() {
   const handleDownload = () => {
     if (!runId) return
     setDownloadFailed(false)
-    void downloadPredictions(runId).catch(() => setDownloadFailed(true))
+    void downloadPredictionsCsv(runId).catch(() => setDownloadFailed(true))
   }
 
   return (

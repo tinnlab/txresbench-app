@@ -3,11 +3,11 @@ import type { CSSProperties } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useStore } from 'zustand'
 import { Button, ErrorState, Skeleton } from '@ziee/kit'
-import { ApiClient } from '@/api-client'
 import type { TxrRunDetail } from '@/api-client/types'
 import type { TxrOutcomeKey } from '../types'
 import { TxrResults, useTxrResultsStore } from '../stores/Results.store'
 import { buildColumns, viewOf } from '../lib/heatmap'
+import { downloadPredictionsCsv } from '../index'
 import { TxrResultsHeader } from '../components/TxrResultsHeader'
 import { TxrCannotRunBanner } from '../components/TxrCannotRunBanner'
 import { TxrOutcomeTabs } from '../components/TxrOutcomeTabs'
@@ -40,9 +40,9 @@ import { TxrLogDialog } from '../components/TxrLogDialog'
  * controls row (outcome tabs + search/sort/methods bar) → the heatmap.
  * The page derives the view through `lib/heatmap.ts` at render time (the
  * ONE derivation path; the components are presentational). The three
- * header actions wire here: download (ITEM-10 lifts this page-local
- * plumbing into `lib/download.ts`), save-models (the header emits the
- * framework event; the host is `ui-models`), New analysis (`/`).
+ * header actions wire here: download (ITEM-10's `lib/download.ts` through
+ * the barrel), save-models (the header emits the framework event; the
+ * host is `ui-models`), New analysis (`/`).
  */
 
 const PAGE_MAIN: CSSProperties = {
@@ -98,48 +98,6 @@ const DOWNLOAD_ERROR: CSSProperties = {
 function endpointKeyOf(run: TxrRunDetail): TxrOutcomeKey {
   const endpoint = run.outcome?.endpoint ?? run.config?.endpoint
   return endpoint === 'os' ? 'os' : 'pfs'
-}
-
-/**
- * Save `text` as the `predictions-<runId>.csv` download — the blob + anchor
- * pattern (`ProvenanceExport` precedent): the anchor is appended to the
- * document (browsers need it in the tree), clicked, removed, and the object
- * URL revoked on the same tick. ITEM-10's `lib/download.ts` takes over this
- * plumbing (PROV-UR-6) and its own test (TEST-UR-8) pins it there.
- */
-function saveTextAsFile(filename: string, text: string): void {
-  const blob = new Blob([text], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filename
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
-  URL.revokeObjectURL(url)
-}
-
-/**
- * The predictor CSV, byte passthrough through the generated client (the
- * transport resolves `text/csv` to the response text — the generated type
- * says `void`, so the one-seam cast with a byte guard keeps a bodiless
- * response loud instead of silently saving nothing). Downloading requires
- * no terminal run state: the engine's CSV is served while the run is
- * active, so the button works exactly when predictions are not
- * `'unavailable'` (the ITEM-6 boundary).
- *
- * Exported so screen H's page shares the plumbing; ITEM-10 lifts it into
- * `lib/download.ts` and both pages switch to the barrel export (PLAN note
- * (ag)).
- */
-export function downloadPredictions(runId: string): Promise<void> {
-  return ApiClient.Txr.downloadPredictions({ id: runId }).then(body => {
-    const text = body as unknown as string
-    if (typeof text !== 'string' || text.length === 0) {
-      throw new Error('the predictions download came back empty')
-    }
-    saveTextAsFile(`predictions-${runId}.csv`, text)
-  })
 }
 
 function LoadingResults() {
@@ -311,7 +269,7 @@ export function ResultsPage() {
   const handleDownload = () => {
     if (!runId) return
     setDownloadFailed(false)
-    void downloadPredictions(runId).catch(() => setDownloadFailed(true))
+    void downloadPredictionsCsv(runId).catch(() => setDownloadFailed(true))
   }
 
   return (

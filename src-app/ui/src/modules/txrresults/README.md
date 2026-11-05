@@ -26,6 +26,20 @@ leave-and-continue, `ui-history`'s screen-K "reopen results"). `compare` and
 `methods` are reserved path words: they are route segments, never method ids
 (catalog ids are slugs such as `landmark-cox-current`).
 
+## Helper seams
+
+The barrel re-exports the two action seams the sibling modules share
+(GAP-HIST-4): `downloadPredictionsCsv(runId)` — the generated-client
+passthrough that saves `predictions-<runId>.csv` locally (the transport
+resolves `text/csv` to the text; the file is a browser download, never a
+network call), and `revealRunDir(dir)` — the desktop-gated
+`reveal_in_file_manager` invoke (a failed reveal resolves silently to the
+path-only rendering). `ui-history`'s screen-K "Download predictions" / "Open
+the folder" import through this barrel; they never own a seam-mirror. The
+download's only "write" is the local file; the reveal's only call is the
+desktop command under `isDesktop()` — web mode renders the path with no
+button (INV-3/6).
+
 ## Events
 
 The module declares two framework EventBus events (AppEvents declaration
