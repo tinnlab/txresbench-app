@@ -128,9 +128,13 @@ describe('txrresults events (TEST-UR-12 / growth TEST-UR-10)', () => {
   })
 
   it('spells no status words and no the-scanned literal in the published surface (INV-4)', () => {
+    // Same precision as module.test.ts's scan (DRIFT-1 ITEM-6): the kit
+    // input-hint prop occurrences are INPUT AFFORDANCES, not copy marks.
+    const kitHintProp = new RegExp('place' + 'holder' + '\\s*=\\s*"[^"]*"', 'gi')
     const own = publishedSurface(MODULE_DIR)
       .map(p => readFileSync(p, 'utf8'))
       .join('\n')
+      .replace(kitHintProp, '')
       .toLowerCase()
     const statusWords = [
       'to' + 'do',

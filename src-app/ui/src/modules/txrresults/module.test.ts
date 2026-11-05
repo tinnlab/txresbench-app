@@ -164,9 +164,18 @@ describe('txrresults module (TEST-UR-13)', () => {
   })
 
   it('carries no status words and no literal design-example numbers in its own files (INV-4/5)', () => {
+    // The status-word scan targets SHIPPED COPY that promises or announces
+    // work not yet done. The kit `Input`/`MultiSelect` input-hint props
+    // (spelled exactly like one of those status words) are INPUT AFFORDANCES,
+    // not copy marks — their API occurrences (`placeholder="…"`,
+    // `searchPlaceholder="…"`) are stripped before the word scan; any other
+    // spelling in comments, copy or fixtures still fails. Same precision as
+    // the txrintake scan (its ITEM-5); DRIFT-1 ITEM-6.
+    const kitHintProp = new RegExp('place' + 'holder' + '\\s*=\\s*"[^"]*"', 'gi')
     const own = ownSourceFiles(MODULE_DIR)
       .map(p => readFileSync(p, 'utf8'))
       .join('\n')
+      .replace(kitHintProp, '')
       .toLowerCase()
     const statusWords = ['to' + 'do', 't' + 'bd', 'place' + 'holder', 'coming so' + 'on', 'in pro' + 'gress']
     for (const word of statusWords) {
