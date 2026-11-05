@@ -76,8 +76,10 @@
 //! engine's detail uses); all six routes gate on the reused `JobsUse`
 //! permission (DEC-15 — no new permission, A10 not triggered).
 
+pub mod repository;
 pub mod types;
 
+pub use repository::{HistoryQueryError, HistoryRepository};
 pub use types::{
     HistoryErrorCode, HistoryLimits, TxrHistoryBucket, TxrHistoryCopies, TxrHistoryDetail,
     TxrHistoryEstimate, TxrHistoryFileSize, TxrHistoryItem, TxrHistoryKind,
