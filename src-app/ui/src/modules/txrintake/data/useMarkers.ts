@@ -3,22 +3,38 @@
  * (PROV-UI-INTAKE-3, CONS-UI-INTAKE-1): `GET /api/markers` →
  * `MarkerVocabularyResponse {markers, groups}` (PROV-MC-4). The B screen
  * renders ONE checkbox per `groups` entry (id + board display_name); the
- * full `markers` list rides along for ITEM-10's deep tests and the
- * module's later vocabulary surfaces.
+ * full `markers` list rides along for the module's vocabulary surfaces.
  *
  * The generated operation id is `ApiClient.MethodCatalogue.markers` — the
  * real provider id; the plan's `Markers.list` assertion is a recorded
  * reconcile fact (DRIFT-1 ITEM-2 #4).
  *
+ * Fetch semantics (ITEM-10 — the plan's "cached by stable key; no refetch
+ * storm on mount"): the vocabulary is ONE static response per catalogue,
+ * so the hook reads the module-level fetch cache under the module's
+ * stable key `MARKERS_KEY` (`data/fetchCache.ts`). A fresh mount that
+ * finds a settled entry renders its groups/markers immediately (no
+ * loading flash, no request);
+ * two mounts that arrive while one request is in flight join the SAME
+ * promise (one round trip, and the dev double-mount pays one fetch); a
+ * failed fetch is never cached, so the next mount retries; `refetch()`
+ * drops the key and re-issues — a deliberate retry always hits the wire
+ * (the `useStudyPreview` rule).
+ *
  * This file is ITEM-10's planned home (its TEST-INT-5 deep tests land
- * there); ITEM-5 creates it because the Study page is compile-blocked
+ * there); ITEM-5 created it because the Study page is compile-blocked
  * without it — the ITEM-4 `useRunnableMethodCount` precedent (DRIFT-1
  * ITEM-4 #1), and the hook surface stays the plan's
  * `{groups, markers, loading, error, refetch}`.
  */
 import { useCallback, useEffect, useState } from 'react'
 import { ApiClient } from '@/api-client'
-import type { MarkerGroup, VocabularyMarker } from '@/api-client/types'
+import type {
+  MarkerGroup,
+  MarkerVocabularyResponse,
+  VocabularyMarker,
+} from '@/api-client/types'
+import { dropCached, fetchCached, readCached } from './fetchCache'
 
 export interface UseMarkersResult {
   /** The board's marker groups (the 7 checkboxes); empty while loading. */
@@ -36,31 +52,43 @@ export interface UseMarkersResult {
 /** The stable key — the vocabulary is ONE static response, fetched once. */
 const MARKERS_KEY = 'markers:all'
 
+/** The error line for the fetch (the Datasets-store idiom). */
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : 'Failed to load the marker list'
+}
+
 export function useMarkers(): UseMarkersResult {
-  const [groups, setGroups] = useState<MarkerGroup[]>([])
-  const [markers, setMarkers] = useState<VocabularyMarker[]>([])
-  const [loading, setLoading] = useState(true)
+  // A settled cache entry renders on the first frame: the vocabulary is
+  // static per catalogue, so a revisiting mount needs no loading flash.
+  const cached = readCached<MarkerVocabularyResponse>(MARKERS_KEY)
+  const [groups, setGroups] = useState<MarkerGroup[]>(cached?.groups ?? [])
+  const [markers, setMarkers] = useState<VocabularyMarker[]>(cached?.markers ?? [])
+  const [loading, setLoading] = useState(cached === undefined)
   const [error, setError] = useState<string | null>(null)
   const [refresh, setRefresh] = useState(0)
 
   useEffect(() => {
-    // The vocabulary is static per catalogue and bounded (no pagination,
-    // PROV-MC-4); ONE fetch per mount, with the plan's stable-key rule
-    // (the key is the invariant — a re-mount that happens twice still
-    // issues once per mount, and a future cache lands on the same key).
     let cancelled = false
+    const cached = readCached<MarkerVocabularyResponse>(MARKERS_KEY)
+    if (cached !== undefined) {
+      setGroups(cached.groups)
+      setMarkers(cached.markers)
+      setLoading(false)
+      setError(null)
+      return
+    }
     setLoading(true)
     setError(null)
-    ApiClient.MethodCatalogue.markers()
+    void fetchCached(MARKERS_KEY, () => ApiClient.MethodCatalogue.markers())
       .then(response => {
         if (cancelled) return
         setGroups(response.groups)
         setMarkers(response.markers)
         setLoading(false)
       })
-      .catch(err => {
+      .catch((err: unknown) => {
         if (cancelled) return
-        setError(err instanceof Error ? err.message : 'Failed to load the marker list')
+        setError(errorMessage(err))
         setLoading(false)
       })
     return () => {
@@ -72,6 +100,9 @@ export function useMarkers(): UseMarkersResult {
   }, [refresh])
 
   const refetch = useCallback(() => {
+    // Drop first: a deliberate retry must hit the wire even for a key
+    // that just settled (the useStudyPreview refetch rule).
+    dropCached(MARKERS_KEY)
     setRefresh(count => count + 1)
   }, [])
 

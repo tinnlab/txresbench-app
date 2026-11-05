@@ -19,6 +19,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { StartPage } from './StartPage'
 import { useTxrIntakeStore } from '../stores/TxrIntake.store'
+import { __resetFetchCacheForTests } from '../data/fetchCache'
 
 const api = vi.hoisted(() => ({
   list: vi.fn(),
@@ -78,6 +79,9 @@ beforeEach(() => {
   )
   window.localStorage.clear()
   store().reset()
+  // ITEM-10: the count hook's module-level cache is one per-session key —
+  // a settled value must not leak into the failure tests below.
+  __resetFetchCacheForTests()
 })
 
 afterEach(() => {

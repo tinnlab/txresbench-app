@@ -21,6 +21,7 @@ import type { EligibilityResponse, MarkerGroup } from '@/api-client/types'
 import { StudyPage } from './StudyPage'
 import { useTxrIntakeStore } from '../stores/TxrIntake.store'
 import { EXCLUDED_LIST_LIMIT } from '../lib/format'
+import { __resetFetchCacheForTests } from '../data/fetchCache'
 
 // jsdom has no working PointerEvent constructor; Base UI's controls (the kit
 // Checkbox, the Select popover) construct one on pointer interaction, which
@@ -170,6 +171,9 @@ beforeEach(() => {
   api.eligibility.mockResolvedValue(eligibilityResponse())
   window.localStorage.clear()
   store().reset()
+  // ITEM-10: the vocabulary hook's module-level cache is one per-session
+  // key — a settled value must not leak into the failure test below.
+  __resetFetchCacheForTests()
 })
 
 afterEach(() => {
@@ -308,7 +312,11 @@ describe('StudyPage (screen B, ITEM-5)', () => {
 
     // A failing vocabulary fetch surfaces one honest error line (the panel
     // still renders its own loading state — the two fetches are separate).
+    // ITEM-10: within one session the settled vocabulary is served from the
+    // stable-key cache (never re-fetched), so the failure arm runs on a
+    // fresh key space — the same semantics the hook tests pin.
     cleanup()
+    __resetFetchCacheForTests()
     api.markers.mockRejectedValueOnce(new Error('markers down'))
     renderStudy()
     expect(await screen.findByText('markers down')).toBeTruthy()
