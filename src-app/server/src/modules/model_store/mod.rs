@@ -34,7 +34,8 @@
 //! imports/exports are the user's own `.txr` files. The produced tree is an
 //! OPAQUE, immutable artifact: copied byte-for-byte under
 //! `<data_root>/models/trees/<tree_sha256>/`, content-addressed by the
-//! engine's own digest (PROV-SS-3), every row a reference. `embeds_training_data`
+//! engine's own digest (PROV-SS-3), every row a reference (the tree layer in
+//! [`store`]: dirs, copy, size, training copies, prune). `embeds_training_data`
 //! is the catalogue's fact verbatim (GAP-A) — the L dialog's warning is data,
 //! never an app-side hardcoded method list.
 //!
@@ -61,6 +62,7 @@
 //! this module computes no metrics, reads no CSV).
 
 pub mod repository;
+pub mod store;
 pub mod types;
 
 pub use types::{
