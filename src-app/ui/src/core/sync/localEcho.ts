@@ -78,7 +78,14 @@ export interface LocalSyncFrame {
  * for this connection, so sibling surfaces in THIS tab react exactly as other devices do.
  */
 export function echoLocalSync(entity: SyncEntity, action: SyncAction, id: string): Promise<void> {
-  return EventBus.emit({ type: `sync:${entity}`, data: { action, id } })
+  // The `K` is spelled explicitly: `emit`'s generic only appears inside
+  // `Omit<AppEvents[K], 'timestamp'>`, so it cannot be inferred from the
+  // argument — and once `AppEvents` carries members with DIFFERENT payload
+  // shapes (the txr save-model events ui-results declares), the union
+  // fallback rejects a `sync:*` payload. Explicit `K` keeps this call
+  // type-checked for the sync member regardless of which events the app
+  // declares.
+  return EventBus.emit<`sync:${SyncEntity}`>({ type: `sync:${entity}`, data: { action, id } })
 }
 
 /**

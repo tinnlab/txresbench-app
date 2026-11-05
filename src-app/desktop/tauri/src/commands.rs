@@ -53,6 +53,57 @@ pub async fn ensure_owner(pool: &SqlitePool) -> anyhow::Result<()> {
     Ok(cytoanalyst::modules::localsession::ensure_owner(pool).await?)
 }
 
+/// The run-folder reveal seam (DEC-9 / PROV-UR-7, ITEM-10): open a run's
+/// output directory in the system file manager — the results screens'
+/// "Open the folder" affordance.
+///
+/// Implemented with the already-dependency-present `tauri-plugin-opener`
+/// 2.x (`app.opener().open_path(path, None)` — verified against the plugin
+/// source pinned in Cargo.lock; `opener:default` is already granted and
+/// `opener:allow-open-path` is the one added permission line). The command
+/// is a thin seam: the path is DATA — the run directory the engine reports
+/// as `TxrRunDetail.dir`, never constructed or defaulted here — and the
+/// pure `validate_reveal_path` gate runs BEFORE the open, so a malformed
+/// value never silently opens the wrong location.
+///
+/// The runtime is a generic parameter because the crate's
+/// `register_invoke_handler` is runtime-generic (`R: tauri::Runtime`):
+/// `tauri::AppHandle` without its runtime argument would default to `Wry`
+/// and the macro's generated `CommandArg` conversion could not unify it
+/// with the invoke's runtime R.
+#[tauri::command]
+pub async fn reveal_in_file_manager<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    path: String,
+) -> Result<(), String> {
+    validate_reveal_path(&path)?;
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_path(path, None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
+/// The pure validation half of the reveal command (TEST-UR-10): Ok for an
+/// existing ABSOLUTE directory, an Err with the reason otherwise — empty,
+/// relative, missing and non-directory paths are all rejected before
+/// anything opens. An open is never panically attempted; a rejected path
+/// surfaces as the command's Err string (which `revealRunDir` swallows to
+/// the path-only rendering on the UI side).
+fn validate_reveal_path(path: &str) -> Result<(), String> {
+    if path.is_empty() {
+        return Err("reveal path is empty".to_string());
+    }
+    let p = std::path::Path::new(path);
+    if !p.is_absolute() {
+        return Err("reveal path must be absolute".to_string());
+    }
+    let meta = std::fs::metadata(p).map_err(|e| format!("reveal path not readable: {e}"))?;
+    if !meta.is_dir() {
+        return Err("reveal path is not a directory".to_string());
+    }
+    Ok(())
+}
+
 // A5 TEST-6 / TEST-31 [INV-4] — the DESKTOP path, on the node's file store.
 //
 // Exercises the REAL `ensure_owner` against a freshly-migrated, ISOLATED SQLite
@@ -206,5 +257,57 @@ mod tests {
         let _ = std::fs::remove_file(dir.join("txresbench.db-wal"));
         let _ = std::fs::remove_file(dir.join("txresbench.db-shm"));
         let _ = std::fs::remove_dir(dir);
+    }
+
+    /// TEST-UR-10 (ITEM-10): the pure `validate_reveal_path` gate — an
+    /// existing ABSOLUTE directory opens, and every malformed value
+    /// (empty, relative, missing, a file) is rejected with a reason BEFORE
+    /// the system file manager is ever asked. The command never handles a
+    /// bad path silently; the UI's `revealRunDir` returns the path-only
+    /// rendering on any rejection.
+    #[test]
+    fn reveal_validation_accepts_an_existing_absolute_directory() {
+        let dir = scratch_dir("cyto_desktop_reveal_dir");
+        assert!(
+            super::validate_reveal_path(dir.to_str().expect("scratch path is utf8")).is_ok(),
+            "an existing absolute directory passes the reveal gate"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reveal_validation_rejects_empty_and_relative_paths() {
+        assert!(super::validate_reveal_path("").is_err(), "empty path is rejected");
+        assert!(
+            super::validate_reveal_path("Documents/TxResBench").is_err(),
+            "a relative path never opens (the engine's dir is absolute)"
+        );
+        assert!(
+            super::validate_reveal_path("~/.txresbench").is_err(),
+            "a tilde path is not an absolute path (never shell-expanded here)"
+        );
+    }
+
+    #[test]
+    fn reveal_validation_rejects_missing_paths() {
+        let dir = scratch_dir("cyto_desktop_reveal_missing");
+        let missing = dir.join("no-such-run-dir");
+        assert!(
+            super::validate_reveal_path(missing.to_str().expect("utf8")).is_err(),
+            "a missing path is rejected instead of opening nothing"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reveal_validation_rejects_a_file() {
+        let dir = scratch_dir("cyto_desktop_reveal_file");
+        let file = dir.join("predictions.csv");
+        std::fs::write(&file, b"patient_id\nS0001\n").expect("write scratch file");
+        assert!(
+            super::validate_reveal_path(file.to_str().expect("utf8")).is_err(),
+            "a file is rejected: the affordance opens the run DIRECTORY, never a file"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
