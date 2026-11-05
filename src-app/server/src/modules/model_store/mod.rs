@@ -38,6 +38,17 @@
 //! is the catalogue's fact verbatim (GAP-A) — the L dialog's warning is data,
 //! never an app-side hardcoded method list.
 //!
+//! ### Persistence (PROV-MS-11)
+//!
+//! The module's two tables are the module-owned migrations
+//! `202610260007_txr_model_sets` / `202610260008_txr_models` (SQLite
+//! dialect per PROV-sqlite-store-4's type map; the plan's numbers 005/006
+//! were taken by the engine's own growth — see the node's DRIFT-1 ITEM-2).
+//! `txr_model_sets` is the user-named save set (DEC-10), `txr_models` the
+//! saved-model rows with the recorded requirements + provenance; all reads
+//! and writes live in [`repository`] (`ModelStoreRepository`, the flat-CRUD
+//! shape of `modules/drafts`).
+//!
 //! ### Reuse discipline (INV-7)
 //!
 //! Flat CRUD over `sqlite-store`'s pool + migration seams (CONS-MS-1..4) like
@@ -49,6 +60,7 @@
 //! code; `size_bytes` / `own_auc` are the ENGINE's recorded fields (GAP-B/C —
 //! this module computes no metrics, reads no CSV).
 
+pub mod repository;
 pub mod types;
 
 pub use types::{
