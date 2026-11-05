@@ -52,6 +52,21 @@ OpenAPI regen). This module never regenerates OpenAPI, never edits
 any other provider's surface (no method catalogue, no file validator, no
 model store from this module).
 
+## G heatmap construction
+
+The heatmap (`TxrHeatmapTable`) is a module-local native table on purpose
+(DEC-11): the board's construction pins the patient column AND the header on
+two axes (`position: sticky; left: 0` on the patient column, `top: 0` on the
+header), and the kit `Table`'s virtualized grid path has no pinned-left-column
+API — the heatmap is the board's own native-table idiom, not a parallel
+re-implementation of the framework. The per-cell colors are the board's live
+alpha formula (`rgba(29, 78, 137, 0.04 + pct/100*0.86)`, light text from 52 %),
+and the fixed 36 px rows are windowed: only the viewport's row window mounts
+(plus the overscan) with spacer rows padding the rest, so a 500-patient run
+renders a bounded DOM. H's bar table (a handful of columns, no pinning) is the
+kit `Table` twin. A future kit gain (pinned-column support) is the refactor
+trigger for this component.
+
 ## Copy source
 
 Every user-facing string in this module is the boards' wording, verbatim:

@@ -301,6 +301,11 @@ export function viewOf(
     const row: TxrHeatmapRow = {
       patientId,
       cells: columns.map(c => c.values[i] ?? null),
+      // The row's aligned abstain notes: the cells travel with their notes
+      // because the SORTED rows cannot recover the patient's response index
+      // from `patientId` (DRIFT-1 ITEM-7) — a row's note array is exactly
+      // the aligned pair of its cells array.
+      notes: columns.map(c => c.notes[i] ?? null),
       average: null,
       spread: null,
     }

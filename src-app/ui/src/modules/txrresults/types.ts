@@ -49,14 +49,19 @@ export interface TxrHeatmapColumn {
 
 /**
  * One patient's heatmap row. `cells` are aligned to the view's columns; a
- * null cell is an abstain (note carried on the column). `average`/`spread`
- * are the visible-cell mean and max−min spread in percentage points
- * (0–100 scale), `null` when the row has no non-null cell (nothing visible
- * to average — the row still renders with empty cells).
+ * null cell is an abstain and `notes` is the same alignment's per-cell note
+ * (the column's response-order note projected to this row — the sortable
+ * rows cannot recover the patient's response index from `patientId`, so the
+ * note travels WITH the cell, see DRIFT-1 ITEM-7). `average`/`spread` are
+ * the visible-cell mean and max−min spread in percentage points (0–100
+ * scale), `null` when the row has no non-null cell (nothing visible to
+ * average — the row still renders with empty cells).
  */
 export interface TxrHeatmapRow {
   patientId: string
   cells: (number | null)[]
+  /** Aligned to `cells`: the abstain note for a null cell, null otherwise. */
+  notes: (string | null)[]
   average: number | null
   spread: number | null
 }

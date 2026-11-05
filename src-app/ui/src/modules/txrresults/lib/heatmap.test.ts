@@ -116,7 +116,13 @@ function columnOf(methodId: string): TxrHeatmapColumn {
 }
 
 function rowOf(patientId: string, cells: Array<number | null>, average: number | null): TxrHeatmapRow {
-  return { patientId, cells, average, spread: spreadOf({ patientId, cells, average, spread: null }) }
+  return {
+    patientId,
+    cells,
+    notes: cells.map(() => null),
+    average,
+    spread: spreadOf({ patientId, cells, average, spread: null, notes: [] }),
+  }
 }
 
 describe('normalizeTask (the per-method task → outcome key, DEC-4)', () => {
@@ -210,41 +216,41 @@ describe('buildAvg (the per-patient Average, DEC-5)', () => {
   const cols = buildColumns(uniformPredictions(), 'pfs')
 
   it('is the mean of the non-null cells × 100, rounded to a whole point', () => {
-    expect(buildAvg({ patientId: 'S0001', cells: [0.9, 0.3], average: null, spread: null }, cols)).toBe(60)
-    expect(buildAvg({ patientId: 'S0005', cells: [null, 0.45], average: null, spread: null }, cols)).toBe(45)
+    expect(buildAvg({ patientId: 'S0001', cells: [0.9, 0.3], average: null, spread: null, notes: [] }, cols)).toBe(60)
+    expect(buildAvg({ patientId: 'S0005', cells: [null, 0.45], average: null, spread: null, notes: [] }, cols)).toBe(45)
   })
 
   it('excludes abstains (a null value never drags the average down) and rounds up at the half', () => {
-    expect(buildAvg({ patientId: 'S01', cells: [0.333, 0.334], average: null, spread: null }, cols)).toBe(33)
-    expect(buildAvg({ patientId: 'S01', cells: [0.335], average: null, spread: null }, cols)).toBe(34)
-    expect(buildAvg({ patientId: 'S01', cells: [0.9, null], average: null, spread: null }, cols)).toBe(90)
+    expect(buildAvg({ patientId: 'S01', cells: [0.333, 0.334], average: null, spread: null, notes: [] }, cols)).toBe(33)
+    expect(buildAvg({ patientId: 'S01', cells: [0.335], average: null, spread: null, notes: [] }, cols)).toBe(34)
+    expect(buildAvg({ patientId: 'S01', cells: [0.9, null], average: null, spread: null, notes: [] }, cols)).toBe(90)
   })
 
   it('returns null when nothing is visible (the row renders empty, never 0%)', () => {
-    expect(buildAvg({ patientId: 'S01', cells: [null, null], average: null, spread: null }, cols)).toBeNull()
-    expect(buildAvg({ patientId: 'S01', cells: [], average: null, spread: null }, cols)).toBeNull()
+    expect(buildAvg({ patientId: 'S01', cells: [null, null], average: null, spread: null, notes: [] }, cols)).toBeNull()
+    expect(buildAvg({ patientId: 'S01', cells: [], average: null, spread: null, notes: [] }, cols)).toBeNull()
   })
 
   it('treats `cols` as the alignment authority (values outside the view are not averaged)', () => {
-    const row = { patientId: 'S01', cells: [0.5, 0.9, 0.2], average: null, spread: null }
+    const row = { patientId: 'S01', cells: [0.5, 0.9, 0.2], average: null, spread: null, notes: [] }
     expect(buildAvg(row, cols)).toBe(70) // mean of [0.5, 0.9] — the third value is outside the view
   })
 })
 
 describe('spreadOf (the disagreement spread, DEC-6)', () => {
   it('is max − min of the non-null cells × 100 (percentage points)', () => {
-    expect(spreadOf({ patientId: 'S01', cells: [0.75, 0.25], average: null, spread: null })).toBe(50)
-    expect(spreadOf({ patientId: 'S01', cells: [0.1, 0.8, 0.4], average: null, spread: null })).toBeCloseTo(70, 8)
+    expect(spreadOf({ patientId: 'S01', cells: [0.75, 0.25], average: null, spread: null, notes: [] })).toBe(50)
+    expect(spreadOf({ patientId: 'S01', cells: [0.1, 0.8, 0.4], average: null, spread: null, notes: [] })).toBeCloseTo(70, 8)
   })
 
   it('is 0 for a row with one non-null value (a single chance cannot disagree)', () => {
-    expect(spreadOf({ patientId: 'S01', cells: [null, 0.45], average: null, spread: null })).toBe(0)
-    expect(spreadOf({ patientId: 'S01', cells: [0.45, 0.45], average: null, spread: null })).toBe(0)
+    expect(spreadOf({ patientId: 'S01', cells: [null, 0.45], average: null, spread: null, notes: [] })).toBe(0)
+    expect(spreadOf({ patientId: 'S01', cells: [0.45, 0.45], average: null, spread: null, notes: [] })).toBe(0)
   })
 
   it('returns null for a row with no non-null value', () => {
-    expect(spreadOf({ patientId: 'S01', cells: [null, null], average: null, spread: null })).toBeNull()
-    expect(spreadOf({ patientId: 'S01', cells: [], average: null, spread: null })).toBeNull()
+    expect(spreadOf({ patientId: 'S01', cells: [null, null], average: null, spread: null, notes: [] })).toBeNull()
+    expect(spreadOf({ patientId: 'S01', cells: [], average: null, spread: null, notes: [] })).toBeNull()
   })
 })
 

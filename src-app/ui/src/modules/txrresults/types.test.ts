@@ -52,6 +52,7 @@ describe('txrresults view-model types (PROV-UR-3)', () => {
     expectTypeOf<TxrHeatmapRow>().toEqualTypeOf<{
       patientId: string
       cells: (number | null)[]
+      notes: (string | null)[]
       average: number | null
       spread: number | null
     }>()
