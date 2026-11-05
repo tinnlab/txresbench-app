@@ -29,7 +29,7 @@ import type { CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@ziee/kit'
 import type { TxrPredictionsResponse, TxrRunDetail } from '@/api-client/types'
-import { emitSaveModels } from '../events'
+import { emitSaveModels, emitSaveOneModel } from '../events'
 import { formatSubtitle } from '../lib/format'
 import type { TxrSubtitleFacts } from '../lib/format'
 
@@ -138,6 +138,25 @@ export function TxrSaveModelsButton({ count, onClick }: TxrSaveModelsButtonProps
   )
 }
 
+export interface TxrSaveOneModelButtonProps {
+  /** The click — the header emits `txr:save-one-model-requested` (L2's entry point). */
+  onClick: () => void
+}
+
+export function TxrSaveOneModelButton({ onClick }: TxrSaveOneModelButtonProps) {
+  return (
+    <Button
+      data-testid="txr-results-save-one-model"
+      variant="outline"
+      onClick={onClick}
+      className="rounded-lg font-bold"
+      style={PRIMARY_BUTTON}
+    >
+      Save this model
+    </Button>
+  )
+}
+
 export interface TxrResultsHeaderProps {
   run: TxrRunDetail | null
   predictions: TxrPredictionsResponse | null
@@ -147,6 +166,15 @@ export interface TxrResultsHeaderProps {
   onDownload?: () => void
   /** The H board's label differs by one word ("Download predictions (CSV)"). */
   downloadLabel?: string
+  /**
+   * The H one-method view (`SaveOne.dc.html`): the method id whose
+   * "Save this model" button REPLACES the run's "Save the models (N)" one
+   * (the L2 dialog's entry point is this button). The page passes it only
+   * when the method finished with a produced model — TEST-UR-10's gate; a
+   * click emits `txr:save-one-model-requested` the same way the run-level
+   * button emits the models event (DEC-8).
+   */
+  saveOne?: string | null
 }
 
 export function TxrResultsHeader({
@@ -155,6 +183,7 @@ export function TxrResultsHeader({
   predictionsError,
   onDownload,
   downloadLabel = 'Download all predictions (CSV)',
+  saveOne,
 }: TxrResultsHeaderProps) {
   const navigate = useNavigate()
   const patientCount = predictions?.patients.length ?? 0
@@ -162,6 +191,9 @@ export function TxrResultsHeader({
   const modelCount = run?.models.length ?? 0
   const onSaveModels = () => {
     if (run) void emitSaveModels(run.id, finishedMethodIdsOf(run))
+  }
+  const onSaveOne = () => {
+    if (run && saveOne) void emitSaveOneModel(run.id, saveOne)
   }
   return (
     <header data-testid="txr-results-header" style={HEADER}>
@@ -181,7 +213,9 @@ export function TxrResultsHeader({
           disabled={predictionsError === 'unavailable'}
           onClick={() => onDownload?.()}
         />
-        {modelCount > 0 ? (
+        {saveOne ? (
+          <TxrSaveOneModelButton onClick={onSaveOne} />
+        ) : modelCount > 0 ? (
           <TxrSaveModelsButton count={modelCount} onClick={onSaveModels} />
         ) : null}
         <Button

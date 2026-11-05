@@ -13,6 +13,7 @@ import { TxrCannotRunBanner } from '../components/TxrCannotRunBanner'
 import { TxrOutcomeTabs } from '../components/TxrOutcomeTabs'
 import { TxrMethodFilterBar } from '../components/TxrMethodFilterBar'
 import { TxrHeatmapTable } from '../components/TxrHeatmapTable'
+import { TxrLogDialog } from '../components/TxrLogDialog'
 
 /**
  * Screen G — the run's predictions (board `BusyResults.dc.html`): the
@@ -126,8 +127,12 @@ function saveTextAsFile(filename: string, text: string): void {
  * no terminal run state: the engine's CSV is served while the run is
  * active, so the button works exactly when predictions are not
  * `'unavailable'` (the ITEM-6 boundary).
+ *
+ * Exported so screen H's page shares the plumbing; ITEM-10 lifts it into
+ * `lib/download.ts` and both pages switch to the barrel export (PLAN note
+ * (ag)).
  */
-function downloadPredictions(runId: string): Promise<void> {
+export function downloadPredictions(runId: string): Promise<void> {
   return ApiClient.Txr.downloadPredictions({ id: runId }).then(body => {
     const text = body as unknown as string
     if (typeof text !== 'string' || text.length === 0) {
@@ -294,6 +299,7 @@ export function ResultsPage() {
           total={run.methods.length}
           onShowLog={methodId => TxrResults.openLog(methodId)}
         />
+        <TxrLogDialog />
       </main>
     )
   }
@@ -345,6 +351,7 @@ export function ResultsPage() {
         />
       </div>
       <TxrHeatmapTable view={view} onShowAll={() => TxrResults.setPatientLimit(-1)} />
+      <TxrLogDialog />
     </main>
   )
 }
