@@ -84,3 +84,46 @@ request types), and the `ui-list` reason/copy formatters. The OpenAPI
 regen is the providers' (method-catalogue, file-validator,
 execution-engine); this module never regenerates and never commits the
 generated files.
+
+## Guard scope record — the study-literal guard
+
+`scripts/check-no-study-domain-literals.sh` enforces the completeness of
+the cytoanalyst `study`→`project` rename: it scans `src-app/**` (tracked
+files) for `stud(y|ies)` literals and fails on any hit. The TxResBench
+product's board spec names screen B "Your study" and this module's own
+vocabulary is `study` (the `/study` route, `mode: 'study'`,
+`StudyAnswers`, the B-screen copy) — a different word from the rename
+residual the guard exists to find, in a different product.
+
+Per GRAPH.md's recorded conservative default (DEC-17) the guard's EXCLUDE
+gains the txr module-family prefix (`src-app/ui/src/modules/txr` — this
+module, `txrlist`, `txrshell` and any future `txr*` module) with the
+reason written into the guard's header comments, and
+`scripts/guard-hashes.txt` is re-pinned with
+`scripts/check-guard-integrity.sh --update` in the same commit — the
+deliberate-change path (a guard can change, never silently). The exclude
+is the txr module-family prefix ONLY, never any other path: the
+rename-purpose stays intact for the rest of `src-app/**`, where a
+surviving `study` literal is still a failure. The module's own test
+specs under `src-app/ui/tests/` (`txr-intake.spec.ts`,
+`txr-intake-full.spec.ts`) carry the same words as test bytes (the
+`/study` navigation, the `txr-intake-study-*` test ids, the persisted
+`mode: 'study'`); the recorded exclude covers the module family only, so
+those bytes remain scanned — they stand as test bytes, never baselined.
+
+## The guard's pre-existing red (OWNER-5, recorded, not this module's)
+
+The guard is NOT wired into `just check` (the justfile's "NOT WIRED"
+record, `justfile` around line 457) and it fails on `main` today: its
+case-insensitive `stud(y|ies)` regex also matches the
+`EXTENSIBILITY_STUDY` design-doc acronym citations throughout
+`src-app/libs/viz` (an acronym in comments, not the retired domain), and
+in this tree further pre-existing hits stand in the workbench module's
+rename-documenting comments and the guard's own fail-closed test strings
+(at the baseline the same classes total 99 hit lines, incl. the
+strip-removed SaaS-generation api-client/openapi twins).
+This module does not fix that unrelated state — the fix belongs to
+the guard's owner (exclude the `EXTENSIBILITY_STUDY` token or make the
+regex case-sensitive/word-bounded) — and it is recorded here and in
+OWNER-5, never hidden: the epic leaves the guard unwired and red by the
+owner's record.
