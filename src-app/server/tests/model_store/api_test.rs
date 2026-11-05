@@ -971,3 +971,127 @@ async fn resolve_returns_verified_engine_assets() {
     assert_eq!(resp.status().as_u16(), 400);
     assert_eq!(error_code(&resp.json().await.expect("body")), "EMPTY_MODELS");
 }
+
+// ───────────────────── TEST-MS-20 / TEST-MS-23 (ITEM-7's hygiene legs) ──────
+
+/// TEST-MS-20 (acceptance, INV-5) — the hygiene leg: the module's
+/// HAND-WRITTEN shipped files (module sources, README, module-owned
+/// migrations) carry no status/progress/phase/placeholder/open-marker
+/// token. The generated OpenAPI/client files are deliberately out of scope —
+/// the merge-generated rule's exclusion (the study guard's own reasoning:
+/// they regenerate deterministically from the reviewed Rust source and carry
+/// the framework's preserved doc-comment examples, so the model store's own
+/// strings are all in the hand-written sources scanned here).
+#[test]
+fn shipped_module_files_carry_no_marker_tokens() {
+    let module_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/modules/model_store");
+    let mut files = Vec::new();
+    let mut stack = vec![module_dir];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).expect("module dir").flatten() {
+            let path = entry.path();
+            if entry.file_type().expect("type").is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let is_rs = name.ends_with(".rs");
+            let is_sql = name.ends_with(".sql");
+            let is_readme = name == "README.md";
+            if is_rs || is_sql || is_readme {
+                files.push(path);
+            }
+        }
+    }
+    assert!(
+        files.iter().any(|f| f.ends_with("README.md")),
+        "the module README is part of the shipped file set"
+    );
+    assert!(!files.is_empty(), "the scan set resolved");
+
+    // Whole-word markers (case-sensitive) and the prose markers
+    // (case-insensitive phrase scan — the module's own words, e.g.
+    // `status` as the eligibility field, are NOT markers and are not
+    // scanned).
+    let whole_words = ["TODO", "FIXME", "XXX", "HACK", "WIP"];
+    let phrases = [
+        "placeholder",
+        "phase",
+        "progress",
+        "in progress",
+        "in-progress",
+        "unimplemented",
+        "not implemented",
+        "for now",
+    ];
+    for file in &files {
+        let text = std::fs::read_to_string(file).expect("module file");
+        for word in whole_words {
+            assert!(
+                !text
+                    .split(|c: char| !c.is_alphanumeric())
+                    .any(|w| w == word),
+                "{}: the marker token {word:?} must not appear in a shipped file",
+                file.display()
+            );
+        }
+        let lower = text.to_lowercase();
+        for phrase in phrases {
+            assert!(
+                !lower.contains(phrase),
+                "{}: the marker phrase {phrase:?} must not appear in a shipped file",
+                file.display()
+            );
+        }
+    }
+}
+
+/// TEST-MS-23 (acceptance, INV-7) — the module-shape leg: the store reuses
+/// the framework's flat-CRUD shape and the provided seams rather than a
+/// parallel infra — plain dirs under `rootfs::data_root()`,
+/// `modules::file::stream` staging for the import route, the PROV-SS-3 tree
+/// digest from `modules::sandbox::stack`, the `JobsUse` gate — and contains
+/// no scheduler loop, no copied sandbox machinery and no HTTP client that
+/// would let a byte leave the machine.
+#[test]
+fn module_reuses_the_framework_seams_and_no_parallel_infra() {
+    let module_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/modules/model_store");
+    let mut sources = String::new();
+    for entry in std::fs::read_dir(&module_dir).expect("module dir").flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) == Some("rs") && path.is_file() {
+            sources.push_str(&std::fs::read_to_string(&path).expect("module source"));
+            sources.push('\n');
+        }
+    }
+
+    // The provided seams, bound (the INV-7 shape):
+    for seam in [
+        "rootfs::data_root",
+        "modules::file::stream",
+        "stage_multipart_field",
+        "sandbox::stack",
+        "tree_sha256",
+        "verify_model_tree",
+        "with_permission",
+    ] {
+        assert!(sources.contains(seam), "the seam {seam:?} must be bound, not reimplemented");
+    }
+
+    // No parallel infra (each absence is a positive claim about the shape):
+    for banned in [
+        "tokio::spawn(", // no scheduler loop (the framework's own spawn is `task::spawn_blocking`, allowed)
+        "bwrap",
+        "squashfuse",
+        "reqwest",
+        "Command::new",
+        "flate2",
+        "zip::",
+        "tar::",
+    ] {
+        assert!(
+            !sources.contains(banned),
+            "the parallel infra marker {banned:?} must not appear in the module"
+        );
+    }
+}

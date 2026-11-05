@@ -1,4 +1,4 @@
-//! Model-store tree layer (PLAN Phase C, PROV-MS-10's path half) — where
+//! Model-store tree layer (the PROV-MS-10 path half) — where
 //! saved model trees live, and the copy / prune / immutability rules that
 //! make the store's content addressing honest (DEC-2 / DEC-3 / INV-2).
 //!
@@ -59,6 +59,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 use axum::http::StatusCode;
 use serde_json::Value as Json;
@@ -123,11 +124,107 @@ pub fn training_dir_for(set_id: Uuid) -> PathBuf {
 /// Create the store's directory tree. Idempotent under repetition and safe
 /// under concurrency (`create_dir_all` is the primitive; the two store
 /// write paths call it before their first byte). Never called at module init.
+///
+/// This is also the write gate the hygiene sweep hangs on: before the first
+/// byte of any operation, the staging orphans of a process that died
+/// mid-operation are reclaimed ([`sweep_stale_staging`] — age-gated, so the
+/// operation ABOUT to start and any concurrent operation's fresh staging are
+/// never touched; the gate runs before the caller creates its own staging).
 pub fn ensure_dirs() -> Result<(), AppError> {
     for dir in [models_dir(), trees_dir(), training_dir(), exports_dir()] {
         fs::create_dir_all(&dir).map_err(|e| io_app("create store dir", dir.clone())(e))?;
     }
+    let _ = sweep_stale_staging();
     Ok(())
+}
+
+/// A staging entry older than this is an orphan from a process that was killed
+/// mid-save/import/export (the framework's `TMP_UPLOAD_MAX_AGE` rule —
+/// `modules/file/stream.rs`; an orphan is by definition something no live
+/// owner knows about). It only has to exceed the longest plausible single
+/// operation: the byte cap is 16 GiB, and even a disk-bound import/export
+/// moves it in minutes, never a day. A LIVE operation's staging is created
+/// fresh and advances its own mtime as bytes/dirs land, so the age gate never
+/// guesses about an in-flight entry.
+const STAGING_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// The model-store tree layer's staging entry families (the hygiene pass's
+/// one name for all three — each is the complete-or-absent mechanism's
+/// in-flight half and survives ONLY when the process was killed between the
+/// staging write and the rename):
+///
+/// - `trees/.staging-<digest>-<uuid>` — [`copy_tree`]'s staged tree dir,
+/// - `models/.import-<uuid>` — [`install_imported`] / [`install_imported_from_path`]'s
+///   extraction root,
+/// - `exports/.staging-<name>-<uuid>` — [`write_export_file`]'s staged
+///   container FILE.
+///
+/// Correctness never depends on the sweep: a surviving orphan is invisible
+/// (never read, never listed, never content-addressed). It exists for the
+/// disk — a killed 16 GiB import would otherwise sit under `models/` forever.
+///
+/// Reclaim [`STAGING_MAX_AGE`]-old entries only; best-effort (a refused
+/// removal is logged, never the failure of the write that triggered the
+/// sweep). Returns the number of reclaimed entries.
+pub fn sweep_stale_staging() -> u64 {
+    let now = SystemTime::now();
+    let mut reclaimed = 0u64;
+    for (dir, prefix) in [
+        (trees_dir(), ".staging-"),
+        (models_dir(), ".import-"),
+        (exports_dir(), ".staging-"),
+    ] {
+        reclaimed += sweep_staging_prefix(&dir, prefix, now);
+    }
+    if reclaimed > 0 {
+        tracing::info!(reclaimed, "model store staging sweep reclaimed orphaned entries");
+    }
+    reclaimed
+}
+
+/// One staging family's sweep: entries of `dir` whose name starts with
+/// `prefix` AND whose modified time is older than [`STAGING_MAX_AGE`] are
+/// removed (dirs or files, whichever the family stages). A missing `dir` is
+/// nothing to reclaim, never an error (the sweep never CREATES dirs — the
+/// store dirs stay the lazy write paths' concern).
+fn sweep_staging_prefix(dir: &Path, prefix: &str, now: SystemTime) -> u64 {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return 0;
+    };
+    let mut reclaimed = 0u64;
+    for entry in entries.flatten() {
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        if !name.starts_with(prefix) {
+            continue;
+        }
+        let path = entry.path();
+        // `unwrap_or(false)`: an entry whose mtime cannot be read is left
+        // alone — refusing to remove an entry we cannot date is the
+        // conservative side of a best-effort sweep.
+        let is_stale = fs::metadata(&path)
+            .and_then(|m| m.modified())
+            .map(|t| now.duration_since(t).map(|d| d > STAGING_MAX_AGE).unwrap_or(false))
+            .unwrap_or(false);
+        if !is_stale {
+            continue;
+        }
+        let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
+        let removed = if is_dir {
+            fs::remove_dir_all(&path)
+        } else {
+            fs::remove_file(&path)
+        };
+        match removed {
+            Ok(()) => reclaimed += 1,
+            Err(e) => {
+                tracing::warn!(path = %path.display(), error = %e,
+                    "model store staging sweep could not reclaim an orphaned entry");
+            }
+        }
+    }
+    reclaimed
 }
 
 /// The tree-key shape guard: a 64-char lowercase hex sha256 — the exact
@@ -393,6 +490,10 @@ pub async fn install_imported_from_path(
     path: &Path,
     opts: &ImportOptions,
 ) -> Result<ImportOutcome, AppError> {
+    // The module's write gate (dirs + the staging sweep) before the import's
+    // own staging root is created — an import was the one write path that
+    // created dirs directly; it now goes through the same gate.
+    ensure_dirs()?;
     let staging = import_staging_dir();
     let staging_c = staging.clone();
     let path_c = path.to_path_buf();
@@ -419,6 +520,7 @@ pub async fn install_imported(
     bytes: &[u8],
     opts: &ImportOptions,
 ) -> Result<ImportOutcome, AppError> {
+    ensure_dirs()?;
     let staging = import_staging_dir();
     let staging_c = staging.clone();
     let bytes = bytes.to_vec();
@@ -1689,6 +1791,72 @@ mod tests {
             .collect();
         entries.sort();
         assert_eq!(entries, vec!["models"]);
+    }
+
+    /// TEST-MS-27 (the ITEM-7 hygiene pass): the write gate's staging sweep
+    /// reclaims an AGED orphan of each of the three staging families (tree
+    /// copy dir, import dir, export file) and leaves a FRESH staging entry —
+    /// the possible in-flight one — plus every real store entry alone. Both
+    /// halves matter: a sweep that deleted a live operation's staging would be
+    /// a worse bug than the disk leak it fixes (the framework's own sweep
+    /// contract, `modules/file/stream.rs`).
+    #[test]
+    fn staging_orphans_are_reclaimed_and_live_entries_kept() {
+        let (root, _guard) = scratch_root("staging-sweep");
+        ensure_dirs().expect("store dirs");
+
+        // The three aged orphan families, each with content (an orphan is
+        // exactly what a killed process left BETWEEN the staging write and the
+        // rename).
+        let stale_tree = trees_dir().join(format!(".staging-{}-orphan", "a".repeat(64)));
+        write_file(&stale_tree.join("model.json"), b"half-copied");
+        let stale_import = models_dir().join(format!(".import-{}", Uuid::new_v4()));
+        write_file(&stale_import.join("model-0").join("weights.bin"), b"half-extracted");
+        let stale_export = exports_dir().join(format!(".staging-foo-{}", Uuid::new_v4()));
+        write_file(&stale_export, b"half-written");
+
+        // A FRESH staging entry — what a concurrent in-flight operation looks
+        // like (created moments ago, mtime advances as bytes land).
+        let live_tree = trees_dir().join(format!(".staging-{}-live", "b".repeat(64)));
+        write_file(&live_tree.join("model.json"), b"in flight");
+
+        // Real store entries — a stored tree and the unrelated model-dir file
+        // (the import prefix lives NEXT TO trees/, training/ and exports/).
+        let real_tree = trees_dir().join("c".repeat(64));
+        write_file(&real_tree.join("model.json"), b"the stored artifact");
+        write_file(&models_dir().join("README.txt"), b"unrelated");
+
+        let aged = SystemTime::now() - STAGING_MAX_AGE - Duration::from_secs(60);
+        backdate(&stale_tree, aged);
+        backdate(&stale_import, aged);
+        backdate(&stale_export, aged);
+        backdate(&real_tree, aged); // aged but NOT a staging name — the prefix gate
+
+        let reclaimed = sweep_stale_staging();
+        assert_eq!(reclaimed, 3, "exactly the three prefixed aged orphans");
+        assert!(!stale_tree.exists(), "a killed tree copy's staging is reclaimed");
+        assert!(!stale_import.exists(), "a killed import's staging is reclaimed");
+        assert!(!stale_export.exists(), "a killed export's staging is reclaimed");
+        assert!(live_tree.exists(), "a FRESH staging entry is never touched");
+        assert!(real_tree.exists(), "an aged TREE (no staging prefix) is never touched");
+        assert!(models_dir().join("README.txt").exists(), "unrelated files never touched");
+
+        // The write gate runs the sweep too (ensure_dirs is the hook): a
+        // second orphan created after the setup is reclaimed on the next
+        // ensure_dirs, before the caller's own staging would be created.
+        let late = trees_dir().join(format!(".staging-{}-late", "d".repeat(64)));
+        write_file(&late.join("model.json"), b"late orphan");
+        backdate(&late, aged);
+        ensure_dirs().expect("write gate");
+        assert!(!late.exists(), "ensure_dirs reclaims aged orphans");
+    }
+
+    /// Set an entry's mtime without pulling in a dependency for it (the
+    /// framework's `filetime_set` pattern — `File::set_modified` on an opened
+    /// fd; a read-only open suffices for directories too).
+    fn backdate(path: &Path, when: SystemTime) {
+        let f = fs::File::open(path).expect("open for backdating");
+        f.set_modified(when).expect("backdate mtime");
     }
 
     /// TEST-MS-04 (acceptance, INV-2): a produced tree into

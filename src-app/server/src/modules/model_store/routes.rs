@@ -1,4 +1,4 @@
-//! The model store's HTTP surface (PLAN Phase E + F, PROV-MS-2..MS-9) — the
+//! The model store's HTTP surface (PROV-MS-2..MS-9) — the
 //! inventory (J/I), the save flow (L/L2), the `.txr` import/export (J's "open
 //! a model file" / L's "also save as a file"), the set CRUD, the verified
 //! reuse resolution (PROV-MS-8) and the per-model eligibility (PROV-MS-9,

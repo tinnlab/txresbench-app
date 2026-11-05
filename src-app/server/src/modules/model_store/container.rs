@@ -1,4 +1,4 @@
-//! The `.txr` container codec (PLAN Phase D, DEC-4) — the single-file format
+//! The `.txr` container codec (DEC-4) — the single-file format
 //! that moves a saved model (or a whole set) between computers (board L's
 //! "save as a file", board J's "open a model file"). Everything the format
 //! touches is the user's own bytes: trees are copied as opaque artifact bytes
@@ -1105,7 +1105,7 @@ fn write_all<W: Write>(w: &mut W, bytes: &[u8], what: &str) -> Result<(), AppErr
 #[cfg(test)]
 mod tests {
     //! TEST-MS-06 / TEST-MS-07 — the `.txr` codec over the exact byte layout
-    //! (PLAN Phase D): the writer's layout + determinism + restore fidelity,
+    //! (the codec's own contract): the writer's layout + determinism + restore fidelity,
     //! and every refusal with the staging dir wiped on failure. Fixtures are
     //! synthetic opaque bytes (never real model or patient data).
 
