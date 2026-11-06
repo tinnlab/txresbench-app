@@ -6,6 +6,7 @@
 //! inherited from the harness; this crate supplies only the `ServerBoot` impl,
 //! the two IPC commands, and the owner-creation seam.
 
+mod bundled_models;
 mod commands;
 mod config;
 mod server_boot;
@@ -65,6 +66,18 @@ pub fn run() {
         .setup(move |app| {
             let app_handle = app.handle().clone();
             let window = desktop_window_config();
+
+            // ITEM-3 (PROV-IR-5/8): provision the bundled models from the
+            // embedded resource dir BEFORE the server's boot task starts —
+            // `CYTO_TXR_BUNDLED_MODELS_DIR` must precede the
+            // pretrained_catalogue module's init (its bundled-dir resolution
+            // reads the env var at module setup). A failed provision is
+            // logged and boot continues: the catalogue module's install path
+            // re-verifies per file at use time (PRETRAINED_VERIFY_FAILED),
+            // and offline/unbundled are valid states.
+            if let Err(e) = bundled_models::provision_bundled_models(app.handle()) {
+                tracing::error!("bundled-model provision failed (boot continues): {e}");
+            }
 
             // The harness spawns the boot on Tauri's async runtime, runs our
             // post-boot steps, then creates the window (on both success + failure).
@@ -163,6 +176,29 @@ mod tests {
         assert!(
             SRC.contains("commands::reveal_in_file_manager"),
             "register_invoke_handler must register the folder-reveal command",
+        );
+    }
+
+    /// TEST-IR-16 (ITEM-3 half): the setup closure provisions the bundled
+    /// models BEFORE the boot→window spawn — the env-var-before-server-boot
+    /// order PROV-IR-8 pins (the pretrained_catalogue module reads
+    /// `CYTO_TXR_BUNDLED_MODELS_DIR` at module init, so the provision must
+    /// run first). Source-order assertion, same raw-string discipline as the
+    /// capability tests; the post-window update-check half of TEST-IR-16 is
+    /// ITEM-4's, with `updates::start_boot_check`.
+    #[test]
+    fn setup_provisions_bundled_models_before_the_boot_spawn() {
+        const SRC: &str = include_str!("lib.rs");
+        let provision = SRC
+            .find("bundled_models::provision_bundled_models(app.handle())")
+            .expect("the setup closure calls the bundled-model provision");
+        let spawn = SRC
+            .find("spawn_boot_then_window(boot,")
+            .expect("the setup closure spawns the boot→window lifecycle");
+        assert!(
+            provision < spawn,
+            "provision_bundled_models must run before spawn_boot_then_window \
+             (the env var precedes server module init, PROV-IR-8)",
         );
     }
 }
