@@ -218,6 +218,31 @@ export function formatModelSublines(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// `formatTrainedDateShort` — the I run-facts date (Saved.dc.html's section
+// subtitle: "trained 19 Oct on patients.csv · …")
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The section-subtitle date formatter (day + month, no year — the board's
+ *  "trained 19 Oct" spelling; the year is the "Made" column's business). */
+const TRAINED_DATE_FORMAT = new Intl.DateTimeFormat('en-GB', {
+  day: 'numeric',
+  month: 'short',
+})
+
+/**
+ * The I section facts line's date ("19 Oct"): the run's `finished_at`
+ * instant, day + short month, machine-local zone like every other date
+ * label in the app. A missing or unparseable instant → `null` — the
+ * facts-line composer OMITS the "trained … on …" segment instead of
+ * spelling a blank (the segment's companion facts may still be present).
+ */
+export function formatTrainedDateShort(value: string | null | undefined): string | null {
+  const date = parseDate(value)
+  if (date === null) return null
+  return TRAINED_DATE_FORMAT.format(date)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // `formatBytes` — the sizes (the L checklist's per-model + total rows; the D
 // cards' asset sizes)
 // ─────────────────────────────────────────────────────────────────────────────
