@@ -5595,6 +5595,310 @@ export interface TxrDeleteQuery {
 /** The run's endpoint verb (board E's outcome choice). */
 export type TxrEndpoint = 'pfs' | 'os'
 
+/**
+ * The four-bucket run vocabulary of the K list (DEC-4's map — the engine's
+ *  `creating|preparing|running|finishing` all land in `running`; the K
+ *  display words Done/Failed/Stopped/Running are the consumer's, this node
+ *  delivers the bucket, never display text). The engine-status → bucket map
+ *  lives in the repository (ITEM-2, TEST-HS-4).
+ */
+export type TxrHistoryBucket = 'running' | 'finished' | 'stopped' | 'failed'
+
+/** The detail's retention block. */
+export interface TxrHistoryCopies {
+  /** The last copy-clear stamp (null until one ran — PROV-HS-5). */
+  cleared_at?: string
+  /** `txr_run_retention.copies_kept` (default true). */
+  kept: boolean
+}
+
+/**
+ * The expanded K block (PROV-HS-3): the row's fields (the summary half,
+ *  spelled out — the detail is a standalone wire shape, not a `flatten` of
+ *  the row: the row's compact `methods` and the detail's rich `methods`
+ *  share one JSON name, and the detail's `models_saved` list replaces the
+ *  row's save flag with the actual records) plus the per-method rows (the
+ *  engine's own [`TxrRunMethod`] verbatim — one vocabulary for F and K),
+ *  the made/used model records, the copies note, the dir size and the
+ *  estimate. `404 RUN_NOT_FOUND` on an unknown id.
+ */
+export interface TxrHistoryDetail {
+  bucket: TxrHistoryBucket
+  can_download: boolean
+  can_reopen: boolean
+  can_rerun: boolean
+  copies: TxrHistoryCopies
+  copies_kept: boolean
+  created_at: string
+  decision_day: number
+  dir: string
+  /** The run dir's recursive size when it exists (null when gone). */
+  dir_bytes?: number
+  elapsed_secs?: number
+  endpoint: TxrEndpoint
+  estimate_total_seconds?: number
+  file_names: string[]
+  /**
+   * The input copies' recorded sizes (empty when the copies were cleared
+   *  or the dir is gone).
+   */
+  file_sizes: TxrHistoryFileSize[]
+  finished_at?: string
+  id: string
+  learned_from?: number
+  /** `txr_run_logs` count (the K "Show the log" badge). */
+  log_line_count: number
+  look_ahead_day: number
+  markers: number
+  markers_saved: boolean
+  method_count: number
+  /**
+   * The run's per-method rows, THE ENGINE'S TYPE verbatim (PROV-EE-3's
+   *  `TxrRunMethod` — the K expanded block's "Methods … 1.0 (2 min)" line
+   *  renders the same row the F screen renders).
+   */
+  methods: TxrRunMethod[]
+  mode: TxrRunMode
+  models_made: TxrHistoryModelsMade
+  /** The run's saved models (PROV-MS-11; `[]` when none were saved). */
+  models_saved: TxrHistoryModelSaved[]
+  models_used: TxrHistoryModelRef[]
+  predicted?: number
+  reason?: TxrRunReason
+  settings: TxrRunSettingsView
+  started_at?: string
+  use_estimate?: TxrHistoryEstimate
+}
+
+/**
+ * The detail's "took X (estimated Y)" facts (CONS-HS-12): the same
+ *  in-process estimator call the engine's detail uses, projected to the two
+ *  facts the K expanded block renders; `estimate_quality` is the
+ *  catalogue's own vocabulary.
+ */
+export interface TxrHistoryEstimate {
+  estimate_quality: TimingQuality
+  total_seconds: number
+}
+
+/** One input file copy's recorded size (the detail's "Your files" block). */
+export interface TxrHistoryFileSize {
+  name: string
+  size_bytes: number
+}
+
+/**
+ * One K list row, consumer-shaped (PROV-HS-2): the row's subtitle fields
+ *  (`method_count`, `file_names`, `learned_from`, `predicted`, `endpoint`,
+ *  `decision_day`, `look_ahead_day`), the compact per-method times, the
+ *  first terminal reason (verbatim — K's "Stopped: marker LDH is missing…"
+ *  is the engine's `detail`), the made/used model names (through the
+ *  PROV-MS-11 seam, DEC-9), the retention + capability flags. The meta
+ *  fields come from the engine's own run record — the view is a projection,
+ *  never a parallel model (INV-6).
+ */
+export interface TxrHistoryItem {
+  /** The DEC-4 bucket the K list filters/renders on. */
+  bucket: TxrHistoryBucket
+  /** `predictions_ready` (the engine's CSV download, CONS-HS-10). */
+  can_download: boolean
+  /** `predictions_ready` — "Open the results" / "Download predictions". */
+  can_reopen: boolean
+  /**
+   * `copies_kept && bucket != running` — "Run again with the same
+   *  settings" works only while the stored input copies exist (DEC-6).
+   */
+  can_rerun: boolean
+  /**
+   * The retention flag (the retention row's `copies_kept`; a run without
+   *  a row reads `true` — INV-2's conservative default).
+   */
+  copies_kept: boolean
+  created_at: string
+  decision_day: number
+  /** The engine's run dir verbatim (`<data_root>/analysis-…-<id8>`). */
+  dir: string
+  /** The run's recorded "took" seconds (the K "Took 3 minutes 10 seconds"). */
+  elapsed_secs?: number
+  endpoint: TxrEndpoint
+  /**
+   * The create-time estimate's total (the K "(estimated 4 minutes)");
+   *  null when never computed (never a fabricated zero).
+   */
+  estimate_total_seconds?: number
+  /**
+   * The uploaded source names (engine-grown `input_summary.file_names`,
+   *  GAP-HS-1) in the run's own order — never a name derived from the dir
+   *  stem.
+   */
+  file_names: string[]
+  finished_at?: string
+  /** The engine's run id (one entity, one id — DEC-20). */
+  id: string
+  /** `input_summary.patients` (train mode's "learned from N patients"). */
+  learned_from?: number
+  look_ahead_day: number
+  /** `input_summary.markers` (distinct resolved marker facts). */
+  markers: number
+  /**
+   * The run produced models that were saved (`run.models[]` non-empty):
+   *  the K row's save semantics — the field is DATA, the rendering is the
+   *  consumer's.
+   */
+  markers_saved: boolean
+  method_count: number
+  /**
+   * Compact per-method facts only (no per-method body — the row is the
+   *  bounded view, INV-3; the expanded block's rich rows are the detail's
+   *  `methods`).
+   */
+  methods: TxrHistoryMethodRef[]
+  /** The engine's mode vocabulary, verbatim (`train`|`reuse`). */
+  mode: TxrRunMode
+  /** The K "Made: N models (…)" block. */
+  models_made: TxrHistoryModelsMade
+  /**
+   * The reuse run's consumed set/model names (GROWN at reconcile for
+   *  GAP-HIST-2 — through the engine's `model_ids` over the PROV-MS-11
+   *  seam); `[]` in train mode, never a fabricated name.
+   */
+  models_used: TxrHistoryModelRef[]
+  /** `input_summary.predict_patients` (the "predicted N" figure). */
+  predicted?: number
+  /**
+   * The first terminal method's reason (earliest failed → cannot_run →
+   *  stopped, ITEM-2) — code + detail VERBATIM (CONS-HS-15).
+   */
+  reason?: TxrRunReason
+  started_at?: string
+}
+
+/**
+ * The K filter's `kind` vocabulary (PROV-HS-2): `learned` = the run's
+ *  `mode: train`, `saved-model` = `mode: reuse` — the engine's own mode
+ *  enum mapped to the filter words, never a third vocabulary.
+ */
+export type TxrHistoryKind = 'learned' | 'saved-model'
+
+/**
+ * `GET /api/txr/history` query (PROV-HS-2): `q` = ASCII-folded substring
+ *  over file names / method ids / saved set names (DEC-3 —
+ *  `instr(lower(...), lower($1)) > 0`, no FTS); `kind` = the filter above;
+ *  `status` = ONE bucket or the comma-separated multi-value (GROWN at
+ *  reconcile for GAP-HIST-3: "Stopped or failed" is one call, OR semantics
+ *  — the string is validated/parsed by the repository, ITEM-2); `limit`
+ *  default + clamp per [`HistoryLimits`].
+ */
+export interface TxrHistoryListQuery {
+  kind?: TxrHistoryKind
+  limit?: number
+  offset?: number
+  q?: string
+  status?: string
+}
+
+/**
+ * One compact method ref of the list row (id + version + the recorded
+ *  seconds — the K row's "1.0 (2 min)" facts without a per-method body).
+ */
+export interface TxrHistoryMethodRef {
+  elapsed_secs?: number
+  id: string
+  version: string
+}
+
+/**
+ * One consumed model reference of a reuse run (GROWN at reconcile for
+ *  GAP-HIST-2: the engine's `model_ids` joined over `txr_model_sets` /
+ *  `txr_models` — the K row's "Model CRC cohort, day 56 on march_new.csv"
+ *  facts; `[]` in train mode).
+ */
+export interface TxrHistoryModelRef {
+  model_id: string
+  model_name: string
+  set_id: string
+  set_name: string
+}
+
+/**
+ * One saved model of the run's "Made" record in the detail
+ *  (`txr_models`/`txr_model_sets` joined over `source_run_id` — PROV-MS-11).
+ */
+export interface TxrHistoryModelSaved {
+  model_id: string
+  model_name: string
+  set_id: string
+  set_name: string
+  size_bytes: number
+}
+
+/**
+ * The K "Made: N models (…)" block (PROV-HS-2): `produced` = the run's
+ *  produced-model count, `saved_sets` = the model-store sets whose
+ *  `source_run_id` is this run (PROV-MS-11, DEC-9 — read-only; this node
+ *  never writes a model row).
+ */
+export interface TxrHistoryModelsMade {
+  produced: number
+  saved_sets: TxrHistorySavedSet[]
+}
+
+/**
+ * One paged history page (PROV-HS-2): newest-first (`created_at DESC`, id
+ *  tie-break), server-side bounded, `total` the engine-truth count under the
+ *  active q/kind/status filters.
+ */
+export interface TxrHistoryPage {
+  items: TxrHistoryItem[]
+  limit: number
+  offset: number
+  total: number
+}
+
+/**
+ * The K footer's keep-copies preference (PROV-HS-4): the singleton row
+ *  `txr_history_preferences(id = 1)`, seeded by the migration with the
+ *  board's default `true` — "Copies are kept with this run so it can be
+ *  repeated". The ui-run node reads this route at create time (DEC-13).
+ */
+export interface TxrHistoryPreferences {
+  keep_file_copies: boolean
+  updated_at?: string
+}
+
+/**
+ * `PUT /api/txr/history/preferences` body (a missing/typed-wrong field is
+ *  the framework's 422 — serde-validated).
+ */
+export interface TxrHistoryPreferencesUpdate {
+  keep_file_copies: boolean
+}
+
+/** One saved set in the "Made" block. */
+export interface TxrHistorySavedSet {
+  model_count: number
+  set_id: string
+  set_name: string
+}
+
+/**
+ * The K footer's usage figure (PROV-HS-6): `run_count` from the DB (not
+ *  the walk), the recursive size walk of `rootfs::data_root()` grouped by
+ *  top-level segment (`analysis-*` → runs, `models/` → models, rest →
+ *  other), the user-visible `data_dir` (GROWN at reconcile for GAP-HIST-1 —
+ *  the UI never hardcodes a path and never derives one from a run dir), and
+ *  the stamp.
+ */
+export interface TxrHistoryUsage {
+  computed_at: string
+  data_dir: string
+  models_bytes: number
+  other_bytes: number
+  run_count: number
+  runs_bytes: number
+  total_bytes: number
+}
+
 /** One confirmed join of a measurements column to the patients table. */
 export interface TxrJoin {
   /** The join key (the column key the validator resolved). */
@@ -5995,6 +6299,24 @@ export interface TxrRunProgressFrame {
 export interface TxrRunReason {
   code: string
   detail: string
+}
+
+/**
+ * The expanded-block settings line (from the run's `config` JSON + the
+ *  `txr_runs` columns — PROV-HS-3; `cpus: null` = "detect at run start",
+ *  `seed` is the run's recorded contract seed).
+ */
+export interface TxrRunSettingsView {
+  at_a_time: number
+  covariates: boolean
+  cpus?: number
+  decision_day: number
+  endpoint: TxrEndpoint
+  look_ahead_day: number
+  memory_total_bytes?: number
+  mode: TxrRunMode
+  save_models: boolean
+  seed?: number
 }
 
 /**
@@ -6576,6 +6898,13 @@ export type ApiEndpointParameters = {
   'FileValidation.template': { kind: string }
   'FileValidation.validate': ValidationRequest
   'Health.check': void
+  'History.clearAllCopies': void
+  'History.clearCopies': { id: string }
+  'History.getHistory': { id: string }
+  'History.getPreferences': void
+  'History.getUsage': void
+  'History.listHistory': { kind?: TxrHistoryKind; limit?: number; offset?: number; q?: string; status?: string }
+  'History.updatePreferences': TxrHistoryPreferencesUpdate
   'Jobs.create': CreateJobRequest
   'Jobs.get': { id: string }
   'Jobs.getSettings': void
@@ -6793,6 +7122,13 @@ export type ApiEndpointResponses = {
   'FileValidation.template': void
   'FileValidation.validate': ValidationResponse
   'Health.check': HealthResponse
+  'History.clearAllCopies': void
+  'History.clearCopies': void
+  'History.getHistory': TxrHistoryDetail
+  'History.getPreferences': TxrHistoryPreferences
+  'History.getUsage': TxrHistoryUsage
+  'History.listHistory': TxrHistoryPage
+  'History.updatePreferences': void
   'Jobs.create': Job
   'Jobs.get': JobDetail
   'Jobs.getSettings': JobSettings

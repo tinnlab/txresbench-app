@@ -691,8 +691,24 @@ impl HistoryRepository {
         let retention = self.retention_for_run(id).await?;
         let copies_kept = retention.as_ref().map(|r| r.copies_kept).unwrap_or(true);
         let file_names = file_name_list(&summary.input_summary.file_names);
-        let file_sizes = self.copy_file_sizes(&row.dir, &summary.input_summary.file_names, copies_kept);
-        let dir_bytes = dir_size(Path::new(&row.dir));
+        // The detail's two fs reads (the recorded input-copy sizes + the run
+        // dir's recursive size) are the blocking half of the view build —
+        // they run on the blocking pool, never on a tokio worker (the plan's
+        // ITEM-4 `spawn_blocking` line: the view build itself is async — the
+        // DB reads happen through sqlx — so the blocking work is isolated at
+        // the walks, exactly as `retention::usage` isolates its data-root
+        // walk). A join failure (the runtime shutting down) is an internal
+        // error, never a silent empty figure.
+        let repo_walk = self.clone();
+        let dir_walk = row.dir.clone();
+        let names_walk = summary.input_summary.file_names.clone();
+        let (file_sizes, dir_bytes) = tokio::task::spawn_blocking(move || {
+            let sizes = repo_walk.copy_file_sizes(&dir_walk, &names_walk, copies_kept);
+            let bytes = dir_size(Path::new(&dir_walk));
+            (sizes, bytes)
+        })
+        .await
+        .map_err(|e| AppError::internal_error(format!("run-dir walk join: {e}")))?;
 
         Ok(Some(TxrHistoryDetail {
             id: row.id,

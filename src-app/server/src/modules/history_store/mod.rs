@@ -78,6 +78,7 @@
 
 pub mod repository;
 pub mod retention;
+pub mod routes;
 pub mod types;
 
 pub use repository::{HistoryQueryError, HistoryRepository};
@@ -144,15 +145,18 @@ impl AppModule for HistoryStoreModule {
     }
 
     fn register_routes(&self, router: ApiRouter) -> ApiRouter {
-        // The six routes of PROV-HS-2..HS-6 register at the routes item
-        // (ITEM-4) under `/api/txr/history*` — the app-owned free namespace
+        // The seven operations of PROV-HS-2..HS-6 register under
+        // `/api/txr/history*` — the app-owned free namespace
         // (`/api/txr/runs*` + `/api/txr/models*` are the providers') — with
         // the reused `JobsUse` permission (DEC-15: no new permission, A10
-        // not triggered; the engine's gate). The doc ids they bind are
-        // `types::ROUTE_DOC_IDS` (the 7 `History.*` ids pinned and asserted
-        // by the types suite); the suite pins the registered set to that
-        // vocabulary.
-        router
+        // not triggered; the engine's gate). They are the enumerated
+        // `routes::HistoryRoute::ALL` inventory — one place for path, verb
+        // and doc id, so a route cannot be mounted with one name and
+        // documented with another (the execution_engine `TxrRoute` precedent).
+        // The doc ids are `types::ROUTE_DOC_IDS` (the 7 `History.*` ids
+        // pinned and asserted by the types suite AND by the routes' own
+        // test); the OpenAPI regen diff is exactly these operations.
+        router.merge(routes::history_routes())
     }
 }
 
