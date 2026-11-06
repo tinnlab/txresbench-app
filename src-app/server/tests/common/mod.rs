@@ -122,6 +122,15 @@ pub struct TestOptions {
     /// must exercise encrypt-at-rest / masked-read sets a ≥32-char key here. Mirrors the
     /// other opt-in env knobs above.
     pub secret_storage_key: Option<String>,
+
+    /// Point the spawned server's pretrained-catalogue boot refresh at this
+    /// catalogue URL (`CYTO_TXR_CATALOGUE_URL` — the module's documented
+    /// default-resolution seam). `None` (default) defaults to a CLOSED
+    /// loopback port: the boot refresh fails instantly without network, so
+    /// every spawned server boots offline-fast and no test suite dials the
+    /// production catalogue host. A test that must serve a live catalogue
+    /// sets its own loopback URL here.
+    pub catalogue_url: Option<String>,
 }
 
 impl HarnessApp for CytoHarnessApp {
@@ -259,6 +268,16 @@ jwt:
                 if let Some(key) = &opts.secret_storage_key {
                     env.push(("CYTO_SECRET_STORAGE_KEY".to_string(), key.clone()));
                 }
+                // The pretrained-catalogue boot refresh (a detached task) must
+                // never dial the production catalogue host from a test suite:
+                // the default is a CLOSED loopback port (instant refusal), a
+                // test that needs a live catalogue passes its own URL.
+                env.push((
+                    "CYTO_TXR_CATALOGUE_URL".to_string(),
+                    opts.catalogue_url
+                        .clone()
+                        .unwrap_or_else(|| "http://127.0.0.1:9/catalogue.json".to_string()),
+                ));
                 env
             },
             keep_alive: vec![],

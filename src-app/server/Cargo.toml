@@ -149,7 +149,12 @@ clap = { version = "4", features = ["derive"] }
 # `mcp`'s REST-kind `invoke_capability` loopback dispatch (forwards the
 # caller's JWT to the real route, mirrors ziee `control_mcp`). Version matched
 # to the dev-dependency below so the single Cargo.lock unifies them.
-reqwest = { version = "0.12", features = ["json"] }
+# `stream` (added by pretrained-catalogue ITEM-3, DEC-14): the downloader
+# streams response bytes into the staged file via `futures-util::StreamExt`
+# (already a direct dependency), so a large asset never buffers whole and the
+# byte-progress polling contract stays chunk-accurate. Feature edit only — no
+# new crate, `Cargo.lock` byte-identical.
+reqwest = { version = "0.12", features = ["json", "stream"] }
 
 # NOTE (artifact-model ITEM-12 / ITEM-20): `arrow` + `arrow-ipc` are GONE. They
 # existed for the Selection→Arrow serve wire (`workstore::serve_core`) and for the
