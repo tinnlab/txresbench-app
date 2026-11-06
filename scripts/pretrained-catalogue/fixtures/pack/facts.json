@@ -1,0 +1,38 @@
+{
+  "name": "Fx pretrained rule",
+  "token": "fx-rule-001",
+  "catalogue_id": "fx-rule-001",
+  "licence": "CC0 1.0 (synthetic fixture)",
+  "method_id": "fx-pretrained-rule",
+  "method_version": "1.0.0",
+  "group": "response-call",
+  "group_label": "Response call",
+  "task": "response",
+  "decision_day": 56.0,
+  "endpoint": "pfs",
+  "horizon": 238.0,
+  "contract": "2.0",
+  "env": {"base_digest": "abababababababababababababababababababababababababababababababab", "layer_digest": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"},
+  "features": ["fx-mark-01"],
+  "required_markers": {
+    "markers": [{"name": "fx marker 01", "id_system": "FX-SYS", "id": "fx-01"}],
+    "match": "all",
+    "min_fraction": 1.0,
+    "list_source": "Synthetic fixture marker rule"
+  },
+  "marker_facts": {
+    "kind": "single",
+    "count": 1,
+    "min_draws": 2,
+    "needs_baseline": true,
+    "uses_history": "landmark",
+    "needs_detection_call": false,
+    "marker_groups_required": []
+  },
+  "covariates": {"catalogue": "none", "used": false},
+  "embeds_training_data": false,
+  "trained_on_patients": 312,
+  "trained_at": "2026-10-19T14:30:00Z",
+  "own_auc": 0.66,
+  "own_c": 0.63
+}
