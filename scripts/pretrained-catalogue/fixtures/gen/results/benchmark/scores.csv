@@ -1,0 +1,10 @@
+unit,dataset,modality,primary,landmark,outcome,horizon_day,method,k,marker_specific,metric,value,lo,hi,n_patients,coverage,excluded,reason
+fx-dataset-1/u1,fx-dataset-1,fx marker 01,True,28.0,pfs,180.0,fx-pretrained-rule,1,False,auc_rule,0.7,0.6,0.8,120,1.0,False,
+fx-dataset-1/u2,fx-dataset-1,fx marker 01,True,28.0,pfs,180.0,fx-pretrained-rule,1,False,auc_rule,0.66,0.55,0.77,120,1.0,False,
+fx-dataset-2/u1,fx-dataset-2,fx marker 02,True,28.0,os,180.0,fx-pretrained-rule,1,False,auc_rule,0.6,0.5,0.7,84,1.0,False,
+fx-dataset-2/u1,fx-dataset-2,fx marker 02,True,56.0,os,238.0,fx-ctdna-single,1,False,c_index,0.61,0.5,0.72,84,1.0,False,
+fx-dataset-2/u2,fx-dataset-2,fx marker 02,True,56.0,os,238.0,fx-ctdna-single,1,False,c_index,0.63,0.52,0.74,84,1.0,False,
+fx-dataset-1/u1,fx-dataset-1,fx marker 03,True,84.0,pfs,365.0,fx-family,1,False,c_index,0.55,0.44,0.66,210,1.0,False,
+fx-dataset-1/u2,fx-dataset-1,fx marker 03,True,84.0,pfs,365.0,fx-family,1,False,c_index,0.57,0.46,0.68,210,1.0,False,
+fx-dataset-2/u1,fx-dataset-2,fx marker 03,True,84.0,pfs,365.0,fx-family,1,False,c_index,0.59,0.48,0.7,210,1.0,False,
+fx-dataset-2/u1,fx-dataset-2,fx marker 02,True,56.0,os,238.0,fx-ctdna-single,1,False,auc_rule,0.72,0.6,0.84,84,1.0,False,

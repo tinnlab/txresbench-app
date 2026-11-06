@@ -1,0 +1,6 @@
+method,group,journal,year,paper_doi,frozen_model,container,gate,tasks,covariates
+fx-pretrained-rule,response-call,Synthetic Journal of Fixtures,2021,10.0000/fx.rule.001,True,True,PASS,response,none
+fx-ctdna-single,static-risk,Synthetic Oncology Reports,2022,10.0000/fx.ctdna.002,True,True,PASS,survival,optional
+fx-family,dynamic-risk,Synthetic Methods in Medicine,2023,10.0000/fx.family.003,False,True,PASS,survival,required
+fx-not-frozen,static-risk,Synthetic Clinical Fixtures,2020,10.0000/fx.unfrozen.004,False,True,PASS,survival,none
+fx-envless-rule,response-call,Synthetic Journal of Fixtures,2021,10.0000/fx.envless.005,True,True,PASS,response,none

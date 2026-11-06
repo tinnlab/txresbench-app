@@ -1,0 +1,52 @@
+{
+  "name": "Fixture rule two",
+  "token": "fx-rule-002",
+  "catalogue_id": "fx-rule-002",
+  "licence": "MIT (synthetic fixture)",
+  "method_id": "fx-ctdna-single",
+  "method_version": "1.4.0",
+  "group": "static-risk",
+  "group_label": "Static risk",
+  "task": "os",
+  "decision_day": 56.0,
+  "endpoint": "os",
+  "horizon": 238.0,
+  "contract": "2.0",
+  "env": {
+    "base_digest": "sha256:cc33cc33cc33cc33cc33cc33cc33cc33cc33cc33cc33cc33cc33cc33cc33cc33",
+    "layer_digest": "dd44dd44dd44dd44dd44dd44dd44dd44dd44dd44dd44dd44dd44dd44dd44dd44"
+  },
+  "features": [
+    "fx-mark-02"
+  ],
+  "required_markers": {
+    "markers": [
+      {
+        "name": "fx marker 02",
+        "id_system": "FX-SYS",
+        "id": "fx-02"
+      }
+    ],
+    "match": "all",
+    "min_fraction": 1.0,
+    "list_source": "Synthetic fixture marker rule"
+  },
+  "marker_facts": {
+    "kind": "single",
+    "count": 1,
+    "min_draws": 2,
+    "needs_baseline": true,
+    "uses_history": "landmark",
+    "needs_detection_call": false,
+    "marker_groups_required": []
+  },
+  "covariates": {
+    "catalogue": "optional",
+    "used": true
+  },
+  "embeds_training_data": false,
+  "trained_on_patients": 84,
+  "trained_at": "2026-02-02T11:00:00Z",
+  "own_auc": null,
+  "own_c": 0.61
+}

@@ -1,0 +1,21 @@
+{
+ "models": [
+  {
+   "file": "fx-rule-001@1.0.0.txr",
+   "id": "fx-rule-001",
+   "sha256": "ec32260606c50f2076bc959c6197d69b3414fb1b7ef9f5baeedd60625eada8fd",
+   "size_bytes": 1428,
+   "url": "https://github.com/tinnlab/txresbench-models/releases/download/fx-rule-001-v1.0.0/fx-rule-001@1.0.0.txr",
+   "version": "1.0.0"
+  },
+  {
+   "file": "fx-rule-002@1.1.0.txr",
+   "id": "fx-rule-002",
+   "sha256": "d88ad92294d0d1960181af387ab211f434edf0223e600477cc8fedc14f26877d",
+   "size_bytes": 1438,
+   "url": "https://github.com/tinnlab/txresbench-models/releases/download/fx-rule-002-v1.1.0/fx-rule-002@1.1.0.txr",
+   "version": "1.1.0"
+  }
+ ],
+ "schema_version": 1
+}
