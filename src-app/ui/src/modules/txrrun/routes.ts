@@ -17,7 +17,21 @@
  * `running` is the F terminal segment. The `compare`/`methods` reserved
  * path words belong to `txrresults`' route tree (they are route segments
  * there, never method ids); they never appear in this route tree.
+ *
+ * The change-files handoff (CONS-UI-RUN-12): the E screen's "Change files"
+ * dialog hosts the intake's file cards, and a pick-from-disk goes to the
+ * intake screen that owns the parse/inspect/validate flow — screen C
+ * (`/files`) in the train-mode flow, screen N (`/predict-files`) in the
+ * predict flow. The two targets are the declared constants here, never
+ * literals in the module's copy; the routes themselves belong to
+ * `txrintake`.
  */
 export const chooseMethodsPath = (): string => '/choose-methods'
 
 export const runningPath = (runId: string): string => `/analysis/${runId}/running`
+
+/** Screen C (`txrintake`) — the train-mode change-files target. */
+export const filesPath = (): string => '/files'
+
+/** Screen N (`txrintake`) — the predict-mode change-files target. */
+export const predictFilesPath = (): string => '/predict-files'
