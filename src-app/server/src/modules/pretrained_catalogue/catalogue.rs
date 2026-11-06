@@ -348,9 +348,22 @@ pub fn host_of(url: &str) -> Option<&str> {
 }
 
 /// Whether loopback (the network guard's own always-allowed set — the test
-/// seams serve fixtures on 127.0.0.1).
+/// seams serve fixtures on 127.0.0.1). The shared `host_of` keeps the Python
+/// grammar — the authority INCLUDING an optional port — so a loopback
+/// fixture URL's host arrives as `127.0.0.1:<port>`; the port is part of the
+/// authority, never of the hostname, and is ignored here (a fixture can only
+/// answer on a non-privileged port, so a port-less match would make the
+/// loopback allowance dead — TEST-PC-05/06's own fixture design).
 fn is_loopback(host: &str) -> bool {
-    matches!(host, "127.0.0.1" | "localhost" | "::1" | "0.0.0.0")
+    let name = host
+        .rsplit_once(':')
+        .filter(|(_, port)| !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()))
+        .map(|(hostname, _)| hostname)
+        .unwrap_or(host);
+    matches!(
+        name,
+        "127.0.0.1" | "localhost" | "::1" | "0.0.0.0" | "[::1]"
+    )
 }
 
 /// The URL is within the app's outbound policy (the model-host rule, INV-5):
@@ -1269,6 +1282,30 @@ mod tests {
         };
         let err = parse_catalogue(&sample_bytes(vec![bad_id]), false).unwrap_err();
         assert_eq!(err.code(), "PRETRAINED_CATALOGUE_MODEL_ID_INVALID");
+    }
+
+    /// TEST-PC-04/05 (the gate half): the host policy matches a
+    /// port-bearing loopback authority (the shared `host_of` keeps the
+    /// authority's optional port per the Python grammar — the loopback
+    /// fixtures can only answer on a non-privileged port, and TEST-PC-05/06
+    /// download from exactly such URLs), still refuses a non-allowlisted
+    /// REAL host, and never confuses a suffix host with loopback.
+    #[test]
+    fn host_policy_accepts_port_bearing_loopback_only() {
+        assert!(host_allowed("http://127.0.0.1:35957/assets/x@1.0.0.txr"));
+        assert!(host_allowed("http://localhost:8080/assets/x.txr"));
+        assert!(host_allowed("http://127.0.0.1/assets/x.txr"));
+        assert!(host_allowed("http://[::1]:8080/assets/x.txr"));
+        assert!(host_allowed(
+            "https://github.com/tinnlab/txresbench-models/releases/download/x-v1.0.0/x@1.0.0.txr"
+        ));
+        assert!(!host_allowed(
+            "http://127.0.0.1.evil.example:9/assets/x.txr"
+        ));
+        assert!(!host_allowed(
+            "http://not-on-the-allowlist.example.invalid/assets/x.txr"
+        ));
+        assert!(!host_allowed("not a url"));
     }
 
     /// CONS-PC-2: the cross-check is bootstrap-only (a live catalogue may be

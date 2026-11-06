@@ -57,18 +57,23 @@
 //! blocked-network boot or the integration harness point the fetch at a
 //! closed loopback port instead.
 //!
-//! ## Registration (ITEM-3's scope)
+//! ## Registration (ITEM-3/ITEM-4's scope)
 //!
-//! THIS ITEM: `mod.rs` + `types.rs` + `catalogue.rs` + the `modules/mod.rs`
-//! line + the reqwest `stream` feature (ITEM-4's downloader consumes it).
-//! The eight routes, the download manager, the install path and the
-//! eligibility engine land with ITEM-4/5; `register_routes` therefore merges
-//! nothing yet and the OpenAPI regen is a no-op until then.
+//! ITEM-3: `mod.rs` + `types.rs` + `catalogue.rs` + the `modules/mod.rs`
+//! line + the reqwest `stream` feature; ITEM-4 adds the download manager
+//! (`downloader.rs`), the ensure/install path (`install.rs`) and the
+//! bundled-layout helpers (`bundled.rs`). The eight
+//! routes and the eligibility engine land with ITEM-5; `register_routes`
+//! therefore merges nothing yet and the OpenAPI regen is a no-op until then.
 
+pub mod bundled;
 pub mod catalogue;
+pub mod downloader;
+pub mod install;
 pub mod types;
 
 pub use catalogue::{ActiveCatalogue, CatalogueRuntime, PretrainedCatalogueSeams};
+pub use downloader::DownloadManager;
 
 use std::sync::{Arc, OnceLock};
 
@@ -91,6 +96,17 @@ pub fn runtime() -> &'static Arc<CatalogueRuntime> {
         "pretrained_catalogue: the catalogue runtime is installed by module init — \
          a module used before boot is an initialization-order bug",
     )
+}
+
+/// The process-live download manager (PROV-PC-6): built from the SAME seams
+/// as the runtime (first use lazily installs it — the routes and the
+/// install seam share one instance; the state is file-backed).
+static DOWNLOADS: OnceLock<Arc<DownloadManager>> = OnceLock::new();
+
+/// The installed download manager (the install seam's manager; panics only
+/// when called before `init`, same as [`runtime`]).
+pub fn downloads() -> &'static Arc<DownloadManager> {
+    DOWNLOADS.get_or_init(|| Arc::new(DownloadManager::new(runtime().seams().clone())))
 }
 
 /// The module instance. It holds the (test-overridable) seams + the
