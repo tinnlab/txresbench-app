@@ -68,9 +68,17 @@ their results. You can leave this screen: the run continues, and it stays
 in History."). The boards' NUMBERS — patient counts, method counts, times,
 downloaded bytes — are design examples, never data and never constants in code
 or fixtures (FLOW.md): the module renders only the engine's real values
-through its format helpers. All fixtures of the module are synthetic
-(made-up method ids, `P`-style patient keys, counts constructed in-test);
-no real data of any kind enters the tree (the repo rule).
+through its format helpers.
+
+The module's own files are shipped copy: no work-status wording, no
+placeholder text and no TODO/TBD markers appear in the module's source,
+fixtures or this README (the repo's published-file rule); the node's design
+choices and drift records live in the node's lifecycle docs next to the
+plan, never in the module. The gallery stories' runs and method rows
+(`gallery.tsx` + `fixtures.ts`) are synthetic — made-up method ids, `P`-style
+patient keys, counts constructed in-test — and the real-backend spec
+creates its runs through the engine's own API with in-test tables; no real
+data of any kind enters the tree (the repo rule).
 
 The research notice ("For research. Not for deciding a patient's
 treatment.") is one constant in the module and renders on both run screens.

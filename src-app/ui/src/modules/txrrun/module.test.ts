@@ -166,9 +166,18 @@ describe('txrrun module (TEST-RUN-01)', () => {
     expect(touched.filter(p => p.startsWith('src-app/ui/src/modules/txrshell/'))).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/src/modules/loader.ts')).toEqual([])
     expect(touched.filter(p => p.startsWith('src-app/server/'))).toEqual([])
+    // ONE provider-file exception (ITEM-13, DRIFT-1 #3): the ui-list
+    // adapter's null-performance guard — the wire sends `performance:
+    // null` for 138 of 359 catalogue methods and the `=== undefined`
+    // check threw before the null branch of the adapter's own DEC-17
+    // contract; the fix is the missing half of that contract, recorded
+    // with the evidence. Nothing else outside this module moves.
     expect(
       touched.filter(
-        p => p.startsWith('src-app/ui/src/modules/') && !p.startsWith('src-app/ui/src/modules/txrrun/'),
+        p =>
+          p.startsWith('src-app/ui/src/modules/') &&
+          !p.startsWith('src-app/ui/src/modules/txrrun/') &&
+          p !== 'src-app/ui/src/modules/txrlist/data/methodRows.ts',
       ),
     ).toEqual([])
   })

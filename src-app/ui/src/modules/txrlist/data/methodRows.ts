@@ -70,10 +70,18 @@ function toRunStatus(status: EligibilityStatus): TxrRunStatus {
  * degradation — the E board itself shows no performance column for rows
  * that have none to show). The value is the benchmark's primary
  * aggregate, formatted to the board's two decimals.
+ *
+ * The guard covers BOTH absent and `null`: the wire serializes the
+ * optional field as JSON `null` for the 138 of 359 catalogue methods
+ * without measured performance, and the generated client keeps the
+ * value verbatim — `=== undefined` alone let `null.c_index_median`
+ * throw and the whole E list fell into its error state (found by
+ * ui-run's ITEM-13 real-backend spec against the live catalogue;
+ * recorded in that node's DRIFT-1 ITEM-13).
  */
 function performanceText(summary: MethodSummary): string | null {
   const performance = summary.performance
-  if (performance === undefined) return null
+  if (performance === undefined || performance === null) return null
   return `other cohorts: AUC ${performance.c_index_median.toFixed(2)}`
 }
 
