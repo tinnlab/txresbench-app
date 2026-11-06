@@ -2,7 +2,7 @@ import { useEffect, useMemo } from 'react'
 import type { CSSProperties } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useStore } from 'zustand'
-import { resultsPath } from '@/modules/txrresults/routes'
+import { methodResultsPath, resultsPath } from '@/modules/txrresults/routes'
 import { Alert, Button, Result, Skeleton } from '@ziee/kit'
 import type { TxrRunBucket } from '../types'
 import { bucketOf, formatSecs, formatTimeLeft } from '../lib/format'
@@ -10,6 +10,8 @@ import { historyPath } from '../routes'
 import { TxrRun, useTxrRun } from '../stores/TxrRun.store'
 import { TxrCountsStrip } from '../components/TxrCountsStrip'
 import { formatRunTitle, TxrRunHeader } from '../components/TxrRunHeader'
+import { TxrRunTable } from '../components/TxrRunTable'
+import type { TxrRunRowAction } from '../components/TxrRunRow'
 
 /**
  * Screen F — Running (board `BusyRunning.dc.html`): one analysis run's live
@@ -18,10 +20,12 @@ import { formatRunTitle, TxrRunHeader } from '../components/TxrRunHeader'
  * the single-instance-per-URL rule), the header block (methods count,
  * time left, elapsed, concurrency line, "See the results"), the five-count
  * strip, the All/Working/Finished/Failed tab chips (the page's filter
- * state, held in the run store so it survives a leave-and-continue) and
- * the not-found / network states (kit `Result` + the History link). The
- * method table + per-row actions (ITEM-10) and the log panel +
- * leave-and-continue note (ITEM-11) build on this base below the tab row.
+ * state, held in the run store so it survives a leave-and-continue), the
+ * per-method table + the stop-all / at-a-time controls (ITEM-10 — the
+ * rows are the active tab's bucket, the actions call the run store and
+ * navigate with `txrresults`' builders) and the not-found / network
+ * states (kit `Result` + the History link). The log panel +
+ * leave-and-continue note (ITEM-11) build on this base next to the table.
  *
  * The header's facts are composed here and formatted in `lib/format.ts`
  * (INV-4 — the time-left is the run's own create-time estimate minus its
@@ -60,8 +64,9 @@ const NOTICE_ROW: CSSProperties = { flexBasis: '100%' }
 /** The DEC-18 one-line notice (the 409 resolution's handoff line). */
 const RESUMED_NOTICE_LINE = 'A run was already active — you are watching it now.'
 
-/** The tab chips' row (the board's tab row above the method table; ITEM-10
- *  adds the run-N-at-a-time control to this same row). */
+/** The tab chips' row (the board's tab row above the method table; the
+ *  at-a-time control lives in the table section's footer row — ITEM-10's
+ *  placement is recorded in DRIFT-1). */
 const TAB_ROW: CSSProperties = {
   display: 'flex',
   flexWrap: 'wrap',
@@ -210,6 +215,36 @@ export function RunningPage() {
   const resumed =
     (location.state as { resumed?: boolean } | null)?.resumed === true
 
+  // The table's row set is the active tab's bucket over the run's rows
+  // (DEC-2's partition — "All" is the row count; ITEM-9 note (a): the
+  // table receives the rows already filtered; it never filters).
+  const visibleRows = useMemo(() => {
+    const methods = run?.methods ?? []
+    return tab === 'all' ? methods : methods.filter(m => bucketOf(m.state) === tab)
+  }, [run, tab])
+
+  // The per-state action's one home: the store's stop/skip calls, the
+  // log-panel handoff (the panel renders at ITEM-11; the store's frozen
+  // logOpen/logFilter state is what it reads) and the txrresults builder
+  // for a finished method's own screen (PROV-UR-1, never a URL literal).
+  const handleAction = (action: TxrRunRowAction): void => {
+    switch (action.kind) {
+      case 'stop':
+        void TxrRun.stopMethod(action.methodId)
+        break
+      case 'skip':
+        void TxrRun.skipMethod(action.methodId)
+        break
+      case 'log':
+        TxrRun.setLogOpen(true)
+        TxrRun.setLogFilter(action.methodId)
+        break
+      case 'view':
+        navigate(methodResultsPath(run!.id, action.methodId))
+        break
+    }
+  }
+
   if (runError === 'not-found') {
     return <NotFoundRun history={historyPath()} />
   }
@@ -259,6 +294,18 @@ export function RunningPage() {
           ))}
           <span style={{ flexGrow: 1 }} />
         </div>
+        <TxrRunTable
+          rows={visibleRows}
+          perMethod={state.perMethod}
+          rowErrors={state.rowErrors}
+          onAction={handleAction}
+          atATime={state.atATime}
+          onAtATime={n => void TxrRun.setAtATime(n)}
+          atATimeError={state.atATimeError}
+          onStopAll={() => void TxrRun.stopAll()}
+          stopping={state.stopping}
+          actionError={state.actionError}
+        />
       </section>
     </main>
   )

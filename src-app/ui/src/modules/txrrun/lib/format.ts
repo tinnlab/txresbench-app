@@ -185,3 +185,57 @@ export function formatProgress(r: TxrRunMethod, progress: TxrRunProgressFrame | 
       return ''
   }
 }
+
+/**
+ * The F row's TIME column — the row's own timing sentence (the board's
+ * per-row Time column): a running row reads its elapsed ("1 min 40 s"), a
+ * completed row reads "done in M min S s" (the board's log line's words at
+ * the row's own duration, `duration_ms`), and a failed / cannot-run row
+ * reads its elapsed (the board's "5 s"). Waiting and downloading rows read
+ * nothing: the engine contracts a per-row estimate nowhere — the header's
+ * time-left line carries the schedule (DEC-3) and the board's per-row
+ * "about 1 min" facts are design examples, never data (INV-6) — so an empty
+ * empty column is the honest reading, never an invented duration.
+ */
+export function formatRowTime(r: TxrRunMethod): string {
+  switch (r.state) {
+    case 'running':
+    case 'failed':
+    case 'cannot_run':
+      return r.elapsed_secs === undefined ? '' : formatSecs(r.elapsed_secs)
+    case 'finished':
+    case 'stopped':
+    case 'skipped':
+      return r.duration_ms === undefined
+        ? ''
+        : `done in ${formatSecs(r.duration_ms / 1000)}`
+    default:
+      return ''
+  }
+}
+
+/**
+ * The F row's progress-bar value (0–100): a finished row reads 100 (the
+ * work is done — the board's completed bar), a failed row reads 100 (it
+ * ran to its end — the board's failure bar; its reason is the detail
+ * line), a cannot-run row reads 0 (nothing ran; its slot is a note, not a
+ * bar), a waiting row reads 0 (the board's own empty bar), and an
+ * active/stopped/skipped row reads the latest live progress frame's
+ * `pct`, the row's own `progress_pct` (the env download's ratio) when no
+ * frame arrived, and 0 when neither — a stopped/skipped row keeps the
+ * progress it reached, never a fabricated 100 (it did not complete).
+ */
+export function formatBarValue(r: TxrRunMethod, progress: TxrRunProgressFrame | null): number {
+  switch (r.state) {
+    case 'finished':
+    case 'failed':
+      return 100
+    case 'cannot_run':
+    case 'waiting':
+      return 0
+    default: {
+      const pct = progress?.pct ?? r.progress_pct ?? 0
+      return Math.max(0, Math.min(100, pct))
+    }
+  }
+}

@@ -9,8 +9,10 @@
  * from `TxrRunDetail.counts`, the tab chips (the page-owned filter state
  * through the run store, counts from the module's bucket partition, DEC-2)
  * and the not-found / network states (kit `Result` + the History link,
- * retry on network). The ITEM-11 page rows (log panel wiring, the
- * leave-and-continue note) grow this same file later.
+ * retry on network). The ITEM-10 rows (the per-method table's tab-filtered
+ * row set, the row-action wiring, Stop all's confirmation, the at-a-time
+ * lane pick) and the ITEM-11 page rows (log panel wiring, the
+ * leave-and-continue note) grow this same file.
  *
  * The only mocked boundary is `ApiClient.Txr` (the store's own logic runs
  * for real); the stream mock stays pending like the store suite's — the
@@ -18,24 +20,29 @@
  * synthetic (non-board counts, small figures) — INV-6.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import type { TxrRunDetail, TxrRunMethod } from '@/api-client/types'
-import { resultsPath } from '@/modules/txrresults/routes'
+import { methodResultsPath, resultsPath } from '@/modules/txrresults/routes'
 import { historyPath } from '../routes'
 
 const getRun = vi.fn()
 const streamRun = vi.fn()
+const listRunLogs = vi.fn()
+const stopRun = vi.fn()
+const stopMethod = vi.fn()
+const skipMethod = vi.fn()
+const setAtATime = vi.fn()
 vi.mock('@/api-client', () => ({
   ApiClient: {
     Txr: {
       getRun: (...a: unknown[]) => getRun(...a),
       streamRun: (...a: unknown[]) => streamRun(...a),
-      listRunLogs: vi.fn(),
-      stopRun: vi.fn(),
-      stopMethod: vi.fn(),
-      skipMethod: vi.fn(),
-      setAtATime: vi.fn(),
+      listRunLogs: (...a: unknown[]) => listRunLogs(...a),
+      stopRun: (...a: unknown[]) => stopRun(...a),
+      stopMethod: (...a: unknown[]) => stopMethod(...a),
+      skipMethod: (...a: unknown[]) => skipMethod(...a),
+      setAtATime: (...a: unknown[]) => setAtATime(...a),
     },
   },
 }))
@@ -143,6 +150,16 @@ function renderAt(runId: string) {
 beforeEach(() => {
   getRun.mockReset()
   streamRun.mockReset()
+  listRunLogs.mockReset()
+  stopRun.mockReset()
+  stopMethod.mockReset()
+  skipMethod.mockReset()
+  setAtATime.mockReset()
+  listRunLogs.mockResolvedValue({ lines: [], next_seq: 0, total: 0 })
+  stopRun.mockResolvedValue(undefined)
+  stopMethod.mockResolvedValue(undefined)
+  skipMethod.mockResolvedValue(undefined)
+  setAtATime.mockResolvedValue({ id: 'run-1', status: 'running' })
   getRun.mockResolvedValue(runDetail())
   streamRun.mockImplementation(() => new Promise<void>(() => {}))
   state().reset()
@@ -278,5 +295,85 @@ describe('RunningPage — the run states (TEST-RUN-23)', () => {
     await screen.findByTestId('txr-run-title')
     expect(getRun).toHaveBeenCalledTimes(2)
     expect(state().runError).toBeNull()
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ITEM-10 — the per-method table, the row actions, Stop all, the lane pick
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('RunningPage — the method table and its actions (ITEM-10)', () => {
+  it("feeds the table the active tab's rows (the page's bucket filter, DEC-2)", async () => {
+    renderAt('run-1')
+    await screen.findByTestId('txr-run-table')
+    expect(screen.getByTestId('txr-run-row-method-1')).toBeTruthy()
+    expect(screen.getByTestId('txr-run-row-method-6')).toBeTruthy()
+
+    fireEvent.click(screen.getByTestId('txr-run-tab-working'))
+    expect(screen.getByTestId('txr-run-row-method-1')).toBeTruthy()
+    expect(screen.getByTestId('txr-run-row-method-3')).toBeTruthy()
+    expect(screen.queryByTestId('txr-run-row-method-4')).toBeNull()
+    expect(screen.queryByTestId('txr-run-row-method-6')).toBeNull()
+
+    fireEvent.click(screen.getByTestId('txr-run-tab-failed'))
+    expect(screen.getByTestId('txr-run-row-method-5')).toBeTruthy()
+    expect(screen.getByTestId('txr-run-row-method-6')).toBeTruthy()
+    expect(screen.queryByTestId('txr-run-row-method-1')).toBeNull()
+  })
+
+  it('wires the row actions: Stop and Skip post the engine controls, Show log opens the panel at the method', async () => {
+    renderAt('run-1')
+    await screen.findByTestId('txr-run-table')
+
+    fireEvent.click(screen.getByTestId('txr-run-action-method-1'))
+    expect(stopMethod).toHaveBeenCalledWith({ id: 'run-1', method_id: 'method-1' })
+
+    fireEvent.click(screen.getByTestId('txr-run-action-method-2'))
+    expect(skipMethod).toHaveBeenCalledWith({ id: 'run-1', method_id: 'method-2' })
+
+    fireEvent.click(screen.getByTestId('txr-run-action-method-5'))
+    expect(state().logOpen).toBe(true)
+    expect(state().logFilter).toBe('method-5')
+  })
+
+  it('navigates a finished row\'s View result to the method results builder', async () => {
+    renderAt('run-1')
+    await screen.findByTestId('txr-run-table')
+    fireEvent.click(screen.getByTestId('txr-run-action-method-4'))
+    expect(router.state.location.pathname).toBe(methodResultsPath('run-1', 'method-4'))
+  })
+
+  it('posts Stop all only after the confirmation (DEC-10), and nothing on cancel', async () => {
+    renderAt('run-1')
+    await screen.findByTestId('txr-run-table')
+
+    fireEvent.click(screen.getByTestId('txr-run-stop-all'))
+    const confirm = screen.getByTestId('txr-run-stop-all-confirm')
+    expect(stopRun).not.toHaveBeenCalled()
+    fireEvent.click(within(confirm).getByText('Cancel'))
+    expect(stopRun).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByTestId('txr-run-stop-all'))
+    fireEvent.click(within(screen.getByTestId('txr-run-stop-all-confirm')).getByText('Stop all'))
+    await vi.waitFor(() => expect(stopRun).toHaveBeenCalledTimes(1))
+    expect(stopRun).toHaveBeenCalledWith({ id: 'run-1' })
+  })
+
+  it('wires the at-a-time row to the engine\'s lane route (the GAP call site)', async () => {
+    renderAt('run-1')
+    await screen.findByTestId('txr-run-table')
+    const control = screen.getByTestId('txr-run-at-a-time-control')
+    // The run's value 3 sits outside the presets — its own chip next to 1/2/4.
+    expect(within(control).getAllByRole('tab').map(b => b.textContent)).toEqual([
+      '1',
+      '2',
+      '4',
+      '3',
+    ])
+    fireEvent.click(within(control).getAllByRole('tab')[1])
+    await vi.waitFor(() =>
+      expect(setAtATime).toHaveBeenCalledWith({ id: 'run-1', at_a_time: 2 }),
+    )
+    expect(state().atATime).toBe(2)
   })
 })
