@@ -1,0 +1,282 @@
+// @vitest-environment jsdom
+/**
+ * TEST-RUN-23 (ITEM-9 rows) — the F page base (`pages/RunningPage.tsx`):
+ * the page reads the run id from the URL param and calls the run store's
+ * `load` once per id (a changed id re-loads — the store resets first, no
+ * cross-run bleed), renders the header facts composed from the run's own
+ * rows (INV-4 — the title count, the time-left/elapsed line, the
+ * concurrency line, DEC-12's See-results readiness), the five-count strip
+ * from `TxrRunDetail.counts`, the tab chips (the page-owned filter state
+ * through the run store, counts from the module's bucket partition, DEC-2)
+ * and the not-found / network states (kit `Result` + the History link,
+ * retry on network). The ITEM-11 page rows (log panel wiring, the
+ * leave-and-continue note) grow this same file later.
+ *
+ * The only mocked boundary is `ApiClient.Txr` (the store's own logic runs
+ * for real); the stream mock stays pending like the store suite's — the
+ * page never needs a frame to render the snapshot. Every fixture value is
+ * synthetic (non-board counts, small figures) — INV-6.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { createMemoryRouter, RouterProvider } from 'react-router-dom'
+import type { TxrRunDetail, TxrRunMethod } from '@/api-client/types'
+import { resultsPath } from '@/modules/txrresults/routes'
+import { historyPath } from '../routes'
+
+const getRun = vi.fn()
+const streamRun = vi.fn()
+vi.mock('@/api-client', () => ({
+  ApiClient: {
+    Txr: {
+      getRun: (...a: unknown[]) => getRun(...a),
+      streamRun: (...a: unknown[]) => streamRun(...a),
+      listRunLogs: vi.fn(),
+      stopRun: vi.fn(),
+      stopMethod: vi.fn(),
+      skipMethod: vi.fn(),
+      setAtATime: vi.fn(),
+    },
+  },
+}))
+
+const { useTxrRun } = await import('../stores/TxrRun.store')
+const { RunningPage } = await import('./RunningPage')
+const state = () => useTxrRun.getState()
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fixtures (synthetic — INV-6)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const RUNNING = 'method-1'
+const WAITING = 'method-2'
+const DOWNLOADING = 'method-3'
+const FINISHED = 'method-4'
+const FAILED = 'method-5'
+const CANNOT = 'method-6'
+
+function methodRow(
+  id: string,
+  state: TxrRunMethod['state'],
+  over: Partial<TxrRunMethod> = {},
+): TxrRunMethod {
+  return {
+    method_id: id,
+    label: id,
+    group: 'dynamic_risk',
+    group_label: 'Dynamic risk',
+    version: '1.0.0',
+    state,
+    bytes_downloaded: 0,
+    ...(state === 'finished' ? { phase: 'done' as const } : {}),
+    ...over,
+  }
+}
+
+/** One run with six rows across the non-empty engine states (synthetic). */
+function runDetail(runId = 'run-1'): TxrRunDetail {
+  const methods = [
+    methodRow(RUNNING, 'running', { phase: 'fit', elapsed_secs: 20 }),
+    methodRow(WAITING, 'waiting'),
+    methodRow(DOWNLOADING, 'downloading', {
+      phase: 'env',
+      bytes_total: 1048576,
+      bytes_downloaded: 655360,
+    }),
+    methodRow(FINISHED, 'finished', { elapsed_secs: 90, duration_ms: 112000 }),
+    methodRow(FAILED, 'failed', {
+      reason: { code: 'JOB_TIMEOUT', detail: 'the method hit the run limit' },
+    }),
+    methodRow(CANNOT, 'cannot_run', {
+      reason: { code: 'NEEDS_MARKER', detail: 'needs LDH, not in your file' },
+    }),
+  ]
+  return {
+    id: runId,
+    status: 'running',
+    mode: 'train',
+    created_at: '2026-11-06T00:00:00Z',
+    started_at: '2026-11-06T00:00:40Z',
+    finished_at: undefined,
+    elapsed_secs: 100,
+    config: { endpoint: 'pfs', decision_day: 56, look_ahead_day: 238, at_a_time: 3, cpus: 4 },
+    counts: {
+      finished: 1,
+      failed: 1,
+      stopped: 0,
+      skipped: 0,
+      cannot_run: 1,
+      running: 1,
+      downloading: 1,
+      waiting: 1,
+    },
+    predictions_ready: false,
+    dir: '/data/txresbench/analysis-2026-11-06-0000-run-1',
+    input_summary: {
+      patients: 20,
+      predict_patients: 20,
+      markers: 3,
+      events: 2,
+      file_names: { patients: 'patients.csv', measurements: 'measurements.csv' },
+    },
+    method_ids: methods.map(m => m.method_id),
+    model_ids: [],
+    log_lines: 4,
+    cpus: 4,
+    estimate: { schedule_seconds: 240, estimate_quality: 'estimate', total_seconds: 200 },
+    outcome: { endpoint: 'pfs', horizon: 238, task_is_mixed: false },
+    methods,
+    models: [],
+  }
+}
+
+let router: ReturnType<typeof createMemoryRouter>
+
+function renderAt(runId: string) {
+  router = createMemoryRouter(
+    [{ path: '/analysis/:runId/running', element: <RunningPage /> }],
+    { initialEntries: [`/analysis/${runId}/running`] },
+  )
+  return render(<RouterProvider router={router} />)
+}
+
+beforeEach(() => {
+  getRun.mockReset()
+  streamRun.mockReset()
+  getRun.mockResolvedValue(runDetail())
+  streamRun.mockImplementation(() => new Promise<void>(() => {}))
+  state().reset()
+})
+
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Load + composition
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('RunningPage — the run id and the header facts (TEST-RUN-23)', () => {
+  it('loads the URL\'s run id once and renders the header from the run\'s rows', async () => {
+    renderAt('run-1')
+    const title = await screen.findByTestId('txr-run-title')
+    expect(getRun).toHaveBeenCalledTimes(1)
+    expect(getRun).toHaveBeenCalledWith({ id: 'run-1' })
+    // The title count is the run's own row count (six fixture rows).
+    expect(title.textContent).toBe('Running 6 methods')
+    expect(state().runError).toBeNull()
+    expect(state().run?.id).toBe('run-1')
+  })
+
+  it('re-loads when the run id changes (the store resets; no cross-run bleed)', async () => {
+    renderAt('run-1')
+    await screen.findByTestId('txr-run-title')
+    expect(getRun).toHaveBeenCalledTimes(1)
+
+    // A mid-view filter state must not survive into the next run's view.
+    fireEvent.click(screen.getByTestId('txr-run-tab-working'))
+    expect(state().tab).toBe('working')
+
+    await router.navigate('/analysis/run-2/running')
+    // The store's load fires from the page's effect (the run-id change); the
+    // navigate settles before the effect's commit, so wait for the load.
+    await vi.waitFor(() => expect(state().runId).toBe('run-2'))
+    expect(getRun).toHaveBeenCalledTimes(2)
+    expect(getRun).toHaveBeenLastCalledWith({ id: 'run-2' })
+    // The new run's view starts at the default tab (store reset on load).
+    expect(state().tab).toBe('all')
+  })
+
+  it('renders the time-left/elapsed line, the concurrency line and the See-results link from the run\'s facts', async () => {
+    renderAt('run-1')
+    // schedule 240 s − elapsed 100 s → 140 s → about 2 minutes left.
+    expect((await screen.findByTestId('txr-run-time-line')).textContent).toBe(
+      'about 2 minutes left · 1 min 40 s elapsed',
+    )
+    expect(screen.getByTestId('txr-run-concurrency').textContent).toBe(
+      '3 run at a time on 4 CPUs',
+    )
+    // One finished row → results readable while the others still run (INV-1).
+    const see = screen.getByTestId('txr-run-see-results')
+    expect(see.getAttribute('href')).toBe(resultsPath('run-1'))
+    expect(screen.getByTestId('txr-run-notice').textContent).toContain('For research.')
+  })
+
+  it('renders the five-count strip from the run\'s own counts', async () => {
+    renderAt('run-1')
+    await screen.findByTestId('txr-run-counts')
+    expect(screen.getByTestId('txr-run-counts').textContent).toBe(
+      '1 finished1 running1 downloading1 waiting1 failed',
+    )
+  })
+
+  it('hides the See-results link when no method finished and no predictions are ready', async () => {
+    const detail = runDetail('run-1')
+    detail.methods = detail.methods.filter(
+      m => m.state !== 'finished' && m.state !== 'failed' && m.state !== 'cannot_run',
+    )
+    detail.predictions_ready = false
+    getRun.mockResolvedValue(detail)
+    renderAt('run-1')
+    await screen.findByTestId('txr-run-title')
+    expect(screen.queryByTestId('txr-run-see-results')).toBeNull()
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tab state (the page-owned filter state — DEC-2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('RunningPage — the F tabs (ITEM-9)', () => {
+  it('renders the four chips with the bucket counts over the run\'s rows', async () => {
+    renderAt('run-1')
+    await screen.findByTestId('txr-run-tabs')
+    expect(screen.getByTestId('txr-run-tab-all').textContent).toBe('All 6')
+    expect(screen.getByTestId('txr-run-tab-working').textContent).toBe('Working 3')
+    expect(screen.getByTestId('txr-run-tab-finished').textContent).toBe('Finished 1')
+    expect(screen.getByTestId('txr-run-tab-failed').textContent).toBe('Failed 2')
+  })
+
+  it('starts at All and moves the active chip with the store\'s tab (one toggle per click)', async () => {
+    renderAt('run-1')
+    const all = await screen.findByTestId('txr-run-tab-all')
+    expect(all.getAttribute('aria-pressed')).toBe('true')
+    expect(state().tab).toBe('all')
+
+    fireEvent.click(screen.getByTestId('txr-run-tab-working'))
+    expect(state().tab).toBe('working')
+    expect(screen.getByTestId('txr-run-tab-working').getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('txr-run-tab-all').getAttribute('aria-pressed')).toBe('false')
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The not-found / network states
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('RunningPage — the run states (TEST-RUN-23)', () => {
+  it('renders the not-found state with a History link and never crashes the store', async () => {
+    getRun.mockRejectedValue(Object.assign(new Error('HTTP error! status: 404'), { status: 404 }))
+    renderAt('missing')
+    await screen.findByTestId('txr-run-not-found')
+    expect(state().runError).toBe('not-found')
+    expect(state().streaming).toBe(false)
+    expect(streamRun).not.toHaveBeenCalled()
+    const history = screen.getByTestId('txr-run-history').getAttribute('href')
+    expect(history).toBe(historyPath())
+  })
+
+  it('renders the network error state with a retry that re-loads the run', async () => {
+    getRun.mockRejectedValue(new Error('connection refused'))
+    renderAt('run-1')
+    await screen.findByTestId('txr-run-load-error')
+    expect(state().runError).toBe('network')
+
+    getRun.mockResolvedValue(runDetail())
+    fireEvent.click(screen.getByTestId('txr-run-retry'))
+    await screen.findByTestId('txr-run-title')
+    expect(getRun).toHaveBeenCalledTimes(2)
+    expect(state().runError).toBeNull()
+  })
+})

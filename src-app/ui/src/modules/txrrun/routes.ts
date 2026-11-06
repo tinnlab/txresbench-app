@@ -35,3 +35,11 @@ export const filesPath = (): string => '/files'
 
 /** Screen N (`txrintake`) — the predict-mode change-files target. */
 export const predictFilesPath = (): string => '/predict-files'
+
+/**
+ * Screen K (`txrshell`) — the F not-found/error states' "History" link.
+ * The shell owns the route (and its module declares no builder), so this
+ * module declares the constant beside its own two — the same convention as
+ * the change-files targets above; the UI never spells a path literal.
+ */
+export const historyPath = (): string => '/history'
