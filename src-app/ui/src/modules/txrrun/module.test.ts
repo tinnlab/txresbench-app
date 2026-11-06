@@ -173,10 +173,15 @@ describe('txrrun module (TEST-RUN-01)', () => {
     ).toEqual([])
   })
 
-  it('carries no status words, no literal design-example numbers and no URL literal in its own files (INV-5/6)', () => {
-    // The status-word scan targets SHIPPED COPY that promises or announces
-    // work not yet done; any spelling in comments, copy or fixtures fails.
+  it('carries no status words, no literal design-example numbers and no URL literal in its own copy (INV-5/6)', () => {
+    // The scan's target is SHIPPED COPY — the module's own source, comments
+    // and fixtures; any spelling there fails. Test files are excluded, the
+    // same scope the study-literal scan below uses: they PIN the formatter
+    // outputs verbatim (TEST-RUN-04's "4 min 40 s" / "about 7 minutes left"
+    // / "160 of 250 MB" — the boards' own bytes as EXPECTED values), which
+    // is precisely what an INV-5/6 scan must allow outside shipped copy.
     const own = ownSourceFiles(MODULE_DIR)
+      .filter(p => !/\.test\.(ts|tsx)$/.test(p))
       .map(p => readFileSync(p, 'utf8'))
       .join('\n')
       .toLowerCase()
