@@ -137,14 +137,21 @@ describe('txrintake module', () => {
     expect(source).toContain('/saved-models')
   })
 
-  it('records the txrshell `/` handoff: the route is gone, the three shell routes stay', () => {
-    expect(routesOf(txrShellModule).map(r => r.path)).toEqual(['/models', '/history', '/help'])
+  it('records the txrshell route handoffs: the `/` and `/models` scaffold routes are gone, the shell keeps the rest', () => {
+    // The `/models` route was handed to `txrmodels` (screen J) after this
+    // test was written — the sanctioned handoff of this epic's route
+    // takeovers (ui-models edits the same shell file, different block).
+    expect(routesOf(txrShellModule).map(r => r.path)).toEqual(['/history', '/help'])
     const shellSource = readFileSync(
       fileURLToPath(new URL('../txrshell/module.tsx', import.meta.url)),
       'utf8',
     )
     expect(shellSource).toContain('handed to the `txrintake` module')
     expect(shellSource).not.toContain("path: '/'")
+    // The `/models` handoff's words (the shell comment names the incoming
+    // module); the phrase spans the comment's line breaks.
+    expect(shellSource).toContain('`txrmodels` module')
+    expect(shellSource).not.toContain("path: '/models'")
   })
 
   it('does not change the dependency set, the ui scripts tree or the domain ledger (INV-5/6)', () => {

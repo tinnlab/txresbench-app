@@ -158,7 +158,18 @@ describe('txrresults module (TEST-UR-13)', () => {
     expect(touched.filter(p => p.startsWith('scripts/'))).toEqual([])
     expect(touched.filter(p => p.startsWith('src-app/ui/scripts/'))).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/package.json')).toEqual([])
-    expect(touched.filter(p => p.startsWith('src-app/ui/src/modules/txrshell/'))).toEqual([])
+    // ONE shell exception (the sanctioned `/models` route handoff of the
+    // `feat/ui-models` item, recorded in its DRIFT-1 #8): the `txrmodels`
+    // module takes over the shell's `/models` scaffold route — the route
+    // block is removed from `txrshell/module.tsx` with the handoff
+    // comment. Nothing else in the shell moves.
+    expect(
+      touched.filter(
+        p =>
+          p.startsWith('src-app/ui/src/modules/txrshell/') &&
+          p !== 'src-app/ui/src/modules/txrshell/module.tsx',
+      ),
+    ).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/src/modules/loader.ts')).toEqual([])
     expect(touched.filter(p => p.startsWith('src-app/server/'))).toEqual([])
   })

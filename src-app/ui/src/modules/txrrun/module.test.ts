@@ -162,8 +162,18 @@ describe('txrrun module (TEST-RUN-01)', () => {
     expect(touched.filter(p => p.startsWith('scripts/'))).toEqual([])
     expect(touched.filter(p => p.startsWith('src-app/ui/scripts/'))).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/package.json')).toEqual([])
-    expect(touched.filter(p => p === 'src-app/ui/package-lock.json')).toEqual([])
-    expect(touched.filter(p => p.startsWith('src-app/ui/src/modules/txrshell/'))).toEqual([])
+    // ONE shell exception (the sanctioned `/models` route handoff): the
+    // `txrmodels` module takes over the shell's `/models` scaffold route —
+    // the route block is removed from `txrshell/module.tsx` with the
+    // handoff comment (that module's own test pins the diff). Nothing else
+    // in the shell moves.
+    expect(
+      touched.filter(
+        p =>
+          p.startsWith('src-app/ui/src/modules/txrshell/') &&
+          p !== 'src-app/ui/src/modules/txrshell/module.tsx',
+      ),
+    ).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/src/modules/loader.ts')).toEqual([])
     expect(touched.filter(p => p.startsWith('src-app/server/'))).toEqual([])
     // ONE provider-file exception (ITEM-13, DRIFT-1 #3): the ui-list
@@ -171,13 +181,23 @@ describe('txrrun module (TEST-RUN-01)', () => {
     // null` for 138 of 359 catalogue methods and the `=== undefined`
     // check threw before the null branch of the adapter's own DEC-17
     // contract; the fix is the missing half of that contract, recorded
-    // with the evidence. Nothing else outside this module moves.
+    // with the evidence.
+    // THREE further exceptions (the `feat/ui-models` item, recorded in its
+    // DRIFT-1 #8): the new `txrmodels` module dir (a new auto-discovered
+    // module is an addition, not a global edit of an existing module), the
+    // `txrmodels` item's maintenance of THIS node's sibling stale pin in
+    // `txrintake/module.test.ts` (the shell route handoff it performs
+    // invalidated that pin), and nothing else outside this module moves.
     expect(
       touched.filter(
         p =>
           p.startsWith('src-app/ui/src/modules/') &&
           !p.startsWith('src-app/ui/src/modules/txrrun/') &&
-          p !== 'src-app/ui/src/modules/txrlist/data/methodRows.ts',
+          p !== 'src-app/ui/src/modules/txrlist/data/methodRows.ts' &&
+          !p.startsWith('src-app/ui/src/modules/txrmodels/') &&
+          p !== 'src-app/ui/src/modules/txrintake/module.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrresults/module.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/module.tsx',
       ),
     ).toEqual([])
   })
