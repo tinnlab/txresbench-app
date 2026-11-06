@@ -950,12 +950,14 @@ fn file_name_list(file_names: &TxrRunFileNames) -> Vec<String> {
 }
 
 /// The recursive byte size of a directory when it exists (the detail's
-/// `dir_bytes` — "size of `<run_dir>` when it exists"). Best-effort: entries
+/// `dir_bytes` — "size of `<run_dir>` when it exists", and the per-segment
+/// walker of the usage figure: `retention::walk_data_root` shares THIS
+/// implementation — one walker, never duplicated). Best-effort: entries
 /// that do not read are skipped (their bytes are not counted — an honest
 /// figure, never a zero substituted for an error); symlinks are not followed
 /// (`DirEntry::metadata` is the lstat — the run tree's own bytes only). No
 /// new crate (DEC-15): plain `read_dir` recursion.
-fn dir_size(path: &Path) -> Option<u64> {
+pub(crate) fn dir_size(path: &Path) -> Option<u64> {
     fn walk(dir: &Path, acc: &mut u64) -> Option<()> {
         let entries = std::fs::read_dir(dir).ok()?;
         for entry in entries.flatten() {

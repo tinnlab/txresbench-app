@@ -77,9 +77,11 @@
 //! permission (DEC-15 — no new permission, A10 not triggered).
 
 pub mod repository;
+pub mod retention;
 pub mod types;
 
 pub use repository::{HistoryQueryError, HistoryRepository};
+pub use retention::{reset_usage_cache, Retention};
 pub use types::{
     HistoryErrorCode, HistoryLimits, TxrHistoryBucket, TxrHistoryCopies, TxrHistoryDetail,
     TxrHistoryEstimate, TxrHistoryFileSize, TxrHistoryItem, TxrHistoryKind,
