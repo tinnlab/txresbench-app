@@ -99,10 +99,14 @@ function ownSourceFiles(dir: string): string[] {
 }
 
 /**
- * The shell file's change, as added/removed lines. Uncommitted: `git diff
- * HEAD`. Committed: the tip commit or the item commit below the report
- * record — walk back at most three commits until a non-empty shell diff is
- * found (the report commit itself touches only the lifecycle ledger).
+ * The shell file's change, as added/removed lines. The working tree first
+ * (a LATER shell edit surfaces here and the pin sees it); when the working
+ * tree has no shell change, the committed walk-back: the nearest commit
+ * whose shell diff is non-empty — the item that last touched the shell.
+ * The window is capped at 12 commits: the shell handoff was ITEM-1's, and
+ * each item's report-impl commit pair pushes it one further back (the
+ * ITEM-1/2 "at most three" window went stale at ITEM-3 — the walk-back
+ * already enforces the byte shape, so a wider net never weakens the pin).
  */
 function shellPatch(): { added: string[]; removed: string[] } {
   const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim()
@@ -120,9 +124,12 @@ function shellPatch(): { added: string[]; removed: string[] } {
     removed: lines.filter(l => l.startsWith('-') && !l.startsWith('---')).map(l => l.slice(1)),
   })
   if (git(['status', '--porcelain']).length > 0) {
-    return parse(git(['diff', 'HEAD', '--', SHELL]))
+    const working = parse(git(['diff', 'HEAD', '--', SHELL]))
+    if (working.added.length > 0 || working.removed.length > 0) return working
+    // The working tree is clean for the shell (a stale pin state): fall
+    // through to the committed walk-back, like the clean-tree branch.
   }
-  for (let n = 1; n <= 3; n++) {
+  for (let n = 1; n <= 12; n++) {
     const patch = parse(git(['diff', `HEAD~${n}`, 'HEAD', '--', SHELL]))
     if (patch.added.length > 0 || patch.removed.length > 0) return patch
   }
