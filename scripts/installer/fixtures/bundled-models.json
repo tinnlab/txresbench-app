@@ -1,0 +1,21 @@
+{
+ "models": [
+  {
+   "file": "relchange-threshold@0.4.0.txr",
+   "id": "relchange-threshold",
+   "sha256": "6c35ed45c6f1b46bda2f9d02cfa32b5c8ddf39408e2b706518295d226b734296",
+   "size_bytes": 196,
+   "url": "https://github.com/tinnlab/txresbench-models/releases/download/models-v0.4.0/relchange-threshold@0.4.0.txr",
+   "version": "0.4.0"
+  },
+  {
+   "file": "squeeze-fit@1.2.0.txr",
+   "id": "squeeze-fit",
+   "sha256": "719fda92505828701d6d89ec29fd031dcf13aef703c83e644787df10dfe0b6d9",
+   "size_bytes": 188,
+   "url": "https://github.com/tinnlab/txresbench-models/releases/download/models-v1.2.0/squeeze-fit@1.2.0.txr",
+   "version": "1.2.0"
+  }
+ ],
+ "schema_version": 1
+}
