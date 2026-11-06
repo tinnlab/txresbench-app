@@ -131,6 +131,14 @@ pub struct TestOptions {
     /// production catalogue host. A test that must serve a live catalogue
     /// sets its own loopback URL here.
     pub catalogue_url: Option<String>,
+
+    /// Point the spawned server's pretrained bundled-models dir at this
+    /// directory (`CYTO_TXR_BUNDLED_MODELS_DIR` — the module's documented
+    /// bundle-layout resolution). `None` (default) leaves the env unset →
+    /// `<data_dir>/pretrained-bundled`. A test that must exercise the
+    /// bundled install source (TEST-PC-07/23) writes its fixture `.txr` here
+    /// before the spawn.
+    pub pretrained_bundled_dir: Option<PathBuf>,
 }
 
 impl HarnessApp for CytoHarnessApp {
@@ -278,6 +286,15 @@ jwt:
                         .clone()
                         .unwrap_or_else(|| "http://127.0.0.1:9/catalogue.json".to_string()),
                 ));
+                // The same for the pretrained bundled-models dir: a test that
+                // must exercise the bundled install source passes its own
+                // layout (the module's documented env seam).
+                if let Some(dir) = &opts.pretrained_bundled_dir {
+                    env.push((
+                        "CYTO_TXR_BUNDLED_MODELS_DIR".to_string(),
+                        dir.display().to_string(),
+                    ));
+                }
                 env
             },
             keep_alive: vec![],

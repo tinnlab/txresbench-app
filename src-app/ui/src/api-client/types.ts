@@ -2029,6 +2029,15 @@ export type DependentCount = {
 }
 
 /**
+ * The cancel/prune query (`?prune=true` removes the cached file for the
+ *  entry's digest — DEC-17's explicit prune).
+ */
+export interface DownloadCancelQuery {
+  /** Also remove the cached file for the entry's digest. */
+  prune?: boolean
+}
+
+/**
  * Query for minting a download token. Optionally pin a specific version so the
  *  resulting token downloads that exact version's bytes (the version number is
  *  baked into the SIGNED claims — a head token can't be repurposed to fetch
@@ -4411,6 +4420,398 @@ export interface PermissionErrorDetails {
 
 /** `pong.status` — CONTRACT.md's `"processing"|"unknown"`. */
 export type PongStatus = 'processing' | 'unknown'
+
+/**
+ * One assay warning of the card (the ⚠ lines — data, rendered by the
+ *  consumer).
+ */
+export interface PretrainedAssayWarning {
+  code: string
+  detail: string
+}
+
+/**
+ * The release-asset facts (INV-1 — an immutable release asset of
+ *  `tinnlab/txresbench-models`, content-addressed by the entry's sha256).
+ */
+export interface PretrainedAsset {
+  /** The installer ships the file when true (INV-8 — the offline path). */
+  bundled: boolean
+  /** `<id>@<version>.txr` — the release asset's file name. */
+  file: string
+  /**
+   * 64 lowercase hex — the content identity every download/install
+   *  verifies against (INV-2).
+   */
+  sha256: string
+  /** Always empty (owner decision: sha256 only, NO signing — DEC-7). */
+  signature: string
+  size_bytes: number
+  url: string
+}
+
+/**
+ * The summary row's asset projection (no url/signature — the list row renders
+ *  state + size only).
+ */
+export interface PretrainedAssetSummary {
+  bundled: boolean
+  file: string
+  sha256: string
+  size_bytes: number
+}
+
+/** One dataset a model's data comes from (the card's licence facts — INV-3). */
+export interface PretrainedDataSource {
+  /**
+   * The registry's access class; after the build gate every shipped entry
+   *  is `open` (INV-3 — the runtime refuses anything else, belt over the
+   *  build gate).
+   */
+  access: PretrainedDataSourceAccess
+  dataset: string
+  licence: string
+}
+
+/** The access-class vocabulary of the benchmark registry. */
+export type PretrainedDataSourceAccess = 'open' | 'controlled'
+
+/**
+ * The download-state vocabulary (PROV-PC-6 — MIRRORS the method-environment
+ *  vocabulary per models.md; this node does not import the sandbox module,
+ *  DEC-6).
+ */
+export type PretrainedDownloadState = 'not_downloaded' | 'downloading' | 'ready' | 'failed'
+
+/**
+ * One download's status (PROV-PC-6; `bytes_downloaded` is polled from the
+ *  growing staged file, `bytes_total` the catalogue's `asset.size_bytes`).
+ */
+export interface PretrainedDownloadStatus {
+  /**
+   * The entry's asset is bundled (the bundle is the source; it is never
+   *  downloaded — INV-8).
+   */
+  bundled: boolean
+  bytes_downloaded: number
+  bytes_total?: number
+  /** The verified file is in the content-addressed cache. */
+  cached: boolean
+  /**
+   * The verified sha256 (present once the asset has verified once —
+   *  bundled or cached or downloaded).
+   */
+  digest?: string
+  error?: string
+  id: string
+  state: PretrainedDownloadState
+  version: string
+}
+
+/** `GET /api/txr/pretrained/downloads` */
+export interface PretrainedDownloadsResponse {
+  downloads: PretrainedDownloadStatus[]
+}
+
+/**
+ * One entry's D-list verdict (the verdict rules are PROV-MC-5's / PROV-MS-9's
+ *  — DEC-10 — with the catalogue's recorded `needs` as the input and the
+ *  `ASSET_NOT_AVAILABLE` addition above).
+ */
+export interface PretrainedEligibilityEntry {
+  coverage: Coverage
+  /**
+   * The estimator's fact quality (measured from the benchmark, else the
+   *  language fallback).
+   */
+  estimate_quality: TimingQuality
+  /**
+   * The catalogue estimator's value for the entry's method; null when the
+   *  method is absent from the method catalogue (the verdict still stands
+   *  without a time).
+   */
+  estimated_seconds?: number
+  id: string
+  min_draws: MinDraws
+  /** The provider's [`MissingMarker`] shape (the board's "2 lack LDH" list). */
+  missing_markers: MissingMarker[]
+  reasons: PretrainedReason[]
+  status: EligibilityStatus
+}
+
+/**
+ * The eligibility request body — `model_ids` bounded 1..=200; `inventory` is
+ *  PROV-MC-5's `InventoryEligibilityRequest` VERBATIM (imported, not restated),
+ *  the same object `ui-models` feeds the methods / saved-models /
+ *  pretrained list endpoints.
+ */
+export interface PretrainedEligibilityRequest {
+  inventory: InventoryEligibilityRequest
+  model_ids: string[]
+}
+
+/** The eligibility response: per-entry verdicts plus the screen totals. */
+export interface PretrainedEligibilityResponse {
+  models: PretrainedEligibilityEntry[]
+  total_cannot: number
+  total_fit: number
+  total_some: number
+}
+
+/**
+ * The card's outcome flavor — the ASSET's analysis endpoint (`pfs` | `os`).
+ *  Distinct from the engine's task vocabulary; the card's
+ *  `needs.task` is the task class ([`PretrainedTask`]) and the packer's header
+ *  `task` is this endpoint flavor (DRIFT-1 ITEM-2 #4 — never merge them).
+ */
+export type PretrainedEndpoint = 'pfs' | 'os'
+
+/**
+ * The D-list row state — the merge of the catalogue entry, the bundled-file
+ *  presence, the download-manager state and the installed store row.
+ */
+export type PretrainedEntryState = 'not_downloaded' | 'downloading' | 'ready' | 'bundled' | 'installed' | 'unavailable'
+
+/**
+ * The method environment image digests the asset was packed against
+ *  (INV-7 — recorded from the env-images manifest at generation time, never
+ *  re-derived).
+ */
+export interface PretrainedEnv {
+  base_digest: string
+  layer_digest: string
+}
+
+/** The install response. */
+export interface PretrainedInstallResponse {
+  catalogue_id: string
+  licence: string
+  /** The store row id (null while the install is pending a download). */
+  model_id?: string
+  size_bytes: number
+  source: PretrainedInstallSource
+  status: PretrainedInstallStatus
+  version: string
+}
+
+/**
+ * Where the verified bytes came from (source order: bundled → cache →
+ *  download — INV-8).
+ */
+export type PretrainedInstallSource = 'bundled' | 'cache' | 'download'
+
+/**
+ * The install status (200 = installed now; 202 = the download was started
+ *  and the caller polls PROV-PC-6).
+ */
+export type PretrainedInstallStatus = 'installed' | 'installing'
+
+/** The model-contract kind — the board's Published / Learned here tags. */
+export type PretrainedKind = 'published-rule' | 'benchmark-trained'
+
+/** The list response (unpaged — the catalogue is bounded; PROV-PC-3). */
+export interface PretrainedListResponse {
+  /**
+   * The active catalogue's generation date (null only in the not-yet-
+   *  refreshed embedded state with a malformed provenance — never in a
+   *  shipped snapshot).
+   */
+  generated_at?: string
+  models: PretrainedSummary[]
+  origin: PretrainedOrigin
+  total: number
+}
+
+/**
+ * The card's marker-input facts (the method's assembled facts, PROV-MC-1 —
+ *  the same facts the methods list's verdicts run on, so a pretrained
+ *  "Can run" means the same thing as the method's, DEC-10).
+ */
+export interface PretrainedMarkerFacts {
+  count: number
+  kind: MarkerKind
+  marker_groups_required: string[]
+  min_draws: number
+  needs_baseline: boolean
+  needs_detection_call: boolean
+  uses_history: UsesHistory
+}
+
+/**
+ * One `models[]` entry of the catalogue — the card payload (PROV-PC-4) and
+ *  the board-D row's data source.
+ */
+export interface PretrainedModel {
+  description: string
+  assay_warnings?: PretrainedAssayWarning[]
+  asset: PretrainedAsset
+  contract: string
+  data_sources: PretrainedDataSource[]
+  embeds_training_data: boolean
+  env: PretrainedEnv
+  group: string
+  group_label: string
+  /**
+   * The stable catalogue slug (`relchange-threshold`-shaped; the asset
+   *  file name and the store row's `pretrained_catalogue_id` key off it).
+   */
+  id: string
+  kind: PretrainedKind
+  /** The model's DATA licence (non-empty — INV-3). */
+  licence: string
+  method_id: string
+  method_version: string
+  name: string
+  needs: PretrainedNeeds
+  paper?: PretrainedPaper
+  /**
+   * Always true in the shipped catalogue (the card's research-use notice
+   *  FLAG — the copy is the board's, D18).
+   */
+  research_notice: boolean
+  transfer?: PretrainedTransfer
+  version: string
+}
+
+/** The card's needs block — what the D-list verdicts are computed from. */
+export interface PretrainedNeeds {
+  covariates: CovariateMode
+  decision_day: number
+  endpoint: PretrainedEndpoint
+  horizon: number
+  marker_facts: PretrainedMarkerFacts
+  /**
+   * The method's required standard-id markers (PROV-MC-1's rule; null = a
+   *  method with no fixed marker list).
+   */
+  required_markers?: RequiredMarkers
+  /** The task class (`survival`/`response`; null = unclassified). */
+  task?: PretrainedTask
+}
+
+/**
+ * The catalogue layer a served copy came from (INV-8's live → disk →
+ *  embedded order).
+ */
+export type PretrainedOrigin = 'live' | 'disk' | 'embedded'
+
+/** The card's paper block (null on a card with no recorded paper facts). */
+export interface PretrainedPaper {
+  citation: string
+  doi: string
+  journal: string
+  year: number
+}
+
+/**
+ * The summary row's paper projection (no citation — the list row renders
+ *  journal/year/doi only; the full citation is the card's).
+ */
+export interface PretrainedPaperSummary {
+  doi: string
+  journal: string
+  year: number
+}
+
+/**
+ * One structured reason of a pretrained verdict — PROV-MC-5's [`Reason`]
+ *  shape (code + per-code params + the optional group scope) with this node's
+ *  own code vocabulary.
+ */
+export interface PretrainedReason {
+  code: PretrainedReasonCode
+  /** The board group the reason belongs to, when the reason is group-scoped. */
+  group_id?: string
+  params?: any
+}
+
+/**
+ * The pretrained eligibility reason-code vocabulary: PROV-MC-5's
+ *  [`ReasonCode`] set (the SAME wire strings — a per-code renderer in the UI
+ *  never meets an undocumented code) plus the catalogue's own
+ *  `ASSET_NOT_AVAILABLE` (an entry whose asset is neither bundled nor
+ *  downloadable — never emitted by the generator, defensive in the runtime
+ *  verdict). The `from_catalogue` mapper is exhaustive: a new provider code
+ *  fails to compile here instead of silently passing through.
+ */
+export type PretrainedReasonCode = 'REQUIRED_MARKER_MISSING' | 'MARKER_GROUP_MISSING' | 'DETECTION_CALL_MISSING' | 'MIN_DRAWS_UNMET' | 'COVARIATE_MISSING' | 'COVARIATE_REQUIRED_UNMET' | 'UNIT_MISMATCH' | 'DECISION_DAY_UNMET' | 'NOT_RUNNABLE' | 'TASK_INCOMPATIBLE' | 'RESPONSE_LABEL_MISSING' | 'SURVIVAL_OUTCOME_MISSING' | 'ASSET_NOT_AVAILABLE'
+
+/**
+ * The refresh response: the origin actually in use + the catalogue facts of
+ *  the layer chosen (a failed refresh is silent — offline is a valid state —
+ *  so the response never carries an error).
+ */
+export interface PretrainedRefreshResponse {
+  /** The active catalogue's generation date. */
+  cached_at?: string
+  models: number
+  origin: PretrainedOrigin
+}
+
+/** One D-list row (PROV-PC-3). */
+export interface PretrainedSummary {
+  description: string
+  asset: PretrainedAssetSummary
+  decision_day: number
+  endpoint: PretrainedEndpoint
+  group: string
+  group_label: string
+  horizon: number
+  id: string
+  /**
+   * The real store row the D Run passes (the grown
+   *  `model_store::store::list_pretrained` mapping, GAP-PC-3 — strict
+   *  id+version match); null before install.
+   */
+  installed_model_id?: string
+  kind: PretrainedKind
+  licence: string
+  method_id: string
+  method_version: string
+  name: string
+  paper?: PretrainedPaperSummary
+  research_notice: boolean
+  state: PretrainedEntryState
+  transfer?: PretrainedTransferSummary
+  version: string
+  warnings: PretrainedAssayWarning[]
+}
+
+/**
+ * The task class a model's eligibility is computed against (`survival` |
+ *  `response`; null = not classified).
+ */
+export type PretrainedTask = 'survival' | 'response'
+
+/**
+ * The results-on-other-cohorts aggregate (null renders the board's "not yet
+ *  checked elsewhere").
+ */
+export interface PretrainedTransfer {
+  cohorts: PretrainedTransferCohort[]
+  median: number
+  metric: PretrainedTransferMetric
+  n_cohorts: number
+}
+
+/**
+ * One cohort's transfer value (the benchmark's primary-scores median for that
+ *  dataset).
+ */
+export interface PretrainedTransferCohort {
+  dataset: string
+  value: number
+}
+
+/** The transfer metric a published rule was evaluated with on other cohorts. */
+export type PretrainedTransferMetric = 'auc_rule' | 'c_index'
+
+/** The summary row's transfer projection (per-cohort list is card-only). */
+export interface PretrainedTransferSummary {
+  median: number
+  metric: PretrainedTransferMetric
+  n_cohorts: number
+}
 
 /**
  * Screen B's preview body: which marker groups the user picked, and the
@@ -6947,6 +7348,14 @@ export type ApiEndpointParameters = {
   'Notification.markAllRead': void
   'Notification.markRead': { id: string }
   'Notification.unreadCount': void
+  'Pretrained.checkEligibility': PretrainedEligibilityRequest
+  'Pretrained.deleteDownload': { id: string; prune?: boolean }
+  'Pretrained.downloadModel': { id: string }
+  'Pretrained.getModel': { id: string }
+  'Pretrained.installModel': { id: string }
+  'Pretrained.listDownloads': void
+  'Pretrained.listModels': void
+  'Pretrained.refreshCatalogue': void
   'Processor.list': void
   'Processor.packages': void
   'Processor.reload': void
@@ -7171,6 +7580,14 @@ export type ApiEndpointResponses = {
   'Notification.markAllRead': UnreadCount
   'Notification.markRead': UnreadCount
   'Notification.unreadCount': UnreadCount
+  'Pretrained.checkEligibility': PretrainedEligibilityResponse
+  'Pretrained.deleteDownload': void
+  'Pretrained.downloadModel': PretrainedDownloadStatus
+  'Pretrained.getModel': PretrainedModel
+  'Pretrained.installModel': PretrainedInstallResponse
+  'Pretrained.listDownloads': PretrainedDownloadsResponse
+  'Pretrained.listModels': PretrainedListResponse
+  'Pretrained.refreshCatalogue': PretrainedRefreshResponse
   'Processor.list': PackageLoadStatus[]
   'Processor.packages': ProcessorPackagesResponse
   'Processor.reload': ProcessorReloadResponse

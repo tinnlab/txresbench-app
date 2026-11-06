@@ -57,19 +57,24 @@
 //! blocked-network boot or the integration harness point the fetch at a
 //! closed loopback port instead.
 //!
-//! ## Registration (ITEM-3/ITEM-4's scope)
+//! ## Registration (ITEM-3/ITEM-4/ITEM-5's scope)
 //!
 //! ITEM-3: `mod.rs` + `types.rs` + `catalogue.rs` + the `modules/mod.rs`
 //! line + the reqwest `stream` feature; ITEM-4 adds the download manager
 //! (`downloader.rs`), the ensure/install path (`install.rs`) and the
-//! bundled-layout helpers (`bundled.rs`). The eight
-//! routes and the eligibility engine land with ITEM-5; `register_routes`
-//! therefore merges nothing yet and the OpenAPI regen is a no-op until then.
+//! bundled-layout helpers (`bundled.rs`). ITEM-5 adds the eligibility
+//! engine (`eligibility.rs` — PROV-PC-8's pure verdicts) and the eight
+//! routes (`routes.rs` — PROV-PC-3..8, mounted by `register_routes` under
+//! `/api/txr/pretrained*` with the reused `JobsUse` gate), so the OpenAPI
+//! regen's diff at this item is exactly the 8 `Pretrained.*` operations +
+//! their schema types (TEST-PC-25).
 
 pub mod bundled;
 pub mod catalogue;
 pub mod downloader;
+pub mod eligibility;
 pub mod install;
+pub mod routes;
 pub mod types;
 
 pub use catalogue::{ActiveCatalogue, CatalogueRuntime, PretrainedCatalogueSeams};
@@ -201,11 +206,13 @@ impl AppModule for PretrainedCatalogueModule {
     }
 
     fn register_routes(&self, router: ApiRouter) -> ApiRouter {
-        // The eight `Pretrained.*` operations (PROV-PC-3..8) mount here with
-        // ITEM-5's routes.rs; until then the router is returned unchanged
-        // (nothing is served, and the OpenAPI regen is a no-op — TEST-PC-25
-        // for this item).
-        router
+        // The eight `Pretrained.*` operations (PROV-PC-3..8; ITEM-5's
+        // routes.rs) mount under `/api/txr/pretrained*` with the reused
+        // `JobsUse` permission (DEC-11 — no new permission, A10 not
+        // triggered; the single local owner passes automatically). The doc
+        // ids are `types::ROUTE_DOC_IDS`; the routes' own suite pins the
+        // registered set to that vocabulary (the history_store precedent).
+        router.merge(routes::pretrained_routes())
     }
 }
 

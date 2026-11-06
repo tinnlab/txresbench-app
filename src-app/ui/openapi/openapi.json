@@ -11382,6 +11382,468 @@
         ]
       }
     },
+    "/api/txr/pretrained": {
+      "get": {
+        "tags": [
+          "pretrained-catalogue"
+        ],
+        "description": "The pretrained catalogue rows (unpaged — the bounded card set; the D list filters client-side). Each row merges the catalogue entry, the download state and the installed store mapping; `origin` says which layer served it (live → disk → embedded).",
+        "operationId": "Pretrained.listModels",
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "The list response (unpaged — the catalogue is bounded; PROV-PC-3).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PretrainedListResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      }
+    },
+    "/api/txr/pretrained/{id}": {
+      "get": {
+        "tags": [
+          "pretrained-catalogue"
+        ],
+        "description": "One pretrained model's full card (the card fields of PROV-PC-1: description, paper, needs in full, env digests, contract, per-cohort transfer values, assay warnings, licence, data sources, asset). Unknown id → 404 PRETRAINED_UNKNOWN.",
+        "operationId": "Pretrained.getModel",
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "One `models[]` entry of the catalogue — the card payload (PROV-PC-4) and\n the board-D row's data source.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PretrainedModel"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown pretrained id (PRETRAINED_UNKNOWN)"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      }
+    },
+    "/api/txr/pretrained/{id}/install": {
+      "post": {
+        "tags": [
+          "pretrained-catalogue"
+        ],
+        "description": "Install the entry (idempotent): 200 `installed` with the store row once the bytes verified from a bundled file, the cache or a completed download; 202 `installing` when a required download was started. Unknown id → 404 PRETRAINED_UNKNOWN; a verification mismatch or a licence-less entry → 409.",
+        "operationId": "Pretrained.installModel",
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "The install response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PretrainedInstallResponse"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "The download was started; poll the downloads surface",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PretrainedInstallResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown pretrained id (PRETRAINED_UNKNOWN)"
+          },
+          "409": {
+            "description": "PRETRAINED_VERIFY_FAILED / PRETRAINED_LICENCE_MISSING"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      }
+    },
+    "/api/txr/pretrained/{id}/download": {
+      "post": {
+        "tags": [
+          "pretrained-catalogue"
+        ],
+        "description": "Start (or join) the asset download for one catalogue entry. Idempotent: an in-flight or already-ready asset returns its current status; a bundled asset is never downloaded (the bundle is the source). Unknown id → 404 PRETRAINED_UNKNOWN.",
+        "operationId": "Pretrained.downloadModel",
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "One download's status (PROV-PC-6; `bytes_downloaded` is polled from the\n growing staged file, `bytes_total` the catalogue's `asset.size_bytes`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PretrainedDownloadStatus"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown pretrained id (PRETRAINED_UNKNOWN)"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      },
+      "delete": {
+        "tags": [
+          "pretrained-catalogue"
+        ],
+        "description": "Cancel the entry's in-flight download (`prune=true` also removes the cached file for its digest); 204 always once the id resolves. Unknown id → 404 PRETRAINED_UNKNOWN.",
+        "operationId": "Pretrained.deleteDownload",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "prune",
+            "description": "Also remove the cached file for the entry's digest.",
+            "schema": {
+              "description": "Also remove the cached file for the entry's digest.",
+              "type": "boolean",
+              "default": false
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "Cancelled (and pruned when requested)"
+          },
+          "404": {
+            "description": "Unknown pretrained id (PRETRAINED_UNKNOWN)"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      }
+    },
+    "/api/txr/pretrained/downloads": {
+      "get": {
+        "tags": [
+          "pretrained-catalogue"
+        ],
+        "description": "The download status of every catalogue entry (bytes polled from the growing staged file; `digest` once verified; `bundled` flags the entry whose asset ships in the installer).",
+        "operationId": "Pretrained.listDownloads",
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "`GET /api/txr/pretrained/downloads`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PretrainedDownloadsResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      }
+    },
+    "/api/txr/pretrained/refresh": {
+      "post": {
+        "tags": [
+          "pretrained-catalogue"
+        ],
+        "description": "Refresh the catalogue (live → last-good disk → keep the current layer). The response carries the origin actually in use; a failed refresh is silent — offline is a valid state and never an error (INV-8).",
+        "operationId": "Pretrained.refreshCatalogue",
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "The refresh response: the origin actually in use + the catalogue facts of\n the layer chosen (a failed refresh is silent — offline is a valid state —\n so the response never carries an error).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PretrainedRefreshResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      }
+    },
+    "/api/txr/pretrained/eligibility": {
+      "post": {
+        "tags": [
+          "pretrained-catalogue"
+        ],
+        "description": "Per-model eligibility verdicts (can_run / can_run_some / cannot_run) with the PROV-MC-5 reason vocabulary + ASSET_NOT_AVAILABLE, computed from the catalogue's recorded needs. `model_ids` is 1..=200; unknown ids and the bounds answer 400.",
+        "operationId": "Pretrained.checkEligibility",
+        "requestBody": {
+          "description": "The eligibility request body — `model_ids` bounded 1..=200; `inventory` is\n PROV-MC-5's `InventoryEligibilityRequest` VERBATIM (imported, not restated),\n the same object `ui-models` feeds the methods / saved-models /\n pretrained list endpoints.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PretrainedEligibilityRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "The eligibility response: per-entry verdicts plus the screen totals.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PretrainedEligibilityResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "EMPTY_MODEL_IDS / TOO_MANY_MODEL_IDS / PRETRAINED_UNKNOWN (an id absent from the active catalogue)"
+          },
+          "422": {
+            "description": "JSON body that does not match the request schema"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      }
+    },
     "/api/sandbox/status": {
       "get": {
         "tags": [
@@ -16392,6 +16854,17 @@
           }
         ]
       },
+      "DownloadCancelQuery": {
+        "description": "The cancel/prune query (`?prune=true` removes the cached file for the\n entry's digest — DEC-17's explicit prune).",
+        "type": "object",
+        "properties": {
+          "prune": {
+            "description": "Also remove the cached file for the entry's digest.",
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
       "DownloadTokenGenQuery": {
         "description": "Query for minting a download token. Optionally pin a specific version so the\n resulting token downloads that exact version's bytes (the version number is\n baked into the SIGNED claims — a head token can't be repurposed to fetch\n other versions).",
         "type": "object",
@@ -21384,6 +21857,985 @@
             "type": "string",
             "const": "unknown"
           }
+        ]
+      },
+      "PretrainedAssayWarning": {
+        "description": "One assay warning of the card (the ⚠ lines — data, rendered by the\n consumer).",
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "detail"
+        ]
+      },
+      "PretrainedAsset": {
+        "description": "The release-asset facts (INV-1 — an immutable release asset of\n `tinnlab/txresbench-models`, content-addressed by the entry's sha256).",
+        "type": "object",
+        "properties": {
+          "bundled": {
+            "description": "The installer ships the file when true (INV-8 — the offline path).",
+            "type": "boolean"
+          },
+          "file": {
+            "description": "`<id>@<version>.txr` — the release asset's file name.",
+            "type": "string"
+          },
+          "sha256": {
+            "description": "64 lowercase hex — the content identity every download/install\n verifies against (INV-2).",
+            "type": "string"
+          },
+          "signature": {
+            "description": "Always empty (owner decision: sha256 only, NO signing — DEC-7).",
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "bundled",
+          "file",
+          "url",
+          "size_bytes",
+          "sha256",
+          "signature"
+        ]
+      },
+      "PretrainedAssetSummary": {
+        "description": "The summary row's asset projection (no url/signature — the list row renders\n state + size only).",
+        "type": "object",
+        "properties": {
+          "bundled": {
+            "type": "boolean"
+          },
+          "file": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "bundled",
+          "file",
+          "size_bytes",
+          "sha256"
+        ]
+      },
+      "PretrainedDataSource": {
+        "description": "One dataset a model's data comes from (the card's licence facts — INV-3).",
+        "type": "object",
+        "properties": {
+          "access": {
+            "description": "The registry's access class; after the build gate every shipped entry\n is `open` (INV-3 — the runtime refuses anything else, belt over the\n build gate).",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PretrainedDataSourceAccess"
+              }
+            ]
+          },
+          "dataset": {
+            "type": "string"
+          },
+          "licence": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "dataset",
+          "access",
+          "licence"
+        ]
+      },
+      "PretrainedDataSourceAccess": {
+        "description": "The access-class vocabulary of the benchmark registry.",
+        "type": "string",
+        "enum": [
+          "open",
+          "controlled"
+        ]
+      },
+      "PretrainedDownloadState": {
+        "description": "The download-state vocabulary (PROV-PC-6 — MIRRORS the method-environment\n vocabulary per models.md; this node does not import the sandbox module,\n DEC-6).",
+        "type": "string",
+        "enum": [
+          "not_downloaded",
+          "downloading",
+          "ready",
+          "failed"
+        ]
+      },
+      "PretrainedDownloadStatus": {
+        "description": "One download's status (PROV-PC-6; `bytes_downloaded` is polled from the\n growing staged file, `bytes_total` the catalogue's `asset.size_bytes`).",
+        "type": "object",
+        "properties": {
+          "bundled": {
+            "description": "The entry's asset is bundled (the bundle is the source; it is never\n downloaded — INV-8).",
+            "type": "boolean"
+          },
+          "bytes_downloaded": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "bytes_total": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          },
+          "cached": {
+            "description": "The verified file is in the content-addressed cache.",
+            "type": "boolean"
+          },
+          "digest": {
+            "description": "The verified sha256 (present once the asset has verified once —\n bundled or cached or downloaded).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/PretrainedDownloadState"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "state",
+          "bytes_downloaded",
+          "cached",
+          "bundled"
+        ]
+      },
+      "PretrainedDownloadsResponse": {
+        "description": "`GET /api/txr/pretrained/downloads`",
+        "type": "object",
+        "properties": {
+          "downloads": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PretrainedDownloadStatus"
+            }
+          }
+        },
+        "required": [
+          "downloads"
+        ]
+      },
+      "PretrainedEligibilityEntry": {
+        "description": "One entry's D-list verdict (the verdict rules are PROV-MC-5's / PROV-MS-9's\n — DEC-10 — with the catalogue's recorded `needs` as the input and the\n `ASSET_NOT_AVAILABLE` addition above).",
+        "type": "object",
+        "properties": {
+          "coverage": {
+            "$ref": "#/components/schemas/Coverage"
+          },
+          "estimate_quality": {
+            "description": "The estimator's fact quality (measured from the benchmark, else the\n language fallback).",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TimingQuality"
+              }
+            ]
+          },
+          "estimated_seconds": {
+            "description": "The catalogue estimator's value for the entry's method; null when the\n method is absent from the method catalogue (the verdict still stands\n without a time).",
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "id": {
+            "type": "string"
+          },
+          "min_draws": {
+            "$ref": "#/components/schemas/MinDraws"
+          },
+          "missing_markers": {
+            "description": "The provider's [`MissingMarker`] shape (the board's \"2 lack LDH\" list).",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MissingMarker"
+            }
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PretrainedReason"
+            }
+          },
+          "status": {
+            "$ref": "#/components/schemas/EligibilityStatus"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "reasons",
+          "missing_markers",
+          "coverage",
+          "min_draws",
+          "estimate_quality"
+        ]
+      },
+      "PretrainedEligibilityRequest": {
+        "description": "The eligibility request body — `model_ids` bounded 1..=200; `inventory` is\n PROV-MC-5's `InventoryEligibilityRequest` VERBATIM (imported, not restated),\n the same object `ui-models` feeds the methods / saved-models /\n pretrained list endpoints.",
+        "type": "object",
+        "properties": {
+          "inventory": {
+            "$ref": "#/components/schemas/InventoryEligibilityRequest"
+          },
+          "model_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "model_ids",
+          "inventory"
+        ]
+      },
+      "PretrainedEligibilityResponse": {
+        "description": "The eligibility response: per-entry verdicts plus the screen totals.",
+        "type": "object",
+        "properties": {
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PretrainedEligibilityEntry"
+            }
+          },
+          "total_cannot": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "total_fit": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "total_some": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "models",
+          "total_fit",
+          "total_some",
+          "total_cannot"
+        ]
+      },
+      "PretrainedEndpoint": {
+        "description": "The card's outcome flavor — the ASSET's analysis endpoint (`pfs` | `os`).\n Distinct from the engine's task vocabulary; the card's\n `needs.task` is the task class ([`PretrainedTask`]) and the packer's header\n `task` is this endpoint flavor (DRIFT-1 ITEM-2 #4 — never merge them).",
+        "type": "string",
+        "enum": [
+          "pfs",
+          "os"
+        ]
+      },
+      "PretrainedEntryState": {
+        "description": "The D-list row state — the merge of the catalogue entry, the bundled-file\n presence, the download-manager state and the installed store row.",
+        "type": "string",
+        "enum": [
+          "not_downloaded",
+          "downloading",
+          "ready",
+          "bundled",
+          "installed",
+          "unavailable"
+        ]
+      },
+      "PretrainedEnv": {
+        "description": "The method environment image digests the asset was packed against\n (INV-7 — recorded from the env-images manifest at generation time, never\n re-derived).",
+        "type": "object",
+        "properties": {
+          "base_digest": {
+            "type": "string"
+          },
+          "layer_digest": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "base_digest",
+          "layer_digest"
+        ]
+      },
+      "PretrainedInstallResponse": {
+        "description": "The install response.",
+        "type": "object",
+        "properties": {
+          "catalogue_id": {
+            "type": "string"
+          },
+          "licence": {
+            "type": "string"
+          },
+          "model_id": {
+            "description": "The store row id (null while the install is pending a download).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "source": {
+            "$ref": "#/components/schemas/PretrainedInstallSource"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PretrainedInstallStatus"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "catalogue_id",
+          "version",
+          "licence",
+          "size_bytes",
+          "source"
+        ]
+      },
+      "PretrainedInstallSource": {
+        "description": "Where the verified bytes came from (source order: bundled → cache →\n download — INV-8).",
+        "type": "string",
+        "enum": [
+          "bundled",
+          "cache",
+          "download"
+        ]
+      },
+      "PretrainedInstallStatus": {
+        "description": "The install status (200 = installed now; 202 = the download was started\n and the caller polls PROV-PC-6).",
+        "type": "string",
+        "enum": [
+          "installed",
+          "installing"
+        ]
+      },
+      "PretrainedKind": {
+        "description": "The model-contract kind — the board's Published / Learned here tags.",
+        "oneOf": [
+          {
+            "description": "A frozen published rule shipped as an immutable release asset.",
+            "type": "string",
+            "const": "published-rule"
+          },
+          {
+            "description": "A model fitted by the benchmark and exported as a release asset\n (the schema carries it; the generator emits none until the benchmark\n saves fitted models — DEC-1).",
+            "type": "string",
+            "const": "benchmark-trained"
+          }
+        ]
+      },
+      "PretrainedListResponse": {
+        "description": "The list response (unpaged — the catalogue is bounded; PROV-PC-3).",
+        "type": "object",
+        "properties": {
+          "generated_at": {
+            "description": "The active catalogue's generation date (null only in the not-yet-\n refreshed embedded state with a malformed provenance — never in a\n shipped snapshot).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PretrainedSummary"
+            }
+          },
+          "origin": {
+            "$ref": "#/components/schemas/PretrainedOrigin"
+          },
+          "total": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "origin",
+          "models",
+          "total"
+        ]
+      },
+      "PretrainedMarkerFacts": {
+        "description": "The card's marker-input facts (the method's assembled facts, PROV-MC-1 —\n the same facts the methods list's verdicts run on, so a pretrained\n \"Can run\" means the same thing as the method's, DEC-10).",
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "kind": {
+            "$ref": "#/components/schemas/MarkerKind"
+          },
+          "marker_groups_required": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "min_draws": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "needs_baseline": {
+            "type": "boolean"
+          },
+          "needs_detection_call": {
+            "type": "boolean"
+          },
+          "uses_history": {
+            "$ref": "#/components/schemas/UsesHistory"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "count",
+          "min_draws",
+          "needs_baseline",
+          "uses_history",
+          "needs_detection_call",
+          "marker_groups_required"
+        ]
+      },
+      "PretrainedModel": {
+        "description": "One `models[]` entry of the catalogue — the card payload (PROV-PC-4) and\n the board-D row's data source.",
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "assay_warnings": {
+            "type": "array",
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PretrainedAssayWarning"
+            }
+          },
+          "asset": {
+            "$ref": "#/components/schemas/PretrainedAsset"
+          },
+          "contract": {
+            "type": "string"
+          },
+          "data_sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PretrainedDataSource"
+            }
+          },
+          "embeds_training_data": {
+            "type": "boolean"
+          },
+          "env": {
+            "$ref": "#/components/schemas/PretrainedEnv"
+          },
+          "group": {
+            "type": "string"
+          },
+          "group_label": {
+            "type": "string"
+          },
+          "id": {
+            "description": "The stable catalogue slug (`relchange-threshold`-shaped; the asset\n file name and the store row's `pretrained_catalogue_id` key off it).",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/PretrainedKind"
+          },
+          "licence": {
+            "description": "The model's DATA licence (non-empty — INV-3).",
+            "type": "string"
+          },
+          "method_id": {
+            "type": "string"
+          },
+          "method_version": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "needs": {
+            "$ref": "#/components/schemas/PretrainedNeeds"
+          },
+          "paper": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PretrainedPaper"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "research_notice": {
+            "description": "Always true in the shipped catalogue (the card's research-use notice\n FLAG — the copy is the board's, D18).",
+            "type": "boolean"
+          },
+          "transfer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PretrainedTransfer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "kind",
+          "name",
+          "description",
+          "method_id",
+          "method_version",
+          "group",
+          "group_label",
+          "needs",
+          "env",
+          "contract",
+          "embeds_training_data",
+          "research_notice",
+          "licence",
+          "data_sources",
+          "asset"
+        ]
+      },
+      "PretrainedNeeds": {
+        "description": "The card's needs block — what the D-list verdicts are computed from.",
+        "type": "object",
+        "properties": {
+          "covariates": {
+            "$ref": "#/components/schemas/CovariateMode"
+          },
+          "decision_day": {
+            "type": "number",
+            "format": "double"
+          },
+          "endpoint": {
+            "$ref": "#/components/schemas/PretrainedEndpoint"
+          },
+          "horizon": {
+            "type": "number",
+            "format": "double"
+          },
+          "marker_facts": {
+            "$ref": "#/components/schemas/PretrainedMarkerFacts"
+          },
+          "required_markers": {
+            "description": "The method's required standard-id markers (PROV-MC-1's rule; null = a\n method with no fixed marker list).",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RequiredMarkers"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "task": {
+            "description": "The task class (`survival`/`response`; null = unclassified).",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PretrainedTask"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "marker_facts",
+          "covariates",
+          "decision_day",
+          "endpoint",
+          "horizon"
+        ]
+      },
+      "PretrainedOrigin": {
+        "description": "The catalogue layer a served copy came from (INV-8's live → disk →\n embedded order).",
+        "type": "string",
+        "enum": [
+          "live",
+          "disk",
+          "embedded"
+        ]
+      },
+      "PretrainedPaper": {
+        "description": "The card's paper block (null on a card with no recorded paper facts).",
+        "type": "object",
+        "properties": {
+          "citation": {
+            "type": "string"
+          },
+          "doi": {
+            "type": "string"
+          },
+          "journal": {
+            "type": "string"
+          },
+          "year": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "journal",
+          "year",
+          "doi",
+          "citation"
+        ]
+      },
+      "PretrainedPaperSummary": {
+        "description": "The summary row's paper projection (no citation — the list row renders\n journal/year/doi only; the full citation is the card's).",
+        "type": "object",
+        "properties": {
+          "doi": {
+            "type": "string"
+          },
+          "journal": {
+            "type": "string"
+          },
+          "year": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "journal",
+          "year",
+          "doi"
+        ]
+      },
+      "PretrainedReason": {
+        "description": "One structured reason of a pretrained verdict — PROV-MC-5's [`Reason`]\n shape (code + per-code params + the optional group scope) with this node's\n own code vocabulary.",
+        "type": "object",
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/PretrainedReasonCode"
+          },
+          "group_id": {
+            "description": "The board group the reason belongs to, when the reason is group-scoped.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "required": [
+          "code"
+        ]
+      },
+      "PretrainedReasonCode": {
+        "description": "The pretrained eligibility reason-code vocabulary: PROV-MC-5's\n [`ReasonCode`] set (the SAME wire strings — a per-code renderer in the UI\n never meets an undocumented code) plus the catalogue's own\n `ASSET_NOT_AVAILABLE` (an entry whose asset is neither bundled nor\n downloadable — never emitted by the generator, defensive in the runtime\n verdict). The `from_catalogue` mapper is exhaustive: a new provider code\n fails to compile here instead of silently passing through.",
+        "type": "string",
+        "enum": [
+          "REQUIRED_MARKER_MISSING",
+          "MARKER_GROUP_MISSING",
+          "DETECTION_CALL_MISSING",
+          "MIN_DRAWS_UNMET",
+          "COVARIATE_MISSING",
+          "COVARIATE_REQUIRED_UNMET",
+          "UNIT_MISMATCH",
+          "DECISION_DAY_UNMET",
+          "NOT_RUNNABLE",
+          "TASK_INCOMPATIBLE",
+          "RESPONSE_LABEL_MISSING",
+          "SURVIVAL_OUTCOME_MISSING",
+          "ASSET_NOT_AVAILABLE"
+        ]
+      },
+      "PretrainedRefreshResponse": {
+        "description": "The refresh response: the origin actually in use + the catalogue facts of\n the layer chosen (a failed refresh is silent — offline is a valid state —\n so the response never carries an error).",
+        "type": "object",
+        "properties": {
+          "cached_at": {
+            "description": "The active catalogue's generation date.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "models": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "origin": {
+            "$ref": "#/components/schemas/PretrainedOrigin"
+          }
+        },
+        "required": [
+          "origin",
+          "models"
+        ]
+      },
+      "PretrainedSummary": {
+        "description": "One D-list row (PROV-PC-3).",
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "asset": {
+            "$ref": "#/components/schemas/PretrainedAssetSummary"
+          },
+          "decision_day": {
+            "type": "number",
+            "format": "double"
+          },
+          "endpoint": {
+            "$ref": "#/components/schemas/PretrainedEndpoint"
+          },
+          "group": {
+            "type": "string"
+          },
+          "group_label": {
+            "type": "string"
+          },
+          "horizon": {
+            "type": "number",
+            "format": "double"
+          },
+          "id": {
+            "type": "string"
+          },
+          "installed_model_id": {
+            "description": "The real store row the D Run passes (the grown\n `model_store::store::list_pretrained` mapping, GAP-PC-3 — strict\n id+version match); null before install.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/PretrainedKind"
+          },
+          "licence": {
+            "type": "string"
+          },
+          "method_id": {
+            "type": "string"
+          },
+          "method_version": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "paper": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PretrainedPaperSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "research_notice": {
+            "type": "boolean"
+          },
+          "state": {
+            "$ref": "#/components/schemas/PretrainedEntryState"
+          },
+          "transfer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PretrainedTransferSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "version": {
+            "type": "string"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PretrainedAssayWarning"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "kind",
+          "name",
+          "description",
+          "method_id",
+          "method_version",
+          "group",
+          "group_label",
+          "decision_day",
+          "endpoint",
+          "horizon",
+          "warnings",
+          "research_notice",
+          "licence",
+          "asset",
+          "state"
+        ]
+      },
+      "PretrainedTask": {
+        "description": "The task class a model's eligibility is computed against (`survival` |\n `response`; null = not classified).",
+        "type": "string",
+        "enum": [
+          "survival",
+          "response"
+        ]
+      },
+      "PretrainedTransfer": {
+        "description": "The results-on-other-cohorts aggregate (null renders the board's \"not yet\n checked elsewhere\").",
+        "type": "object",
+        "properties": {
+          "cohorts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PretrainedTransferCohort"
+            }
+          },
+          "median": {
+            "type": "number",
+            "format": "double"
+          },
+          "metric": {
+            "$ref": "#/components/schemas/PretrainedTransferMetric"
+          },
+          "n_cohorts": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "metric",
+          "median",
+          "n_cohorts",
+          "cohorts"
+        ]
+      },
+      "PretrainedTransferCohort": {
+        "description": "One cohort's transfer value (the benchmark's primary-scores median for that\n dataset).",
+        "type": "object",
+        "properties": {
+          "dataset": {
+            "type": "string"
+          },
+          "value": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "dataset",
+          "value"
+        ]
+      },
+      "PretrainedTransferMetric": {
+        "description": "The transfer metric a published rule was evaluated with on other cohorts.",
+        "type": "string",
+        "enum": [
+          "auc_rule",
+          "c_index"
+        ]
+      },
+      "PretrainedTransferSummary": {
+        "description": "The summary row's transfer projection (per-cohort list is card-only).",
+        "type": "object",
+        "properties": {
+          "median": {
+            "type": "number",
+            "format": "double"
+          },
+          "metric": {
+            "$ref": "#/components/schemas/PretrainedTransferMetric"
+          },
+          "n_cohorts": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "metric",
+          "median",
+          "n_cohorts"
         ]
       },
       "PreviewEligibilityRequest": {
