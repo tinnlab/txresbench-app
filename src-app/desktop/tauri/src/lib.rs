@@ -10,6 +10,10 @@ mod bundled_models;
 mod commands;
 mod config;
 mod server_boot;
+// `pub`: the loopback-seam integration suite (tests/update_check_seam.rs) is
+// a separate crate and drives the runtime through this module's injected
+// seams (PROV-IR-6 / DRIFT-1 ITEM-4).
+pub mod updates;
 
 use std::sync::Arc;
 
@@ -26,6 +30,13 @@ pub fn register_invoke_handler<R: tauri::Runtime>(
         commands::get_server_port,
         commands::auto_login,
         commands::reveal_in_file_manager,
+        // ITEM-4 (PROV-IR-6): the update-check surface. The webview has no
+        // update screen today (DEC-2's native prompt); the commands are the
+        // status/check/install seam a future UI surface would call, and
+        // `start_boot_check` drives them once per start.
+        updates::get_update_status,
+        updates::check_for_update,
+        updates::install_update,
     ])
 }
 
@@ -60,7 +71,13 @@ pub fn run() {
 
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_dialog::init());
+        .plugin(tauri_plugin_dialog::init())
+        // ITEM-4 (PROV-IR-6): the official v2 update mechanism (the plugin
+        // owns download + minisign signature verification + install) and the
+        // process-control companion (its restart command wraps the same
+        // core `restart` the shell's `updates` seam uses).
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init());
 
     register_invoke_handler(builder)
         .setup(move |app| {
@@ -91,6 +108,15 @@ pub fn run() {
                     tracing::error!("failed to ensure desktop owner: {e}");
                 }
             });
+
+            // ITEM-4 (PROV-IR-6/8): the update-check runtime registers the
+            // plugin-backed seams (its `Unconfigured` state reads the config's
+            // pubkey — empty = disabled, never dials) and the once-per-start
+            // boot check starts AFTER the boot→window spawn (the silent
+            // release-build check; its ask appears only when an update is
+            // actually available, DEC-2/DEC-14).
+            updates::register(app.handle());
+            updates::start_boot_check(app.handle());
 
             Ok(())
         })
@@ -185,7 +211,7 @@ mod tests {
     /// `CYTO_TXR_BUNDLED_MODELS_DIR` at module init, so the provision must
     /// run first). Source-order assertion, same raw-string discipline as the
     /// capability tests; the post-window update-check half of TEST-IR-16 is
-    /// ITEM-4's, with `updates::start_boot_check`.
+    /// ITEM-4's, with the boot-check start.
     #[test]
     fn setup_provisions_bundled_models_before_the_boot_spawn() {
         const SRC: &str = include_str!("lib.rs");
@@ -199,6 +225,68 @@ mod tests {
             provision < spawn,
             "provision_bundled_models must run before spawn_boot_then_window \
              (the env var precedes server module init, PROV-IR-8)",
+        );
+    }
+
+    /// TEST-IR-16 (ITEM-4 half): the post-window path registers the update
+    /// runtime and starts the boot check EXACTLY ONCE, after the boot→window
+    /// spawn — PROV-IR-8's third step (the boot check fires after the shell
+    /// is up; the ask appears only when an update was found).
+    #[test]
+    fn setup_starts_the_boot_check_after_the_spawn_exactly_once() {
+        const SRC: &str = include_str!("lib.rs");
+        let spawn = SRC
+            .find("spawn_boot_then_window(boot,")
+            .expect("the setup closure spawns the boot→window lifecycle");
+        let register = SRC
+            .find("updates::register(app.handle())")
+            .expect("the setup closure registers the update runtime");
+        let boot_check = SRC
+            .find("updates::start_boot_check(app.handle())")
+            .expect("the setup closure starts the boot check");
+        assert!(
+            spawn < register && register < boot_check,
+            "PROV-IR-8 ordering: spawn_boot_then_window → updates::register \
+             → updates::start_boot_check (the runtime must exist before the \
+             check; the check fires after the window spawn)",
+        );
+        assert_eq!(
+            SRC.matches("updates::start_boot_check(app.handle());\n").count(),
+            1,
+            "the boot check is started exactly once per app start (DEC-14)",
+        );
+    }
+
+    /// TEST-IR-14 (ITEM-4 half): the invoke handler registers the three
+    /// update commands — the same raw-string pin as the reveal-command test
+    /// (the compile proves the command signatures; this proves the list).
+    #[test]
+    fn register_invoke_handler_wires_the_update_commands() {
+        const SRC: &str = include_str!("lib.rs");
+        for command in [
+            "updates::get_update_status",
+            "updates::check_for_update",
+            "updates::install_update",
+        ] {
+            assert!(
+                SRC.contains(command),
+                "register_invoke_handler must register {command} (PROV-IR-6)",
+            );
+        }
+    }
+
+    /// TEST-IR-14 (ITEM-4 half): `plugins.updater.endpoints` in
+    /// `tauri.conf.json` carries EXACTLY the crate's `UPDATER_FEED_URL` — the
+    /// one constant (DEC-4: both sides, one value; the plugin dials the
+    /// config, the seam contract names the constant).
+    #[test]
+    fn config_endpoints_match_the_feed_url_constant() {
+        const CONF: &str = include_str!("../tauri.conf.json");
+        assert!(
+            CONF.contains(updates::UPDATER_FEED_URL),
+            "tauri.conf.json plugins.updater.endpoints must carry \
+             UPDATER_FEED_URL ({})",
+            updates::UPDATER_FEED_URL,
         );
     }
 }
