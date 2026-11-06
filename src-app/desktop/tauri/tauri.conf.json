@@ -27,6 +27,15 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": {}
+    "resources": ["resources/pretrained-bundled"],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "",
+      "endpoints": [
+        "https://tinnlab.github.io/txresbench-app/updates/latest.json"
+      ]
+    }
   }
 }
