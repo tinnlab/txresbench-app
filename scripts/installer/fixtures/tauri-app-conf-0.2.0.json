@@ -1,0 +1,6 @@
+{
+  "productName": "TxResBench",
+  "mainBinaryName": "txresbench-desktop",
+  "version": "0.2.0",
+  "identifier": "org.tinnlab.txresbench"
+}

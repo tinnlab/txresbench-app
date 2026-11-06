@@ -19,3 +19,11 @@ this tree; no fixture here is real data.
   `.sig` siblings for the updater payloads). All contents are synthetic
   strings; the `.sig` files are non-empty so the feed writer's
   non-empty-signature rule can be exercised without a real minisign key.
+- `tauri-app-conf-0.2.0.json` — a fixture of the app manifest's version
+  fields (`version: 0.2.0`, the version the bundle fixture files carry).
+  ITEM-5's writers check `--version` against
+  `src-app/desktop/tauri/tauri.conf.json` (DEC-13: the manifest is the single
+  version source of truth) and the repo's manifest says 0.1.0, so the
+  fixture lets the release-pipeline tests bind the writers to a fixture
+  manifest that matches the fixture bundle — the same `--tauri-conf` test
+  seam `scripts/build-landing-site.mjs` uses (PROV-landing-site-4).
