@@ -243,8 +243,8 @@ mod tests {
         assert_eq!(overridden.bundled_dir(), root.join("extra-bundled"));
 
         // The embedded manifest index: the shipped snapshot has no bundled
-        // entries yet, so the parse is empty for now (the index contract is
-        // pinned by the boot validate + the ITEM-2 tests; this asserts the
+        // entries, so the parse is empty (the index contract is pinned by
+        // the boot validate + the ITEM-2 tests; this asserts the
         // non-bundled lookup answers None rather than panicking).
         let entry = sample_entry(
             "fx-rule-001",

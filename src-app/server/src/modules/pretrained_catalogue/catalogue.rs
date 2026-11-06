@@ -1308,6 +1308,55 @@ mod tests {
         assert!(!host_allowed("not a url"));
     }
 
+    /// ITEM-6's bread (the kind/version shapes of PROV-PC-1): a
+    /// `benchmark-trained` entry is NOT required to be a frozen rule — the
+    /// DEC-1 selection sentence applies to `published-rule` only (a
+    /// benchmark-trained entry of an ordinary runnable, non-frozen method is
+    /// a VALID card even under the bootstrap cross-check), while the same
+    /// method on a `published-rule` entry is the CONS-PC-2 refusal; a
+    /// non-semver version is its own named refusal.
+    #[test]
+    fn kind_and_version_shapes_validate_as_declared() {
+        let good =
+            "https://github.com/tinnlab/txresbench-models/releases/download/x-v1.0.0/x@1.0.0.txr";
+        // cox-cutpoint-risk: runnable + containerized + gate-passed but NOT
+        // frozen (measured in the committed method catalogue).
+        let mut trained = sample_entry("x", good);
+        trained.kind = PretrainedKind::BenchmarkTrained;
+        trained.method_id = "cox-cutpoint-risk".to_string();
+        let parsed = parse_catalogue(&sample_bytes(vec![trained]), true)
+            .expect("a benchmark-trained entry of an ordinary runnable method is valid");
+        assert_eq!(
+            parsed.models[0].kind,
+            PretrainedKind::BenchmarkTrained,
+            "the kind round-trips"
+        );
+
+        // The same method on a published-rule entry: frozen is required.
+        let mut rule = sample_entry("x", good);
+        rule.kind = PretrainedKind::PublishedRule;
+        rule.method_id = "cox-cutpoint-risk".to_string();
+        let err = parse_catalogue(&sample_bytes(vec![rule]), true).unwrap_err();
+        assert_eq!(err.code(), "PRETRAINED_CATALOGUE_METHOD_FACTS");
+
+        // A frozen + runnable + containerized + gate-passed method IS the
+        // published-rule shape the generator emits (the positive arm).
+        let mut frozen = sample_entry("x", good);
+        frozen.method_id = "ctdna-anytime-detectability".to_string();
+        let parsed = parse_catalogue(&sample_bytes(vec![frozen]), true)
+            .expect("a frozen published-rule method passes the bootstrap cross-check");
+        assert_eq!(parsed.models.len(), 1);
+
+        // Version shapes: the semver grammar is `major.minor.patch`.
+        let bad_version = {
+            let mut m = sample_entry("x", good);
+            m.version = "1.0".to_string();
+            m
+        };
+        let err = parse_catalogue(&sample_bytes(vec![bad_version]), false).unwrap_err();
+        assert_eq!(err.code(), "PRETRAINED_CATALOGUE_MODEL_VERSION_INVALID");
+    }
+
     /// CONS-PC-2: the cross-check is bootstrap-only (a live catalogue may be
     /// newer than this build — the hygiene validation must not consult the
     /// method catalogue).

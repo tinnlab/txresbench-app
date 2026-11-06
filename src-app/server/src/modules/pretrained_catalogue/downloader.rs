@@ -817,6 +817,130 @@ mod tests {
         }
     }
 
+    /// The redirect fixture: `/redirect/<name>` answers 302 with a
+    /// `location:` header to `/assets/<name>` (no body — the client must
+    /// follow), `/assets/<name>` streams the fixed body in 64 KiB chunks like
+    /// [`ChunkServer`]. Both legs RECORD their request line + headers, so the
+    /// redirect test asserts the follow AND the INV-4 properties of both
+    /// requests. This is the asset-host shape DEC-15 names: the release
+    /// download URL redirects to the object-storage host, and
+    /// `objects.githubusercontent.com` is on the allowlist precisely because
+    /// the downloader follows it.
+    struct RedirectServer {
+        port: u16,
+        requests: Arc<Mutex<Vec<String>>>,
+        headers: Arc<Mutex<Vec<String>>>,
+        task: tokio::task::JoinHandle<()>,
+    }
+
+    impl RedirectServer {
+        async fn spawn(body: Vec<u8>, per_chunk_delay: Duration) -> Self {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("loopback bind");
+            let port = listener.local_addr().expect("addr").port();
+            let requests: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+            let headers: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+            let body = Arc::new(body);
+            let (reqs, hdrs, body) = (requests.clone(), headers.clone(), body.clone());
+            let task = tokio::spawn(async move {
+                loop {
+                    let (mut stream, _) = match listener.accept().await {
+                        Ok(v) => v,
+                        Err(_) => return,
+                    };
+                    let (body, reqs, hdrs) = (body.clone(), reqs.clone(), hdrs.clone());
+                    tokio::spawn(async move {
+                        let mut buf = Vec::new();
+                        let mut tmp = [0u8; 1024];
+                        loop {
+                            match stream.read(&mut tmp).await {
+                                Ok(0) => break,
+                                Ok(n) => {
+                                    buf.extend_from_slice(&tmp[..n]);
+                                    if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                                        break;
+                                    }
+                                }
+                                Err(_) => break,
+                            }
+                        }
+                        let head = String::from_utf8_lossy(&buf);
+                        let request_line = head.lines().next().unwrap_or("").to_string();
+                        let mut header_text = String::new();
+                        for line in head.lines().skip(1) {
+                            if line.trim().is_empty() {
+                                break;
+                            }
+                            header_text.push_str(line);
+                            header_text.push('\n');
+                        }
+                        reqs.lock().expect("request log").push(request_line);
+                        hdrs.lock().expect("header log").push(header_text);
+                        let path = head
+                            .lines()
+                            .next()
+                            .unwrap_or("")
+                            .split_whitespace()
+                            .nth(1)
+                            .unwrap_or("")
+                            .to_string();
+                        if let Some(name) = path.strip_prefix("/redirect/") {
+                            let out = format!(
+                                "HTTP/1.1 302 Found\r\nlocation: /assets/{name}\r\n\
+                                 content-length: 0\r\nconnection: close\r\n\r\n"
+                            )
+                            .into_bytes();
+                            let _ = stream.write_all(&out).await;
+                        } else {
+                            let head = format!(
+                                "HTTP/1.1 200 OK\r\ncontent-length: {}\r\ncontent-type: \
+                                 application/octet-stream\r\nconnection: close\r\n\r\n",
+                                body.len()
+                            );
+                            if stream.write_all(head.as_bytes()).await.is_err() {
+                                return;
+                            }
+                            for chunk in body.chunks(CHUNK) {
+                                if stream.write_all(chunk).await.is_err() {
+                                    break;
+                                }
+                                if !per_chunk_delay.is_zero() {
+                                    tokio::time::sleep(per_chunk_delay).await;
+                                }
+                            }
+                        }
+                        let _ = stream.shutdown().await;
+                    });
+                }
+            });
+            Self {
+                port,
+                requests,
+                headers,
+                task,
+            }
+        }
+
+        fn url(&self, path: &str) -> String {
+            format!("http://127.0.0.1:{}{path}", self.port)
+        }
+
+        fn request_lines(&self) -> Vec<String> {
+            self.requests.lock().expect("request log").clone()
+        }
+
+        fn header_lines(&self) -> Vec<String> {
+            self.headers.lock().expect("header log").clone()
+        }
+
+        async fn stop(self) {
+            self.task.abort();
+            let _ = self.task.await;
+        }
+    }
+
     /// Poll until the state leaves `Downloading` (the terminal state is the
     /// answer); fails the test if the transfer stalls.
     async fn wait_terminal(
@@ -1247,6 +1371,68 @@ mod tests {
             "the request line is exactly the asset path"
         );
         assert!(!lines[0].contains('?'), "no query string: {}", lines[0]);
+        for text in server.header_lines() {
+            for header in text.lines() {
+                let lower = header.to_ascii_lowercase();
+                assert!(!lower.starts_with("cookie:"), "no cookie: {header}");
+                assert!(!lower.starts_with("x-"), "no identifier header: {header}");
+            }
+        }
+        server.stop().await;
+    }
+
+    /// ITEM-6's bread: the release-asset redirect (DEC-15's shape — the
+    /// `releases/download/...` URL answers 302 to the object-storage host).
+    /// The transfer follows the redirect, streams + verifies the FINAL bytes,
+    /// and lands the verified file in the cache; both request legs are
+    /// identifier-free (INV-4). The redirect target host is the allowlisted
+    /// asset host (INV-5 — `objects.githubusercontent.com` is listed for
+    /// exactly this follow); the fixture serves both legs on loopback.
+    #[tokio::test]
+    async fn redirect_302_is_followed_and_bytes_verify() {
+        let root = scratch_root("redirect");
+        let body = patterned(1024 * 1024);
+        let sha = sha_of(&body);
+        let server = RedirectServer::spawn(body.clone(), Duration::from_millis(2)).await;
+        let manager = manager_at(&root);
+        let entry = sample_entry(
+            "fx-rule-001",
+            &server.url("/redirect/fx-rule-001@1.0.0.txr"),
+            &sha,
+            body.len() as u64,
+            false,
+        );
+
+        assert_eq!(
+            manager.start(&entry).state,
+            PretrainedDownloadState::Downloading
+        );
+        let st = wait_terminal(&manager, &entry, "redirected download").await;
+        assert_eq!(
+            st.state,
+            PretrainedDownloadState::Ready,
+            "the redirected transfer verifies: {:?}",
+            st.error
+        );
+        assert_eq!(st.digest.as_deref(), Some(sha.as_str()));
+
+        let cache = cache_path(&root, &sha);
+        assert!(cache.is_file(), "the verified bytes land in the cache");
+        assert_eq!(std::fs::read(&cache).expect("read cache"), body);
+
+        let lines = server.request_lines();
+        assert_eq!(lines.len(), 2, "the redirect + the followed GET");
+        assert_eq!(
+            lines[0], "GET /redirect/fx-rule-001@1.0.0.txr HTTP/1.1",
+            "the initial URL is the entry's asset.url"
+        );
+        assert_eq!(
+            lines[1], "GET /assets/fx-rule-001@1.0.0.txr HTTP/1.1",
+            "the follow goes to the location header"
+        );
+        for line in &lines {
+            assert!(!line.contains('?'), "no query string: {line}");
+        }
         for text in server.header_lines() {
             for header in text.lines() {
                 let lower = header.to_ascii_lowercase();

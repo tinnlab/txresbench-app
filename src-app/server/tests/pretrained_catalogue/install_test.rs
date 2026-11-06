@@ -16,8 +16,11 @@ use super::*;
 
 /// The pack fixture's pinned piped results (pack_model_test.rs pins the same
 /// numbers — a change here is a format change with the store's reader).
-const FIXTURE_BYTES: u64 = 1555;
-const FIXTURE_SHA: &str = "fadf29c0dbbfbbb39c94aaad7fb5e300f14313a1e663494225acb21b96fa9d44";
+/// `pub(super)`: the hygiene suite's TEST-PC-13 install leg (the store row's
+/// licence == the entry's) reuses the same pinned bytes.
+pub(super) const FIXTURE_BYTES: u64 = 1555;
+pub(super) const FIXTURE_SHA: &str =
+    "fadf29c0dbbfbbb39c94aaad7fb5e300f14313a1e663494225acb21b96fa9d44";
 
 const FX_001: &str = "fx-rule-001";
 const FX_002: &str = "fx-rule-002";
@@ -25,7 +28,7 @@ const FX_002: &str = "fx-rule-002";
 /// Pack the committed synthetic fixture through the REAL packer, verify the
 /// pinned size + sha256, and write the asset into `bundled_dir` under its
 /// release name.
-fn pack_fixture(bundled_dir: &std::path::Path, name: &str) -> Vec<u8> {
+pub(super) fn pack_fixture(bundled_dir: &std::path::Path, name: &str) -> Vec<u8> {
     let out = std::process::Command::new("python3")
         .arg(repo_root().join("scripts/pretrained-catalogue/pack_model_txr.py"))
         .args([

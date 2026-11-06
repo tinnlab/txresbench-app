@@ -1,8 +1,11 @@
 //! The pretrained_catalogue integration suite — the ITEM-1/ITEM-2 file set
-//! (TEST-PC-10/11/12/16/26 drivers) plus ITEM-5's route-landing suites
-//! (`api_test.rs` — TEST-PC-21/22/27/31 — and `install_test.rs` —
-//! TEST-PC-07/08). The downloader/install/catalogue/hygiene breadth suites
-//! arrive with the items they cover.
+//! (TEST-PC-10/11/12/16/26 drivers), ITEM-5's route-landing suites
+//! (`api_test.rs` — TEST-PC-21/22/27/31, `install_test.rs` —
+//! TEST-PC-07/08) and ITEM-6's breadth + hygiene suites (`catalogue_test.rs`
+//! — TEST-PC-03's served-inventory chain, `downloader_test.rs` —
+//! TEST-PC-22's download-surface 404s + TEST-PC-28's route half,
+//! `eligibility_test.rs` — TEST-PC-14's provider parity,
+//! `catalogue_hygiene_test.rs` — TEST-PC-13/15/17/18/19).
 
 use std::path::PathBuf;
 
@@ -11,6 +14,10 @@ use serde_json::{json, Value};
 use crate::common::TestServer;
 
 pub mod api_test;
+pub mod catalogue_hygiene_test;
+pub mod catalogue_test;
+pub mod downloader_test;
+pub mod eligibility_test;
 pub mod gen_catalogue_test;
 pub mod install_test;
 pub mod pack_model_test;
@@ -43,6 +50,7 @@ pub fn repo_root() -> PathBuf {
 pub struct FixtureHttpServer {
     pub port: u16,
     pub requests: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    catalogue: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
     task: tokio::task::JoinHandle<()>,
 }
 
@@ -59,7 +67,9 @@ impl FixtureHttpServer {
         let port = listener.local_addr().expect("addr").port();
         let requests: Arc<std::sync::Mutex<Vec<String>>> =
             Arc::new(std::sync::Mutex::new(Vec::new()));
+        let catalogue = Arc::new(std::sync::Mutex::new(catalogue));
         let reqs = requests.clone();
+        let cat = catalogue.clone();
         let task = tokio::spawn(async move {
             loop {
                 let (mut stream, _) = match listener.accept().await {
@@ -93,23 +103,43 @@ impl FixtureHttpServer {
                     .nth(1)
                     .unwrap_or("")
                     .to_string();
-                let (status, body): (&str, &[u8]) = if path == "/catalogue.json" {
-                    ("200 OK", catalogue.as_slice())
+                let out: Vec<u8> = if path == "/catalogue.json" {
+                    let bytes = cat.lock().expect("catalogue bytes").clone();
+                    let mut head = format!(
+                        "HTTP/1.1 200 OK\r\ncontent-length: {}\r\ncontent-type: \
+                         application/octet-stream\r\nconnection: close\r\n\r\n",
+                        bytes.len()
+                    )
+                    .into_bytes();
+                    head.extend_from_slice(&bytes);
+                    head
                 } else if let Some(name) = path.strip_prefix("/assets/") {
                     match assets.iter().find(|(n, _)| n == name) {
-                        Some((_, bytes)) => ("200 OK", bytes.as_slice()),
-                        None => ("404 Not Found", b"not found"),
+                        Some((_, bytes)) => {
+                            let mut head = format!(
+                                "HTTP/1.1 200 OK\r\ncontent-length: {}\r\ncontent-type: \
+                                 application/octet-stream\r\nconnection: close\r\n\r\n",
+                                bytes.len()
+                            )
+                            .into_bytes();
+                            head.extend_from_slice(bytes);
+                            head
+                        }
+                        None => {
+                            "HTTP/1.1 404 Not Found\r\ncontent-length: 9\r\n\
+                             content-type: application/octet-stream\r\n\
+                             connection: close\r\n\r\nnot found"
+                                .as_bytes()
+                                .to_vec()
+                        }
                     }
                 } else {
-                    ("404 Not Found", b"not found")
+                    "HTTP/1.1 404 Not Found\r\ncontent-length: 9\r\n\
+                     content-type: application/octet-stream\r\n\
+                     connection: close\r\n\r\nnot found"
+                        .as_bytes()
+                        .to_vec()
                 };
-                let mut out = format!(
-                    "HTTP/1.1 {status}\r\ncontent-length: {}\r\ncontent-type: \
-                     application/octet-stream\r\nconnection: close\r\n\r\n",
-                    body.len()
-                )
-                .into_bytes();
-                out.extend_from_slice(body);
                 let _ = stream.write_all(&out).await;
                 let _ = stream.shutdown().await;
             }
@@ -117,8 +147,16 @@ impl FixtureHttpServer {
         Self {
             port,
             requests,
+            catalogue,
             task,
         }
+    }
+
+    /// Swap the served catalogue bytes (a test that needs the asset URL — and
+    /// therefore the bound port — in the catalogue document writes the
+    /// final bytes here before the consumer boots).
+    pub fn set_catalogue(&self, bytes: Vec<u8>) {
+        *self.catalogue.lock().expect("catalogue bytes") = bytes;
     }
 
     /// The fixture catalogue URL the spawned server's seams point at.
