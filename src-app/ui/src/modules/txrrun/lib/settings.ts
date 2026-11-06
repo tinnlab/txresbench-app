@@ -64,17 +64,20 @@ export interface TxrEndpointOption {
 /**
  * The option lists the setting rows render — the boards' option sets,
  * verbatim: the outcome's two values (the "Predict" row), the decision
- * days in the frozen pin's order (Day 56 first), the horizon values, and
- * the bar's at-a-time presets. A value OUTSIDE a list (the engine default
- * 3, or a restored sticky value) renders as the current-value chip — the
- * board's own framing — never as a silently-added option.
+ * days in the board's own order (Busy.dc.html's select reads Day 56 |
+ * Day 28 | Day 42 | Day 84 — settled at ITEM-7's rows, where the order
+ * question recorded by PLAN ITEM-3 note (c) was decided), the horizon
+ * values, and the bar's at-a-time presets. A value OUTSIDE a list (the
+ * engine default 3, or a restored sticky value) renders as the
+ * current-value chip — the board's own framing — never as a
+ * silently-added option.
  */
 export const SETTING_OPTIONS = {
   endpoint: [
     { v: 'pfs' as TxrEndpoint, label: 'Progression or death' },
     { v: 'os' as TxrEndpoint, label: 'Death only' },
   ],
-  decision_day: [56, 42, 28, 84] as const,
+  decision_day: [56, 28, 42, 84] as const,
   look_ahead_day: [238, 180, 365] as const,
   at_a_time: [1, 2, 4] as const,
 }

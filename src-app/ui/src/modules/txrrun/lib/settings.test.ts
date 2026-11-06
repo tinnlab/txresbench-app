@@ -114,8 +114,12 @@ describe('SETTING_OPTIONS (TEST-RUN-06)', () => {
     ])
   })
 
-  it('carries the boards\' option sets in board order (day 56 first; the lane presets)', () => {
-    expect(SETTING_OPTIONS.decision_day).toEqual([56, 42, 28, 84])
+  it('carries the boards\' option sets in the boards\' order (day 56 first, then 28/42/84 as Busy.dc.html reads; the lane presets)', () => {
+    // The board's select markup is the screen spec: Day 56 | Day 28 |
+    // Day 42 | Day 84. ITEM-3's pin was the plan's "board order" and the
+    // plan's ITEM-3 note (c) deferred the order question to ITEM-7's rows —
+    // the board's own order wins (DRIFT-1 ITEM-7).
+    expect(SETTING_OPTIONS.decision_day).toEqual([56, 28, 42, 84])
     expect(SETTING_OPTIONS.look_ahead_day).toEqual([238, 180, 365])
     expect(SETTING_OPTIONS.at_a_time).toEqual([1, 2, 4])
   })
