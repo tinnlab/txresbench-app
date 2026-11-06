@@ -232,7 +232,7 @@ async fn get_history(
 
 fn get_history_docs(op: TransformOperation) -> TransformOperation {
     with_permission::<(JobsUse,)>(op)
-        .description("The expanded K block of one run: the row's facts plus the rich per-method rows (state, phase, reason, coverage, probability source, task — the engine's own row shape, the F screen's vocabulary), the settings line (endpoint, decision day, look-ahead, covariates, seed, CPUs, memory, at-a-time, save-models, mode), the saved-model records (names + byte sizes), the log line count, the recorded input-copy sizes (empty once copies were cleared), the run dir's recursive size and the stored estimate facts (\"took X (estimated Y)\" — null when the create-time estimate was never computed). Unknown id → 404 RUN_NOT_FOUND.")
+        .description("The expanded K block of one run: the row's facts plus the rich per-method rows (state, reason, coverage, probability source, task — the engine's own row shape, the F screen's vocabulary), the settings line (endpoint, decision day, look-ahead, covariates, seed, CPUs, memory, at-a-time, save-models, mode), the saved-model records (names + byte sizes), the log line count, the recorded input-copy sizes (empty once copies were cleared), the run dir's recursive size and the stored estimate facts (\"took X (estimated Y)\" — null when the create-time estimate was never computed). Unknown id → 404 RUN_NOT_FOUND.")
         .id("History.getHistory")
         .tag("history")
         .response::<200, Json<TxrHistoryDetail>>()

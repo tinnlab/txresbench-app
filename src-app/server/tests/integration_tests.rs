@@ -34,6 +34,11 @@ mod file;
 mod file_validator;
 mod harness_db_lifecycle;
 mod harness_sentinel;
+// The `history_store` suites (ITEM-5's file set — TEST-HS-6/7/8/9/10/11/12/
+// 13/14/15/16/17/18/20/21/22/23: the K view, the retention policy and the
+// usage figure over a real spawned server; seeds through the engine's own
+// repository).
+mod history_store;
 mod health;
 mod sandbox;
 mod jobs;
