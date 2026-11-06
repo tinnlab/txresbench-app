@@ -377,3 +377,50 @@ describe('RunningPage — the method table and its actions (ITEM-10)', () => {
     expect(state().atATime).toBe(2)
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ITEM-11 — the log panel wiring + the leave-and-continue note
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('RunningPage — the log panel and leave-and-continue (ITEM-11)', () => {
+  it('always renders the leave-and-continue note under the method table', async () => {
+    renderAt('run-1')
+    await screen.findByTestId('txr-run-table')
+    expect(screen.getByTestId('txr-run-leave-note').textContent).toBe(
+      'Finished methods keep their results. You can leave this screen: the run continues, and it stays in History.',
+    )
+  })
+
+  it('"Show log" opens the panel at that method and backfills its history', async () => {
+    renderAt('run-1')
+    await screen.findByTestId('txr-run-table')
+    expect(screen.queryByTestId('txr-run-log')).toBeNull()
+
+    fireEvent.click(screen.getByTestId('txr-run-action-method-5'))
+    await screen.findByTestId('txr-run-log')
+    expect(state().logOpen).toBe(true)
+    expect(state().logFilter).toBe('method-5')
+    expect(
+      screen.getByTestId('txr-run-log-filter-method-5').getAttribute('aria-pressed'),
+    ).toBe('true')
+    await vi.waitFor(() =>
+      expect(listRunLogs).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'run-1', method_id: 'method-5' }),
+      ),
+    )
+  })
+
+  it('the panel\'s chips and Hide report through the store', async () => {
+    renderAt('run-1')
+    await screen.findByTestId('txr-run-table')
+    fireEvent.click(screen.getByTestId('txr-run-action-method-5'))
+    await screen.findByTestId('txr-run-log')
+
+    fireEvent.click(screen.getByTestId('txr-run-log-filter-all'))
+    expect(state().logFilter).toBeNull()
+
+    fireEvent.click(screen.getByTestId('txr-run-log-close'))
+    expect(state().logOpen).toBe(false)
+    expect(screen.queryByTestId('txr-run-log')).toBeNull()
+  })
+})

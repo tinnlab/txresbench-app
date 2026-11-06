@@ -37,7 +37,12 @@
  * examples, never data (INV-6): this file formats whatever the engine
  * sends — the exact bytes above come from the run rows and frames.
  */
-import type { TxrMethodState, TxrRunMethod, TxrRunProgressFrame } from '@/api-client/types'
+import type {
+  TxrMethodState,
+  TxrRunLogLine,
+  TxrRunMethod,
+  TxrRunProgressFrame,
+} from '@/api-client/types'
 import type { TxrRunBucket } from '../types'
 
 /**
@@ -80,6 +85,15 @@ export const STATE_TONE: Record<TxrMethodState, string> = {
  * list's bar and F renders it as its header caption.
  */
 export const RESEARCH_NOTICE = "For research. Not for deciding a patient's treatment."
+
+/**
+ * Screen F's leave-and-continue note (the board's footer words, verbatim —
+ * INV-2's "the run continues, and it stays in History"): one constant, the
+ * page's own wiring renders it under the method table, always (a live run
+ * and a completed one both read it; running continues when the user leaves).
+ */
+export const LEAVE_AND_CONTINUE_NOTE =
+  'Finished methods keep their results. You can leave this screen: the run continues, and it stays in History.'
 
 /**
  * The F tabs' state partition (DEC-2): All = every row; Working =
@@ -238,4 +252,71 @@ export function formatBarValue(r: TxrRunMethod, progress: TxrRunProgressFrame | 
       return Math.max(0, Math.min(100, pct))
     }
   }
+}
+
+/** The run's method rows — the F log panel's chip/label surface (the id
+ *  in the engine's line, the label in the board's log lines). */
+export type TxrLogMethodRef = Readonly<Pick<TxrRunMethod, 'method_id' | 'label'>>
+
+/**
+ * The F log panel's line-time formatter (the board's clock "10:02:12" —
+ * the local wall clock of the machine that ran the method, `created_at`
+ * as the engine stamped it; a line the store cannot parse reads the
+ * "—" place the module uses for an absent fact, never a crash).
+ */
+export function formatLogTime(createdAt: string): string {
+  const date = new Date(createdAt)
+  if (Number.isNaN(date.getTime())) return '—'
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
+
+/**
+ * The method segment of one log line: the run's method LABEL (the board's
+ * "[dynforest]" — the catalogue display name the method row itself uses),
+ * the raw method id for a line whose method is not in this run's rows (a
+ * provider line for a dropped method — the id stays visible, never a blank
+ * bracket), and the line's own STREAM for an engine-level line without a
+ * method (`method_id` absent — the whole-run view's own facts, the
+ * sibling G screen's log dialog treats them the same way).
+ */
+export function methodLabelOf(line: TxrRunLogLine, methods: ReadonlyArray<TxrLogMethodRef>): string {
+  if (line.method_id === undefined) return line.stream
+  const method = methods.find(m => m.method_id === line.method_id)
+  return method?.label ?? line.method_id
+}
+
+/**
+ * One paste line in the board's words: the clock, the method segment, the
+ * engine's content — the boards' own line shape ("10:02:12 [dynforest]
+ * fitting the model" class; the exact content is the engine's, never a
+ * board example). Display and "Copy the log" share this one formatter
+ * (what the user sees is what the clipboard gets).
+ */
+export function formatLogLine(line: TxrRunLogLine, methods: ReadonlyArray<TxrLogMethodRef>): string {
+  return `${formatLogTime(line.created_at)} [${methodLabelOf(line, methods)}] ${line.content}`
+}
+
+/** The copy text: the lines joined the way a log file reads (the board's
+ *  one line per entry; the plan's TEST-RUN-22 bytes). */
+export function formatLogText(
+  lines: readonly TxrRunLogLine[],
+  methods: ReadonlyArray<TxrLogMethodRef>,
+): string {
+  return lines.map(line => formatLogLine(line, methods)).join('\n')
+}
+
+/**
+ * The F log panel's method filter: `null` = every line (the "All methods"
+ * view, including the engine-level lines that name no method), a method id
+ * = that method's lines only (the sibling G screen's log dialog's rule: an
+ * engine-level line belongs to the whole-run view, never to a method it
+ * did not name — a method's own lines are always attributed to it).
+ */
+export function filterLogLines(
+  lines: readonly TxrRunLogLine[],
+  methodId: string | null,
+): TxrRunLogLine[] {
+  if (methodId === null) return [...lines]
+  return lines.filter(line => line.method_id === methodId)
 }

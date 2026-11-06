@@ -5,11 +5,12 @@ import { useStore } from 'zustand'
 import { methodResultsPath, resultsPath } from '@/modules/txrresults/routes'
 import { Alert, Button, Result, Skeleton } from '@ziee/kit'
 import type { TxrRunBucket } from '../types'
-import { bucketOf, formatSecs, formatTimeLeft } from '../lib/format'
+import { bucketOf, formatSecs, formatTimeLeft, LEAVE_AND_CONTINUE_NOTE } from '../lib/format'
 import { historyPath } from '../routes'
 import { TxrRun, useTxrRun } from '../stores/TxrRun.store'
 import { TxrCountsStrip } from '../components/TxrCountsStrip'
 import { formatRunTitle, TxrRunHeader } from '../components/TxrRunHeader'
+import { TxrLogPanel } from '../components/TxrLogPanel'
 import { TxrRunTable } from '../components/TxrRunTable'
 import type { TxrRunRowAction } from '../components/TxrRunRow'
 
@@ -81,6 +82,18 @@ const STATE_BLOCK: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 14,
+}
+
+/** The leave-and-continue note (the board's footer line under the table:
+ *  the run keeps going when this screen is left; the note is the page's
+ *  always-rendered wiring, not the panel's). */
+const LEAVE_NOTE: CSSProperties = {
+  fontSize: 13.5,
+  color: '#5e5e5e',
+  display: 'flex',
+  alignItems: 'center',
+  flexWrap: 'wrap',
+  gap: 8,
 }
 
 /** The tab chips' unselected look (the boards' pill; E's chips use the same). */
@@ -245,6 +258,17 @@ export function RunningPage() {
     }
   }
 
+  // The log panel's history backfill (CONS-UI-RUN-10): on open and on a
+  // method switch the store fetches the pre-SSE lines and merges them by
+  // seq (the provider's own paged endpoint — the consumer never re-reads
+  // or re-orders a log line). The panel reports the transition; the page
+  // owns the store call, exactly the frozen props' reporting contract.
+  const backfillLogs = (methodId: string | null): void => {
+    const tail = state.liveLogs
+    const afterSeq = tail.length > 0 ? tail[tail.length - 1].seq : undefined
+    void TxrRun.loadLogs(methodId, afterSeq)
+  }
+
   if (runError === 'not-found') {
     return <NotFoundRun history={historyPath()} />
   }
@@ -306,7 +330,24 @@ export function RunningPage() {
           stopping={state.stopping}
           actionError={state.actionError}
         />
+        <div data-testid="txr-run-leave-note" style={LEAVE_NOTE}>
+          {LEAVE_AND_CONTINUE_NOTE}
+        </div>
       </section>
+      {state.logOpen ? (
+        <TxrLogPanel
+          lines={state.liveLogs}
+          total={state.logTotal}
+          methods={run.methods}
+          filter={state.logFilter}
+          onFilter={id => TxrRun.setLogFilter(id)}
+          follow={state.logFollow}
+          onFollow={v => TxrRun.setLogFollow(v)}
+          open={state.logOpen}
+          onOpenChange={v => TxrRun.setLogOpen(v)}
+          onBackfill={backfillLogs}
+        />
+      ) : null}
     </main>
   )
 }
