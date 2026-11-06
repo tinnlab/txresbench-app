@@ -1,0 +1,1 @@
+synthetic AppImage signature fixture

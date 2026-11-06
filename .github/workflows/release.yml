@@ -1,3 +1,31 @@
+# Builds and uploads the per-OS TxResBench installers (Linux deb + AppImage,
+# macOS universal dmg, Windows NSIS x64) and publishes the update feed + the
+# download rows the landing page renders (PROV-IR-10).
+#
+# WHAT IT DOES, IN THE ORDER THE RELEASE NEEDS IT:
+#   1. every matrix leg stages the bundled pretrained-model set
+#      (scripts/installer/bundle-pretrained-models.mjs, PROV-IR-4) before
+#      `tauri build` so each installer carries the verified models;
+#   2. the build runs with the updater signing key (TAURI_SIGNING_PRIVATE_KEY
+#      + password secrets), so `bundle.createUpdaterArtifacts` emits the
+#      `<artifact>.sig` files the feed's signatures embed verbatim;
+#   3. each leg uploads its Tauri bundle directory; the publish job then
+#      downloads all three, runs the discovery CLI over the merged set
+#      (PROV-IR-1), writes `site/public/updates/latest.json` with
+#      make-update-feed.mjs (PROV-IR-2) and fills `site/config.json`
+#      `downloads[]` with write-downloads-config.mjs (PROV-IR-3), and commits
+#      both on the repository's default branch.
+#
+# Only one merged artifact set can build the feed, so the publish steps live
+# in a job that needs the whole matrix, not inside a matrix leg. The feed and
+# the download rows both fail closed: a missing `.sig` (no signing key yet)
+# stops discovery naming the artifact, and the feed writer refuses an empty
+# signature — an unsigned update is never published.
+#
+# The `site/public/updates/latest.json` file is absent from the repository
+# until this pipeline writes it, which is a valid state (PROV-landing-site-5:
+# the machine feeds may be absent); `site/config.json` keeps its pre-release
+# rows (size_mb 0, a zero digest) until the first release fills them.
 name: release
 
 on:
@@ -49,6 +77,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci --no-audit --no-fund
 
+      - name: Stage bundled models
+        run: node scripts/installer/bundle-pretrained-models.mjs
+
       - name: Resolve release tag
         id: tag
         run: |
@@ -90,6 +121,8 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: src-app/desktop/tauri
           tagName: ${{ steps.tag.outputs.tag }}
@@ -97,3 +130,72 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+      - name: Upload the bundle directory
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.platform }}
+          path: src-app/desktop/tauri/target/release/bundle/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      # The feed and the download rows are committed for the Pages build, so
+      # this job works on the repository's default branch (the checkout of a
+      # tag-triggered run is the detached tag, which cannot carry a commit).
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Collect the matrix bundles
+        uses: actions/download-artifact@v4
+        with:
+          pattern: bundle-*
+          path: bundle
+          merge-multiple: true
+          if-no-files-found: error
+
+      - name: Resolve release version
+        id: version
+        run: |
+          if [ -n "$GITHUB_REF_NAME" ] && [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            echo "version=${GITHUB_REF_NAME#app-v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$(node -p 'require("./src-app/desktop/tauri/tauri.conf.json").version')" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Discover the verified artifact set
+        run: node scripts/installer/discover-artifacts.mjs --bundle-dir bundle --out artifacts.json
+
+      - name: Write the update feed and the download rows
+        run: |
+          set -euo pipefail
+          APPIMAGE="$(node -p 'require("./artifacts.json").updater.appimage.path')"
+          APPIMAGE_SIG="$(node -p 'require("./artifacts.json").updater.appimage.signature_file')"
+          DARWIN_APP="$(node -p 'require("./artifacts.json").updater.darwin.path')"
+          DARWIN_SIG="$(node -p 'require("./artifacts.json").updater.darwin.signature_file')"
+          NSIS="$(node -p 'require("./artifacts.json").updater.nsis.path')"
+          NSIS_SIG="$(node -p 'require("./artifacts.json").updater.nsis.signature_file')"
+          node scripts/installer/make-update-feed.mjs --version "${{ steps.version.outputs.version }}" \
+            --appimage "$APPIMAGE" --appimage-sig "$APPIMAGE_SIG" \
+            --darwin-app "$DARWIN_APP" --darwin-sig "$DARWIN_SIG" \
+            --nsis "$NSIS" --nsis-sig "$NSIS_SIG"
+          node scripts/installer/write-downloads-config.mjs --artifacts artifacts.json
+
+      - name: Commit the feed and the download rows
+        run: |
+          git config user.name "txresbench release"
+          git config user.email "actions@github.com"
+          git add site/public/updates/latest.json site/config.json
+          if git diff --cached --quiet; then
+            echo "the feed and the download rows are unchanged"
+          else
+            git commit -m "release app-v${{ steps.version.outputs.version }}: refresh the update feed and the download rows"
+            git push
+          fi

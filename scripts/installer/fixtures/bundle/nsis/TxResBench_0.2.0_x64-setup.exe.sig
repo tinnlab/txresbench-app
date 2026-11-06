@@ -1,0 +1,1 @@
+synthetic NSIS signature fixture
