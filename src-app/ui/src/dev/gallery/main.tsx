@@ -36,6 +36,15 @@ const moduleGalleries = import.meta.glob<{
   txrMockRoutes?: Array<{ route: SpecialRoute }>
 }>('../../modules/**/gallery.{ts,tsx}', { eager: true })
 
+// `specialRoutes` are tried in order (mockApi.ts's first-match contract), so an
+// id-scoped route must be registered BEFORE a path-family route that would also
+// match the request. The glob keys are sorted alphabetically and `txrresults`
+// (a path-family stream route) sorts before `txrrun` (a stream route scoped to
+// its own fixture run ids) — so the gathered order is the REVERSE module order:
+// the newest module's id-scoped routes are tried first, and a route that does
+// not own the request falls through to the earlier modules', unchanged.
+const routeOrder = Object.entries(moduleGalleries).sort(([a], [b]) => b.localeCompare(a))
+
 mountGallery({
   discoverGalleries: (): DiscoveredGallery[] =>
     Object.entries(moduleGalleries)
@@ -47,7 +56,7 @@ mountGallery({
 
   apiEndpoints: ApiEndpoints as unknown as Record<string, string>,
   crawlCassette: galleryCassette,
-  specialRoutes: Object.values(moduleGalleries).flatMap(m => m.txrMockRoutes?.flatMap(e => e.route) ?? []),
+  specialRoutes: routeOrder.flatMap(([, m]) => m.txrMockRoutes?.flatMap(e => e.route) ?? []),
 
   loadModules,
   seedAuth,

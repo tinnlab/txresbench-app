@@ -1,0 +1,238 @@
+/**
+ * TEST-RUN-01 — txrrun module shape + the PROV-UI-RUN-1 route surface
+ * (INV-2, INV-4, INV-5, INV-6; ITEM-1). The TEST-RUN-02 rows for the path
+ * builders live in `routes.test.ts` (their own file, per the TESTS map).
+ *
+ * The module is a framework module: auto-discovered by the loader glob in
+ * `modules/loader.ts` (`import.meta.glob` over module.tsx files in the
+ * modules tree), registering exactly the two run routes under the shell
+ * layout, with NO eager store (the run store registers whole-store-lazy in
+ * its own file, the `datasets`/`txrresults` precedent — `stores: []`), NO
+ * slot, NO component and NO permission predicate (the app defines no
+ * `X::use` for these screens; both routes are `requiresAuth` under the
+ * local single-user session). The no-edits assertions below run over the
+ * item's own delta (the working tree against HEAD while uncommitted; the
+ * tip commit's file set when committed): the plan's no-go list (DEC-14) —
+ * no generated client, no OpenAPI, no guard/script, no package.json line,
+ * no txrshell edit, no loader edit, no server path, and no edit inside any
+ * OTHER module's directory (BASE.md's conflict surface: the node touches
+ * its own `txrrun` subdir only).
+ *
+ * The status-word / design-example-number / URL / study-literal scans cover
+ * the module's own `.ts`/`.tsx` files (INV-4/5/6) — the item's copy carries
+ * the boards' words, never the boards' numbers. The scanned tokens are
+ * built from split literals so this test file itself stays clear of them
+ * (same discipline the sibling modules' scans use).
+ */
+import { execFileSync } from 'node:child_process'
+import { readdirSync, readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import path from 'node:path'
+import { describe, expect, it } from 'vitest'
+import type { AppModule } from '@ziee/framework/module-system/types'
+import txrRunModule from './module'
+import { TxrLayoutDef } from '../txrshell/module'
+
+type RouteEntry = {
+  path?: string
+  requiresAuth?: boolean
+  layout?: unknown
+  permission?: unknown
+}
+
+function routesOf(module: unknown): RouteEntry[] {
+  return (module as AppModule & { routes?: RouteEntry[] }).routes ?? []
+}
+
+const MODULE_DIR = fileURLToPath(new URL('.', import.meta.url))
+
+/**
+ * The file set DELIVERED BY THIS ITEM, in either of the two states it is
+ * verified in. Uncommitted (the item's own verification run): the working
+ * tree against HEAD. Committed (the branch gate): the tip commit's own diff
+ * — the item commit or its report record commit, both of which are this
+ * item's file set. The item base is HEAD, not `main` (main is the untouched
+ * epic integration base; see DRIFT-1).
+ */
+function itemDelta(): string[] {
+  const git = (args: string[]): string[] => {
+    try {
+      return execFileSync('git', args, { encoding: 'utf8' })
+        .split('\n')
+        .filter(Boolean)
+    } catch {
+      return []
+    }
+  }
+  if (git(['status', '--porcelain']).length > 0) {
+    return [
+      ...new Set([
+        ...git(['diff', '--name-only', 'HEAD']),
+        ...git(['diff', '--name-only', '--cached']),
+        ...git(['ls-files', '--others', '--exclude-standard']),
+      ]),
+    ].sort()
+  }
+  return git(['show', '--name-only', '--format=', 'HEAD']).sort()
+}
+
+/** Every `.ts`/`.tsx` file under the module dir (the publish surface of the module). */
+function ownSourceFiles(dir: string): string[] {
+  const out: string[] = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, entry.name)
+    if (entry.isDirectory()) {
+      out.push(...ownSourceFiles(p))
+    } else if (/\.tsx?$/.test(entry.name)) {
+      out.push(p)
+    }
+  }
+  return out
+}
+
+describe('txrrun module (TEST-RUN-01)', () => {
+  it('registers as a framework module with the planned metadata', () => {
+    expect(txrRunModule.metadata).toEqual({
+      name: 'txrrun',
+      version: '1.0.0',
+      description:
+        'TxResBench run screens — choose the methods and settings (E), then watch the run (F).',
+    })
+  })
+
+  it('owns exactly the two run routes, each guarded under the shell layout', () => {
+    const routes = routesOf(txrRunModule)
+    expect(routes.map(r => r.path)).toEqual(['/choose-methods', '/analysis/:runId/running'])
+    for (const route of routes) {
+      expect(route.requiresAuth).toBe(true)
+      expect(route.layout).toBe(TxrLayoutDef)
+      expect(route.permission).toBeUndefined()
+    }
+  })
+
+  it('registers an empty store list (the run store is whole-store-lazy) and no slot, component or predicate', () => {
+    // `stores: []` per PROV-UI-RUN-1: the run store registers with
+    // `registerLazyStore` in its own file (the `DatasetDetail` precedent),
+    // so the module declares no eager store and no other registration.
+    expect(txrRunModule.registerStores?.()).toEqual([])
+    expect(
+      (txrRunModule as AppModule & { registerComponents?: unknown }).registerComponents,
+    ).toBeUndefined()
+    expect(
+      (txrRunModule as AppModule & { registerSlots?: unknown }).registerSlots,
+    ).toBeUndefined()
+    expect((txrRunModule as unknown as Record<string, unknown>).shouldLoad).toBeUndefined()
+    expect(txrRunModule.initialize).toBeUndefined()
+    expect(txrRunModule.cleanup).toBeUndefined()
+    const source = readFileSync(fileURLToPath(new URL('./module.tsx', import.meta.url)), 'utf8')
+    expect(source).not.toContain("import('./stores/")
+    expect(source).not.toContain("from './stores/")
+  })
+
+  it('declares the router, the shell, the intake, the shared list and the results module as framework dependencies', () => {
+    expect(txrRunModule.registerDependencies?.()).toEqual([
+      'router',
+      'txrshell',
+      'txrintake',
+      'txrlist',
+      'txrresults',
+    ])
+  })
+
+  it('is picked up by the loader auto-discovery glob', () => {
+    const files = import.meta.glob('./**/module.tsx', { eager: true }) as Record<
+      string,
+      { default: unknown }
+    >
+    expect(Object.keys(files)).toContain('./module.tsx')
+    expect(files['./module.tsx'].default).toBe(txrRunModule)
+  })
+
+  it('routes the two lazy pages the module declares', () => {
+    const source = readFileSync(fileURLToPath(new URL('./module.tsx', import.meta.url)), 'utf8')
+    expect(source).toContain('lazyWithPreload')
+    expect(source).toContain("import('./pages/ChooseMethodsPage')")
+    expect(source).toContain("import('./pages/RunningPage')")
+  })
+
+  it('does not change the generated client, the openapi, the guards, the shell, the loader, the server or any other module (DEC-14)', () => {
+    const touched = itemDelta()
+    expect(touched.filter(p => p.startsWith('src-app/ui/src/api-client/'))).toEqual([])
+    expect(touched.filter(p => p.startsWith('src-app/ui/openapi/'))).toEqual([])
+    expect(touched.filter(p => p.startsWith('scripts/'))).toEqual([])
+    expect(touched.filter(p => p.startsWith('src-app/ui/scripts/'))).toEqual([])
+    expect(touched.filter(p => p === 'src-app/ui/package.json')).toEqual([])
+    expect(touched.filter(p => p === 'src-app/ui/package-lock.json')).toEqual([])
+    expect(touched.filter(p => p.startsWith('src-app/ui/src/modules/txrshell/'))).toEqual([])
+    expect(touched.filter(p => p === 'src-app/ui/src/modules/loader.ts')).toEqual([])
+    expect(touched.filter(p => p.startsWith('src-app/server/'))).toEqual([])
+    // ONE provider-file exception (ITEM-13, DRIFT-1 #3): the ui-list
+    // adapter's null-performance guard — the wire sends `performance:
+    // null` for 138 of 359 catalogue methods and the `=== undefined`
+    // check threw before the null branch of the adapter's own DEC-17
+    // contract; the fix is the missing half of that contract, recorded
+    // with the evidence. Nothing else outside this module moves.
+    expect(
+      touched.filter(
+        p =>
+          p.startsWith('src-app/ui/src/modules/') &&
+          !p.startsWith('src-app/ui/src/modules/txrrun/') &&
+          p !== 'src-app/ui/src/modules/txrlist/data/methodRows.ts',
+      ),
+    ).toEqual([])
+  })
+
+  it('carries no status words, no literal design-example numbers and no URL literal in its own copy (INV-5/6)', () => {
+    // The scan's target is SHIPPED COPY — the module's own source, comments
+    // and fixtures; any spelling there fails. Test files are excluded, the
+    // same scope the study-literal scan below uses: they PIN the formatter
+    // outputs verbatim (TEST-RUN-04's "4 min 40 s" / "about 7 minutes left"
+    // / "160 of 250 MB" — the boards' own bytes as EXPECTED values), which
+    // is precisely what an INV-5/6 scan must allow outside shipped copy.
+    const own = ownSourceFiles(MODULE_DIR)
+      .filter(p => !/\.test\.(ts|tsx)$/.test(p))
+      .map(p => readFileSync(p, 'utf8'))
+      .join('\n')
+      .toLowerCase()
+    const statusWords = [
+      'to' + 'do',
+      't' + 'bd',
+      'place' + 'holder',
+      'coming so' + 'on',
+      'in pro' + 'gress',
+    ]
+    for (const word of statusWords) {
+      expect(own).not.toContain(word)
+    }
+    // The boards' example facts (Busy / BusyRunning boards) — never code.
+    const designExampleBareCounts = [
+      'running 12 me' + 'thods',
+      '12 me' + 'thods',
+      '38 me' + 'thods',
+      '26 o' + 'f 38',
+      '151 pa' + 'tients',
+      'about 14 mi' + 'nutes',
+      'about 7 mi' + 'nutes',
+      '4 min 40' + ' s',
+      '1 min 52' + ' s',
+      '160 of 2' + '50',
+    ]
+    for (const phrase of designExampleBareCounts) {
+      expect(own).not.toContain(phrase)
+    }
+    expect(own).not.toContain('http' + '://')
+  })
+
+  it('spells no study literal in its own source files (INV-4)', () => {
+    // The publish surface only — the test file itself may name the scanned
+    // token (the tree scan excludes `*.test.ts` files, which is also how
+    // the module's copy stays scannable by the guard's own rules).
+    const own = ownSourceFiles(MODULE_DIR)
+      .filter(p => !/\.test\.(ts|tsx)$/.test(p))
+      .map(p => readFileSync(p, 'utf8'))
+      .join('\n')
+      .toLowerCase()
+    const studyRe = new RegExp('st' + 'ud(y|ies)', 'i')
+    expect(studyRe.test(own)).toBe(false)
+  })
+})

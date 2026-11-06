@@ -1,0 +1,353 @@
+import { useEffect, useMemo } from 'react'
+import type { CSSProperties } from 'react'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
+import { useStore } from 'zustand'
+import { methodResultsPath, resultsPath } from '@/modules/txrresults/routes'
+import { Alert, Button, Result, Skeleton } from '@ziee/kit'
+import type { TxrRunBucket } from '../types'
+import { bucketOf, formatSecs, formatTimeLeft, LEAVE_AND_CONTINUE_NOTE } from '../lib/format'
+import { historyPath } from '../routes'
+import { TxrRun, useTxrRun } from '../stores/TxrRun.store'
+import { TxrCountsStrip } from '../components/TxrCountsStrip'
+import { formatRunTitle, TxrRunHeader } from '../components/TxrRunHeader'
+import { TxrLogPanel } from '../components/TxrLogPanel'
+import { TxrRunTable } from '../components/TxrRunTable'
+import type { TxrRunRowAction } from '../components/TxrRunRow'
+
+/**
+ * Screen F — Running (board `BusyRunning.dc.html`): one analysis run's live
+ * surface. ITEM-9 delivers the page base: the run-id wiring (`useParams` →
+ * the run store's `load`, once per id; a changed id resets and re-loads —
+ * the single-instance-per-URL rule), the header block (methods count,
+ * time left, elapsed, concurrency line, "See the results"), the five-count
+ * strip, the All/Working/Finished/Failed tab chips (the page's filter
+ * state, held in the run store so it survives a leave-and-continue), the
+ * per-method table + the stop-all / at-a-time controls (ITEM-10 — the
+ * rows are the active tab's bucket, the actions call the run store and
+ * navigate with `txrresults`' builders) and the not-found / network
+ * states (kit `Result` + the History link). The log panel +
+ * leave-and-continue note (ITEM-11) build on this base next to the table.
+ *
+ * The header's facts are composed here and formatted in `lib/format.ts`
+ * (INV-4 — the time-left is the run's own create-time estimate minus its
+ * elapsed; nothing on this page computes a schedule). The tab chip counts
+ * are the module's own partition (`bucketOf`, DEC-2 — a complete partition
+ * of the eight engine states; "All" is the row count), so the four counts
+ * always add up to the run's rows. The "See the results" link is live when
+ * the run's `predictions_ready` or ≥1 method is finished (DEC-12 / INV-1:
+ * results readable while the others still run).
+ *
+ * The 409-resolution notice (ITEM-8, DEC-18) stays: the E create path
+ * navigates here with `{ resumed: true }` — the one line says the user is
+ * watching the run that was already active.
+ */
+const PAGE_MAIN: CSSProperties = {
+  flexGrow: 1,
+  display: 'flex',
+  flexWrap: 'wrap',
+}
+
+/** The board's main content column (flex-basis ordering = board: content
+ *  first, log panel second — the log panel column joins at ITEM-11). */
+const CONTENT: CSSProperties = {
+  flex: '3 1 600px',
+  minWidth: 0,
+  boxSizing: 'border-box',
+  padding: '26px 32px',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 14,
+}
+
+/** The resumed notice's full-width row (the page's flex-wrap layout). */
+const NOTICE_ROW: CSSProperties = { flexBasis: '100%' }
+
+/** The DEC-18 one-line notice (the 409 resolution's handoff line). */
+const RESUMED_NOTICE_LINE = 'A run was already active — you are watching it now.'
+
+/** The tab chips' row (the board's tab row above the method table; the
+ *  at-a-time control lives in the table section's footer row — ITEM-10's
+ *  placement is recorded in DRIFT-1). */
+const TAB_ROW: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 8,
+  alignItems: 'center',
+}
+
+/** The loading / result blocks (the page between mount and the first fact). */
+const STATE_BLOCK: CSSProperties = {
+  boxSizing: 'border-box',
+  padding: '26px 32px',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 14,
+}
+
+/** The leave-and-continue note (the board's footer line under the table:
+ *  the run keeps going when this screen is left; the note is the page's
+ *  always-rendered wiring, not the panel's). */
+const LEAVE_NOTE: CSSProperties = {
+  fontSize: 13.5,
+  color: '#5e5e5e',
+  display: 'flex',
+  alignItems: 'center',
+  flexWrap: 'wrap',
+  gap: 8,
+}
+
+/** The tab chips' unselected look (the boards' pill; E's chips use the same). */
+const TAB_CHIP = {
+  borderRadius: 999,
+  padding: '5px 12px',
+  fontSize: 13.5,
+  background: '#ffffff',
+  color: '#3a3a3a',
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: '#cfcdc7',
+} as const
+
+/** The active tab's look (the board's pressed pill). */
+const ACTIVE_TAB = {
+  ...TAB_CHIP,
+  background: '#e8eef6',
+  color: '#143a68',
+  borderColor: '#1d4e89',
+} as const
+
+/** The tab row's board order (All → Working → Finished → Failed). */
+const TABS: ReadonlyArray<{ id: TxrRunBucket; label: string }> = [
+  { id: 'all', label: 'All' },
+  { id: 'working', label: 'Working' },
+  { id: 'finished', label: 'Finished' },
+  { id: 'failed', label: 'Failed' },
+]
+
+function LoadingRun() {
+  return (
+    <main data-testid="txr-run" style={PAGE_MAIN}>
+      <div data-testid="txr-run-loading" style={STATE_BLOCK}>
+        <Skeleton style={{ width: 320, height: 26 }} />
+        <Skeleton style={{ width: 520, height: 16 }} />
+        <Skeleton style={{ height: 180, width: '100%' }} />
+      </div>
+    </main>
+  )
+}
+
+function NotFoundRun({ history }: { history: string }) {
+  return (
+    <main data-testid="txr-run" style={PAGE_MAIN}>
+      <div style={STATE_BLOCK}>
+        <Result
+          status="404"
+          data-testid="txr-run-not-found"
+          title="This analysis run could not be found"
+          subtitle="It may have been removed, or the link is outdated."
+          extra={
+            <Link data-testid="txr-run-history" to={history}>
+              History
+            </Link>
+          }
+        />
+      </div>
+    </main>
+  )
+}
+
+function NetworkErrorRun({ history, onRetry }: { history: string; onRetry: () => void }) {
+  return (
+    <main data-testid="txr-run" style={PAGE_MAIN}>
+      <div style={STATE_BLOCK}>
+        <Result
+          status="error"
+          data-testid="txr-run-load-error"
+          title="The run could not be loaded"
+          subtitle="Check that the app is running, then try again."
+          extra={
+            <>
+              <Button
+                data-testid="txr-run-retry"
+                variant="outline"
+                className="rounded-lg font-semibold"
+                style={{ padding: '8px 16px' }}
+                onClick={onRetry}
+              >
+                Try again
+              </Button>
+              <Link data-testid="txr-run-history" to={history}>
+                History
+              </Link>
+            </>
+          }
+        />
+      </div>
+    </main>
+  )
+}
+
+export function RunningPage() {
+  const { runId } = useParams<{ runId: string }>()
+  const navigate = useNavigate()
+  const location = useLocation()
+  const state = useStore(useTxrRun)
+  const { run, runError, tab } = state
+
+  // Load on mount + on a run-id change: the store resets first and drops
+  // the previous run's in-flight work (no cross-run bleed — the store's
+  // own epoch guard; the F screen is single-instance per URL, DEC-1).
+  useEffect(() => {
+    if (runId) void TxrRun.load(runId)
+  }, [runId])
+
+  // The derived header/tab facts, computed on EVERY render path (the early
+  // returns below must not change the hook order): the run-less branches
+  // render nothing from these, and the branch guards run afterwards.
+  const title = formatRunTitle(run?.methods.length ?? 0)
+  const elapsedSecs = run?.elapsed_secs ?? null
+  const timeLeft = formatTimeLeft(run?.estimate ?? null, elapsedSecs)
+  const elapsed = elapsedSecs === null ? null : formatSecs(elapsedSecs)
+  const finishedCount = useMemo(
+    () => (run?.methods ?? []).filter(m => m.state === 'finished').length,
+    [run],
+  )
+  const predictionsReady = (run?.predictions_ready ?? false) || finishedCount > 0
+  const bucketCounts = useMemo(() => {
+    const methods = run?.methods ?? []
+    const counts: Record<TxrRunBucket, number> = {
+      all: methods.length,
+      working: 0,
+      finished: 0,
+      failed: 0,
+    }
+    for (const method of methods) counts[bucketOf(method.state)] += 1
+    return counts
+  }, [run])
+
+  const resumed =
+    (location.state as { resumed?: boolean } | null)?.resumed === true
+
+  // The table's row set is the active tab's bucket over the run's rows
+  // (DEC-2's partition — "All" is the row count; ITEM-9 note (a): the
+  // table receives the rows already filtered; it never filters).
+  const visibleRows = useMemo(() => {
+    const methods = run?.methods ?? []
+    return tab === 'all' ? methods : methods.filter(m => bucketOf(m.state) === tab)
+  }, [run, tab])
+
+  // The per-state action's one home: the store's stop/skip calls, the
+  // log-panel handoff (the panel renders at ITEM-11; the store's frozen
+  // logOpen/logFilter state is what it reads) and the txrresults builder
+  // for a finished method's own screen (PROV-UR-1, never a URL literal).
+  const handleAction = (action: TxrRunRowAction): void => {
+    switch (action.kind) {
+      case 'stop':
+        void TxrRun.stopMethod(action.methodId)
+        break
+      case 'skip':
+        void TxrRun.skipMethod(action.methodId)
+        break
+      case 'log':
+        TxrRun.setLogOpen(true)
+        TxrRun.setLogFilter(action.methodId)
+        break
+      case 'view':
+        navigate(methodResultsPath(run!.id, action.methodId))
+        break
+    }
+  }
+
+  // The log panel's history backfill (CONS-UI-RUN-10): on open and on a
+  // method switch the store fetches the pre-SSE lines and merges them by
+  // seq (the provider's own paged endpoint — the consumer never re-reads
+  // or re-orders a log line). The panel reports the transition; the page
+  // owns the store call, exactly the frozen props' reporting contract.
+  const backfillLogs = (methodId: string | null): void => {
+    const tail = state.liveLogs
+    const afterSeq = tail.length > 0 ? tail[tail.length - 1].seq : undefined
+    void TxrRun.loadLogs(methodId, afterSeq)
+  }
+
+  if (runError === 'not-found') {
+    return <NotFoundRun history={historyPath()} />
+  }
+  if (runError === 'network') {
+    return <NetworkErrorRun history={historyPath()} onRetry={TxrRun.retryLoad} />
+  }
+  if (run === null) {
+    return <LoadingRun />
+  }
+
+  return (
+    <main data-testid="txr-run" style={PAGE_MAIN}>
+      {resumed ? (
+        <div style={NOTICE_ROW}>
+          <Alert
+            data-testid="txr-run-resumed-notice"
+            tone="info"
+            title={RESUMED_NOTICE_LINE}
+          />
+        </div>
+      ) : null}
+      <section style={CONTENT}>
+        <TxrRunHeader
+          title={title}
+          timeLeft={timeLeft}
+          elapsed={elapsed}
+          atATime={run.config.at_a_time ?? null}
+          cpus={run.cpus ?? null}
+          predictionsReady={predictionsReady}
+          runId={run.id}
+          onSeeResults={() => navigate(resultsPath(run.id))}
+        />
+        <TxrCountsStrip counts={run.counts} />
+        <div data-testid="txr-run-tabs" style={TAB_ROW}>
+          {TABS.map(entry => (
+            <Button
+              key={entry.id}
+              data-testid={`txr-run-tab-${entry.id}`}
+              variant="outline"
+              className="rounded-full font-normal"
+              style={tab === entry.id ? ACTIVE_TAB : TAB_CHIP}
+              aria-pressed={tab === entry.id}
+              onClick={() => TxrRun.setTab(entry.id)}
+            >
+              {entry.label} {bucketCounts[entry.id]}
+            </Button>
+          ))}
+          <span style={{ flexGrow: 1 }} />
+        </div>
+        <TxrRunTable
+          rows={visibleRows}
+          perMethod={state.perMethod}
+          rowErrors={state.rowErrors}
+          onAction={handleAction}
+          atATime={state.atATime}
+          onAtATime={n => void TxrRun.setAtATime(n)}
+          atATimeError={state.atATimeError}
+          onStopAll={() => void TxrRun.stopAll()}
+          stopping={state.stopping}
+          actionError={state.actionError}
+        />
+        <div data-testid="txr-run-leave-note" style={LEAVE_NOTE}>
+          {LEAVE_AND_CONTINUE_NOTE}
+        </div>
+      </section>
+      {state.logOpen ? (
+        <TxrLogPanel
+          lines={state.liveLogs}
+          total={state.logTotal}
+          methods={run.methods}
+          filter={state.logFilter}
+          onFilter={id => TxrRun.setLogFilter(id)}
+          follow={state.logFollow}
+          onFollow={v => TxrRun.setLogFollow(v)}
+          open={state.logOpen}
+          onOpenChange={v => TxrRun.setLogOpen(v)}
+          onBackfill={backfillLogs}
+        />
+      ) : null}
+    </main>
+  )
+}

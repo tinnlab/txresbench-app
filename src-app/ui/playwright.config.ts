@@ -176,9 +176,12 @@ const DERIVED_CONFIG = writeDerivedConfig({
 // The origins the pre-flight + the mid-run watchdog assert. BOTH legs are listed: the
 // preview leg answers `/__worktree` through `gallerySentinelPlugin()` (vite.config.ts,
 // `configurePreviewServer`), the backend leg through `harness_sentinel.rs`. An absent
-// value is a failure in `harness-preflight.mjs`, never a skip.
+// value is a failure in `harness-preflight.mjs`, never a skip. (The backend leg's
+// `/api/app/setup/status` health URL died with the app/setup module — the TxResBench
+// app ships no setup surface, `728fb7c` removed it and the local session replaces it —
+// so the backend leg reads the same worktree sentinel the app leg already uses.)
 process.env.HARNESS_ORIGINS = JSON.stringify([
-  { label: 'e2e backend (cargo)', port: Number(BACKEND_PORT), url: `${BACKEND_URL}/api/app/setup/status` },
+  { label: 'e2e backend (cargo)', port: Number(BACKEND_PORT), url: `${BACKEND_URL}/__worktree` },
   { label: 'e2e app (vite preview)', port: Number(APP_PORT), url: APP_URL },
 ])
 
@@ -289,7 +292,10 @@ export default defineConfig({
       // the RESOLVED port rather than on a literal every worktree shared.
       command: `bash -c 'cargo build --bin cytoanalyst && rm -f "${E2E_DB_FILE}" "${E2E_DB_FILE}-wal" "${E2E_DB_FILE}-shm" && CYTO_APP_DATA_DIR="${E2E_DATA_DIR}" CONFIG_FILE="${DERIVED_CONFIG}" "${bin}"'`,
       cwd: serverDir,
-      url: `${BACKEND_URL}/api/app/setup/status`,
+      // The worktree sentinel (`harness_sentinel.rs`, debug builds) — the same
+      // identity proof the resolver's adoption check uses; the removed
+      // `/api/app/setup/status` endpoint no longer exists (no setup surface).
+      url: `${BACKEND_URL}/__worktree`,
       timeout: 180_000,
       // The RESOLVER'S OWN VERDICT — true only when it just proved a backend of this
       // worktree holds this port AND `E2E_REUSE=1` (or `HARNESS_REUSE_SERVER=1`) asked
