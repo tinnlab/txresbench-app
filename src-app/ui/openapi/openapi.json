@@ -10945,6 +10945,443 @@
         ]
       }
     },
+    "/api/txr/history": {
+      "get": {
+        "tags": [
+          "history"
+        ],
+        "description": "The K screen's run history, newest first: one shaped row per run (file names, method count + per-method seconds, learned/predicted/markers facts, endpoint + decision day + look-ahead, the first failing/stopped reason verbatim, the made/used model names, the retention flag and the capability booleans). Server-side search + filter + paging: `q` = case-insensitive substring over file names / method ids / saved set names; `kind` = learned | saved-model; `status` = running | finished | stopped | failed, comma-separated for one OR filter (the K \"Stopped or failed\" list); `limit` default 20 max 100, `offset` >= 0. 400 INVALID_STATUS.",
+        "operationId": "History.listHistory",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "kind",
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TxrHistoryKind"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "default": null,
+              "minimum": 0
+            },
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "default": null,
+              "minimum": 0
+            },
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null
+            },
+            "style": "form"
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "default": null
+            },
+            "style": "form"
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "One paged history page (PROV-HS-2): newest-first (`created_at DESC`, id\n tie-break), server-side bounded, `total` the engine-truth count under the\n active q/kind/status filters.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TxrHistoryPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_STATUS (an unknown bucket or an empty multi-value segment)"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      }
+    },
+    "/api/txr/history/{id}": {
+      "get": {
+        "tags": [
+          "history"
+        ],
+        "description": "The expanded K block of one run: the row's facts plus the rich per-method rows (state, reason, coverage, probability source, task — the engine's own row shape, the F screen's vocabulary), the settings line (endpoint, decision day, look-ahead, covariates, seed, CPUs, memory, at-a-time, save-models, mode), the saved-model records (names + byte sizes), the log line count, the recorded input-copy sizes (empty once copies were cleared), the run dir's recursive size and the stored estimate facts (\"took X (estimated Y)\" — null when the create-time estimate was never computed). Unknown id → 404 RUN_NOT_FOUND.",
+        "operationId": "History.getHistory",
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "The expanded K block (PROV-HS-3): the row's fields (the summary half,\n spelled out — the detail is a standalone wire shape, not a `flatten` of\n the row: the row's compact `methods` and the detail's rich `methods`\n share one JSON name, and the detail's `models_saved` list replaces the\n row's save flag with the actual records) plus the per-method rows (the\n engine's own [`TxrRunMethod`] verbatim — one vocabulary for F and K),\n the made/used model records, the copies note, the dir size and the\n estimate. `404 RUN_NOT_FOUND` on an unknown id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TxrHistoryDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown run id (RUN_NOT_FOUND)"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      }
+    },
+    "/api/txr/history/preferences": {
+      "get": {
+        "tags": [
+          "history"
+        ],
+        "description": "The K footer's keep-copies default (the singleton row, seeded `true` — the board's \"Copies are kept with this run so it can be repeated\"). `ui-run` reads this at create time so a new run's `input.keep_copies` follows it.",
+        "operationId": "History.getPreferences",
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "The K footer's keep-copies preference (PROV-HS-4): the singleton row\n `txr_history_preferences(id = 1)`, seeded by the migration with the\n board's default `true` — \"Copies are kept with this run so it can be\n repeated\". The ui-run node reads this route at create time (DEC-13).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TxrHistoryPreferences"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      },
+      "put": {
+        "tags": [
+          "history"
+        ],
+        "description": "Set the keep-copies default (id = 1 upsert; the row was created by the migration, never by this route). 204; the write flips the default only — clearing the copies of EXISTING runs is the separate all-runs clear operation, issued by the UI after its confirmation. 422 for a body that is not the `{keep_file_copies}` schema.",
+        "operationId": "History.updatePreferences",
+        "requestBody": {
+          "description": "`PUT /api/txr/history/preferences` body (a missing/typed-wrong field is\n the framework's 422 — serde-validated).",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TxrHistoryPreferencesUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "no content"
+          },
+          "422": {
+            "description": "The body is not the TxrHistoryPreferencesUpdate schema"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      }
+    },
+    "/api/txr/history/{id}/copies/clear": {
+      "post": {
+        "tags": [
+          "history"
+        ],
+        "description": "Remove one run's uploaded file copies (`<run_dir>/input/` ONLY — the K \"copies of my files\" action; bundles, per-method outputs, models, logs and the run record stay) and mark its retention row (the K row's `can_rerun` flips false). 204, idempotent (a run whose copies are already gone is a still-204 no-op); 404 RUN_NOT_FOUND; 400 UNSAFE_RUN_DIR for a recorded dir that fails the naming + canonical floor checks — nothing is deleted.",
+        "operationId": "History.clearCopies",
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "no content"
+          },
+          "404": {
+            "description": "Unknown run id (RUN_NOT_FOUND)"
+          },
+          "400": {
+            "description": "UNSAFE_RUN_DIR (the recorded dir is not a data-root analysis-* path or escapes it)"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      }
+    },
+    "/api/txr/history/copies/clear": {
+      "post": {
+        "tags": [
+          "history"
+        ],
+        "description": "Remove EVERY run's uploaded file copies (`<run_dir>/input/` only, per run) and mark each retention row — the K footer's \"Do not keep copies of my files\" destructive half, issued after the UI's confirmation. 204, idempotent; a run with a tampered recorded dir is skipped by the sweep (nothing is deleted for it).",
+        "operationId": "History.clearAllCopies",
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "no content"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      }
+    },
+    "/api/txr/history/usage": {
+      "get": {
+        "tags": [
+          "history"
+        ],
+        "description": "The K footer's figure: the run count (the DB truth) and the recursive byte size of the app data root grouped by top-level segment (analysis-* → runs, models/ → models, everything else → other), the user-visible data dir (the UI never hardcodes or derives a path) and the computation stamp. The walk runs in the background and is cached for 10 seconds.",
+        "operationId": "History.getUsage",
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "The K footer's usage figure (PROV-HS-6): `run_count` from the DB (not\n the walk), the recursive size walk of `rootfs::data_root()` grouped by\n top-level segment (`analysis-*` → runs, `models/` → models, rest →\n other), the user-visible `data_dir` (GROWN at reconcile for GAP-HIST-1 —\n the UI never hardcodes a path and never derives one from a run dir), and\n the stamp.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TxrHistoryUsage"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      }
+    },
     "/api/sandbox/status": {
       "get": {
         "tags": [
@@ -23520,6 +23957,760 @@
           "os"
         ]
       },
+      "TxrHistoryBucket": {
+        "description": "The four-bucket run vocabulary of the K list (DEC-4's map — the engine's\n `creating|preparing|running|finishing` all land in `running`; the K\n display words Done/Failed/Stopped/Running are the consumer's, this node\n delivers the bucket, never display text). The engine-status → bucket map\n lives in the repository (ITEM-2, TEST-HS-4).",
+        "type": "string",
+        "enum": [
+          "running",
+          "finished",
+          "stopped",
+          "failed"
+        ]
+      },
+      "TxrHistoryCopies": {
+        "description": "The detail's retention block.",
+        "type": "object",
+        "properties": {
+          "cleared_at": {
+            "description": "The last copy-clear stamp (null until one ran — PROV-HS-5).",
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "kept": {
+            "description": "`txr_run_retention.copies_kept` (default true).",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "kept"
+        ]
+      },
+      "TxrHistoryDetail": {
+        "description": "The expanded K block (PROV-HS-3): the row's fields (the summary half,\n spelled out — the detail is a standalone wire shape, not a `flatten` of\n the row: the row's compact `methods` and the detail's rich `methods`\n share one JSON name, and the detail's `models_saved` list replaces the\n row's save flag with the actual records) plus the per-method rows (the\n engine's own [`TxrRunMethod`] verbatim — one vocabulary for F and K),\n the made/used model records, the copies note, the dir size and the\n estimate. `404 RUN_NOT_FOUND` on an unknown id.",
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "$ref": "#/components/schemas/TxrHistoryBucket"
+          },
+          "can_download": {
+            "type": "boolean"
+          },
+          "can_reopen": {
+            "type": "boolean"
+          },
+          "can_rerun": {
+            "type": "boolean"
+          },
+          "copies": {
+            "$ref": "#/components/schemas/TxrHistoryCopies"
+          },
+          "copies_kept": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "decision_day": {
+            "type": "number",
+            "format": "double"
+          },
+          "dir": {
+            "type": "string"
+          },
+          "dir_bytes": {
+            "description": "The run dir's recursive size when it exists (null when gone).",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          },
+          "elapsed_secs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          },
+          "endpoint": {
+            "$ref": "#/components/schemas/TxrEndpoint"
+          },
+          "estimate_total_seconds": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "file_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "file_sizes": {
+            "description": "The input copies' recorded sizes (empty when the copies were cleared\n or the dir is gone).",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TxrHistoryFileSize"
+            }
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "learned_from": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32",
+            "minimum": 0
+          },
+          "log_line_count": {
+            "description": "`txr_run_logs` count (the K \"Show the log\" badge).",
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "look_ahead_day": {
+            "type": "number",
+            "format": "double"
+          },
+          "markers": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "markers_saved": {
+            "type": "boolean"
+          },
+          "method_count": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "methods": {
+            "description": "The run's per-method rows, THE ENGINE'S TYPE verbatim (PROV-EE-3's\n `TxrRunMethod` — the K expanded block's \"Methods … 1.0 (2 min)\" line\n renders the same row the F screen renders).",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TxrRunMethod"
+            }
+          },
+          "mode": {
+            "$ref": "#/components/schemas/TxrRunMode"
+          },
+          "models_made": {
+            "$ref": "#/components/schemas/TxrHistoryModelsMade"
+          },
+          "models_saved": {
+            "description": "The run's saved models (PROV-MS-11; `[]` when none were saved).",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TxrHistoryModelSaved"
+            }
+          },
+          "models_used": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TxrHistoryModelRef"
+            }
+          },
+          "predicted": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32",
+            "minimum": 0
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TxrRunReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "settings": {
+            "$ref": "#/components/schemas/TxrRunSettingsView"
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "use_estimate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TxrHistoryEstimate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "mode",
+          "bucket",
+          "created_at",
+          "method_count",
+          "file_names",
+          "markers",
+          "endpoint",
+          "decision_day",
+          "look_ahead_day",
+          "methods",
+          "models_made",
+          "models_used",
+          "copies_kept",
+          "can_rerun",
+          "can_reopen",
+          "can_download",
+          "dir",
+          "markers_saved",
+          "file_sizes",
+          "settings",
+          "models_saved",
+          "log_line_count",
+          "copies"
+        ]
+      },
+      "TxrHistoryEstimate": {
+        "description": "The detail's \"took X (estimated Y)\" facts (CONS-HS-12): the same\n in-process estimator call the engine's detail uses, projected to the two\n facts the K expanded block renders; `estimate_quality` is the\n catalogue's own vocabulary.",
+        "type": "object",
+        "properties": {
+          "estimate_quality": {
+            "$ref": "#/components/schemas/TimingQuality"
+          },
+          "total_seconds": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "required": [
+          "total_seconds",
+          "estimate_quality"
+        ]
+      },
+      "TxrHistoryFileSize": {
+        "description": "One input file copy's recorded size (the detail's \"Your files\" block).",
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "name",
+          "size_bytes"
+        ]
+      },
+      "TxrHistoryItem": {
+        "description": "One K list row, consumer-shaped (PROV-HS-2): the row's subtitle fields\n (`method_count`, `file_names`, `learned_from`, `predicted`, `endpoint`,\n `decision_day`, `look_ahead_day`), the compact per-method times, the\n first terminal reason (verbatim — K's \"Stopped: marker LDH is missing…\"\n is the engine's `detail`), the made/used model names (through the\n PROV-MS-11 seam, DEC-9), the retention + capability flags. The meta\n fields come from the engine's own run record — the view is a projection,\n never a parallel model (INV-6).",
+        "type": "object",
+        "properties": {
+          "bucket": {
+            "description": "The DEC-4 bucket the K list filters/renders on.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TxrHistoryBucket"
+              }
+            ]
+          },
+          "can_download": {
+            "description": "`predictions_ready` (the engine's CSV download, CONS-HS-10).",
+            "type": "boolean"
+          },
+          "can_reopen": {
+            "description": "`predictions_ready` — \"Open the results\" / \"Download predictions\".",
+            "type": "boolean"
+          },
+          "can_rerun": {
+            "description": "`copies_kept && bucket != running` — \"Run again with the same\n settings\" works only while the stored input copies exist (DEC-6).",
+            "type": "boolean"
+          },
+          "copies_kept": {
+            "description": "The retention flag (the retention row's `copies_kept`; a run without\n a row reads `true` — INV-2's conservative default).",
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "decision_day": {
+            "type": "number",
+            "format": "double"
+          },
+          "dir": {
+            "description": "The engine's run dir verbatim (`<data_root>/analysis-…-<id8>`).",
+            "type": "string"
+          },
+          "elapsed_secs": {
+            "description": "The run's recorded \"took\" seconds (the K \"Took 3 minutes 10 seconds\").",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          },
+          "endpoint": {
+            "$ref": "#/components/schemas/TxrEndpoint"
+          },
+          "estimate_total_seconds": {
+            "description": "The create-time estimate's total (the K \"(estimated 4 minutes)\");\n null when never computed (never a fabricated zero).",
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "file_names": {
+            "description": "The uploaded source names (engine-grown `input_summary.file_names`,\n GAP-HS-1) in the run's own order — never a name derived from the dir\n stem.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "id": {
+            "description": "The engine's run id (one entity, one id — DEC-20).",
+            "type": "string",
+            "format": "uuid"
+          },
+          "learned_from": {
+            "description": "`input_summary.patients` (train mode's \"learned from N patients\").",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32",
+            "minimum": 0
+          },
+          "look_ahead_day": {
+            "type": "number",
+            "format": "double"
+          },
+          "markers": {
+            "description": "`input_summary.markers` (distinct resolved marker facts).",
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "markers_saved": {
+            "description": "The run produced models that were saved (`run.models[]` non-empty):\n the K row's save semantics — the field is DATA, the rendering is the\n consumer's.",
+            "type": "boolean"
+          },
+          "method_count": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "methods": {
+            "description": "Compact per-method facts only (no per-method body — the row is the\n bounded view, INV-3; the expanded block's rich rows are the detail's\n `methods`).",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TxrHistoryMethodRef"
+            }
+          },
+          "mode": {
+            "description": "The engine's mode vocabulary, verbatim (`train`|`reuse`).",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TxrRunMode"
+              }
+            ]
+          },
+          "models_made": {
+            "description": "The K \"Made: N models (…)\" block.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TxrHistoryModelsMade"
+              }
+            ]
+          },
+          "models_used": {
+            "description": "The reuse run's consumed set/model names (GROWN at reconcile for\n GAP-HIST-2 — through the engine's `model_ids` over the PROV-MS-11\n seam); `[]` in train mode, never a fabricated name.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TxrHistoryModelRef"
+            }
+          },
+          "predicted": {
+            "description": "`input_summary.predict_patients` (the \"predicted N\" figure).",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32",
+            "minimum": 0
+          },
+          "reason": {
+            "description": "The first terminal method's reason (earliest failed → cannot_run →\n stopped, ITEM-2) — code + detail VERBATIM (CONS-HS-15).",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TxrRunReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "mode",
+          "bucket",
+          "created_at",
+          "method_count",
+          "file_names",
+          "markers",
+          "endpoint",
+          "decision_day",
+          "look_ahead_day",
+          "methods",
+          "models_made",
+          "models_used",
+          "copies_kept",
+          "can_rerun",
+          "can_reopen",
+          "can_download",
+          "dir",
+          "markers_saved"
+        ]
+      },
+      "TxrHistoryKind": {
+        "description": "The K filter's `kind` vocabulary (PROV-HS-2): `learned` = the run's\n `mode: train`, `saved-model` = `mode: reuse` — the engine's own mode\n enum mapped to the filter words, never a third vocabulary.",
+        "type": "string",
+        "enum": [
+          "learned",
+          "saved-model"
+        ]
+      },
+      "TxrHistoryListQuery": {
+        "description": "`GET /api/txr/history` query (PROV-HS-2): `q` = ASCII-folded substring\n over file names / method ids / saved set names (DEC-3 —\n `instr(lower(...), lower($1)) > 0`, no FTS); `kind` = the filter above;\n `status` = ONE bucket or the comma-separated multi-value (GROWN at\n reconcile for GAP-HIST-3: \"Stopped or failed\" is one call, OR semantics\n — the string is validated/parsed by the repository, ITEM-2); `limit`\n default + clamp per [`HistoryLimits`].",
+        "type": "object",
+        "properties": {
+          "kind": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TxrHistoryKind"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32",
+            "default": null,
+            "minimum": 0
+          },
+          "offset": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32",
+            "default": null,
+            "minimum": 0
+          },
+          "q": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          }
+        }
+      },
+      "TxrHistoryMethodRef": {
+        "description": "One compact method ref of the list row (id + version + the recorded\n seconds — the K row's \"1.0 (2 min)\" facts without a per-method body).",
+        "type": "object",
+        "properties": {
+          "elapsed_secs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "version"
+        ]
+      },
+      "TxrHistoryModelRef": {
+        "description": "One consumed model reference of a reuse run (GROWN at reconcile for\n GAP-HIST-2: the engine's `model_ids` joined over `txr_model_sets` /\n `txr_models` — the K row's \"Model CRC cohort, day 56 on march_new.csv\"\n facts; `[]` in train mode).",
+        "type": "object",
+        "properties": {
+          "model_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "model_name": {
+            "type": "string"
+          },
+          "set_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "set_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "set_id",
+          "set_name",
+          "model_id",
+          "model_name"
+        ]
+      },
+      "TxrHistoryModelSaved": {
+        "description": "One saved model of the run's \"Made\" record in the detail\n (`txr_models`/`txr_model_sets` joined over `source_run_id` — PROV-MS-11).",
+        "type": "object",
+        "properties": {
+          "model_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "model_name": {
+            "type": "string"
+          },
+          "set_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "set_name": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "set_id",
+          "set_name",
+          "model_id",
+          "model_name",
+          "size_bytes"
+        ]
+      },
+      "TxrHistoryModelsMade": {
+        "description": "The K \"Made: N models (…)\" block (PROV-HS-2): `produced` = the run's\n produced-model count, `saved_sets` = the model-store sets whose\n `source_run_id` is this run (PROV-MS-11, DEC-9 — read-only; this node\n never writes a model row).",
+        "type": "object",
+        "properties": {
+          "produced": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "saved_sets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TxrHistorySavedSet"
+            }
+          }
+        },
+        "required": [
+          "produced",
+          "saved_sets"
+        ]
+      },
+      "TxrHistoryPage": {
+        "description": "One paged history page (PROV-HS-2): newest-first (`created_at DESC`, id\n tie-break), server-side bounded, `total` the engine-truth count under the\n active q/kind/status filters.",
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TxrHistoryItem"
+            }
+          },
+          "limit": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "offset": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ]
+      },
+      "TxrHistoryPreferences": {
+        "description": "The K footer's keep-copies preference (PROV-HS-4): the singleton row\n `txr_history_preferences(id = 1)`, seeded by the migration with the\n board's default `true` — \"Copies are kept with this run so it can be\n repeated\". The ui-run node reads this route at create time (DEC-13).",
+        "type": "object",
+        "properties": {
+          "keep_file_copies": {
+            "type": "boolean"
+          },
+          "updated_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "keep_file_copies"
+        ]
+      },
+      "TxrHistoryPreferencesUpdate": {
+        "description": "`PUT /api/txr/history/preferences` body (a missing/typed-wrong field is\n the framework's 422 — serde-validated).",
+        "type": "object",
+        "properties": {
+          "keep_file_copies": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "keep_file_copies"
+        ]
+      },
+      "TxrHistorySavedSet": {
+        "description": "One saved set in the \"Made\" block.",
+        "type": "object",
+        "properties": {
+          "model_count": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "set_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "set_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "set_id",
+          "set_name",
+          "model_count"
+        ]
+      },
+      "TxrHistoryUsage": {
+        "description": "The K footer's usage figure (PROV-HS-6): `run_count` from the DB (not\n the walk), the recursive size walk of `rootfs::data_root()` grouped by\n top-level segment (`analysis-*` → runs, `models/` → models, rest →\n other), the user-visible `data_dir` (GROWN at reconcile for GAP-HIST-1 —\n the UI never hardcodes a path and never derives one from a run dir), and\n the stamp.",
+        "type": "object",
+        "properties": {
+          "computed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "data_dir": {
+            "type": "string"
+          },
+          "models_bytes": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "other_bytes": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "run_count": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "runs_bytes": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          },
+          "total_bytes": {
+            "type": "integer",
+            "format": "uint64",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "run_count",
+          "total_bytes",
+          "runs_bytes",
+          "models_bytes",
+          "other_bytes",
+          "data_dir",
+          "computed_at"
+        ]
+      },
       "TxrJoin": {
         "description": "One confirmed join of a measurements column to the patients table.",
         "type": "object",
@@ -24706,6 +25897,69 @@
         "required": [
           "code",
           "detail"
+        ]
+      },
+      "TxrRunSettingsView": {
+        "description": "The expanded-block settings line (from the run's `config` JSON + the\n `txr_runs` columns — PROV-HS-3; `cpus: null` = \"detect at run start\",\n `seed` is the run's recorded contract seed).",
+        "type": "object",
+        "properties": {
+          "at_a_time": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "covariates": {
+            "type": "boolean"
+          },
+          "cpus": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint32",
+            "minimum": 0
+          },
+          "decision_day": {
+            "type": "number",
+            "format": "double"
+          },
+          "endpoint": {
+            "$ref": "#/components/schemas/TxrEndpoint"
+          },
+          "look_ahead_day": {
+            "type": "number",
+            "format": "double"
+          },
+          "memory_total_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "uint64",
+            "minimum": 0
+          },
+          "mode": {
+            "$ref": "#/components/schemas/TxrRunMode"
+          },
+          "save_models": {
+            "type": "boolean"
+          },
+          "seed": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        },
+        "required": [
+          "endpoint",
+          "decision_day",
+          "look_ahead_day",
+          "covariates",
+          "at_a_time",
+          "save_models",
+          "mode"
         ]
       },
       "TxrRunStatus": {

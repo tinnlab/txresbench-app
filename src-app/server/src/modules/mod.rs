@@ -38,6 +38,14 @@ pub mod execution_engine;
 // execution_engine 49); its own tables are module-owned migrations applied at
 // boot like every module's.
 pub mod model_store;
+// TxResBench: the run-history home — the K screen's searchable, filterable,
+// bounded-paged record view over the engine's run tables (read-only
+// projection), the keep-copies retention policy (preference + explicit
+// copy-clear operations) and the data-usage figure. Depends on the
+// in-process providers ordered before it (method_catalogue 47,
+// execution_engine 49, model_store 50); its own tables are module-owned
+// migrations applied at boot like every module's.
+pub mod history_store;
 pub mod health;
 pub mod mcp;
 // TxResBench: the app-owned method catalogue (embedded facts + eligibility /
