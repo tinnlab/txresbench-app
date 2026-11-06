@@ -1,0 +1,4 @@
+# Curated assay warnings, one row per (method_id, code). A warning set is the
+# method_id's rows in file order. Columns: method_id, code, detail.
+fx-pretrained-rule	LOD_CALLOUT	The fixture assay's detection limit is synthetic (fixture warning).
+fx-ctdna-single	ASSAY_UNIT	The fixture assay reports values in synthetic units (fixture warning).

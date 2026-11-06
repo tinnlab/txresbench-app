@@ -46,6 +46,13 @@ pub mod model_store;
 // execution_engine 49, model_store 50); its own tables are module-owned
 // migrations applied at boot like every module's.
 pub mod history_store;
+// TxResBench: the frozen published models feature — the build-time-generated
+// pretrained catalogue (cards + immutable release-asset pointers), served with
+// a live → disk → embedded refresh, plus the download/sha256/cache/install
+// actions into the model store and the per-model eligibility for the D list.
+// DB-free; the module's only state is files under the app data root
+// (`pretrained/`, `txr-pretrained/`, `pretrained-bundled/` — CONS-PC-10).
+pub mod pretrained_catalogue;
 pub mod health;
 pub mod mcp;
 // TxResBench: the app-owned method catalogue (embedded facts + eligibility /

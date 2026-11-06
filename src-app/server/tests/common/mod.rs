@@ -122,6 +122,23 @@ pub struct TestOptions {
     /// must exercise encrypt-at-rest / masked-read sets a ≥32-char key here. Mirrors the
     /// other opt-in env knobs above.
     pub secret_storage_key: Option<String>,
+
+    /// Point the spawned server's pretrained-catalogue boot refresh at this
+    /// catalogue URL (`CYTO_TXR_CATALOGUE_URL` — the module's documented
+    /// default-resolution seam). `None` (default) defaults to a CLOSED
+    /// loopback port: the boot refresh fails instantly without network, so
+    /// every spawned server boots offline-fast and no test suite dials the
+    /// production catalogue host. A test that must serve a live catalogue
+    /// sets its own loopback URL here.
+    pub catalogue_url: Option<String>,
+
+    /// Point the spawned server's pretrained bundled-models dir at this
+    /// directory (`CYTO_TXR_BUNDLED_MODELS_DIR` — the module's documented
+    /// bundle-layout resolution). `None` (default) leaves the env unset →
+    /// `<data_dir>/pretrained-bundled`. A test that must exercise the
+    /// bundled install source (TEST-PC-07/23) writes its fixture `.txr` here
+    /// before the spawn.
+    pub pretrained_bundled_dir: Option<PathBuf>,
 }
 
 impl HarnessApp for CytoHarnessApp {
@@ -258,6 +275,25 @@ jwt:
                 }
                 if let Some(key) = &opts.secret_storage_key {
                     env.push(("CYTO_SECRET_STORAGE_KEY".to_string(), key.clone()));
+                }
+                // The pretrained-catalogue boot refresh (a detached task) must
+                // never dial the production catalogue host from a test suite:
+                // the default is a CLOSED loopback port (instant refusal), a
+                // test that needs a live catalogue passes its own URL.
+                env.push((
+                    "CYTO_TXR_CATALOGUE_URL".to_string(),
+                    opts.catalogue_url
+                        .clone()
+                        .unwrap_or_else(|| "http://127.0.0.1:9/catalogue.json".to_string()),
+                ));
+                // The same for the pretrained bundled-models dir: a test that
+                // must exercise the bundled install source passes its own
+                // layout (the module's documented env seam).
+                if let Some(dir) = &opts.pretrained_bundled_dir {
+                    env.push((
+                        "CYTO_TXR_BUNDLED_MODELS_DIR".to_string(),
+                        dir.display().to_string(),
+                    ));
                 }
                 env
             },

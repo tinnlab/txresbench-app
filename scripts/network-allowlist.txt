@@ -14,7 +14,18 @@ ghcr.io
 token.actions.githubusercontent.com
 # Any https:// github.com literal in the source is the user-opened
 # documentation link (Settings > Help); the app never dials it.
+# (pretrained-catalogue DEC-15: the model-asset URL template
+# `https://github.com/tinnlab/txresbench-models/releases/download/...` is
+# the asset GET; covered by this entry.)
 github.com
+# The pretrained-catalogue boot/on-demand catalogue refresh
+# (`https://tinnlab.github.io/txresbench-app/pretrained-catalogue.json` —
+# the GitHub Pages site hosting the served copy, PROV-landing-site-3).
+tinnlab.github.io
+# The GitHub release-asset redirect target a model download follows
+# (PRETRAINED asset.url → redirect). Listed so the runtime-host rule can
+# verify the real host, not just the literal one.
+objects.githubusercontent.com
 # Apple Sign-In verification (auth module).
 appleid.apple.com
 # Identifiers written into exported metadata / SVG output, never fetched:

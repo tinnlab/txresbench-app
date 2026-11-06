@@ -1,0 +1,41 @@
+{
+  "name": "Fixture rule one",
+  "token": "fx-rule-001",
+  "catalogue_id": "fx-rule-001",
+  "licence": "CC0 1.0",
+  "method_id": "fx-pretrained-rule",
+  "method_version": "2.0.0",
+  "group": "response-call",
+  "group_label": "Response call",
+  "task": "response",
+  "decision_day": 28.0,
+  "endpoint": "pfs",
+  "horizon": 180.0,
+  "contract": "2.0",
+  "env": {
+    "base_digest": "sha256:aa11aa11aa11aa11aa11aa11aa11aa11aa11aa11aa11aa11aa11aa11aa11aa11",
+    "layer_digest": "bb22bb22bb22bb22bb22bb22bb22bb22bb22bb22bb22bb22bb22bb22bb22bb22"
+  },
+  "features": [
+    "fx-mark-01"
+  ],
+  "required_markers": null,
+  "marker_facts": {
+    "kind": "single",
+    "count": 1,
+    "min_draws": 1,
+    "needs_baseline": true,
+    "uses_history": "landmark",
+    "needs_detection_call": false,
+    "marker_groups_required": []
+  },
+  "covariates": {
+    "catalogue": "none",
+    "used": false
+  },
+  "embeds_training_data": false,
+  "trained_on_patients": 120,
+  "trained_at": "2026-01-15T09:30:00Z",
+  "own_auc": 0.66,
+  "own_c": 0.63
+}

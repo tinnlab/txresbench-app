@@ -1,0 +1,5 @@
+# Curated assay warnings, one row per (method_id, code). The card's
+# `assay_warnings[]` is the rows of the entry's method_id, in file order.
+#   method_id  code  detail
+# A code is a short stable token; the detail is the card's one-line warning.
+# Empty until the first release's warnings are curated at publish time.

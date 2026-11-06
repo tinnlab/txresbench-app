@@ -52,6 +52,11 @@ mod model_store;
 mod model_coverage;
 mod notification;
 mod predicate_removed;
+// The `pretrained_catalogue` suites (ITEM-1's file set — TEST-PC-10: the
+// packer's .txr output is byte-stable, self-verifying and imports through the
+// store's seam; TEST-PC-11's refusal matrix runs as the packer's own
+// `--selftest`, driven here so CI executes it).
+mod pretrained_catalogue;
 mod provenance;
 mod project;
 mod sync;

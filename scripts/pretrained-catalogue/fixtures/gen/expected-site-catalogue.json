@@ -1,0 +1,257 @@
+{
+ "generated_from": {
+  "generated_at": "2026-01-01T00:00:00Z",
+  "models_repo": "tinnlab/txresbench-models",
+  "registry_commit": "fixture",
+  "registry_name": "fixtures (synthetic)"
+ },
+ "models": [
+  {
+   "assay_warnings": [
+    {
+     "code": "LOD_CALLOUT",
+     "detail": "The fixture assay's detection limit is synthetic (fixture warning)."
+    }
+   ],
+   "asset": {
+    "bundled": true,
+    "file": "fx-rule-001@1.0.0.txr",
+    "sha256": "ec32260606c50f2076bc959c6197d69b3414fb1b7ef9f5baeedd60625eada8fd",
+    "signature": "",
+    "size_bytes": 1428,
+    "url": "https://github.com/tinnlab/txresbench-models/releases/download/fx-rule-001-v1.0.0/fx-rule-001@1.0.0.txr"
+   },
+   "contract": "2.0",
+   "data_sources": [
+    {
+     "access": "open",
+     "dataset": "fx-dataset-1",
+     "licence": "CC0 1.0"
+    }
+   ],
+   "description": "Fixture rule one: a relative change threshold rule from the synthetic FX cohort.",
+   "embeds_training_data": false,
+   "env": {
+    "base_digest": "sha256:aa11aa11aa11aa11aa11aa11aa11aa11aa11aa11aa11aa11aa11aa11aa11aa11",
+    "layer_digest": "bb22bb22bb22bb22bb22bb22bb22bb22bb22bb22bb22bb22bb22bb22bb22bb22"
+   },
+   "group": "response-call",
+   "group_label": "Response call",
+   "id": "fx-rule-001",
+   "kind": "published-rule",
+   "licence": "CC0 1.0",
+   "method_id": "fx-pretrained-rule",
+   "method_version": "2.0.0",
+   "name": "Fx rule one",
+   "needs": {
+    "covariates": "none",
+    "decision_day": 28.0,
+    "endpoint": "pfs",
+    "horizon": 180.0,
+    "marker_facts": {
+     "count": 1,
+     "kind": "single",
+     "marker_groups_required": [],
+     "min_draws": 1,
+     "needs_baseline": true,
+     "needs_detection_call": false,
+     "uses_history": "landmark"
+    },
+    "required_markers": null,
+    "task": "response"
+   },
+   "paper": {
+    "citation": "Doe et al., Synthetic Journal of Fixtures 2021, DOI 10.0000/fx.rule.001",
+    "doi": "10.0000/fx.rule.001",
+    "journal": "Synthetic Journal of Fixtures",
+    "year": 2021
+   },
+   "research_notice": true,
+   "transfer": {
+    "cohorts": [
+     {
+      "dataset": "fx-dataset-1",
+      "value": 0.68
+     },
+     {
+      "dataset": "fx-dataset-2",
+      "value": 0.6
+     }
+    ],
+    "median": 0.64,
+    "metric": "auc_rule",
+    "n_cohorts": 2
+   },
+   "version": "1.0.0"
+  },
+  {
+   "assay_warnings": [
+    {
+     "code": "ASSAY_UNIT",
+     "detail": "The fixture assay reports values in synthetic units (fixture warning)."
+    }
+   ],
+   "asset": {
+    "bundled": true,
+    "file": "fx-rule-002@1.1.0.txr",
+    "sha256": "d88ad92294d0d1960181af387ab211f434edf0223e600477cc8fedc14f26877d",
+    "signature": "",
+    "size_bytes": 1438,
+    "url": "https://github.com/tinnlab/txresbench-models/releases/download/fx-rule-002-v1.1.0/fx-rule-002@1.1.0.txr"
+   },
+   "contract": "2.0",
+   "data_sources": [
+    {
+     "access": "open",
+     "dataset": "fx-dataset-2",
+     "licence": "MIT"
+    },
+    {
+     "access": "open",
+     "dataset": "CRPC (FX paper cohort)",
+     "licence": "CC BY 4.0"
+    }
+   ],
+   "description": "Fixture rule two: a single-marker landmark rule with an optional baseline covariate.",
+   "embeds_training_data": false,
+   "env": {
+    "base_digest": "sha256:cc33cc33cc33cc33cc33cc33cc33cc33cc33cc33cc33cc33cc33cc33cc33cc33",
+    "layer_digest": "dd44dd44dd44dd44dd44dd44dd44dd44dd44dd44dd44dd44dd44dd44dd44dd44"
+   },
+   "group": "static-risk",
+   "group_label": "Static risk",
+   "id": "fx-rule-002",
+   "kind": "published-rule",
+   "licence": "MIT (synthetic fixture)",
+   "method_id": "fx-ctdna-single",
+   "method_version": "1.4.0",
+   "name": "Fx rule two",
+   "needs": {
+    "covariates": "optional",
+    "decision_day": 56.0,
+    "endpoint": "os",
+    "horizon": 238.0,
+    "marker_facts": {
+     "count": 1,
+     "kind": "single",
+     "marker_groups_required": [],
+     "min_draws": 2,
+     "needs_baseline": true,
+     "needs_detection_call": false,
+     "uses_history": "landmark"
+    },
+    "required_markers": {
+     "list_source": "Synthetic fixture marker rule",
+     "markers": [
+      {
+       "id": "fx-02",
+       "id_system": "FX-SYS",
+       "name": "fx marker 02"
+      }
+     ],
+     "match": "all",
+     "min_fraction": 1.0
+    },
+    "task": "survival"
+   },
+   "paper": {
+    "citation": "Doe et al., Synthetic Oncology Reports 2022, DOI 10.0000/fx.ctdna.002",
+    "doi": "10.0000/fx.ctdna.002",
+    "journal": "Synthetic Oncology Reports",
+    "year": 2022
+   },
+   "research_notice": true,
+   "transfer": {
+    "cohorts": [
+     {
+      "dataset": "fx-dataset-2",
+      "value": 0.62
+     }
+    ],
+    "median": 0.62,
+    "metric": "c_index",
+    "n_cohorts": 1
+   },
+   "version": "1.1.0"
+  },
+  {
+   "assay_warnings": [],
+   "asset": {
+    "bundled": false,
+    "file": "fx-trained-001@0.9.0.txr",
+    "sha256": "d06dcc15e0502e22a59eed380d08ea969f1319e27d6d764dfd9aacd0aa96b4d5",
+    "signature": "",
+    "size_bytes": 1317,
+    "url": "https://github.com/tinnlab/txresbench-models/releases/download/fx-trained-001-v0.9.0/fx-trained-001@0.9.0.txr"
+   },
+   "contract": "2.0",
+   "data_sources": [
+    {
+     "access": "open",
+     "dataset": "fx-dataset-1",
+     "licence": "CC0 1.0"
+    },
+    {
+     "access": "open",
+     "dataset": "fx-dataset-2",
+     "licence": "MIT"
+    }
+   ],
+   "description": "Fixture benchmark-trained model over the synthetic FX cohorts.",
+   "embeds_training_data": true,
+   "env": {
+    "base_digest": "sha256:ee55ee55ee55ee55ee55ee55ee55ee55ee55ee55ee55ee55ee55ee55ee55ee55",
+    "layer_digest": "ff66ff66ff66ff66ff66ff66ff66ff66ff66ff66ff66ff66ff66ff66ff66ff66"
+   },
+   "group": "dynamic-risk",
+   "group_label": "Dynamic risk",
+   "id": "fx-trained-001",
+   "kind": "benchmark-trained",
+   "licence": "CC0 1.0; MIT",
+   "method_id": "fx-family",
+   "method_version": "2.1.0",
+   "name": "Fx trained model",
+   "needs": {
+    "covariates": "required",
+    "decision_day": 84.0,
+    "endpoint": "pfs",
+    "horizon": 365.0,
+    "marker_facts": {
+     "count": 1,
+     "kind": "single",
+     "marker_groups_required": [],
+     "min_draws": 3,
+     "needs_baseline": true,
+     "needs_detection_call": false,
+     "uses_history": "full"
+    },
+    "required_markers": null,
+    "task": "survival"
+   },
+   "paper": {
+    "citation": "Doe et al., Synthetic Methods in Medicine 2023, DOI 10.0000/fx.family.003",
+    "doi": "10.0000/fx.family.003",
+    "journal": "Synthetic Methods in Medicine",
+    "year": 2023
+   },
+   "research_notice": true,
+   "transfer": {
+    "cohorts": [
+     {
+      "dataset": "fx-dataset-1",
+      "value": 0.56
+     },
+     {
+      "dataset": "fx-dataset-2",
+      "value": 0.59
+     }
+    ],
+    "median": 0.575,
+    "metric": "c_index",
+    "n_cohorts": 2
+   },
+   "version": "0.9.0"
+  }
+ ],
+ "schema_version": 1
+}

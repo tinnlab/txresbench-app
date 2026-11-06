@@ -1,0 +1,41 @@
+{
+  "name": "Fixture trained model",
+  "token": "fx-trained-001",
+  "catalogue_id": "fx-trained-001",
+  "licence": "CC0 1.0; MIT",
+  "method_id": "fx-family",
+  "method_version": "2.1.0",
+  "group": "dynamic-risk",
+  "group_label": "Dynamic risk",
+  "task": "pfs",
+  "decision_day": 84.0,
+  "endpoint": "pfs",
+  "horizon": 365.0,
+  "contract": "2.0",
+  "env": {
+    "base_digest": "sha256:ee55ee55ee55ee55ee55ee55ee55ee55ee55ee55ee55ee55ee55ee55ee55ee55",
+    "layer_digest": "ff66ff66ff66ff66ff66ff66ff66ff66ff66ff66ff66ff66ff66ff66ff66ff66"
+  },
+  "features": [
+    "fx-mark-03"
+  ],
+  "required_markers": null,
+  "marker_facts": {
+    "kind": "single",
+    "count": 1,
+    "min_draws": 3,
+    "needs_baseline": true,
+    "uses_history": "full",
+    "needs_detection_call": false,
+    "marker_groups_required": []
+  },
+  "covariates": {
+    "catalogue": "required",
+    "used": true
+  },
+  "embeds_training_data": true,
+  "trained_on_patients": 210,
+  "trained_at": "2026-03-01T08:00:00Z",
+  "own_auc": null,
+  "own_c": 0.59
+}
