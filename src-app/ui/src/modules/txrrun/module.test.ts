@@ -188,6 +188,11 @@ describe('txrrun module (TEST-RUN-01)', () => {
     // `txrmodels` item's maintenance of THIS node's sibling stale pin in
     // `txrintake/module.test.ts` (the shell route handoff it performs
     // invalidated that pin), and nothing else outside this module moves.
+    // ONE further exception (the `feat/ui-history` item — the `/history`
+    // route handoff, its DRIFT-1 #1): the new `txrhistory` module dir (the
+    // same addition class), the `txrhistory` item's maintenance of the
+    // stale pins in `txrmodels/module.test.ts` + `txrintake/module.test.ts`
+    // and this node's own sweep line here.
     expect(
       touched.filter(
         p =>
@@ -195,6 +200,7 @@ describe('txrrun module (TEST-RUN-01)', () => {
           !p.startsWith('src-app/ui/src/modules/txrrun/') &&
           p !== 'src-app/ui/src/modules/txrlist/data/methodRows.ts' &&
           !p.startsWith('src-app/ui/src/modules/txrmodels/') &&
+          !p.startsWith('src-app/ui/src/modules/txrhistory/') &&
           p !== 'src-app/ui/src/modules/txrintake/module.test.ts' &&
           p !== 'src-app/ui/src/modules/txrresults/module.test.ts' &&
           p !== 'src-app/ui/src/modules/txrshell/module.tsx',
