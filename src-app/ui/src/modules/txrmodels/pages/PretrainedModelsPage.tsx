@@ -335,6 +335,17 @@ export function PretrainedModelsPage() {
     useTxrModelsStore.getState().loadInventory()
   }, [validation])
 
+  // The one shared sort field (ITEM-3's drift #6): D adopts its board
+  // initial when the current value is foreign to its options — the I page
+  // does the same for its own board (the shared value survives a screen
+  // change only when it is a real option of both).
+  useEffect(() => {
+    const store = useTxrModelsStore.getState()
+    if (!D_SORT_OPTIONS.some(option => option.value === store.sort)) {
+      store.setSort('transfer')
+    }
+  }, [])
+
   // ── The row/composition layer (the ITEM-4 pure builders) ────────────────
   const cardById = useMemo(() => new Map(cards.map(card => [card.id, card])), [cards])
 

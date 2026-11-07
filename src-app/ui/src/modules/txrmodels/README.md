@@ -57,7 +57,7 @@ selection list and the intake/run/results seams:
 |---|---|---|
 | models list/detail/sets/eligibility/save/import/export/rename/delete/resolve | `ApiClient.Models.*` + `ApiClient.ModelSets.*` (model-store routes) | the J table + I rows + the L/L2/L3 dialogs + the D/I Run resolve |
 | pretrained list/card/eligibility/downloads/download/install | `ApiClient.Pretrained.*` (pretrained-catalogue routes) | the D list + the download-state column + install-then-run |
-| run create/detail/predictions/methods | `ApiClient.Txr.*` (execution-engine routes) | the L checklist + the D/I Run creation |
+| run create/detail/predictions/analysis-config | `ApiClient.Txr.*` (execution-engine routes) | the L checklist + the D/I Run creation + the I same-outcome chip |
 | the shared list + its formatters | `txrlist` (PROV-UI-LIST-1/2/4) | the D/I host wiring — its README's three-step host contract is the binding prose |
 | the intake store + `buildTxrRunInput` | `txrintake` (PROV-UI-INTAKE-2) | the D/I Run `input` — always through the builder, never re-mapped |
 | `runningPath`, `resultsPath`/`revealRunDir` | `txrrun`, `txrresults` | the Run handoff + the J open-folder |
