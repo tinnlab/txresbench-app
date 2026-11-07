@@ -349,6 +349,12 @@ const TxrHistoryDef = defineStore('TxrHistory', {
      * page.
      */
     const openLog = async (runId: string, methodId: string | null): Promise<void> => {
+      // A FRESH open starts the backfill at the first page: the resume
+      // cursor is the previous session's, and a re-opened dialog (a
+      // different run or a different method filter — the page re-opens on
+      // the dialog's method change) must not continue a stale cursor
+      // (ITEM-5, DRIFT-1).
+      logCursor = null
       set({ logDialog: { runId, methodId }, logLines: [], logTotal: 0, logLoading: true })
       await loadLogs()
     }
