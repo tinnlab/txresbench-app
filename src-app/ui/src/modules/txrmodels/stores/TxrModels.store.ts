@@ -428,6 +428,18 @@ const TxrModelsDef = defineStore('TxrModels', {
         })
       },
 
+      /** The shared list's CONTROLLED write (PROV-UI-MODELS-5's host
+       *  wiring): `TxrSelectList` reports the complete next selection set
+       *  and the store is its owner — the inventory-change reset clears
+       *  selection (a page-local set would survive it, DEC-8's
+       *  file-scoped rule). The semantic transitions stay `toggle` /
+       *  `toggleAllCanRun` (the txrlist pure helpers); this is the one
+       *  raw write the controlled component needs, added at ITEM-6 so
+       *  screen D can host the shared list. */
+      setSelection: (next: ReadonlySet<string>): void => {
+        set(s => (s.selection === next ? {} : { selection: next }))
+      },
+
       /** Toggle one chip id in the active-filter set (the chips are
        *  multi-active host predicates). */
       setFilter: (id: TxrModelFilterId): void => {
