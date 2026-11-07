@@ -101,12 +101,15 @@ function ownSourceFiles(dir: string): string[] {
 /**
  * The shell file's change, as added/removed lines. The working tree first
  * (a LATER shell edit surfaces here and the pin sees it); when the working
- * tree has no shell change, the committed walk-back: the nearest commit
+ * tree has no shell change, the committed walk-back: the NEAREST commit
  * whose shell diff is non-empty — the item that last touched the shell.
- * The window is capped at 12 commits: the shell handoff was ITEM-1's, and
- * each item's report-impl commit pair pushes it one further back (the
- * ITEM-1/2 "at most three" window went stale at ITEM-3 — the walk-back
- * already enforces the byte shape, so a wider net never weakens the pin).
+ * The look-up is the full branch history, deliberately with NO window: the
+ * shell handoff is ITEM-1's, and each item's report-impl commit pair
+ * pushes it one further back — the ITEM-1/2 "at most three" window went
+ * stale at ITEM-3 (fixed by the 12-commit window), and that window went
+ * stale at ITEM-7 again (the shell commit was HEAD~13, measured — the
+ * ITEM-6 state had it at HEAD~11). The byte-shape assertions below are
+ * the pin; the search breadth is a device detail, never a weakening.
  */
 function shellPatch(): { added: string[]; removed: string[] } {
   const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim()
@@ -129,8 +132,9 @@ function shellPatch(): { added: string[]; removed: string[] } {
     // The working tree is clean for the shell (a stale pin state): fall
     // through to the committed walk-back, like the clean-tree branch.
   }
-  for (let n = 1; n <= 12; n++) {
-    const patch = parse(git(['diff', `HEAD~${n}`, 'HEAD', '--', SHELL]))
+  const nearest = git(['log', '--format=%H', '-1', '--', SHELL])[0]
+  if (nearest !== undefined) {
+    const patch = parse(git(['diff', `${nearest}^`, nearest, '--', SHELL]))
     if (patch.added.length > 0 || patch.removed.length > 0) return patch
   }
   return { added: [], removed: [] }
