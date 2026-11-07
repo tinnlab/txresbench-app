@@ -31,7 +31,8 @@
  * provider's untagged enum denies a both-arms payload on the wire — the
  * builders can never produce one).
  */
-import type { SaveModelsRequest, SaveTarget } from '@/api-client/types'
+import type { MethodSummary, SaveModelsRequest, SaveTarget, TxrRunDetail } from '@/api-client/types'
+import { UNRECORDED, formatBytes, formatPredicts } from './format'
 
 /** The "Only the small ones" cutoff (DEC-15, owner D24) — named constant,
  *  one line to change; a display-only threshold. */
@@ -128,4 +129,140 @@ export function buildSaveOneRequest(
   opts: TxrSaveOptions,
 ): SaveModelsRequest {
   return saveBody(runId, [methodId], target, opts)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The L checklist's pure facts (ITEM-9) — the dialog's rows are derived
+// here, never hand-assembled in JSX
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The L checklist's one row per produced model: the board's mono id (the
+ * produced model's `method_id`), the group label the board shows beside it
+ * ("Response probability" / "Dynamic risk" / "Static risk" — the RUN's
+ * method row joined by `method_id`, CONS-UM-12; null when the row is
+ * absent), the produced model's recorded size (GAP-B's `size_bytes`,
+ * read defensively — a non-finite value is a missing size, never "0 MB"),
+ * and the training-data residency fact from the METHOD CATALOGUE's record
+ * (CONS-UM-22 / GAP-A: `MethodSummary.embeds_training_data` joined by
+ * method id — a missing catalogue row means NO recorded fact, so the
+ * warning line never names it: never an app-invented warning, DEC-15).
+ */
+export interface TxrSaveChecklistEntry extends TxrSaveableModel {
+  groupLabel: string | null
+}
+
+/** The checklist in the run's model order (the order the board draws). */
+export function buildSaveChecklist(
+  run: TxrRunDetail,
+  methods: ReadonlyArray<MethodSummary>,
+): TxrSaveChecklistEntry[] {
+  const methodById = new Map(methods.map(method => [method.id, method]))
+  return run.models.map(model => {
+    const method = methodById.get(model.method_id)
+    const runMethod = run.methods.find(m => m.method_id === model.method_id)
+    const size = model.size_bytes
+    return {
+      methodId: model.method_id,
+      groupLabel: runMethod?.group_label ?? null,
+      sizeBytes: Number.isFinite(size) ? size : null,
+      embedsTrainingData: method?.embeds_training_data === true,
+    }
+  })
+}
+
+/**
+ * The dialog's initial selection: the event payload's ids that name a
+ * produced model (the payload is the "save these" request). A payload that
+ * names NONE of the produced models — a run that finished after the emit,
+ * or a provider that spelled a different id — falls back to the board's
+ * select-all default: the dialog never opens with an empty selection when
+ * there are models to save.
+ */
+export function initialSaveSelection(
+  entries: ReadonlyArray<TxrSaveChecklistEntry>,
+  requested: ReadonlyArray<string>,
+): ReadonlySet<string> {
+  const produced = new Set(entries.map(entry => entry.methodId))
+  const picked = new Set(requested.filter(id => produced.has(id)))
+  return picked.size > 0 ? picked : new Set(produced)
+}
+
+/**
+ * The selected models' total bytes: the Σ of the KNOWN sizes. One selected
+ * model whose size is unrecorded → `null` — an "about X MB" total that
+ * omits an unknown size would understate; a null renders the count line
+ * without the size segment (never "0 MB"). An EMPTY selection is `null`
+ * too — nothing selected has no total at all, and "about 0 B" would be a
+ * fabricated number.
+ */
+export function totalSelectedBytes(
+  selected: ReadonlySet<string>,
+  entries: ReadonlyArray<TxrSaveChecklistEntry>,
+): number | null {
+  if (selected.size === 0) return null
+  let total = 0
+  for (const entry of entries) {
+    if (!selected.has(entry.methodId)) continue
+    if (entry.sizeBytes === null || entry.sizeBytes === undefined) return null
+    total += entry.sizeBytes
+  }
+  return total
+}
+
+/** The board's count line: "N of M selected" + the size segment when the
+ *  selected total is known ("N of M selected · about X MB" — the board's
+ *  example numbers are design facts, never formatter constants). */
+export function saveCountLine(selected: number, total: number, sizeBytes: number | null): string {
+  const head = `${selected} of ${total} selected`
+  return sizeBytes === null ? head : `${head} \u00b7 about ${formatBytes(sizeBytes)}`
+}
+
+/** The cannot-run notes: one line per method whose row never reached
+ *  finished — the board's "cox-ctdna-status-rfs could not run, so it has
+ *  no model to save." (never a mention of a method that has a model). */
+export function cannotRunNotes(run: TxrRunDetail): string[] {
+  return run.methods
+    .filter(m => m.state === 'cannot_run')
+    .map(m => `${m.label.trim().length > 0 ? m.label : m.method_id} could not run, so it has no model to save.`)
+}
+
+/**
+ * The L dialog's "Made from …" line (`SaveModels.dc.html`): the source
+ * file (the run's grown `input_summary.file_names` — GAP-D), the patient
+ * count (the input summary's; the predictions' patient count is the
+ * defensive fallback when the summary lacks it — the predictions the run
+ * produced ARE the run's patients), the decision day and the outcome
+ * spelling, joined with the board's commas. A null fact omits its segment
+ * (never a blank, never a fabricated fact).
+ */
+export function formatMadeFrom(
+  run: TxrRunDetail,
+  predictPatientCount: number | null,
+): string {
+  const segments: string[] = []
+  const file = run.input_summary?.file_names?.patients?.trim()
+  if (file !== undefined && file.length > 0) segments.push(file)
+  const summaryPatients = run.input_summary?.patients
+  const patientCount =
+    summaryPatients ?? (predictPatientCount !== null && predictPatientCount > 0 ? predictPatientCount : null)
+  if (patientCount !== null) {
+    segments.push(`${patientCount} ${patientCount === 1 ? 'patient' : 'patients'}`)
+  }
+  const day = run.config?.decision_day
+  if (day !== undefined && Number.isFinite(day)) segments.push(`decision day ${day}`)
+  const predicts = formatPredicts(null, run.outcome?.endpoint ?? null, run.outcome?.horizon ?? null)
+  if (predicts !== UNRECORDED) segments.push(predicts)
+  return `Made from ${segments.join(', ')}.`
+}
+
+/** The L2 summary line's "learned from" sentence (the one-run segment):
+ *  "learned from N patients, decision day D" — the produced model's
+ *  trained-cohort count + the run's decision day; a null fact omits its
+ *  piece. */
+export function formatLearnedFrom(patients: number | null, decisionDay: number | null): string | null {
+  const parts: string[] = []
+  if (patients !== null) parts.push(`learned from ${patients} ${patients === 1 ? 'patient' : 'patients'}`)
+  if (decisionDay !== null) parts.push(`decision day ${decisionDay}`)
+  return parts.length === 0 ? null : parts.join(', ')
 }

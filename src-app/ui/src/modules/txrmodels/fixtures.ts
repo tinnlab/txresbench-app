@@ -26,12 +26,20 @@
 import type {
   InventoryEligibilityRequest,
   InventoryMarker,
+  MethodListResponse,
+  MethodSummary,
   ModelEligibilityResponse,
   ModelListResponse,
+  ModelSaveResponse,
+  ModelSetListResponse,
   ModelSummary,
   PretrainedEligibilityResponse,
   PretrainedSummary,
   SetSummary,
+  TxrPredictionsResponse,
+  TxrProducedModel,
+  TxrRunDetail,
+  TxrRunMethod,
 } from '@/api-client/types'
 import type { TxrOutcomeMatch } from './lib/filters'
 
@@ -499,5 +507,244 @@ export const TXRMODELS_J_RESPONSE: ModelListResponse = {
       created_at: '2026-12-04T10:00:00Z',
       trained_at: undefined,
     }),
+  ],
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The save-dialog payloads (dialogs L / L2 / L3 — ITEM-9)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The fixture run's finished method ids (the L dialog's saveable set). */
+export function fixtureRunMethodId(k: number): string {
+  return `rm-${k}`
+}
+
+/** One produced model of the fixture run (`GET /api/txr/runs/{id}` —
+ *  `TxrProducedModel`, PROV-EE-9; `size_bytes` is the grown GAP-B record).
+ *  Sizes from the fixture spread (never the board's examples — INV-4). */
+function fixtureProducedModel(k: number, over: Partial<TxrProducedModel> = {}): TxrProducedModel {
+  return {
+    method_id: fixtureRunMethodId(k),
+    method_version: '1.0.0',
+    dir: `/data/txr-fixture/runs/run-c/model/rm-${k}`,
+    env: { base_digest: FIXTURE_SHA256, layer_digest: `sha256:layer-rm-${k}` },
+    model_out_digest: FIXTURE_SHA256,
+    tree_sha256: FIXTURE_SHA256,
+    trained_on_patients: 42,
+    size_bytes: 800_000,
+    ...over,
+  }
+}
+
+/** One run-method row (the group labels are the board's GROUP STRUCTURE
+ *  vocabulary — the ids and labels are the fixture's own). */
+function fixtureRunMethod(
+  k: number,
+  over: Partial<TxrRunMethod> = {},
+): TxrRunMethod {
+  return {
+    method_id: fixtureRunMethodId(k),
+    label: `rm-${k}`,
+    version: '1.0.0',
+    group: 'g-response-prob',
+    group_label: 'Response probability',
+    state: 'finished',
+    bytes_downloaded: 0,
+    bytes_total: 0,
+    started_at: '2026-11-30T08:00:00Z',
+    finished_at: '2026-11-30T08:02:00Z',
+    duration_ms: 120_000,
+    elapsed_secs: 120,
+    ...over,
+  }
+}
+
+/**
+ * The L/L2 dialog's run (`GET /api/txr/runs/{id}`): eight methods (seven
+ *  finished with a produced model, one `cannot_run` — D15's "report
+ *  nothing to save" row), 42 patients, decision day 60, pfs by day 240 —
+ *  the fixture facts, never the boards' example counts (INV-4). Two
+ *  methods carry the training-data fact (`embeds_training_data`).
+ */
+export const TXRMODELS_RUN: TxrRunDetail = {
+  id: 'run-c',
+  status: 'finished',
+  mode: 'train',
+  created_at: '2026-11-30T07:55:00Z',
+  started_at: '2026-11-30T07:56:00Z',
+  finished_at: '2026-11-30T08:10:00Z',
+  elapsed_secs: 840,
+  dir: '/data/txr-fixture/runs/run-c',
+  cpus: 2,
+  method_ids: ['rm-1', 'rm-2', 'rm-3', 'rm-4', 'rm-5', 'rm-6', 'rm-7', 'rm-8'],
+  methods: [
+    fixtureRunMethod(1),
+    fixtureRunMethod(2, { group: 'g-response-prob' }),
+    fixtureRunMethod(3),
+    fixtureRunMethod(4, {
+      group: 'g-dynamic-risk',
+      group_label: 'Dynamic risk',
+      task: 'pfs',
+    }),
+    fixtureRunMethod(5, { group: 'g-dynamic-risk', group_label: 'Dynamic risk' }),
+    fixtureRunMethod(6, { group: 'g-static-risk', group_label: 'Static risk' }),
+    fixtureRunMethod(7, { group: 'g-static-risk', group_label: 'Static risk' }),
+    fixtureRunMethod(8, {
+      group: 'g-static-risk',
+      group_label: 'Static risk',
+      state: 'cannot_run',
+      reason: { code: 'NOT_RUNNABLE', detail: 'the fixture never runs' },
+    }),
+  ],
+  models: [
+    fixtureProducedModel(1, { size_bytes: 800_000 }),
+    fixtureProducedModel(2, { size_bytes: 2_400_000 }),
+    fixtureProducedModel(3, { size_bytes: 900_000 }),
+    fixtureProducedModel(4, { size_bytes: 12_800_000, trained_on_patients: 42 }),
+    fixtureProducedModel(5, { size_bytes: 5_300_000 }),
+    fixtureProducedModel(6, { size_bytes: 4_600_000 }),
+    fixtureProducedModel(7, { size_bytes: 1_100_000 }),
+  ],
+  counts: {
+    finished: 7,
+    waiting: 0,
+    running: 0,
+    downloading: 0,
+    failed: 0,
+    skipped: 0,
+    stopped: 0,
+    cannot_run: 1,
+  },
+  log_lines: 0,
+  predictions_ready: true,
+  input_summary: {
+    patients: 42,
+    markers: 5,
+    file_names: { patients: 'patients.csv', measurements: 'measurements.csv' },
+  },
+  config: {
+    decision_day: 60,
+    look_ahead_day: 240,
+    endpoint: 'pfs',
+    covariates: false,
+    at_a_time: 3,
+    cpus: 2,
+    save_models: false,
+  },
+  outcome: { endpoint: 'pfs', horizon: 240, task_is_mixed: false },
+  model_ids: [],
+}
+
+/** The L dialog's predictions read (`GET /api/txr/runs/{id}/predictions`) —
+ *  the finished columns of the fixture run. */
+export const TXRMODELS_PREDICTIONS: TxrPredictionsResponse = {
+  run_id: 'run-c',
+  endpoint: 'pfs',
+  horizon: 240,
+  generated_at: '2026-11-30T08:10:00Z',
+  patients: Array.from({ length: 42 }, (_, i) => `fp-${i + 1}`),
+  average: Array.from({ length: 42 }, () => null),
+  methods: [
+    { method_id: 'rm-1', group: 'g-response-prob', group_label: 'Response probability', coverage: { eligible: 42, scored: 42, fraction: 1 }, prob_source: 'native', task: 'pfs', probabilities: Array.from({ length: 42 }, () => null), notes: Array.from({ length: 42 }, () => null) },
+    { method_id: 'rm-2', group: 'g-response-prob', group_label: 'Response probability', coverage: { eligible: 42, scored: 42, fraction: 1 }, prob_source: 'native', task: 'pfs', probabilities: Array.from({ length: 42 }, () => null), notes: Array.from({ length: 42 }, () => null) },
+    { method_id: 'rm-3', group: 'g-response-prob', group_label: 'Response probability', coverage: { eligible: 42, scored: 42, fraction: 1 }, prob_source: 'native', task: 'pfs', probabilities: Array.from({ length: 42 }, () => null), notes: Array.from({ length: 42 }, () => null) },
+    { method_id: 'rm-4', group: 'g-dynamic-risk', group_label: 'Dynamic risk', coverage: { eligible: 42, scored: 42, fraction: 1 }, prob_source: 'native', task: 'pfs', probabilities: Array.from({ length: 42 }, () => null), notes: Array.from({ length: 42 }, () => null) },
+    { method_id: 'rm-5', group: 'g-dynamic-risk', group_label: 'Dynamic risk', coverage: { eligible: 42, scored: 42, fraction: 1 }, prob_source: 'native', task: 'pfs', probabilities: Array.from({ length: 42 }, () => null), notes: Array.from({ length: 42 }, () => null) },
+    { method_id: 'rm-6', group: 'g-static-risk', group_label: 'Static risk', coverage: { eligible: 42, scored: 42, fraction: 1 }, prob_source: 'native', task: 'pfs', probabilities: Array.from({ length: 42 }, () => null), notes: Array.from({ length: 42 }, () => null) },
+    { method_id: 'rm-7', group: 'g-static-risk', group_label: 'Static risk', coverage: { eligible: 42, scored: 42, fraction: 1 }, prob_source: 'native', task: 'pfs', probabilities: Array.from({ length: 42 }, () => null), notes: Array.from({ length: 42 }, () => null) },
+  ],
+}
+
+/**
+ * The methods catalogue slice the L dialog joins for the training-data
+ * fact (`GET /api/methods` — PROV-MC-2): twelve catalogue rows, of which
+ * the fixture run's eight are present (the other four are unrelated
+ * methods the run never used). `rm-4` and `rm-5` carry
+ * `embeds_training_data` — the warning's fact, never app-invented.
+ */
+export const TXRMODELS_METHODS: MethodListResponse = {
+  total: 12,
+  methods: [
+    fixtureMethodSummary('rm-1', 'Response probability'),
+    fixtureMethodSummary('rm-2', 'Response probability'),
+    fixtureMethodSummary('rm-3', 'Response probability'),
+    fixtureMethodSummary('rm-4', 'Dynamic risk', { embeds_training_data: true }),
+    fixtureMethodSummary('rm-5', 'Dynamic risk', { embeds_training_data: true }),
+    fixtureMethodSummary('rm-6', 'Static risk'),
+    fixtureMethodSummary('rm-7', 'Static risk'),
+    fixtureMethodSummary('rm-8', 'Static risk'),
+    fixtureMethodSummary('other-1', 'Response probability'),
+    fixtureMethodSummary('other-2', 'Dynamic risk'),
+    fixtureMethodSummary('other-3', 'Static risk'),
+    fixtureMethodSummary('other-4', 'Response probability'),
+  ],
+}
+
+/** One catalogue method row (the minimal fact set the L dialog reads:
+ *  id + the training-data residency; the other fields are the generated
+ *  type's required surface, filled from the fixture family). */
+function fixtureMethodSummary(
+  id: string,
+  groupLabel: string,
+  over: Partial<MethodSummary> = {},
+): MethodSummary {
+  return {
+    id,
+    group_label: groupLabel,
+    group: 'static-risk',
+    runnable: true,
+    container: true,
+    frozen_model: false,
+    embeds_training_data: false,
+    needs_baseline: false,
+    needs_detection_call: false,
+    min_draws: 1,
+    covariates: 'none',
+    language: 'python',
+    journal: 'Fixture Journal',
+    year: 2024,
+    paper_doi: '10.0000/fixture',
+    markers: { kind: 'single', count: 1 },
+    marker_groups_required: [],
+    tasks: ['pfs'],
+    timing: { base_seconds_per_fold: 60, benchmarked_units: 1, quality: 'estimate' },
+    uses_history: 'landmark',
+    spec_status: 'stable',
+    ...over,
+  }
+}
+
+/** The `ModelSetListResponse` the L2 "Save it in" select reads: the two
+ *  fixture sets with their model counts (the I screen's sets, same
+ *  objects — one fixture family). */
+export const TXRMODELS_MODEL_SET_LIST: ModelSetListResponse = {
+  total: 2,
+  sets: [TXRMODELS_SET_A, TXRMODELS_SET_B],
+}
+
+/**
+ * The save response the dialogs hand to L3 (`POST /api/txr/models/save`,
+ *  PROV-MS-3): the set + the seven saved rows (the fixture model-category
+ *  ids; the totals are the fixture's own, never the boards').
+ */
+export const TXRMODELS_SAVE_RESPONSE: ModelSaveResponse = {
+  set: {
+    id: 'set-save-1',
+    name: 'My fixtures, day 60',
+    created_at: '2026-11-30T08:11:00Z',
+    source_run_id: 'run-c',
+    source_label: 'patients.csv',
+    model_count: 7,
+    keep_training_files: false,
+    total_size_bytes: 27_900_000,
+  },
+  models: [
+    fixtureModel(21, { method_id: 'rm-1', name: 'rm-1', group_label: 'Response probability', size_bytes: 800_000, set_id: 'set-save-1', set_name: 'My fixtures, day 60' }),
+    fixtureModel(22, { method_id: 'rm-2', name: 'rm-2', group_label: 'Response probability', size_bytes: 2_400_000, set_id: 'set-save-1', set_name: 'My fixtures, day 60' }),
+    fixtureModel(23, { method_id: 'rm-3', name: 'rm-3', group_label: 'Response probability', size_bytes: 900_000, set_id: 'set-save-1', set_name: 'My fixtures, day 60' }),
+    fixtureModel(24, { method_id: 'rm-4', name: 'rm-4', group_label: 'Dynamic risk', size_bytes: 12_800_000, embeds_training_data: true, set_id: 'set-save-1', set_name: 'My fixtures, day 60' }),
+    fixtureModel(25, { method_id: 'rm-5', name: 'rm-5', group_label: 'Dynamic risk', size_bytes: 5_300_000, embeds_training_data: true, set_id: 'set-save-1', set_name: 'My fixtures, day 60' }),
+    fixtureModel(26, { method_id: 'rm-6', name: 'rm-6', group_label: 'Static risk', size_bytes: 4_600_000, set_id: 'set-save-1', set_name: 'My fixtures, day 60' }),
+    fixtureModel(27, { method_id: 'rm-7', name: 'rm-7', group_label: 'Static risk', size_bytes: 1_100_000, set_id: 'set-save-1', set_name: 'My fixtures, day 60' }),
   ],
 }

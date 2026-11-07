@@ -185,11 +185,12 @@ describe('txrmodels module (TEST-MOD-01)', () => {
         },
       ],
     })
-    // The host renders nothing at this item: the mount point exists (the
-    // slot demands a component), the subscription + dialogs are the item
-    // that owns them. Rendering null is the framework's contract for an
-    // effect host (the `command-palette` precedent).
-    expect(TxrModelsDialogHost()).toBeNull()
+    // The host is a component (ITEM-9 fills in the subscription + the
+    // dialogs; TEST-MOD-12 exercises the rendered behavior — including
+    // "renders null when no dialog is open" — in the jsdom suite). The
+    // ITEM-1 pin called the function directly, which a hook-owning host
+    // can no longer do: a component function is only called by React.
+    expect(typeof TxrModelsDialogHost).toBe('function')
   })
 
   it('declares the router, the shell, the intake, the shared list, the run and the results modules as framework dependencies', () => {

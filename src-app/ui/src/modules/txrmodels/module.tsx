@@ -26,11 +26,12 @@ const ModelsPage = lazyWithPreload(() =>
  * conventions `txrintake` already declared (`ROUTE_CONVENTIONS`); the path
  * builders live in `routes.ts`.
  *
- * The dialog host is THE seam (PROV-UI-MODELS-2): one render-nothing effect
- * component mounted via `Slots.routerEffects` inside the router context
+ * The dialog host is THE seam (PROV-UI-MODELS-2): one effect component
+ * mounted via `Slots.routerEffects` inside the router context
  * (the `command-palette` precedent), which subscribes to the EventBus events
  * `txr:save-models-requested` (from `txrresults`' "Save the models" button)
- * and `txr:save-one-model-requested` and renders the three dialogs. Nothing
+ * and `txr:save-one-model-requested` and renders exactly one of the three
+ * dialogs. Nothing
  * outside this module opens them and this module never reaches into
  * `txrresults`' store.
  *

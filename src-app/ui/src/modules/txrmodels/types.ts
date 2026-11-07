@@ -69,10 +69,12 @@ export type TxrModelSortId =
 /**
  * The dialog-state vocabulary (PROV-UI-MODELS-3): ONE host-level field
  * describes which modal is open — the three save dialogs (L / L2 / L3,
- * opened by the router-effect host on the EventBus events) and the per-row
- * dialogs (`card:<id>` — the D "Model card", `details:<id>` — the I row
- * "Details"). 'none' is the closed state; a new dialog replaces the field
- * (a second event never stacks a second dialog — the host's rule).
+ * opened by the router-effect host on the EventBus events — the host
+ * keeps the event payloads (runId/methodIds/the saved response) in its
+ * own local state; the union here is the declared vocabulary) and the
+ * per-row dialogs (`card:<id>` — the D "Model card", `details:<id>` — the
+ * I row "Details"). 'none' is the closed state; a new dialog replaces the
+ * field (a second event never stacks a second dialog — the host's rule).
  */
 export type TxrModelDialogId =
   | 'none'

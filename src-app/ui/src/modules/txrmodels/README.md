@@ -41,11 +41,13 @@ subscribed by the `routerEffects` dialog host (`TxrModelsDialogHost`):
 
 | event | direction | payload | entry |
 |---|---|---|---|
-| `txr:save-models-requested` | in (from `txrresults`) | `{type, runId, methodIds}` | the G/H "Save the models (N)" button — opens dialog L |
-| `txr:save-one-model-requested` | in (from `txrresults`, after its growth) | `{type, runId, methodId}` | the H one-method view "Save this model" — opens dialog L2 |
+| `txr:save-models-requested` | in (from `txrresults`) | `{type, runId, methodIds}` | the G "Save the models (N)" button — opens dialog L |
+| `txr:save-one-model-requested` | in (from `txrresults`) | `{type, runId, methodId}` | the H one-method view "Save this model" — opens dialog L2 |
 
-Until the second event's growth lands, L2 renders from the module's own
-gallery story only — never a dead button without a handler.
+Both events are live: `txrresults` emits them (its G/H header buttons), this
+module's dialog host subscribes and renders exactly one dialog at a time.
+An emission with no mounted host is a benign no-op — the results screens
+never depend on a consumer.
 
 ## Provider bindings
 
