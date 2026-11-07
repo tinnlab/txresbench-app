@@ -69,3 +69,11 @@ export interface TxrHistoryActions {
   reveal: boolean
   log: boolean
 }
+
+/**
+ * The K mode chip's palette words (PROV-HIST-4's `modeChip` tone) — the
+ * ui-list module's own chip genres ('accent' / 'neutral', DEC-9),
+ * declared here because the palette is part of the K display map; the
+ * chip's hexes live with the rendering component.
+ */
+export type TxrChipTone = 'accent' | 'neutral'

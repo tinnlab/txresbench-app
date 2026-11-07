@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react'
+import { HISTORY_SUBTITLE } from '../lib/format'
 
 /**
  * Screen K — History (board `History.dc.html`): the newest-first run list
@@ -35,9 +36,9 @@ const SUBTITLE: CSSProperties = { color: '#3a3a3a', fontSize: 14 }
 /** The board's h1. */
 const TITLE_TEXT = 'History'
 
-/** The board's permanent subtitle (verbatim; no facts, no numbers). */
-const SUBTITLE_TEXT =
-  'Everything you ran on this computer, newest first. Open a result again, or run it again with the same settings.'
+/** The board's permanent subtitle — one source in the lib's board-copy
+ *  layer (verbatim; no facts, no numbers). */
+const SUBTITLE_TEXT = HISTORY_SUBTITLE
 
 export function HistoryPage() {
   return (
