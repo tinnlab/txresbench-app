@@ -44,6 +44,30 @@ type TxrDialogRequest =
   | { kind: 'saved'; response: ModelSaveResponse }
   | null
 
+// The release-gated e2e seam for the L entry (the repo's own testing device —
+// `core/workstore`'s `window.__cyto_read` precedent): on the deterministic
+// real-backend tier NO run ever produces a model (DEC-14's all-cannot-run
+// scope), so the results screen's "Save the models (N)" button never renders
+// and the event it would emit is unreachable from a spec. The full-backend
+// spec therefore drives the SAME bus event this host subscribes to through
+// this guard: present under the Vite dev server and the e2e preview build
+// (`VITE_ENABLE_TEST_SEAMS=1`), absent from a release bundle (neither set —
+// the seam cannot be talked into from the outside, the `__cyto_read`
+// gating). The payload shape stays the `txrresults`-owned contract
+// (`{type, runId, methodIds}` — PROV-UR-3); the host only ever opens what it
+// is told to.
+if ((import.meta.env.DEV || import.meta.env.VITE_ENABLE_TEST_SEAMS) && typeof window !== 'undefined') {
+  ;(window as unknown as { __txrSaveModels?: unknown }).__txrSaveModels = (
+    runId: string,
+    methodIds: string[],
+  ): Promise<void> =>
+    useEventBusStore.getState().emit<'txr:save-models-requested'>({
+      type: 'txr:save-models-requested',
+      runId,
+      methodIds,
+    })
+}
+
 export function TxrModelsDialogHost() {
   const [request, setRequest] = useState<TxrDialogRequest>(null)
 
