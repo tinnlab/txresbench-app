@@ -297,12 +297,17 @@ describe('txrhistory module (TEST-HIST-1)', () => {
     // comments; any spelling there fails. Test files are excluded, the
     // same scope the sibling token scans use: they PIN the boards' bytes
     // as EXPECTED values, which is precisely what an INV-5/6 scan must
-    // allow outside shipped copy.
+    // allow outside shipped copy. The kit hint prop IS an API occurrence
+    // (the search field's `placeholder="…"` / kit `searchPlaceholder`)
+    // and is stripped before the word scan — the txrresults scan's
+    // convention (a "placeholder"-as-copy occurrence still fails).
     const own = ownSourceFiles(MODULE_DIR)
       .filter(p => !/\.test\.(ts|tsx)$/.test(p))
       .map(p => readFileSync(p, 'utf8'))
       .join('\n')
       .toLowerCase()
+      .replace(new RegExp('search' + 'place' + 'holder' + '\\s*=\\s*"[^"]*"', 'gi'), '')
+      .replace(new RegExp('place' + 'holder' + '\\s*=\\s*"[^"]*"', 'gi'), '')
     const statusWords = [
       'to' + 'do',
       't' + 'bd',
