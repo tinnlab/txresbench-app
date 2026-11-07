@@ -18,11 +18,16 @@
  * the same dual-state convention the sibling module tests use). The plan's
  * no-go list: no generated client, no OpenAPI, no guard/script, no
  * package.json line, no loader edit, no server path, and NO other module
- * directory except the four sanctioned pins: `txrshell/module.tsx` (the
- * `/models` route handoff, pinned separately below),
- * `txrintake/module.test.ts`, `txrrun/module.test.ts` and
+ * directory except the sanctioned pins: `txrshell/module.tsx` (the `/models`
+ * route handoff, pinned separately below — the shell's NEWEST handoff, the
+ * `/history` one from `feat/ui-history` ITEM-1, is what the byte pin below
+ * now asserts, since the walk-back takes the nearest shell-touching
+ * commit), `txrintake/module.test.ts`, `txrrun/module.test.ts` and
  * `txrresults/module.test.ts` (their shell-route / no-other-module pins
- * went stale with the handoff and are updated by this item — DRIFT-1 #8).
+ * went stale with the handoff and were updated by this item — DRIFT-1 #8)
+ * and the `txrhistory/**` module dir (the `feat/ui-history` item's own
+ * module — a new auto-discovered module is an addition, not a global edit,
+ * the same class as this module's dir exception).
  *
  * The status-word / design-example-number / URL / scan covers the module's
  * own publish surface (non-test source, comments, README-listed fixtures —
@@ -232,15 +237,20 @@ describe('txrmodels module (TEST-MOD-01)', () => {
     expect(touched.filter(p => p === 'src-app/ui/scripts/domain-baseline.json')).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/src/modules/loader.ts')).toEqual([])
     expect(touched.filter(p => p.startsWith('src-app/server/'))).toEqual([])
-    // FOUR sanctioned exceptions (DRIFT-1 #8): the `/models` route handoff
-    // itself (`txrshell/module.tsx`, pinned separately below) and the three
-    // sibling module test files whose pins went stale with the handoff and
-    // are updated by this item. Nothing else outside this module moves.
+    // FIVE sanctioned exceptions (the DRIFT-1 #8 four + the
+    // feat/ui-history item's DRIFT-1 #1 module dir): the `/models` route
+    // handoff itself (`txrshell/module.tsx`, pinned separately below), the
+    // three sibling module test files whose pins went stale with the
+    // handoff and are updated by this item, and the `txrhistory` module
+    // dir (the feat/ui-history ITEM-1 module — a new auto-discovered
+    // module is an addition, not a global edit of an existing module).
+    // Nothing else outside this module moves.
     expect(
       touched.filter(
         p =>
           p.startsWith('src-app/ui/src/modules/') &&
           !p.startsWith('src-app/ui/src/modules/txrmodels/') &&
+          !p.startsWith('src-app/ui/src/modules/txrhistory/') &&
           p !== 'src-app/ui/src/modules/txrshell/module.tsx' &&
           p !== 'src-app/ui/src/modules/txrintake/module.test.ts' &&
           p !== 'src-app/ui/src/modules/txrrun/module.test.ts' &&
@@ -249,32 +259,39 @@ describe('txrmodels module (TEST-MOD-01)', () => {
     ).toEqual([])
   })
 
-  it('records the txrshell `/models` handoff: the route is gone, the handoff comment is there, nothing else in the shell moves', () => {
-    // The current shell state (the handoff's result).
-    expect(routesOf(txrShellModule).map(r => r.path)).toEqual(['/history', '/help'])
+  it('records the txrshell route handoffs: the `/models` route is gone, the handoff comment is there, nothing else in the shell moves', () => {
+    // The current shell state (all three handoffs' result): `/help` only.
+    expect(routesOf(txrShellModule).map(r => r.path)).toEqual(['/help'])
     const shellSource = readFileSync(
       fileURLToPath(new URL('../txrshell/module.tsx', import.meta.url)),
       'utf8',
     )
     expect(shellSource).toContain('`txrmodels` module')
     expect(shellSource).not.toContain("path: '/models'")
+    // The `/history` handoff (the feat/ui-history item, same file, its
+    // own block) — the shell comment names the incoming module.
+    expect(shellSource).toContain('`txrhistory` module')
+    expect(shellSource).not.toContain("path: '/history'")
 
-    // The patch itself: removed lines are the old comment block + the
-    // `/models` route block only; added lines are the new comment block
+    // The patch itself: the NEWEST shell-touching commit is the
+    // `/history` handoff (the walk-back takes the nearest one — the
+    // `/models` handoff is an ancestor of it now), so the byte pin
+    // asserts THAT patch: removed lines are the old comment block + the
+    // `/history` route block only; added lines are the new comment block
     // only. Byte-pins "NO other change" (DEC-2).
     const { added, removed } = shellPatch()
     const commentLine = (l: string) => /^(\s*\/\*\*|\s*\*(?:\s.*)?|\s*\*\/)$/.test(l)
     const routeBlockLine = (l: string) =>
       [
         '    {',
-        "      path: '/models',",
-        '      element: <ShellPage title="Models" />,',
+        "      path: '/history',",
+        '      element: <ShellPage title="History" />,',
         '      requiresAuth: true,',
         '      layout: TxrLayoutDef,',
         '    },',
       ].includes(l)
     expect(removed.length).toBeGreaterThan(0)
-    expect(removed).toContain("      path: '/models',")
+    expect(removed).toContain("      path: '/history',")
     for (const line of removed) {
       expect(commentLine(line) || routeBlockLine(line)).toBe(true)
     }

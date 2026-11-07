@@ -9,7 +9,9 @@
  * with NO store, NO slot, NO component and NO permission predicate. The
  * txrshell `/` scaffold route is removed on the same branch — one route moves
  * to the module that owns the analysis flow; `/models`, `/history` and `/help`
- * stay. The no-new-dependency + no-status-words + no-design-example-number
+ * stay. (The `/models` and `/history` takovers are the later handoffs —
+ * `txrmodels` and `txrhistory`; this file's shell pin below tracks the full
+ * set.) The no-new-dependency + no-status-words + no-design-example-number
  * checks below run over the item's own delta, as TEST-INT-1 pins them.
  * ITEM-2's additions pin the barrel entry and the state-contract surface
  * (the types are compile-time; the snapshot below is the representative
@@ -137,11 +139,12 @@ describe('txrintake module', () => {
     expect(source).toContain('/saved-models')
   })
 
-  it('records the txrshell route handoffs: the `/` and `/models` scaffold routes are gone, the shell keeps the rest', () => {
+  it('records the txrshell route handoffs: the `/`, `/models` and `/history` scaffold routes are gone, the shell keeps `/help`', () => {
     // The `/models` route was handed to `txrmodels` (screen J) after this
-    // test was written — the sanctioned handoff of this epic's route
-    // takeovers (ui-models edits the same shell file, different block).
-    expect(routesOf(txrShellModule).map(r => r.path)).toEqual(['/history', '/help'])
+    // test was written, and the `/history` route to `txrhistory` (screen
+    // K) — the sanctioned handoffs of this epic's route takeovers (each
+    // module edits the same shell file, its own block).
+    expect(routesOf(txrShellModule).map(r => r.path)).toEqual(['/help'])
     const shellSource = readFileSync(
       fileURLToPath(new URL('../txrshell/module.tsx', import.meta.url)),
       'utf8',
@@ -152,6 +155,9 @@ describe('txrintake module', () => {
     // module); the phrase spans the comment's line breaks.
     expect(shellSource).toContain('`txrmodels` module')
     expect(shellSource).not.toContain("path: '/models'")
+    // The `/history` handoff's words (this epic's newest takeover).
+    expect(shellSource).toContain('`txrhistory` module')
+    expect(shellSource).not.toContain("path: '/history'")
   })
 
   it('does not change the dependency set, the ui scripts tree or the domain ledger (INV-5/6)', () => {
