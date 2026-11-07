@@ -67,6 +67,46 @@ The generated types and operation ids are provider-owned (the providers run
 the shared OpenAPI regen once); this module never regenerates OpenAPI and
 never edits `src-app/ui/src/api-client/**` or `src-app/ui/openapi/**`.
 
+The GAP records this node's consumer-driven growth requests against the
+providers: `GAP-HIST-1` (`TxrHistoryUsage.data_dir` — grown; the footer's
+path segment renders it when present), `GAP-HIST-2` (`models_used` — grown;
+the reuse-row titles and the model links), `GAP-HIST-3` (the multi-value
+`status=stopped,failed` — grown; the fourth filter option is ONE call),
+`GAP-HIST-4` (the `txrresults` barrel re-export of `downloadPredictionsCsv`
++ `revealRunDir` — consumed through the barrel, no seam mirror) and
+`GAP-HIST-5` (`modelsPath(setId)` — grown; the model-set links open the set).
+
+## Retention controls
+
+The footer's two controls are the K board's retention surface, and both are
+destructive-gated (INV-2): no destructive call happens without the confirmed
+dialog. With `keep_file_copies: true` the footer offers "Do not keep copies
+of my files" — confirming PUTs `keep_file_copies: false` then POSTs the
+all-runs copy clear (the provider's future-default + immediate-clear
+semantics, the owner's D25 decision), then reloads the list + usage. With
+`false` it offers "Keep copies of my files" — confirming PUTs only (removed
+copies are never restored, stated in the dialog). The red "Clear all
+history" opens the owner's two-choice dialog — "Clear history and remove
+files" (the default) or "Clear history, keep files" — whose choice is the
+engine DELETE's `delete_files`. The per-run state is displayed honestly both
+ways: a kept-copies run reads the board's "Copies are kept with this run so
+it can be repeated.", a copy-cleared run reads "Copies are not kept with
+this run." (never a silent absence), and a copy-cleared row offers the
+settings-prefill path ("Use these settings again" — the owner's D26
+fallback) instead of a rerun call that would 400.
+
+## Tests
+
+The module's two Playwright specs sit in the repo's two e2e tiers, each under
+its own runner (no extra config, no testIgnore): `tests/gallery-e2e/
+txr-history.spec.ts` (backend-free — the module's cassette stories over the
+synthetic fixture family, driven by `playwright.gallery.config.ts`) and
+`tests/e2e/txrhistory/txr-history-full.spec.ts` (the real backend against
+the merged providers, driven by `playwright.config.ts`). The unit suite
+lives beside the module (`module.test.ts`, the store/lib/component/fixture
+tests). The specs assert through the pages' own test-ids and the story
+seams, never by probing the components.
+
 ## Copy source
 
 Every user-facing string is the board's wording, verbatim: the title and

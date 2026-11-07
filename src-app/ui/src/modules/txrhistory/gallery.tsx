@@ -263,12 +263,16 @@ function seedCopiesCleared(): void {
   })
 }
 
-/** The paging view: the 25-run family (page size 20 → a second page). */
+/** The paging view: the 25-run family (page size 20 → a second page).
+ *  The resolver records into the seam like the module cassette's own —
+ *  the spec's limit/offset pins read the recorded calls. */
 function seedMany(): void {
   TxrHistory.reset()
   extendCassette({
-    'History.listHistory': (ctx: MockRequestContext) =>
-      fixtureHistoryPage(TXHISTORY_RUNS_MANY, ctx.query),
+    'History.listHistory': (ctx: MockRequestContext) => {
+      recordRequest('History.listHistory', ctx)
+      return fixtureHistoryPage(TXHISTORY_RUNS_MANY, ctx.query)
+    },
     'History.getUsage': () => fixtureUsage(25, 275 * 1024 * 1024),
   })
 }

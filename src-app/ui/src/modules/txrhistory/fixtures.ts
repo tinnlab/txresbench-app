@@ -45,6 +45,10 @@ import type {
 /** One mebibyte (the fixture byte figures' unit). */
 const MIB = 1024 * 1024
 
+/** One gibibyte (the fixture settings' memory figure's unit — the K
+ *  Settings line reads the board's "16 GB" from this). */
+const GIB = 1024 * 1024 * 1024
+
 /**
  * The fixture run-id name space: `e0000000-…-<k>` — a fixed synthetic
  * uuid per story run (stable: the same `k` gives the same id forever).
@@ -411,7 +415,7 @@ export function fixtureDetail(run: TxrHistoryItem): TxrHistoryDetail {
       save_models: run.mode === 'train',
       mode: run.mode,
       seed: 7,
-      memory_total_bytes: 16 * MIB,
+      memory_total_bytes: 16 * GIB,
     },
   }
 }
