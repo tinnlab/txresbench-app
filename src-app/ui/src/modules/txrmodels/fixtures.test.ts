@@ -141,8 +141,14 @@ describe("the module's source-surface scans (TEST-MOD-05, INV-4/6/7)", () => {
   })
 
   it('reads from none of the protected trees', () => {
+    // The trees are matched as PATH SEGMENTS (a slash-bounded `results/`)
+    // — the module's sibling-module source path `/txrresults/…` contains
+    // the substring but is the framework's sibling module, never the
+    // benchmark tree; the ban's intent (no read from `restricted/`,
+    // `datasets/` or `results/`) is untouched (DRIFT-1 ITEM-10 — the
+    // test device, pinned by the gallery's sibling imports).
     for (const tree of ['restricted' + '/', 'datasets' + '/', 'results' + '/']) {
-      expect(own).not.toContain(tree)
+      expect(new RegExp(`(^|[\\W])${tree.replace('/', '\\/')}`, 'i').test(own)).toBe(false)
     }
   })
 

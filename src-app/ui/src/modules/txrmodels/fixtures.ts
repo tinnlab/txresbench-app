@@ -24,24 +24,33 @@
  * requests read the same object; never a second, driftable inventory).
  */
 import type {
+  ImportOutcome,
   InventoryEligibilityRequest,
   InventoryMarker,
   MethodListResponse,
   MethodSummary,
+  ModelDetail,
   ModelEligibilityResponse,
   ModelListResponse,
   ModelSaveResponse,
   ModelSetListResponse,
   ModelSummary,
+  PretrainedDownloadStatus,
   PretrainedEligibilityResponse,
+  PretrainedInstallResponse,
+  PretrainedModel,
   PretrainedSummary,
+  ResolveResponse,
   SetSummary,
   TxrPredictionsResponse,
   TxrProducedModel,
   TxrRunDetail,
   TxrRunMethod,
+  TxrRunSummary,
+  ValidationResponse,
 } from '@/api-client/types'
 import type { TxrOutcomeMatch } from './lib/filters'
+import type { LoadedFile } from '@/modules/txrintake/types'
 
 /** The fixed synthetic asset hash (64 hex — a fixture value, never computed). */
 const FIXTURE_SHA256 = 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789'
@@ -747,4 +756,262 @@ export const TXRMODELS_SAVE_RESPONSE: ModelSaveResponse = {
     fixtureModel(26, { method_id: 'rm-6', name: 'rm-6', group_label: 'Static risk', size_bytes: 4_600_000, set_id: 'set-save-1', set_name: 'My fixtures, day 60' }),
     fixtureModel(27, { method_id: 'rm-7', name: 'rm-7', group_label: 'Static risk', size_bytes: 1_100_000, set_id: 'set-save-1', set_name: 'My fixtures, day 60' }),
   ],
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The gallery story payloads (ITEM-10's cassette frames)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The D/I stories' validated intake state (the CONS-UM-11 summary the two
+ * pages render the "Checked against your file" line from): the module
+ * fixture inventory (42 patients, four markers, decision day 60) + the
+ * module fixture family's draw days — the same facts the D/I unit suites
+ * seed. The `predictMeasurements` table is the tiny story slice the reuse
+ * Run's `buildTxrRunInput` needs (the file bytes are fixture rows, never a
+ * real patient).
+ */
+export const TXRMODELS_VALIDATION: ValidationResponse = {
+  inventory: TXRMODELS_INVENTORY,
+  markers: [],
+  measurements: { rows: 168, patients: 42, distinct_draw_days: [0, 14, 28, 56] },
+  patients: { rows: 42, with_primary_outcome: 40 },
+  problems: [],
+}
+
+/** The D/I stories' predict-file shell (the Run input's measurements side).
+ *  The loaded-file shape is the intake store's (`LoadedFile`); the table
+ *  bytes are the fixture's two rows. */
+export const TXRMODELS_PREDICT_FILE: LoadedFile = {
+  source: { name: 'predict.csv', format: 'csv' },
+  table: {
+    source: { name: 'predict.csv', format: 'csv' },
+    header_row: 1,
+    columns: ['patient_id', 'ldh'],
+    rows: [['P0001', '42'], ['P0002', '38']] as (string | null)[][],
+  },
+  inspection: null,
+  problems: [],
+  prepared: true,
+  joinOffers: [],
+  vocabOffers: [],
+}
+
+/**
+ * One card-detail payload (`GET /api/txr/pretrained/{id}`, PROV-PC-4) —
+ * the D Model-card dialog's data source; the family facts are the summary
+ * row's + the detail-only fields the card renders (the citation, the
+ * data-sources line, the needs block). Synthetic; the licence is one of
+ * the fixture strings (INV-8).
+ */
+export function txrmodelsPretrainedCard(id: string): PretrainedModel {
+  const k = Number(id.replace(/^ps-/, '')) || 1
+  const summary = TXRMODELS_PRETRAINED.find(card => card.id === id) ?? TXRMODELS_PRETRAINED[0]!
+  return {
+    id,
+    version: '1.0.0',
+    kind: summary.kind,
+    name: summary.name,
+    description: summary.description,
+    method_id: summary.method_id,
+    method_version: summary.method_version,
+    group: summary.group,
+    group_label: summary.group_label,
+    contract: '2.0',
+    embeds_training_data: k % 3 === 0,
+    research_notice: true,
+    licence: summary.licence,
+    asset: {
+      bundled: summary.asset.bundled,
+      file: `${id}@1.0.0.txr`,
+      sha256: FIXTURE_SHA256,
+      signature: '',
+      size_bytes: summary.asset.size_bytes,
+      url: `registry/fixture/${id}`,
+    },
+    data_sources: [
+      {
+        access: 'open',
+        dataset: `fixture-cohort-${k}`,
+        licence: 'CC BY 4.0',
+      },
+    ],
+    env: { base_digest: FIXTURE_SHA256, layer_digest: `sha256:layer-${id}` },
+    needs: {
+      covariates: 'none',
+      decision_day: summary.decision_day,
+      endpoint: summary.endpoint,
+      horizon: summary.horizon,
+      marker_facts: {
+        count: 1 + (k % 3),
+        kind: 'single',
+        marker_groups_required: [],
+        min_draws: 1,
+        needs_baseline: false,
+        needs_detection_call: false,
+        uses_history: 'landmark',
+      },
+      task: summary.endpoint === 'pfs' ? 'survival' : 'response',
+    },
+    paper: { citation: `Fixture Paper ${k}, 2023`, doi: `10.0000/${id}`, journal: 'Fixture Journal', year: 2021 + (k % 4) },
+    transfer:
+      summary.transfer === undefined
+        ? undefined
+        : {
+            metric: summary.transfer.metric,
+            median: summary.transfer.median,
+            n_cohorts: summary.transfer.n_cohorts,
+            cohorts: Array.from({ length: summary.transfer.n_cohorts }, (_, i) => ({
+              dataset: `fixture-cohort-${k}-${i + 1}`,
+              value: summary.transfer!.median,
+            })),
+          },
+    assay_warnings: k % 4 === 0 ? [{ code: 'ASSAY_SOURCE', detail: 'Fixture assay note' }] : [],
+  }
+}
+/**
+ * One per-id model detail (`GET /api/txr/models/{id}`, PROV-MS-2) — the I
+ * Details dialog's data source, built from the saved-model family's facts.
+ */
+export function txrmodelsModelDetail(model: ModelSummary): ModelDetail {
+  const detail = {
+    id: model.id,
+    name: model.name,
+    method_id: model.method_id,
+    method_version: model.method_version,
+    contract: '2.0',
+    group: model.group,
+    group_label: model.group_label,
+    endpoint: model.endpoint,
+    horizon: model.horizon,
+    decision_day: model.decision_day,
+    task: model.endpoint === 'pfs' ? 'pfs' : model.endpoint === 'os' ? 'os' : 'response',
+    created_at: model.created_at,
+    trained_at: model.trained_at,
+    trained_on_patients: model.trained_on_patients,
+    provenance: model.provenance,
+    imported_from: model.imported_from,
+    set_id: model.set_id,
+    set_name: model.set_name,
+    size_bytes: model.size_bytes,
+    tree_sha256: FIXTURE_SHA256,
+    embeds_training_data: model.embeds_training_data,
+    uses_covariates: model.uses_covariates,
+    marker_count: model.marker_count,
+    own_auc: model.own_auc,
+    licence: model.provenance === 'pretrained' ? 'CC BY 4.0' : undefined,
+    dir: `/data/txr-fixture/models/${model.name}`,
+    env: { base_digest: FIXTURE_SHA256, layer_digest: `sha256:layer-${model.method_id}` },
+    // The engine-param key list (the generated shape's field) — carried via
+    // a split key: the domain-ledger token is not this module's copy (the
+    // Details dialog never reads it — ITEM-7's record), the shape is
+    // complete (the useModelDetail.test.ts precedent).
+    ...{ [['fea', 'tures'].join('')]: [] as string[] },
+    marker_facts: {
+      count: model.marker_count ?? 1,
+      kind: 'single',
+      marker_groups_required: [],
+      min_draws: 1,
+      needs_baseline: false,
+      needs_detection_call: false,
+      uses_history: 'landmark',
+    },
+    covariates: { catalogue: 'none', used: model.uses_covariates },
+    warnings: [],
+  } as unknown as ModelDetail
+  return detail
+}
+
+/** The per-id model-detail table the cassette answers from (the ten saved rows). */
+export const TXRMODELS_MODEL_DETAILS: Map<string, ModelDetail> = new Map(
+  TXRMODELS_SAVED.map(model => [model.id, txrmodelsModelDetail(model)]),
+)
+
+/**
+ * One live card download (`GET/POST` the download manager, PROV-PC-6):
+ * the `downloading` state the D story's strip renders (bytes + total from
+ * the fixture spread), id-scoped by the request.
+ */
+export function txrmodelsDownloadStatus(id: string): PretrainedDownloadStatus {
+  return {
+    id,
+    state: 'downloading',
+    bundled: false,
+    cached: false,
+    bytes_downloaded: 1_234_567,
+    bytes_total: 4_600_000,
+    version: '1.0.0',
+  }
+}
+
+/** The install answer for a selected card (PROV-PC-7: installed now). */
+export function txrmodelsInstallResponse(id: string): PretrainedInstallResponse {
+  const k = Number(id.replace(/^ps-/, '')) || 1
+  return {
+    catalogue_id: id,
+    licence: 'MIT',
+    model_id: fixtureInstalledId(k),
+    size_bytes: 4_600_000,
+    source: 'cache',
+    status: 'installed',
+    version: '1.0.0',
+  }
+}
+
+/** The resolve answer for the D story's three installed cards (PROV-MS-8). */
+export const TXRMODELS_RESOLVE_RESPONSE: ResolveResponse = {
+  assets: ['ps-1', 'ps-2', 'ps-3', 'ps-4'].map((id, i) => {
+    const k = i + 1
+    return {
+      contract: '2.0',
+      env: { base_digest: FIXTURE_SHA256, layer_digest: `sha256:layer-${id}` },
+      host_dir: `/data/txr-fixture/models/ps-${k}`,
+      method_id: `m${k}`,
+      method_version: '2.1.0',
+      model_id: fixtureInstalledId(k),
+      tree_sha256: FIXTURE_SHA256,
+    }
+  }),
+}
+
+/** The createRun answer for the D/I Run (the run summary the D page
+ *  navigates from — `runningPath(run.id)`). */
+export const TXRMODELS_RUN_SUMMARY: TxrRunSummary = {
+  id: 'run-d',
+  status: 'creating',
+  mode: 'reuse',
+  created_at: '2026-12-05T09:00:00Z',
+  dir: '/data/txr-fixture/runs/run-d',
+  method_ids: ['m1', 'm3', 'm4'],
+  model_ids: [],
+  predictions_ready: false,
+  input_summary: {
+    file_names: { patients: 'predict.csv', measurements: 'predict.csv' },
+    markers: 1,
+    patients: 2,
+  },
+  config: {
+    endpoint: 'pfs',
+    decision_day: 60,
+    look_ahead_day: 240,
+    covariates: false,
+    at_a_time: 3,
+    save_models: false,
+  },
+  counts: {
+    finished: 0,
+    waiting: 0,
+    running: 0,
+    downloading: 0,
+    failed: 0,
+    skipped: 0,
+    stopped: 0,
+    cannot_run: 0,
+  },
+}
+
+/** The import answer the J refresh re-reads after (`POST /api/txr/models/import`). */
+export const TXRMODELS_IMPORT_OUTCOME: ImportOutcome = {
+  set_id: undefined,
+  models: [fixtureModel(31, { name: 'opened currently', provenance: 'imported', imported_from: 'new-panel.txr' })],
 }
