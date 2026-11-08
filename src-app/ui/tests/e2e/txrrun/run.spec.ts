@@ -162,11 +162,12 @@ test.describe('txr-run — the real backend (TEST-RUN-28/29)', () => {
     await seedLocalSession(page, token)
     await page.goto(`/analysis/${runId}/running`)
 
-    // The header: the run's own row count, the leave-and-continue note and
-    // the research notice — the board's F surface, never a blank.
+    // The header: the run's own row count with its terminal status word
+    // (qa-fixes ITEM-3 RP-1 — a finished run's title never claims it is
+    // running), the termination facts and the research notice — the
+    // board's F surface, never a blank.
     await expect(page.getByTestId('txr-run-header')).toBeVisible({ timeout: 60_000 })
-    await expect(page.getByTestId('txr-run-title')).toHaveText('Running 1 method')
-    await expect(page.getByTestId('txr-run-leave-note')).toBeVisible()
+    await expect(page.getByTestId('txr-run-title')).toHaveText('Finished 1 method')
     await expect(page.getByTestId('txr-run-notice')).toContainText(
       "For research. Not for deciding a patient's treatment.",
     )
@@ -174,8 +175,8 @@ test.describe('txr-run — the real backend (TEST-RUN-28/29)', () => {
     await expect(page.getByTestId('txr-run-see-results')).toHaveCount(0)
 
     // The row: cannot-run state + the engine's reason (never blank), the
-    // counts strip (the run's real counts — the strip's five counters are
-    // zero for an all-cannot-run run), the tabs' complete partition.
+    // counts strip (EVERY engine state counted — qa-fixes ITEM-3 RP-3),
+    // the tabs' complete partition.
     const row = page.getByTestId(`txr-run-row-${CANNOT_RUN_METHOD}`)
     await expect(row).toBeVisible()
     await expect(page.getByTestId(`txr-run-state-${CANNOT_RUN_METHOD}`)).toHaveText('cannot run')
@@ -183,26 +184,31 @@ test.describe('txr-run — the real backend (TEST-RUN-28/29)', () => {
       'no published environment',
     )
     await expect(page.getByTestId('txr-run-counts')).toBeVisible()
-    for (const state of ['finished', 'running', 'downloading', 'waiting', 'failed']) {
-      await expect(page.getByTestId(`txr-run-counts-${state}`)).toContainText(`0 ${state}`)
+    for (const state of ['finished', 'running', 'downloading', 'waiting', 'failed', 'stopped', 'skipped', 'cannot_run']) {
+      await expect(page.getByTestId(`txr-run-counts-${state}`)).toContainText(
+        `0 ${state === 'cannot_run' ? 'cannot run' : state}`,
+      )
     }
     await expect(page.getByTestId('txr-run-tab-all')).toContainText('All 1')
 
-    // The Failed tab shows it (cannot_run is this node's complete-partition
-    // bucket, DEC-2); the Working tab is empty.
-    await page.getByTestId('txr-run-tab-failed').click()
+    // The cannot-run row is its own tab (RP-3: never the Failed tab's, and
+    // never called "finished"); the Failed and Working tabs are empty.
+    await page.getByTestId('txr-run-tab-cannot_run').click()
     await expect(row).toBeVisible()
+    await expect(page.getByTestId('txr-run-tab-failed')).toContainText('Failed 0')
     await expect(page.getByTestId('txr-run-tab-working')).toContainText('Working 0')
     await page.getByTestId('txr-run-tab-all').click()
 
     // "Show the log": the panel opens at the method; the engine-authored
     // lines belong to the All view (run-level lines never carry a
-    // method_id — the panel's filter rule), so flip to All and assert the
-    // run-level start line + the finalize line naming the cannot-run count.
+    // method_id — the panel's filter rule), so flip to All (the board's
+    // select) and assert the run-level start line + the finalize line
+    // naming the cannot-run count.
     await page.getByTestId(`txr-run-action-${CANNOT_RUN_METHOD}`).click()
     const panel = page.getByTestId('txr-run-log')
     await expect(panel).toBeVisible()
-    await page.getByTestId('txr-run-log-filter-all').click()
+    await page.getByTestId('txr-run-log-filter').click()
+    await page.getByTestId('txr-run-log-filter-opt-all').click()
     const lines = page.getByTestId('txr-run-log-lines')
     await expect(lines).toContainText('run ', { timeout: 30_000 })
     await expect(lines).toContainText('1 cannot run')
@@ -230,14 +236,14 @@ test.describe('txr-run — the real backend (TEST-RUN-28/29)', () => {
 
     // Leave-and-continue: the same URL reloaded binds the same run (the
     // replay-then-close stream + the detail snapshot; the terminal run
-    // never renders blank). The count strip + the row stay.
+    // never renders blank). The count strip + the row stay; the title
+    // reads the run's own terminal word.
     await page.reload()
     await expect(page.getByTestId(`txr-run-row-${CANNOT_RUN_METHOD}`)).toBeVisible({
       timeout: 60_000,
     })
-    await expect(page.getByTestId('txr-run-title')).toHaveText('Running 1 method')
+    await expect(page.getByTestId('txr-run-title')).toHaveText('Finished 1 method')
     await expect(page.getByTestId('txr-run-counts-finished')).toContainText('0 finished')
-    await expect(page.getByTestId('txr-run-leave-note')).toBeVisible()
     await expect(page.getByTestId('txr-run-load-error')).toHaveCount(0)
     await expect(page.getByTestId('txr-run-not-found')).toHaveCount(0)
   })
@@ -282,6 +288,7 @@ test.describe('txr-run — the real backend (TEST-RUN-28/29)', () => {
       url => /^\/analysis\/[^/]+\/running$/.test(url.pathname),
       { timeout: 120_000 },
     )
+    const runId = page.url().split('/')[2]
 
     // F renders the new run: header (rows = the selected methods), counts
     // strip, the method row, the leave-and-continue note.
@@ -291,60 +298,82 @@ test.describe('txr-run — the real backend (TEST-RUN-28/29)', () => {
     const row = page.getByTestId(`txr-run-row-${RUNNABLE_METHOD}`)
     await expect(row).toBeVisible({ timeout: 60_000 })
 
-    // The row reaches a terminal state deterministically (the env phase's
+    // The run reaches the terminal state deterministically (the env phase's
     // outcome — the engine patches the row in every case; no leg waits for a
-    // download or a completion, DEC-20). The counts strip is the engine's
-    // own: polled until no live method row remains. The reason bytes are
-    // the engine's (the env phase's failure code is provider-factored —
-    // the OCI-grammar refusal today, a tool failure after a manifest
-    // regen), so the spec pins "terminal + a reason" rather than one code.
-    await expectNoLiveRows(page)
+    // download or a completion, DEC-20). How it surfaces is the fix's own
+    // contract (qa-fixes ITEM-3 RP-1): a page that watched the run end lands
+    // on the results screen; a run that ended before the page loaded renders
+    // the terminal snapshot without a redirect — so wait for EITHER surface
+    // via the engine's own status (the API, never a board number).
+    const token = await mintLocalSession(page)
+    await seedLocalSession(page, token)
+    const detail = await waitForTerminalRun(page, token, runId)
+    const terminalWord =
+      detail.status === 'finished' ? 'Finished' : detail.status === 'stopped' ? 'Stopped' : 'Failed'
+    await expect(page.getByTestId('txr-run-load-error')).toHaveCount(0)
+    await expect(page.getByTestId('txr-run-not-found')).toHaveCount(0)
+    let landed = false
+    try {
+      await page.waitForURL(url => /\/results$/.test(url.pathname), { timeout: 30_000 })
+      landed = true
+    } catch {
+      /* the terminal snapshot rendered on the running URL instead */
+    }
+    if (!landed) {
+      expect(page.url()).toMatch(/\/running$/)
+    }
+    if (landed) {
+      // The results screen renders the run's terminal state (the empty
+      // heatmap's header + counts — a finished run whose method failed);
+      // then back to the running URL for the terminal snapshot's surface.
+      await expect(page.getByTestId('txr-results')).toBeVisible({ timeout: 60_000 })
+      await page.goto(`/analysis/${runId}/running`)
+    }
+
+    // The terminal snapshot (a direct load of a terminal run never
+    // redirects): the run's own terminal title (the status word the engine
+    // ended with — never "Running"), the row's terminal state + the
+    // engine's reason (never blank), no live-run claim and no controls for
+    // a run that is over.
+    await expect(page.getByTestId('txr-run-header')).toBeVisible({ timeout: 60_000 })
+    await expect(page.getByTestId('txr-run-title')).toHaveText(`${terminalWord} 1 method`)
+    await expect(page.getByTestId('txr-run-leave-note')).toHaveCount(0)
+    await expect(row).toBeVisible()
     await expect(page.getByTestId(`txr-run-state-${RUNNABLE_METHOD}`)).toHaveText('failed')
     // The detail element renders ONLY when non-empty (the row's rule) — its
     // presence IS the reason's.
     await expect(page.getByTestId(`txr-run-detail-${RUNNABLE_METHOD}`)).toBeVisible({
       timeout: 30_000,
     })
+    // The counts strip is the engine's own: no live method row remains.
+    await expectNoLiveRows(page)
 
-    // The engine-authored log lines: the row's Show log → the All view.
+    // The engine-authored log lines: the row's Show log → the All view
+    // (the board's select picks the filter).
     await page.getByTestId(`txr-run-action-${RUNNABLE_METHOD}`).click()
     await expect(page.getByTestId('txr-run-log')).toBeVisible()
-    await page.getByTestId('txr-run-log-filter-all').click()
+    await page.getByTestId('txr-run-log-filter').click()
+    await page.getByTestId('txr-run-log-filter-opt-all').click()
     const lines = page.getByTestId('txr-run-log-lines')
     await expect(lines).toContainText('run ', { timeout: 30_000 })
     await expect(lines).toContainText(RUNNABLE_METHOD)
     await expect(lines).toContainText('done, 1 failed, 0 skipped')
     await page.getByTestId('txr-run-log-close').click()
 
-    // Stop all → the confirm gate → the run-level control. The run is
-    // already terminal (the env phase's refusal finished it), so the stop
-    // is refused by the engine — and its typed line surfaces (INV-2's
-    // "failure kept with its reason"; a failed control is never a silent
-    // no-op). The deterministic invariant: no crash, the counts stay
-    // terminal, the row keeps its reason.
-    await page.getByTestId('txr-run-stop-all').click()
-    await page
-      .getByTestId('txr-run-stop-all-confirm')
-      .getByText('Stop all', { exact: true })
-      .click()
-    await expect(page.getByTestId('txr-run-action-error')).toContainText('is already', {
-      timeout: 60_000,
-    })
+    // The run is over: Stop all and the lane pick are DISABLED — a
+    // finished run's screen no longer offers live-run controls (RP-1; the
+    // engine's 409 refusal of a stop on a terminal run is no longer
+    // reachable through the screen). The deterministic invariant: no
+    // crash, the counts stay terminal, the row keeps its reason.
+    await expect(page.getByTestId('txr-run-stop-all')).toBeDisabled()
     await expectNoLiveRows(page)
     await expect(page.getByTestId(`txr-run-state-${RUNNABLE_METHOD}`)).toHaveText('failed')
     await expect(page.getByTestId('txr-run-load-error')).toHaveCount(0)
     await expect(page.getByTestId('txr-run-not-found')).toHaveCount(0)
-    // No uncaught exception. The console DOES carry the app's own error-path
-    // lines for the intentional refusal (the endpoint client logs the failed
-    // `stop` POST + the browser's 409 resource message) — this leg provokes
-    // them on purpose; everything else on the console must be silent.
-    const unexpected = errors.consoleErrors.filter(
-      line =>
-        !/Error calling endpoint POST \/api\/txr\/runs\/.+\/stop/.test(line) &&
-        !/Failed to load resource: the server responded with a status of 409/.test(line),
-    )
+    // No uncaught exception; the console stays silent (no deliberate 409
+    // is provoked any more — the screen no longer offers the control).
     expect(errors.pageErrors, 'no page error may reach the console').toEqual([])
-    expect(unexpected, 'no unexpected console error').toEqual([])
+    expect(errors.consoleErrors, 'no unexpected console error').toEqual([])
   })
 
   test('TEST-RUN-29 — a second run creation while one is active is refused (RUN_ALREADY_ACTIVE) and creates nothing', async ({

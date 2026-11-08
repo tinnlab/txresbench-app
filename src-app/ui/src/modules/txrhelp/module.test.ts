@@ -259,9 +259,10 @@ describe('txrhelp module (TEST-HELP-4)', () => {
     // `txrlist` module dir — the item's list/estimate/format rework
     // (CM-1's no-env count, CM-4's rounded durations, CM-5's dark-mode
     // checkboxes), sanctioned wholesale per the sibling-dir convention —
-    // the `txrrun` files the run screens' settings rework touches
-    // (ChooseMethodsPage + TxrSettingsBlock + settings.ts + the tests the
-    // at-a-time/estimate pins invalidate), and the `txrintake` preview
+    // the whole `txrrun` module dir — the run screens' qa-fixes ITEM-2
+    // settings rework + ITEM-3's running-page rework (header/strip/tabs/
+    // table/log-panel/at-a-time, its DRIFT-1), sanctioned wholesale per
+    // the sibling-dir convention — and the `txrintake` preview
     // fixtures/pins the estimate/eligibility field additions require.
     expect(
       touched.filter(
@@ -286,15 +287,7 @@ describe('txrhelp module (TEST-HELP-4)', () => {
           p !== 'src-app/ui/src/modules/txrintake/pages/StudyPage.test.tsx' &&
           p !== 'src-app/ui/src/modules/txrmodels/module.test.ts' &&
           p !== 'src-app/ui/src/modules/txrhistory/module.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrrun/module.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrrun/lib/format.ts' &&
-          p !== 'src-app/ui/src/modules/txrrun/lib/format.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrrun/components/TxrSettingsBlock.tsx' &&
-          p !== 'src-app/ui/src/modules/txrrun/data/useRunConfig.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrrun/lib/settings.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrrun/lib/settings.ts' &&
-          p !== 'src-app/ui/src/modules/txrrun/pages/ChooseMethodsPage.test.tsx' &&
-          p !== 'src-app/ui/src/modules/txrrun/pages/ChooseMethodsPage.tsx' &&
+          !p.startsWith('src-app/ui/src/modules/txrrun/') &&
           p !== 'src-app/ui/src/modules/txrresults/module.test.ts' &&
           p !== 'src-app/ui/src/modules/txrresults/pages/ResultsPage.tsx' &&
           p !== 'src-app/ui/src/modules/txrresults/pages/MethodResultsPage.tsx' &&
@@ -304,20 +297,26 @@ describe('txrhelp module (TEST-HELP-4)', () => {
           p !== 'src-app/ui/src/modules/txrresults/components/TxrResultsHeader.tsx',
       ),
     ).toEqual([])
-    // The one new e2e spec under tests/ (the light/dark + narrow render
-    // check, TEST-QA-4) — nothing else under tests/ moves. The pin is
+    // The specs under tests/ (ITEM-4's own light/dark + narrow render
+    // check TEST-QA-4; the qa-fixes ITEM-3 pins in the two txr-run specs,
+    // its own DRIFT-1) — nothing else under tests/ moves. The pin is
     // state-aware: `itemDelta` is the CURRENT item's delta, so in ITEM-4's
     // own uncommitted state the delta carries exactly the one spec, and
     // once ITEM-4 is committed a later item's delta carries NO tests/
     // change at all (the spec is part of HEAD, not of the later diff) —
     // the a-posteriori state was failing on the branch's own tip (the
     // qa-fixes plan commit), a stale-pin failure, recorded in qa-fixes
-    // DRIFT-1 ITEM-1 #5. At most one tests/ file may ever move, and it
-    // must be ITEM-4's spec; a later item adds its own to its own sweep.
+    // DRIFT-1 ITEM-1 #5. At most the sanctioned specs may ever move; a
+    // later item adds its own to its own sweep.
     const testsTouched = touched.filter(p => p.startsWith('src-app/ui/tests/'))
-    expect(testsTouched.length).toBeLessThanOrEqual(1)
-    if (testsTouched.length === 1) {
-      expect(testsTouched[0]).toBe('src-app/ui/tests/gallery-e2e/txr-help.spec.ts')
+    const sanctionedTests = new Set([
+      'src-app/ui/tests/gallery-e2e/txr-help.spec.ts',
+      'src-app/ui/tests/gallery-e2e/txr-run.spec.ts',
+      'src-app/ui/tests/e2e/txrrun/run.spec.ts',
+    ])
+    expect(testsTouched.length).toBeLessThanOrEqual(sanctionedTests.size)
+    for (const file of testsTouched) {
+      expect(sanctionedTests, file).toContain(file)
     }
   })
 

@@ -6,9 +6,10 @@
  *
  * - TEST-RUN-03: the engine's eight per-method states (PROV-EE-3, the
  *   generated `TxrMethodState`) map 1:1 onto `TxrRunBucket` — `bucketOf`
- *   is a total function over the whole vocabulary and
- *   `STATE_LABEL`/`STATE_TONE` give every state a constant label and tone,
- *   never blank;
+ *   is a total function over the whole vocabulary (one bucket per engine
+ *   state, the three doing states under the board's Working tab; qa-fixes
+ *   ITEM-3 RP-3) and `STATE_LABEL`/`STATE_TONE` give every state a
+ *   constant label and tone, never blank;
  * - TEST-RUN-04: the formatters produce the boards' strings (DEC-3, DEC-11
  *   — `BusyRunning.dc.html`'s time bytes and the run screens' shared
  *   download line), null-safe, clamped at zero and never blank;
@@ -56,27 +57,41 @@ const STATES: TxrMethodState[] = [
   'cannot_run',
 ]
 
-/** The F-tab partition (DEC-2) — the complete function table. */
+/** The F-tab partition (qa-fixes ITEM-3, RP-3) — the complete function
+ *  table: one bucket per ENGINE STATE (the three doing states share the
+ *  board's Working tab), so a state is never counted under another state's
+ *  tab. */
 const BUCKET: Record<TxrMethodState, Exclude<TxrRunBucket, 'all'>> = {
   waiting: 'working',
   downloading: 'working',
   running: 'working',
   finished: 'finished',
-  stopped: 'finished',
-  skipped: 'finished',
+  stopped: 'stopped',
+  skipped: 'skipped',
   failed: 'failed',
-  cannot_run: 'failed',
+  cannot_run: 'cannot_run',
 }
 
 describe('bucketOf (TEST-RUN-03)', () => {
-  it('is a total function over the engine state vocabulary — the four-tab partition', () => {
+  it('is a total function over the engine state vocabulary — one bucket per engine state', () => {
     for (const state of STATES) {
       expect(bucketOf(state), state).toBe(BUCKET[state])
     }
-    // The three non-All buckets are all reachable (a complete partition:
-    // no state invisible to every tab, no bucket left empty by contract).
+    // Every non-All bucket is reachable (a complete partition: no state
+    // invisible to every tab, no bucket left empty by contract), and the
+    // buckets carry the engine's OWN state words — a skipped method is
+    // never counted as finished, a cannot-run method never as failed.
     const reached = new Set(STATES.map(s => bucketOf(s)))
-    expect(reached).toEqual(new Set<Exclude<TxrRunBucket, 'all'>>(['working', 'finished', 'failed']))
+    expect(reached).toEqual(
+      new Set<Exclude<TxrRunBucket, 'all'>>([
+        'working',
+        'finished',
+        'failed',
+        'stopped',
+        'skipped',
+        'cannot_run',
+      ]),
+    )
   })
 
   it('never returns the All bucket and never returns blank', () => {
@@ -244,6 +259,13 @@ describe('formatRowTime + methodLabelOf (qa-fixes RES-01 null-vs-undefined)', ()
     expect(formatRowTime(row('finished'))).toBe('')
     // The elapsed guard reads null the same way (no duration mark, not a dash).
     expect(formatRowTime(row('running', { elapsed_secs: null as unknown as number }))).toBe('')
+  })
+
+  it('a skipped row never reads a done line (it never ran) and a stopped row reads its elapsed (RP-7)', () => {
+    expect(formatRowTime(row('skipped', { duration_ms: 90_000 }))).toBe('')
+    expect(formatRowTime(row('skipped', { elapsed_secs: 12 }))).toBe('')
+    expect(formatRowTime(row('stopped', { elapsed_secs: 47 }))).toBe('under a minute')
+    expect(formatRowTime(row('stopped', { elapsed_secs: null as unknown as number }))).toBe('')
   })
 
   it('a null log-line method id is an engine-level line — never a "[null]" bracket', () => {

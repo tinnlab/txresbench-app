@@ -96,11 +96,14 @@ export const LEAVE_AND_CONTINUE_NOTE =
   'Finished methods keep their results. You can leave this screen: the run continues, and it stays in History.'
 
 /**
- * The F tabs' state partition (DEC-2): All = every row; Working =
- * waiting/downloading/running (a method is doing or will do something);
- * Finished = finished/stopped/skipped (a terminal, non-error row — a
- * user-stopped method is never called a failure); Failed = failed /
- * cannot run. A complete partition of the engine's eight states.
+ * The F tabs' state partition (qa-fixes ITEM-3, RP-3): All = every row;
+ * Working = waiting/downloading/running (a method is doing or will do
+ * something); Finished = finished; Failed = failed; Stopped = stopped;
+ * Skipped = skipped; Cannot run = cannot run — the terminal states keep
+ * their own state word, one bucket per state, so a skipped method is
+ * never counted as finished (and a cannot-run method never as failed) and
+ * every tab's count equals that state's own count in the strip. A
+ * complete partition of the engine's eight states.
  *
  * A state outside the vocabulary (a regen between regens) falls to
  * Working — the live bucket — never to a blank or a miscounted tab.
@@ -112,12 +115,15 @@ export function bucketOf(state: TxrMethodState): Exclude<TxrRunBucket, 'all'> {
     case 'running':
       return 'working'
     case 'finished':
-    case 'stopped':
-    case 'skipped':
       return 'finished'
     case 'failed':
-    case 'cannot_run':
       return 'failed'
+    case 'stopped':
+      return 'stopped'
+    case 'skipped':
+      return 'skipped'
+    case 'cannot_run':
+      return 'cannot_run'
   }
   // Exhaustive over TxrMethodState (a state added to the engine's union
   // fails THIS line at typecheck until this switch handles it — the
@@ -204,12 +210,16 @@ export function formatProgress(r: TxrRunMethod, progress: TxrRunProgressFrame | 
  * The F row's TIME column — the row's own timing sentence (the board's
  * per-row Time column): a running row reads its elapsed ("1 min 40 s"), a
  * completed row reads "done in M min S s" (the board's log line's words at
- * the row's own duration, `duration_ms`), and a failed / cannot-run row
- * reads its elapsed (the board's "5 s"). Waiting and downloading rows read
- * nothing: the engine contracts a per-row estimate nowhere — the header's
- * time-left line carries the schedule (DEC-3) and the board's per-row
- * "about 1 min" facts are design examples, never data (INV-6) — so an empty
- * empty column is the honest reading, never an invented duration.
+ * the row's own duration, `duration_ms`), a failed / cannot-run row reads
+ * its elapsed (the board's "5 s"), and a stopped row reads the elapsed it
+ * reached (it ran for a while before the user cleared it). A SKIPPED row
+ * reads nothing: it never ran (qa-fixes ITEM-3, RP-7 — its "done in …"
+ * was the engine's duration_ms of a row that never started). Waiting and
+ * downloading rows read nothing: the engine contracts a per-row estimate
+ * nowhere — the header's time-left line carries the schedule (DEC-3) and
+ * the board's per-row "about 1 min" facts are design examples, never data
+ * (INV-6) — so an empty column is the honest reading, never an invented
+ * duration.
  *
  * The absent tests are `== null` (NOT `=== undefined`): the engine's
  * `Option` counters serialize their absent value as JSON `null` while the
@@ -222,10 +232,9 @@ export function formatRowTime(r: TxrRunMethod): string {
     case 'running':
     case 'failed':
     case 'cannot_run':
+    case 'stopped':
       return r.elapsed_secs == null ? '' : formatSecs(r.elapsed_secs)
     case 'finished':
-    case 'stopped':
-    case 'skipped':
       return r.duration_ms == null
         ? ''
         : `done in ${formatSecs(r.duration_ms / 1000)}`
@@ -315,6 +324,16 @@ export function formatLogText(
 ): string {
   return lines.map(line => formatLogLine(line, methods)).join('\n')
 }
+
+/**
+ * The F log panel's empty-state lines (qa-fixes ITEM-3, RP-4): the lines
+ * area is never a blank box — the All view reads "No log lines yet." and a
+ * method view reads "No log lines for this method." (the plain-voice rule;
+ * the board's log is a filled example, an empty log is this app's real
+ * state and its words are the report's own suggestion).
+ */
+export const LOG_EMPTY_ALL = 'No log lines yet.'
+export const LOG_EMPTY_METHOD = 'No log lines for this method.'
 
 /**
  * The F log panel's method filter: `null` = every line (the "All methods"

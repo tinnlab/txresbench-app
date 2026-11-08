@@ -159,12 +159,19 @@ describe('TxrRunRow — the per-state row facts (TEST-RUN-20)', () => {
     )
   })
 
-  it('renders the stopped and skipped rows as their own state, no done line, Show log', () => {
+  it('a stopped row reads its own elapsed; a skipped row reads NOTHING (RP-7 — it never ran), Show log', () => {
     for (const state of ['stopped', 'skipped'] as const) {
       cleanup()
-      const { rowEl, onAction } = renderRow(row(state))
+      const { rowEl, onAction } = renderRow(
+        row(state, { elapsed_secs: 47, duration_ms: 90000 }),
+      )
       expect(within(rowEl).getByTestId('txr-run-state-method-a').textContent).toBe(state)
-      expect(within(rowEl).queryByTestId('txr-run-time-method-a')).toBeNull()
+      // The stopped row ran for 47 s → its elapsed; the skipped row never
+      // ran → no time cell at all, never the engine's duration_ms ("done
+      // in …" on a row that never started is a lie).
+      expect(
+        within(rowEl).queryByTestId('txr-run-time-method-a')?.textContent ?? null,
+      ).toBe(state === 'stopped' ? 'under a minute' : null)
       // The bar keeps the progress the row reached (none in this fixture —
       // never a fabricated 100 for a row that did not complete).
       expect(within(rowEl).getByTestId('txr-run-bar-method-a').style.width).toBe('0%')

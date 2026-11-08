@@ -276,7 +276,7 @@ export const gallery: ModuleGallery = {
     {
       slug: 'txr-run-f',
       title: 'Running (screen F) — live frames',
-      note: 'The live run: the header (6 methods, the estimate line), the five-count strip, the tabs, the per-method table and the log panel. The stream\'s frame script walks direct-on waiting → downloading (the env bytes, with the progress text) → running → finished, appends the log lines, and the prediction frame lights "See the results" — no navigation (EXAMPLE-UI-RUN-2).',
+      note: 'The live run: the header (6 methods, the estimate line, the live elapsed), the per-state counter strip, the tab chips, the per-method table and the log panel (the board\'s method select). The stream\'s frame script walks direct-on waiting → downloading (the env bytes, with the progress text) → running → finished, appends the log lines, and the prediction frame lights "See the results" — no navigation (EXAMPLE-UI-RUN-2).',
       path: '/analysis/:runId/running',
       initialPath: `/analysis/${'run-f'}/running`,
       component: lazy(() => Promise.resolve({ default: () => <FStoryView runId="run-f" /> })),
@@ -292,7 +292,7 @@ export const gallery: ModuleGallery = {
     {
       slug: 'txr-run-f-finished',
       title: 'Running (screen F) — terminal snapshot',
-      note: 'The finished run: every row finished, the strip\'s five counts, the tabs, the terminal status latched by the stream\'s replay, and "See the results" live (the snapshot renders, never a blank).',
+      note: 'The finished run: every row finished, the per-state counts, the tab chips, the run\'s own terminal title ("Finished 6 methods"), the terminal status latched by the stream\'s replay, "See the results" live and the live-run controls gone (RP-1) — the snapshot renders, never a blank.',
       path: '/analysis/:runId/running',
       initialPath: `/analysis/${'run-f-finished'}/running`,
       component: lazy(() => Promise.resolve({ default: () => <FStoryView runId="run-f-finished" /> })),
@@ -300,7 +300,7 @@ export const gallery: ModuleGallery = {
     {
       slug: 'txr-run-f-failed',
       title: 'Running (screen F) — the failures kept with their reasons',
-      note: 'The run with a failure pair: the failed/cannot-run rows carry their reason lines in the Failed tab, Show log opens the panel at the method, the healthy rows keep working (INV-2).',
+      note: 'The run with a failure pair: the failed rows carry their reason lines in the Failed tab and the cannot-run row in its own tab (RP-3), Show log opens the panel at the method, the healthy rows keep working (INV-2).',
       path: '/analysis/:runId/running',
       initialPath: `/analysis/${'run-f-failed'}/running`,
       component: lazy(() => Promise.resolve({ default: () => <FStoryView runId="run-f-failed" /> })),

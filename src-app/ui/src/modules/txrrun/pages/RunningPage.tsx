@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useStore } from 'zustand'
@@ -19,44 +19,71 @@ import type { TxrRunRowAction } from '../components/TxrRunRow'
  * surface. ITEM-9 delivers the page base: the run-id wiring (`useParams` →
  * the run store's `load`, once per id; a changed id resets and re-loads —
  * the single-instance-per-URL rule), the header block (methods count,
- * time left, elapsed, concurrency line, "See the results"), the five-count
- * strip, the All/Working/Finished/Failed tab chips (the page's filter
- * state, held in the run store so it survives a leave-and-continue), the
- * per-method table + the stop-all / at-a-time controls (ITEM-10 — the
- * rows are the active tab's bucket, the actions call the run store and
- * navigate with `txrresults`' builders) and the not-found / network
- * states (kit `Result` + the History link). The log panel +
- * leave-and-continue note (ITEM-11) build on this base next to the table.
+ * time left, elapsed, concurrency line, "See the results"), the per-state
+ * counter strip, the tab chips (the page's filter state, held in the run
+ * store so it survives a leave-and-continue), the per-method table + the
+ * stop-all / at-a-time controls (ITEM-10 — the rows are the active tab's
+ * bucket, the actions call the run store and navigate with `txrresults`'
+ * builders) and the not-found / network states (kit `Result` + the History
+ * link). The log panel + leave-and-continue note (ITEM-11) build on this
+ * base next to the table.
+ *
+ * qa-fixes ITEM-3 (RP-1/2/3): the ELAPSED fact is the run's own
+ * `elapsed_secs` snapshot at load plus a one-second client tick (the run's
+ * `started_at` is on the same machine — no clock skew) while the run is
+ * live, and the time-left line uses that LIVE elapsed, so "about N minutes
+ * left" counts down instead of freezing (INV-4: the estimate is still the
+ * engine's own, minus elapsed; nothing is re-scheduled here). The page is
+ * bounded (the E page's definite-height frame — CM-2) so the table and the
+ * log panel live inside it and scroll IN THEMSELVES; the per-state counter
+ * strip shows every engine state and the tab chips are one bucket per state
+ * (RP-3). When the run turns terminal WHILE the page is watching it, the
+ * page lands on the results screen (RP-1 — the run is over; its results
+ * page carries the finished/failed/stopped state, ITEM-1); a page opened
+ * directly at a terminal run loads the terminal snapshot and renders it
+ * with the run's own terminal title and disabled run controls, never a
+ * claim that the run is still going.
  *
  * The header's facts are composed here and formatted in `lib/format.ts`
  * (INV-4 — the time-left is the run's own create-time estimate minus its
  * elapsed; nothing on this page computes a schedule). The tab chip counts
  * are the module's own partition (`bucketOf`, DEC-2 — a complete partition
- * of the eight engine states; "All" is the row count), so the four counts
- * always add up to the run's rows. The "See the results" link is live when
- * the run's `predictions_ready` or ≥1 method is finished (DEC-12 / INV-1:
- * results readable while the others still run).
+ * of the eight engine states; "All" is the row count). The "See the
+ * results" link is live when the run's `predictions_ready` or ≥1 method is
+ * finished (DEC-12 / INV-1: results readable while the others still run).
  *
  * The 409-resolution notice (ITEM-8, DEC-18) stays: the E create path
  * navigates here with `{ resumed: true }` — the one line says the user is
  * watching the run that was already active.
  */
+const TERMINAL_RUN_STATUSES: ReadonlySet<string> = new Set(['finished', 'failed', 'stopped'])
+
+/** The page's definite height (the shell header is 56px — CM-2's frame). */
 const PAGE_MAIN: CSSProperties = {
   flexGrow: 1,
+  height: 'calc(100dvh - 56px)',
+  minHeight: 0,
+  minWidth: 0,
+  overflowY: 'auto',
   display: 'flex',
   flexWrap: 'wrap',
+  alignItems: 'stretch',
 }
 
 /** The board's main content column (flex-basis ordering = board: content
- *  first, log panel second — the log panel column joins at ITEM-11). */
+ *  first, log panel second — the log panel column joins at ITEM-11). The
+ *  column scrolls INSIDE itself (the bounded page; the table and the log
+ *  panel are never pushed down a 22,000 px document). */
 const CONTENT: CSSProperties = {
   flex: '3 1 600px',
   minWidth: 0,
+  minHeight: 0,
   boxSizing: 'border-box',
   padding: '26px 32px',
   display: 'flex',
   flexDirection: 'column',
   gap: 14,
+  overflowY: 'auto',
 }
 
 /** The resumed notice's full-width row (the page's flex-wrap layout). */
@@ -116,12 +143,23 @@ const ACTIVE_TAB = {
   borderColor: '#1d4e89',
 } as const
 
-/** The tab row's board order (All → Working → Finished → Failed). */
-const TABS: ReadonlyArray<{ id: TxrRunBucket; label: string }> = [
+/**
+ * The tab chips (the board's tab row above the method table): the board's
+ * All / Working / Finished / Failed pills, then one chip per terminal
+ * state the engine distinguishes (Stopped, Skipped, Cannot run — RP-3: a
+ * state is never counted under another state's tab) — the at-a-time
+ * control lives in the table section's footer row (ITEM-10's placement is
+ * recorded in DRIFT-1). A chip's count is that bucket's own count in the
+ * strip, so the strip and the tabs are one accounting.
+ */
+const TABS: ReadonlyArray<{ id: TxrRunBucket; label: string; definition?: string }> = [
   { id: 'all', label: 'All' },
-  { id: 'working', label: 'Working' },
+  { id: 'working', label: 'Working', definition: 'Waiting, downloading or running' },
   { id: 'finished', label: 'Finished' },
   { id: 'failed', label: 'Failed' },
+  { id: 'stopped', label: 'Stopped' },
+  { id: 'skipped', label: 'Skipped' },
+  { id: 'cannot_run', label: 'Cannot run' },
 ]
 
 function LoadingRun() {
@@ -204,10 +242,50 @@ export function RunningPage() {
   // The derived header/tab facts, computed on EVERY render path (the early
   // returns below must not change the hook order): the run-less branches
   // render nothing from these, and the branch guards run afterwards.
-  const title = formatRunTitle(run?.methods.length ?? 0)
-  const elapsedSecs = run?.elapsed_secs ?? null
-  const timeLeft = formatTimeLeft(run?.estimate ?? null, elapsedSecs)
-  const elapsed = elapsedSecs === null ? null : formatSecs(elapsedSecs)
+  const runStatus = run?.status ?? null
+  const terminal = runStatus !== null && TERMINAL_RUN_STATUSES.has(runStatus)
+  const title = formatRunTitle(run?.methods.length ?? 0, runStatus)
+
+  // The LIVE elapsed (RP-2): the run's own snapshot at load (the detail's
+  // `elapsed_secs`; the `started_at` anchor for a run whose snapshot had no
+  // elapsed — the server and the page are the same machine) plus a
+  // one-second client tick while the run is live, so the elapsed reads and
+  // the time-left counts down. The anchor is fixed per run id (a status or
+  // method frame re-patches `run` — the anchor must not be re-read, the
+  // tick must not be reset); a terminal run reads the engine's final
+  // `elapsed_secs` and stops ticking.
+  const [elapsedTick, setElapsedTick] = useState(0)
+  useEffect(() => {
+    setElapsedTick(0)
+  }, [run?.id])
+  // The anchor is fixed per run id: a status or method frame re-patches the
+  // run object, and re-reading the anchor there would reset the tick every
+  // frame — the snapshot's elapsed (or the started_at anchor) is taken ONCE
+  // per run, at the load that delivered it.
+  const elapsedAnchor = useMemo(() => {
+    if (run === null) return null
+    return (
+      run.elapsed_secs ??
+      (run.started_at !== undefined
+        ? Math.max(0, (Date.now() - Date.parse(run.started_at)) / 1000)
+        : null)
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the RUN
+    // ID only (the run object is re-patched by every frame).
+  }, [run?.id])
+  useEffect(() => {
+    if (run === null || terminal) return
+    const id = window.setInterval(() => setElapsedTick(t => t + 1), 1000)
+    return () => window.clearInterval(id)
+  }, [run?.id, terminal, run])
+  const liveElapsedSecs = useMemo(() => {
+    if (run === null) return null
+    if (terminal) return run.elapsed_secs ?? null
+    return elapsedAnchor === null ? null : elapsedAnchor + elapsedTick
+  }, [run, terminal, elapsedAnchor, elapsedTick])
+  const timeLeft = formatTimeLeft(run?.estimate ?? null, liveElapsedSecs)
+  const elapsed = liveElapsedSecs === null ? null : formatSecs(liveElapsedSecs)
+
   const finishedCount = useMemo(
     () => (run?.methods ?? []).filter(m => m.state === 'finished').length,
     [run],
@@ -220,6 +298,9 @@ export function RunningPage() {
       working: 0,
       finished: 0,
       failed: 0,
+      stopped: 0,
+      skipped: 0,
+      cannot_run: 0,
     }
     for (const method of methods) counts[bucketOf(method.state)] += 1
     return counts
@@ -227,6 +308,22 @@ export function RunningPage() {
 
   const resumed =
     (location.state as { resumed?: boolean } | null)?.resumed === true
+
+  // Land on results when the run turns terminal WHILE this page is watching
+  // it (RP-1 — the running screen's purpose is done; the results screen owns
+  // the finished/failed/stopped state). A page opened directly at a terminal
+  // run (a reload, a direct URL, the gallery's terminal snapshot story) is
+  // NOT redirected — it renders the terminal snapshot with the run's own
+  // terminal title. `sawLiveRef` records whether this page instance ever
+  // rendered a live status.
+  const sawLiveRef = useRef(false)
+  useEffect(() => {
+    if (run !== null && !terminal) sawLiveRef.current = true
+  }, [run, terminal])
+  useEffect(() => {
+    if (run === null || !terminal || !sawLiveRef.current) return
+    navigate(resultsPath(run.id))
+  }, [run, terminal, navigate])
 
   // The table's row set is the active tab's bucket over the run's rows
   // (DEC-2's partition — "All" is the row count; ITEM-9 note (a): the
@@ -311,12 +408,26 @@ export function RunningPage() {
               className="rounded-full font-normal"
               style={tab === entry.id ? ACTIVE_TAB : TAB_CHIP}
               aria-pressed={tab === entry.id}
+              title={entry.definition}
               onClick={() => TxrRun.setTab(entry.id)}
             >
               {entry.label} {bucketCounts[entry.id]}
             </Button>
           ))}
           <span style={{ flexGrow: 1 }} />
+          {!state.logOpen ? (
+            <Button
+              data-testid="txr-run-log-open"
+              variant="link"
+              style={{ fontSize: 14, fontWeight: 500 }}
+              onClick={() => {
+                TxrRun.setLogOpen(true)
+                TxrRun.setLogFilter(null)
+              }}
+            >
+              Show the log
+            </Button>
+          ) : null}
         </div>
         <TxrRunTable
           rows={visibleRows}
@@ -328,11 +439,14 @@ export function RunningPage() {
           atATimeError={state.atATimeError}
           onStopAll={() => void TxrRun.stopAll()}
           stopping={state.stopping}
+          terminal={terminal}
           actionError={state.actionError}
         />
-        <div data-testid="txr-run-leave-note" style={LEAVE_NOTE}>
-          {LEAVE_AND_CONTINUE_NOTE}
-        </div>
+        {!terminal ? (
+          <div data-testid="txr-run-leave-note" style={LEAVE_NOTE}>
+            {LEAVE_AND_CONTINUE_NOTE}
+          </div>
+        ) : null}
       </section>
       {state.logOpen ? (
         <TxrLogPanel

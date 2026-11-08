@@ -229,23 +229,30 @@ test.describe('txr-run-f — live frames drive the screen (TEST-RUN-25)', () => 
     // ── the prediction frame lights the results affordance ──
     await expect(page.getByTestId('txr-run-see-results')).toBeVisible({ timeout: 30_000 })
 
-    // ── the tabs' bucket partition adds up to the row set ──
+    // ── the tabs' bucket partition adds up to the row set (RP-3: one
+    //    bucket per engine state — the cannot-run row is its own tab) ──
     await expect(page.getByTestId('txr-run-tab-all')).toContainText('All 6')
     await expect(page.getByTestId('txr-run-tab-finished')).toContainText('Finished 1')
     await page.getByTestId('txr-run-tab-finished').click()
     await expect(page.getByTestId('txr-run-row-direct-on')).toBeVisible()
     await expect(page.getByTestId('txr-run-row-dynforest')).toHaveCount(0)
     await page.getByTestId('txr-run-tab-failed').click()
-    await expect(page.getByTestId('txr-run-row-cox-ctdna-status-rfs')).toBeVisible()
     await expect(page.getByTestId('txr-run-row-baseline-ctdna-detectability')).toBeVisible()
+    await expect(page.getByTestId('txr-run-row-cox-ctdna-status-rfs')).toHaveCount(0)
     await expect(page.getByTestId('txr-run-row-direct-on')).toHaveCount(0)
+    await page.getByTestId('txr-run-tab-cannot_run').click()
+    await expect(page.getByTestId('txr-run-row-cox-ctdna-status-rfs')).toBeVisible()
     await page.getByTestId('txr-run-tab-all').click()
 
     // ── the log panel: the stream's lines + the backfill, All view ──
     await page.getByTestId('txr-run-action-cox-ctdna-status-rfs').click()
     await expect(page.getByTestId('txr-run-log')).toBeVisible()
-    await expect(page.getByTestId('txr-run-log-filter-all')).toBeVisible()
-    await page.getByTestId('txr-run-log-filter-all').click()
+    await expect(page.getByTestId('txr-run-log-filter')).toBeVisible()
+    await expect(page.getByTestId('txr-run-log-filter')).toContainText('cox-ctdna-status-rfs')
+    // The board's select: pick "All methods" for the whole-run view.
+    await page.getByTestId('txr-run-log-filter').click()
+    await expect(page.getByTestId('txr-run-log-filter-opt-all')).toBeVisible()
+    await page.getByTestId('txr-run-log-filter-opt-all').click()
     await expect(page.getByTestId('txr-run-log-lines')).toContainText('run admitted; 6 methods queued')
     await expect(page.getByTestId('txr-run-log-lines')).toContainText('fitting on 132 patient rows')
 
@@ -291,7 +298,7 @@ test.describe('txr-run-f-working — the mid-run mix (TEST-RUN-25)', () => {
 })
 
 test.describe('txr-run-f-failed — the failures kept with their reasons (TEST-RUN-25)', () => {
-  test('reason lines in the Failed tab, Show log opens the panel at the method', async ({
+  test('reason lines in the Failed / Cannot run tabs, Show log opens the panel at the method', async ({
     page,
   }) => {
     await page.goto(`${GALLERY}txr-run-f-failed`)
@@ -304,6 +311,9 @@ test.describe('txr-run-f-failed — the failures kept with their reasons (TEST-R
     await expect(page.getByTestId('txr-run-detail-baseline-ctdna-detectability')).toContainText(
       'the environment did not verify',
     )
+    // The cannot-run row is NOT the Failed tab's (RP-3): its own tab.
+    await expect(page.getByTestId('txr-run-detail-cox-ctdna-status-rfs')).toHaveCount(0)
+    await page.getByTestId('txr-run-tab-cannot_run').click()
     await expect(page.getByTestId('txr-run-detail-cox-ctdna-status-rfs')).toContainText(
       'LDH is not in your measurements.',
     )
@@ -315,18 +325,23 @@ test.describe('txr-run-f-failed — the failures kept with their reasons (TEST-R
     await expect(page.getByTestId('txr-run-log-lines')).toContainText(
       'no eligibility — LDH is not in your measurements.',
     )
-    await expect(page.getByTestId('txr-run-log-filter-cox-ctdna-status-rfs')).toBeVisible()
+    await expect(page.getByTestId('txr-run-log-filter')).toContainText('cox-ctdna-status-rfs')
   })
 })
 
 test.describe('txr-run-f-finished — the terminal snapshot (TEST-RUN-25)', () => {
-  test('all rows finished, the results link live, tabs render the snapshot', async ({ page }) => {
+  test('all rows finished, the results link live, tabs render the snapshot (RP-1: the run\'s own terminal title)', async ({
+    page,
+  }) => {
     await page.goto(`${GALLERY}txr-run-f-finished`)
 
-    await expect(page.getByTestId('txr-run-title')).toHaveText('Running 6 methods')
+    await expect(page.getByTestId('txr-run-title')).toHaveText('Finished 6 methods')
     await expect(page.getByTestId('txr-run-counts-finished')).toHaveText('6 finished')
     await expect(rowCount(page)).toHaveCount(6)
     await expect(page.getByTestId('txr-run-see-results')).toBeVisible()
+    // A terminal run has no live-run controls and no leave-and-continue note.
+    await expect(page.getByTestId('txr-run-stop-all')).toBeDisabled()
+    await expect(page.getByTestId('txr-run-leave-note')).toHaveCount(0)
     await page.getByTestId('txr-run-tab-finished').click()
     await expect(rowCount(page)).toHaveCount(6)
     await page.getByTestId('txr-run-tab-working').click()

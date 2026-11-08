@@ -67,9 +67,12 @@ export interface TxrEndpointOption {
  * days in the board's own order (Busy.dc.html's select reads Day 56 |
  * Day 28 | Day 42 | Day 84 — settled at ITEM-7's rows, where the order
  * question recorded by PLAN ITEM-3 note (c) was decided), the horizon
- * values, and the bar's at-a-time presets. A value OUTSIDE a list (the
- * engine default 3, or a restored sticky value) renders as the
- * current-value chip — the board's own framing — never as a
+ * values, and the lane presets. The lane presets are 1–4 — the SAME set
+ * the E bottom bar lists (qa-fixes ITEM-3, RP-6: the F control's old
+ * 1/2/4 set omitted the engine's default 3, so the app default could not
+ * be re-chosen mid-run; the board's "Run at the same time" options read
+ * 3, 1, 2, 4). A value OUTSIDE a list (a restored sticky value) renders
+ * as the current-value chip — the board's own framing — never as a
  * silently-added option.
  */
 export const SETTING_OPTIONS = {
@@ -79,7 +82,7 @@ export const SETTING_OPTIONS = {
   ],
   decision_day: [56, 28, 42, 84] as const,
   look_ahead_day: [238, 180, 365] as const,
-  at_a_time: [1, 2, 4] as const,
+  at_a_time: [1, 2, 3, 4] as const,
 }
 
 /**

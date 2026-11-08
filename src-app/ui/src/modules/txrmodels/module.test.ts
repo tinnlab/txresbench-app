@@ -297,9 +297,10 @@ describe('txrmodels module (TEST-MOD-01)', () => {
     // `txrlist` module dir — the item's list/estimate/format rework
     // (CM-1's no-env count, CM-4's rounded durations, CM-5's dark-mode
     // checkboxes), sanctioned wholesale per the sibling-dir convention —
-    // the `txrrun` files the run screens' settings rework touches
-    // (ChooseMethodsPage + TxrSettingsBlock + settings.ts + the tests the
-    // at-a-time/estimate pins invalidate), and the `txrintake` preview
+    // the whole `txrrun` module dir — the run screens' qa-fixes ITEM-2
+    // settings rework + ITEM-3's running-page rework (header/strip/tabs/
+    // table/log-panel/at-a-time, its DRIFT-1), sanctioned wholesale per
+    // the sibling-dir convention — and the `txrintake` preview
     // fixtures/pins the estimate/eligibility field additions require.
     expect(
       touched.filter(
@@ -323,15 +324,7 @@ describe('txrmodels module (TEST-MOD-01)', () => {
           p !== 'src-app/ui/src/modules/txrintake/lib/preview.test.ts' &&
           p !== 'src-app/ui/src/modules/txrintake/data/useStudyPreview.test.tsx' &&
           p !== 'src-app/ui/src/modules/txrintake/pages/StudyPage.test.tsx' &&
-          p !== 'src-app/ui/src/modules/txrrun/module.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrrun/lib/format.ts' &&
-          p !== 'src-app/ui/src/modules/txrrun/lib/format.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrrun/components/TxrSettingsBlock.tsx' &&
-          p !== 'src-app/ui/src/modules/txrrun/data/useRunConfig.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrrun/lib/settings.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrrun/lib/settings.ts' &&
-          p !== 'src-app/ui/src/modules/txrrun/pages/ChooseMethodsPage.test.tsx' &&
-          p !== 'src-app/ui/src/modules/txrrun/pages/ChooseMethodsPage.tsx' &&
+          !p.startsWith('src-app/ui/src/modules/txrrun/') &&
           p !== 'src-app/ui/src/modules/txrresults/module.test.ts' &&
           p !== 'src-app/ui/src/modules/txrresults/pages/ResultsPage.tsx' &&
           p !== 'src-app/ui/src/modules/txrresults/pages/MethodResultsPage.tsx' &&

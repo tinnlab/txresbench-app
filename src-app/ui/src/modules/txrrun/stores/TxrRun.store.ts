@@ -200,7 +200,7 @@ const isMethodState = (v: string | undefined): v is TxrRunMethod['state'] =>
 /**
  * The run's counts derived from its method rows — the only local counts
  * source: a `method`/`prediction` frame's transition is already reflected in
- * the rows, so the five-count strip never waits for a refetch (INV-1). The
+ * the rows, so the per-state counts strip never waits for a refetch (INV-1). The
  * generated `TxrRunCounts` keys are exactly the method states.
  */
 function countsFromMethods(methods: TxrRunMethod[]): TxrRunCounts {

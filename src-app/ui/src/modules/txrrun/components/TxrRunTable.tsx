@@ -120,6 +120,10 @@ export interface TxrRunTableProps {
   onStopAll: () => void
   /** A run-level action in flight (Stop all's own call): button busy, at-a-time disabled. */
   stopping: boolean
+  /** The run is over (terminal status): Stop all and the lane pick are
+   *  disabled — a finished run's controls must not claim a live run
+   *  (qa-fixes ITEM-3, RP-1). */
+  terminal: boolean
   /** Stop all's failure line (the run-level action error). */
   actionError: string | null
 }
@@ -134,12 +138,13 @@ export function TxrRunTable({
   atATimeError,
   onStopAll,
   stopping,
+  terminal,
   actionError,
 }: TxrRunTableProps) {
   return (
     <section data-testid="txr-run-table-section" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div style={TABLE_BOX}>
-        <table data-testid="txr-run-table" style={TABLE}>
+      <div className="txr-run-table-box" style={TABLE_BOX}>
+        <table data-testid="txr-run-table" className="txr-run-table" style={TABLE}>
           <thead>
             <tr>
               <th scope="col" style={HEADER_LOOK}>
@@ -195,6 +200,7 @@ export function TxrRunTable({
             className="rounded-lg"
             style={STOP_ALL}
             loading={stopping}
+            disabled={terminal}
           >
             Stop all
           </Button>
@@ -208,7 +214,7 @@ export function TxrRunTable({
         <TxrAtATimeControl
           value={atATime}
           onChange={onAtATime}
-          busy={stopping}
+          busy={stopping || terminal}
           error={atATimeError}
         />
       </div>

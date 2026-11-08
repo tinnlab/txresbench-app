@@ -52,6 +52,7 @@ function propsOf(overrides: Partial<TxrRunTableProps> = {}): TxrRunTableProps {
     atATimeError: null,
     onStopAll: () => undefined,
     stopping: false,
+    terminal: false,
     actionError: null,
     ...overrides,
   }
@@ -100,14 +101,15 @@ describe('TxrRunTable — the per-method grid (TEST-RUN-21)', () => {
   it('renders the run\'s at-a-time value and reports the lane pick (the GAP call site)', () => {
     const { onAtATime } = renderTable({ atATime: 3 })
     const control = screen.getByTestId('txr-run-at-a-time-control')
-    // The value (3) sits outside the presets — its own chip; picking a preset reports.
+    // The value (3) sits inside the 1–4 presets (RP-6) — its own chip was
+    // the defect; picking a preset reports.
     expect(within(control).getAllByRole('tab').map(b => b.textContent)).toEqual([
       '1',
       '2',
-      '4',
       '3',
+      '4',
     ])
-    fireEvent.click(within(control).getAllByRole('tab')[2])
+    fireEvent.click(within(control).getAllByRole('tab')[3])
     expect(onAtATime).toHaveBeenCalledWith(4)
   })
 
@@ -137,6 +139,16 @@ describe('TxrRunTable — Stop all + the confirm gate (TEST-RUN-21, DEC-10)', ()
 
   it('disables the at-a-time row while a run-level action is in flight', () => {
     renderTable({ stopping: true })
+    for (const option of within(
+      screen.getByTestId('txr-run-at-a-time-control'),
+    ).getAllByRole('tab')) {
+      expect(option.getAttribute('aria-disabled')).toBe('true')
+    }
+  })
+
+  it('a terminal run (RP-1) disables Stop all and the lane pick — no controls on a finished run', () => {
+    renderTable({ terminal: true })
+    expect(screen.getByTestId('txr-run-stop-all').hasAttribute('disabled')).toBe(true)
     for (const option of within(
       screen.getByTestId('txr-run-at-a-time-control'),
     ).getAllByRole('tab')) {

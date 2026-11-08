@@ -14,7 +14,7 @@ the results readable while the other methods still run.
 | screen | board | route | what the user sees |
 |---|---|---|---|
 | E — choose methods and settings | `Busy.dc.html` | `/choose-methods` | the file slots (Patients / Measurements / Predict) with "Change files", the four setting rows (Predict, Decision day, Look ahead to, Extra inputs + More settings), the shared `TxrSelectList` with its group chips, and the bottom bar (selected count, total time, run at-a-time, save-the-trained-models, research notice, Run) |
-| F — running | `BusyRunning.dc.html` | `/analysis/:runId/running` | the header (methods count, time left, elapsed, concurrency line, "See the results"), the five-count strip, the All / Working / Finished / Failed tabs, the method table (state, detail, progress, time, per-state action), Stop all, the leave-and-continue note and the log panel |
+| F — running | `BusyRunning.dc.html` | `/analysis/:runId/running` | the header (methods count with the run's status word, time left, elapsed, concurrency line, "See the results"), the per-state counter strip (every engine state), the tab chips (All / Working / Finished / Failed / Stopped / Skipped / Cannot run — one bucket per state), the method table (state, detail, progress, time, per-state action), Stop all, the leave-and-continue note and the log panel (the board's method select, the live lines, follow-newest, copy) |
 
 Every route is `requiresAuth: true` under the shell layout (`TxrLayoutDef`
 from `txrshell/module.tsx`). The path builders live in `routes.ts` and are

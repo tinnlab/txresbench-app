@@ -124,3 +124,58 @@ html.dark .os-theme-dark {
 .txr-settings-switch:is(.dark *):not([data-checked]) [data-slot='switch-thumb'] {
   background-color: #ffffff !important;
 }
+
+/* QA-fixes ITEM-3 (RP-5): screen F's method table at phone width. The
+ * board's table columns cannot fit 390 px — the State column clipped and
+ * the Progress/Time/Actions cells sat off-screen (the 817 px scrollWidth
+ * report). Below 640 px the rows stack as cards: the header row hides,
+ * each row is a card with the method id as its title and the labelled
+ * cells from each cell's data-label. The desktop table keeps a readable
+ * minimum width so the Progress column never collapses into the 85 px
+ * sliver (RP-4c) — the box scrolls inside itself at mid widths. */
+@media (max-width: 640px) {
+  .txr-run-table {
+    display: block;
+    min-width: 0;
+  }
+  .txr-run-table thead {
+    display: none;
+  }
+  .txr-run-table tbody {
+    display: block;
+  }
+  .txr-run-table tr.txr-run-row {
+    display: block;
+    padding: 10px 0 2px;
+  }
+  .txr-run-table tr.txr-run-row th,
+  .txr-run-table tr.txr-run-row td {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 3px 12px;
+    border-bottom: none;
+  }
+  .txr-run-table tr.txr-run-row th {
+    white-space: normal !important;
+    word-break: break-word;
+  }
+  .txr-run-table tr.txr-run-row td::before {
+    content: attr(data-label);
+    flex: 0 0 68px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #5e5e5e;
+  }
+}
+@media (min-width: 641px) {
+  .txr-run-table {
+    min-width: 700px;
+  }
+}
+
+/* QA-fixes ITEM-3 (RP-8): the F header's "See the results" link — the
+ * board's link tone on hover (the inline style carries the resting tone). */
+.txr-run-see-results:hover {
+  color: #143a68 !important;
+}

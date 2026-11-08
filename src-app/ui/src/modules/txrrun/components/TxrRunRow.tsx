@@ -155,12 +155,13 @@ export function TxrRunRow({ row, progress, rowError, onAction }: TxrRunRowProps)
   return (
     <tr
       data-testid={`txr-run-row-${row.method_id}`}
+      className="txr-run-row"
       style={{ background: failed ? FAILURE_TINT : '#ffffff' }}
     >
       <th scope="row" style={METHOD_LOOK}>
         {row.label}
       </th>
-      <td style={STATE_WORD}>
+      <td data-label="State" style={STATE_WORD}>
         <span
           data-testid={`txr-run-state-${row.method_id}`}
           style={{ color: STATE_TONE[row.state] }}
@@ -168,7 +169,7 @@ export function TxrRunRow({ row, progress, rowError, onAction }: TxrRunRowProps)
           {STATE_LABEL[row.state]}
         </span>
       </td>
-      <td style={{ ...COLUMN_LOOK, width: '26%' }}>
+      <td data-label="Progress" style={{ ...COLUMN_LOOK, width: '26%' }}>
         <div style={BAR_TRACK}>
           <div
             data-testid={`txr-run-bar-${row.method_id}`}
@@ -181,7 +182,7 @@ export function TxrRunRow({ row, progress, rowError, onAction }: TxrRunRowProps)
           </div>
         ) : null}
       </td>
-      <td style={TIME_LOOK}>
+      <td data-label="Time" style={TIME_LOOK}>
         {time !== '' ? <span data-testid={`txr-run-time-${row.method_id}`}>{time}</span> : null}
       </td>
       <td style={ACTION_LOOK}>

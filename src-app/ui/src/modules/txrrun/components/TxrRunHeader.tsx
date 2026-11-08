@@ -18,13 +18,21 @@
  * is the board's method count over the run's rows, and one method reads
  * singular.
  *
+ * The title reads the RUN's status (qa-fixes ITEM-3, RP-1): "Running N
+ * methods" while the run works, "Finishing N methods" while the engine
+ * finalizes, and the run's own terminal word — Finished / Failed / Stopped
+ * — once it is over. A terminal run's title never claims the run is still
+ * running.
+ *
  * "See the results" lives beside the title, visible exactly when the page
  * says the run has something to show (DEC-12's rule — the page passes
  * `predictions_ready || ≥1 finished row` as `predictionsReady`): the link
  * target is `txrresults`' own `resultsPath(runId)` builder (CONS-UI-RUN-15,
  * PROV-UR-1 — the provider declares this consumer; never a URL literal),
  * and the click also reports through the host's `onSeeResults` (the same
- * navigation the page owns — one affordance, one path).
+ * navigation the page owns — one affordance, one path). The link reads in
+ * the board's link tone (RP-8: it was bold dark text, indistinguishable
+ * from a caption).
  *
  * The board's overall two-segment progress bar is NOT here: neither the
  * frozen header nor the counts-strip props carry an overall percentage
@@ -33,6 +41,7 @@
 import type { CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
 import { resultsPath } from '@/modules/txrresults/routes'
+import type { TxrRunStatus } from '@/api-client/types'
 import { RESEARCH_NOTICE } from '../lib/format'
 
 const HEADER: CSSProperties = {
@@ -69,14 +78,35 @@ const FOOTER_ROW: CSSProperties = {
   gap: 8,
 }
 
-const SEE_RESULTS: CSSProperties = { fontSize: 14, fontWeight: 600 }
+const SEE_RESULTS: CSSProperties = {
+  fontSize: 14,
+  fontWeight: 400,
+  color: '#1d4e89',
+  textDecoration: 'none',
+}
 
 const NOTICE: CSSProperties = { fontSize: 13, color: '#5e5e5e' }
 
-/** The board's F title with the count from the run's rows ("Running 6
- *  methods"; one method reads singular — the board's own title words). */
-export function formatRunTitle(count: number): string {
-  return `Running ${count} ${count === 1 ? 'method' : 'methods'}`
+/** The run-status → title word (the board's "Running"; the terminal states
+ *  the run's own word — a finished run is never titled "Running"). */
+const TITLE_WORD: Record<TxrRunStatus, string> = {
+  creating: 'Running',
+  preparing: 'Running',
+  running: 'Running',
+  finishing: 'Finishing',
+  finished: 'Finished',
+  failed: 'Failed',
+  stopped: 'Stopped',
+}
+
+/**
+ * The board's F title with the count from the run's rows ("Running 6
+ * methods"; one method reads singular — the board's own title words) and
+ * the status word (RP-1; `null` status = the board's running words).
+ */
+export function formatRunTitle(count: number, status: TxrRunStatus | null = null): string {
+  const word = TITLE_WORD[status ?? 'running']
+  return `${word} ${count} ${count === 1 ? 'method' : 'methods'}`
 }
 
 export interface TxrRunHeaderProps {
@@ -141,6 +171,7 @@ export function TxrRunHeader({
         {predictionsReady ? (
           <Link
             data-testid="txr-run-see-results"
+            className="txr-run-see-results"
             to={resultsPath(runId)}
             onClick={onSeeResults}
             style={SEE_RESULTS}

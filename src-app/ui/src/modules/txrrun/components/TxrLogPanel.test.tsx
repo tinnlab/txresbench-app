@@ -1,22 +1,26 @@
 // @vitest-environment jsdom
 /**
  * TEST-RUN-22 — screen F's log panel (`components/TxrLogPanel.tsx`, ITEM-11;
- * PROV-UI-RUN-5's panel surface): the "All methods" + one-chip-per-method
- * filter (the chip set is the run's METHOD ROWS, not the lines' occurrences
- * — a method with no engine line yet still has its chip), a chip filtering
- * the line list (the engine-level line with no method id belongs to the
+ * PROV-UI-RUN-5's panel surface): the method filter — the BOARD's select
+ * ("All methods" + one option per run method, qa-fixes ITEM-3 RP-4: the
+ * one-chip-per-method pills stacked 209 chips for a 209-method run, so the
+ * lines area started 3,600 px down the page), a chosen option filtering the
+ * line list (the engine-level line with no method id belongs to the
  * whole-run view only, the sibling log dialog's rule), the per-row Show-log
- * handoff (open + filter = the method's chip pressed — the page's click
- * wiring is the page test's row), "Follow the newest line" pinning the
- * scroll (measured on the pre's scroll container ref — the JobDetail idiom
- * the sibling log dialog uses), "Copy the log" writing the panel's own
- * display text to the clipboard (`HH:MM:SS [method] content` per line —
- * one formatter for display and copy), the 200-line render cap with the
- * "Showing N of M lines" count, the unread badge on a chip (lines that
- * arrived while the panel shows another method — the plate's "logUnread
- * count on the filter chip"), the backfill report on open / method switch
- * (the host's `loadLogs`, CONS-UI-RUN-10) and the Hide control reporting
+ * handoff (open + filter = the method selected — the page's click wiring is
+ * the page test's row), "Follow the newest line" pinning the scroll
+ * (measured on the pre's scroll container ref — the JobDetail idiom the
+ * sibling log dialog uses), "Copy the log" writing the panel's own display
+ * text to the clipboard (`HH:MM:SS [method] content` per line — one
+ * formatter for display and copy), the 200-line render cap with the
+ * "Showing N of M lines" count, the empty-state line (never a blank box,
+ * RP-4b), the backfill report on open / method switch (the host's
+ * `loadLogs`, CONS-UI-RUN-10) and the Hide control reporting
  * `onOpenChange(false)`.
+ *
+ * The unread chip badge of the earlier pill idiom is deliberately gone:
+ * the board's select carries no badge surface (the plate's logUnread note
+ * dates the pill filter), DRIFT-1 ITEM-3 records the trade.
  *
  * Clipboard + scroll are mocked the sibling test's way (the G screen's log
  * dialog test): `navigator.clipboard` defined for the write, the pre's
@@ -26,13 +30,13 @@
  */
 process.env.TZ = 'UTC'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { TxrRunLogLine } from '@/api-client/types'
 import { TxrLogPanel, type TxrLogPanelProps } from './TxrLogPanel'
 
 // jsdom has no working PointerEvent constructor; base-ui's controls (the
-// kit Switch) construct one on pointer interaction (the settings-block
-// test's shim, copied).
+// kit Select / Switch) construct one on pointer interaction (the
+// settings-block test's shim, copied).
 {
   const w = window as unknown as {
     PointerEvent?: new (type: string, init?: MouseEventInit) => MouseEvent
@@ -53,7 +57,23 @@ async function clickKit(target: HTMLElement): Promise<void> {
   })
 }
 
-/** The panel's run rows — one per chip, INCLUDING a method with no line. */
+/** Open the filter's option list (the kit Select's trigger sequence). */
+async function openFilter(): Promise<void> {
+  await clickKit(screen.getByTestId('txr-run-log-filter'))
+}
+
+/** Pick one option of the filter (the option's pointer/click sequence). */
+async function pickFilter(optionId: string): Promise<void> {
+  const option = await screen.findByTestId(optionId)
+  await act(async () => {
+    fireEvent.pointerDown(option, { button: 0, pointerType: 'mouse' })
+    fireEvent.mouseDown(option, { button: 0 })
+    fireEvent.click(option)
+    await Promise.resolve()
+  })
+}
+
+/** The panel's run rows — one per option, INCLUDING a method with no line. */
 const METHODS = [
   { method_id: 'dynforest', label: 'dynforest' },
   { method_id: 'flirti', label: 'flirti' },
@@ -99,19 +119,18 @@ afterEach(() => {
 })
 
 describe('TxrLogPanel (TEST-RUN-22)', () => {
-  it('renders "All methods" plus one chip per run METHOD (not per line occurrence)', () => {
+  it('renders "All methods" plus one option per run METHOD (not per line occurrence)', async () => {
     render(<TxrLogPanel {...makeProps()} />)
-    const filters = within(screen.getByTestId('txr-run-log-filters'))
-    expect(filters.getAllByRole('button').map(b => b.textContent)).toEqual([
-      'All methods',
-      'dynforest',
-      'flirti',
-      'baseline-cox',
-    ])
-    expect(screen.getByTestId('txr-run-log-filter-all').getAttribute('aria-pressed')).toBe('true')
+    // The trigger reads the selected option's label — the All view first.
+    expect(screen.getByTestId('txr-run-log-filter').textContent).toContain('All methods')
+    await openFilter()
+    expect(screen.getByTestId('txr-run-log-filter-opt-all')).toBeTruthy()
+    expect(screen.getByTestId('txr-run-log-filter-opt-dynforest')).toBeTruthy()
+    expect(screen.getByTestId('txr-run-log-filter-opt-flirti')).toBeTruthy()
+    expect(screen.getByTestId('txr-run-log-filter-opt-baseline-cox')).toBeTruthy()
   })
 
-  it('a chip filters the line list; the engine-level line belongs to All only', async () => {
+  it('an option filters the line list; the engine-level line belongs to All only', async () => {
     const props = makeProps()
     const view = render(<TxrLogPanel {...props} />)
     const pre = screen.getByTestId('txr-run-log-lines')
@@ -119,7 +138,8 @@ describe('TxrLogPanel (TEST-RUN-22)', () => {
     expect(pre.textContent).toContain('[engine] run started')
     expect(props.onFilter).not.toHaveBeenCalled()
 
-    fireEvent.click(screen.getByTestId('txr-run-log-filter-flirti'))
+    await openFilter()
+    await pickFilter('txr-run-log-filter-opt-flirti')
     expect(props.onFilter).toHaveBeenCalledWith('flirti')
 
     // The store's filter took effect (the host set it — direct re-render):
@@ -130,14 +150,14 @@ describe('TxrLogPanel (TEST-RUN-22)', () => {
     expect(pre.textContent).toContain('[flirti] downloading 160 of 250 MB')
     expect(pre.textContent).not.toContain('[dynforest]')
     expect(pre.textContent).not.toContain('run started')
-    expect(screen.getByTestId('txr-run-log-filter-flirti').getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('txr-run-log-filter').textContent).toContain('flirti')
   })
 
-  it('the per-row Show-log state opens the panel at that method (the chip pressed, that method\'s lines)', () => {
+  it('the per-row Show-log state opens the panel at that method (the option selected, that method\'s lines)', () => {
     // The page's click wiring is the page test's row; the panel's own half:
-    // given open + filter, the method's chip is pressed and its lines show.
+    // given open + filter, the method's option is selected and its lines show.
     render(<TxrLogPanel {...makeProps({ filter: 'dynforest' })} />)
-    expect(screen.getByTestId('txr-run-log-filter-dynforest').getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('txr-run-log-filter').textContent).toContain('dynforest')
     expect(screen.getByTestId('txr-run-log-lines').textContent).toContain(
       '[dynforest] fitting on 151 patients',
     )
@@ -249,28 +269,17 @@ describe('TxrLogPanel (TEST-RUN-22)', () => {
     expect(screen.getByTestId('txr-run-log-count').textContent).toBe('Showing 4 of 4 lines')
   })
 
-  it('badges the chip for lines that arrived while the panel shows another method, and clears them on view', async () => {
-    const props = makeProps({ filter: 'dynforest' })
-    const view = render(<TxrLogPanel {...props} />)
-    // Mount seed: the existing lines are history — no badges anywhere.
-    expect(screen.queryByTestId('txr-run-log-unread-flirti')).toBeNull()
+  it('an empty lines area reads its state line — never a blank box (RP-4b)', () => {
+    cleanup()
+    render(<TxrLogPanel {...makeProps({ lines: [], total: 0 })} />)
+    expect(screen.getByTestId('txr-run-log-lines').textContent).toBe('No log lines yet.')
+    expect(screen.queryByTestId('txr-run-log-count')).toBeNull()
 
-    await act(async () => {
-      view.rerender(
-        <TxrLogPanel {...props} lines={[...LINES, line(5, 'flirti', 'downloading 171 of 250 MB')]} />,
-      )
-      await Promise.resolve()
-    })
-    // The new line is unread for its method AND for the All view (the panel
-    // is showing dynforest — nothing painted the new line).
-    expect(screen.getByTestId('txr-run-log-unread-flirti').textContent).toBe('1')
-    expect(screen.getByTestId('txr-run-log-unread-all').textContent).toBe('1')
-
-    await act(async () => {
-      view.rerender(<TxrLogPanel {...props} filter="flirti" />)
-      await Promise.resolve()
-    })
-    await waitFor(() => expect(screen.queryByTestId('txr-run-log-unread-flirti')).toBeNull())
+    cleanup()
+    render(<TxrLogPanel {...makeProps({ lines: [], total: 0, filter: 'flirti' })} />)
+    expect(screen.getByTestId('txr-run-log-lines').textContent).toBe(
+      'No log lines for this method.',
+    )
   })
 
   it('the Hide control reports onOpenChange(false) once', async () => {
