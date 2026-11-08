@@ -22,6 +22,12 @@ mod env_publish_runbook_test;
 // kinds. They sit outside every other Rust gate (nothing compiles or runs them), which is
 // how the fetch script's converters-only reader survived. Synthetic trees, no network.
 mod env_script_derivation_test;
+// ITEM-2 (qa-hardening) — TEST-QA-2: the dev-registry acceptance — the app's
+// MethodEnvManager + run_method_in_stack fetch, verify, mount and run a layer
+// the dev publisher pushed to the dev registry. Driven by
+// scripts/dev-registry/acceptance.sh (env-gated; honest record_skip when the
+// driver did not run the acceptance).
+mod dev_registry_test;
 mod settings_test;
 // T3 / ITEM-6 (PROV-T3-1): the saas-gated KubernetesBackend job-per-run (runtime-self-skips
 // via record_skip when no kind cluster is reachable). The file is `#![cfg(feature = "saas")]`

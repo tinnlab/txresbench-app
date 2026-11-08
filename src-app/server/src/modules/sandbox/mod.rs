@@ -167,7 +167,7 @@ impl AppModule for SandboxModule {
                 stack_boot_summary(
                     init_status(),
                     method_env::tool_bin("oras").map(|p| p.display().to_string()),
-                    stack::TXR_BASE_REGISTRY_PREFIX,
+                    &method_env::effective_base_prefix(),
                 )
             );
                 return Ok(());
@@ -185,7 +185,7 @@ impl AppModule for SandboxModule {
                 stack_boot_summary(
                     init_status(),
                     method_env::tool_bin("oras").map(|p| p.display().to_string()),
-                    stack::TXR_BASE_REGISTRY_PREFIX,
+                    &method_env::effective_base_prefix(),
                 )
             );
             return Ok(());
@@ -203,7 +203,7 @@ impl AppModule for SandboxModule {
                 stack_boot_summary(
                     init_status(),
                     method_env::tool_bin("oras").map(|p| p.display().to_string()),
-                    stack::TXR_BASE_REGISTRY_PREFIX,
+                    &method_env::effective_base_prefix(),
                 )
             );
             return Ok(());
@@ -231,7 +231,7 @@ impl AppModule for SandboxModule {
             stack_boot_summary(
                 init_status(),
                 method_env::tool_bin("oras").map(|p| p.display().to_string()),
-                stack::TXR_BASE_REGISTRY_PREFIX,
+                &method_env::effective_base_prefix(),
             )
         );
         // txr method-env manager: loads the persisted download-state ledger

@@ -305,8 +305,53 @@ fn registry_prefixes(seams: &MethodEnvSeams) -> Vec<String> {
 static MANAGER: once_cell::sync::OnceCell<MethodEnvManager> = once_cell::sync::OnceCell::new();
 
 /// [`MANAGER`] — the `config::get_state()`-style accessor PROV-SS-4 names.
+/// In a DEBUG build the process environment may name a dev registry host
+/// (`CYTO_TXR_METHOD_ENV_REGISTRY`, see [`dev_env_seams`]); a release build
+/// always constructs the production seams, so the qa-hardening dev registry
+/// can never reach a shipped binary.
 pub fn manager() -> &'static MethodEnvManager {
-    MANAGER.get_or_init(MethodEnvManager::new)
+    MANAGER.get_or_init(MethodEnvManager::from_env)
+}
+
+/// The dev-only registry seam wiring (ITEM-2, node qa-hardening): read the
+/// loopback registry HOST from `CYTO_TXR_METHOD_ENV_REGISTRY` and route it
+/// through the EXISTING [`MethodEnvSeams::registry`] seam — the same
+/// re-point-the-host, keep-the-namespace rule the loopback integration
+/// fixtures use (`with_seams`). Debug builds only: the `#[cfg]` halves make a
+/// release build evaluate to the production defaults, so no environment can
+/// turn a shipped binary onto another registry. The air-gap seams stay
+/// honored (a dev box that stages artifacts still stages them).
+pub fn dev_env_seams() -> MethodEnvSeams {
+    dev_seams_from(&|k| std::env::var(k).ok())
+}
+
+/// The pure core of [`dev_env_seams`] (injected read — the unit test pins the
+/// mapping without touching the process env).
+fn dev_seams_from(read: &impl Fn(&str) -> Option<String>) -> MethodEnvSeams {
+    #[cfg(debug_assertions)]
+    {
+        let registry = read("CYTO_TXR_METHOD_ENV_REGISTRY")
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty());
+        MethodEnvSeams {
+            registry,
+            bypass_air_gap_env: false,
+        }
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = read;
+        MethodEnvSeams::default()
+    }
+}
+
+/// The EFFECTIVE base registry prefix of this process: the compiled
+/// `ghcr.io/tinnlab/txresbench-env` in release, or the dev-seam host (same
+/// namespace/repo) in a debug build with `CYTO_TXR_METHOD_ENV_REGISTRY` set —
+/// the value the status surface reports, so a dev run never claims to fetch
+/// from ghcr.io.
+pub fn effective_base_prefix() -> String {
+    registry_prefixes(&dev_env_seams())[0].clone()
 }
 
 /// A per-env-id download-state ledger + fetch/verify/cache/mount owner
@@ -388,6 +433,15 @@ impl MethodEnvManager {
     /// honored.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// The manager with the dev registry seam read from the process
+    /// environment ([`dev_env_seams`]) — the wiring of
+    /// [`MethodEnvManager::manager`] so the running server (a debug build) can
+    /// fetch from the qa-hardening dev registry; a release build sees the
+    /// production seams.
+    fn from_env() -> Self {
+        Self::with_seams(dev_env_seams())
     }
 
     /// A manager configured explicitly (test fixtures, loopback registries) —
@@ -1079,6 +1133,20 @@ fn unknown_status(env_id: &str) -> MethodEnvStatus {
 
 // ────────────────────────────── OCI reference grammar ─────────────────────────
 
+/// The two compiled registry prefixes (the shipped namespaces on `ghcr.io`).
+/// A release manager's allowed set is byte-identical to this (locked by the
+/// parity test); a debug seam manager accepts BOTH spellings — its own (a
+/// fixture spelling the seam host directly) and the compiled ones, which it
+/// maps onto its own host (the seam's contract: "registry HOST to fetch from
+/// instead of ghcr.io", with the compiled namespace/repo names kept — the
+/// engine's ref builders emit exactly those namespaces).
+fn compiled_registry_prefixes() -> Vec<String> {
+    vec![
+        format!("{TXR_REGISTRY_HOST}/{TXR_REGISTRY_NAMESPACE}/{TXR_ENVS_REPO}"),
+        format!("{TXR_REGISTRY_HOST}/{TXR_REGISTRY_NAMESPACE}/{TXR_LAYERS_REPO}"),
+    ]
+}
+
 /// Parse + validate an OCI reference against THIS manager's allowed prefixes
 /// ([`registry_prefixes`]; release = the two compiled txr registries).
 ///
@@ -1088,11 +1156,40 @@ fn unknown_status(env_id: &str) -> MethodEnvStatus {
 /// re-point. The parity unit test locks the release default against the
 /// frozen `stack` grammar, so the two cannot silently drift — the
 /// `env_id.rs` single-sourcing discipline, applied as a test.
+///
+/// Under a DEBUG seam (a different registry host):
+/// * a ref spelling the seam host directly parses to itself (the fixture/
+///   test shape, as before ITEM-2);
+/// * a ref spelling the COMPILED namespaces is accepted and its
+///   `registry_base` is mapped onto the seam host's same-namespace prefix —
+///   the shape the engine's own ref builders
+///   ([`crate::modules::execution_engine::orchestrator::base_env_ref`];
+///   `layer_env_ref` its sibling) emit in production. Without the mapping the
+///   wired app would refuse its own refs the moment the seam is set (ITEM-2
+///   caught this in the acceptance test).
+/// A ref on a host outside BOTH sets is refused identically with or without
+/// the seam.
 pub(crate) fn parse_oci_ref(
     oci_ref: &str,
     seams: &MethodEnvSeams,
 ) -> Result<OciRefParts, AppError> {
-    parse_oci_ref_against(oci_ref, &registry_prefixes(seams))
+    let effective = registry_prefixes(seams);
+    match parse_oci_ref_against(oci_ref, &effective) {
+        Ok(parts) => Ok(parts),
+        Err(effective_err) => {
+            let compiled = compiled_registry_prefixes();
+            if compiled == effective {
+                return Err(effective_err);
+            }
+            let mut parts = parse_oci_ref_against(oci_ref, &compiled).map_err(|_| effective_err)?;
+            let idx = compiled
+                .iter()
+                .position(|p| p.as_str() == parts.registry_base)
+                .expect("a compiled match is one of the compiled prefixes");
+            parts.registry_base = effective[idx].clone();
+            Ok(parts)
+        }
+    }
 }
 
 fn parse_oci_ref_against(oci_ref: &str, prefixes: &[String]) -> Result<OciRefParts, AppError> {
@@ -1876,6 +1973,85 @@ mod tests {
     fn hex_of(bytes: &[u8]) -> String {
         use sha2::{Digest, Sha256};
         hex::encode(Sha256::digest(bytes))
+    }
+
+    /// ITEM-2 (qa-hardening): the dev-registry seam is pure env → seams — the
+    /// loopback host lands in [`MethodEnvSeams::registry`], the namespace and
+    /// repo names stay compiled, the air-gap seams stay honored, and an unset/
+    /// blank variable is the production default (a debug build with nothing
+    /// configured is byte-identical to a release manager's seams).
+    #[test]
+    #[cfg(debug_assertions)]
+    fn dev_registry_seam_maps_env_to_registry_host_only() {
+        let read = |v: &str| {
+            let mut m = std::collections::HashMap::new();
+            m.insert("CYTO_TXR_METHOD_ENV_REGISTRY".to_string(), "127.0.0.1:5055".to_string());
+            m.get(v).cloned()
+        };
+        let seams = dev_seams_from(&read);
+        assert_eq!(seams.registry.as_deref(), Some("127.0.0.1:5055"));
+        assert!(!seams.bypass_air_gap_env, "the dev registry never bypasses the air-gap seams");
+        let prefixes = registry_prefixes(&seams);
+        assert_eq!(prefixes[0], "127.0.0.1:5055/tinnlab/txresbench-env");
+        assert_eq!(prefixes[1], "127.0.0.1:5055/tinnlab/txr-method-env-layers");
+        assert_eq!(
+            effective_base_prefix(),
+            "ghcr.io/tinnlab/txresbench-env",
+            "the process env has no dev registry set in this test process"
+        );
+
+        let unset = dev_seams_from(&|_| None);
+        assert_eq!(unset.registry, None);
+        let blank = dev_seams_from(&|_| Some("  ".to_string()));
+        assert_eq!(blank.registry, None, "a blank value is not a registry host");
+    }
+
+    /// ITEM-2 (qa-hardening): under the dev seam the parser accepts the
+    /// COMPILED spellings the engine's ref builders emit (base_env_ref /
+    /// layer_env_ref — `ghcr.io/…`) and maps them onto the seam host, so the
+    /// wired app's own refs resolve against the dev registry; the seam-host
+    /// spelling parses to itself; a host outside both sets stays refused; and
+    /// release (no seam) is untouched by construction.
+    #[test]
+    fn dev_seam_maps_the_compiled_spelling_onto_the_seam_host() {
+        let seam = MethodEnvSeams {
+            registry: Some("127.0.0.1:5055".to_string()),
+            bypass_air_gap_env: true,
+        };
+        let base = parse_oci_ref("ghcr.io/tinnlab/txresbench-env/base-py:2.0-amd64", &seam)
+            .expect("the engine's base spelling is accepted under the seam");
+        assert_eq!(base.registry_base, "127.0.0.1:5055/tinnlab/txresbench-env");
+        assert_eq!(base.repo, "base-py");
+        assert_eq!(base.tag.as_deref(), Some("2.0-amd64"));
+        assert_eq!(
+            parse_oci_ref("ghcr.io/tinnlab/txresbench-env/base-py@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", &seam)
+                .expect("digest-addressed compiled spelling too")
+                .registry_base,
+            "127.0.0.1:5055/tinnlab/txresbench-env"
+        );
+        let layer = parse_oci_ref(
+            "ghcr.io/tinnlab/txr-method-env-layers/txr-dev-fixture:1.0.0-amd64",
+            &seam,
+        )
+        .expect("the engine's layer spelling is accepted under the seam");
+        assert_eq!(layer.registry_base, "127.0.0.1:5055/tinnlab/txr-method-env-layers");
+        assert_eq!(layer.repo, "txr-dev-fixture");
+        // The seam-host spelling still parses to itself (fixture shape).
+        let direct = parse_oci_ref(
+            "127.0.0.1:5055/tinnlab/txr-method-env-layers/txr-dev-fixture:1.0.0-amd64",
+            &seam,
+        )
+        .expect("the seam-host spelling is accepted directly");
+        assert_eq!(direct.registry_base, "127.0.0.1:5055/tinnlab/txr-method-env-layers");
+        // A host outside both sets is refused under the seam too.
+        let err = parse_oci_ref("evil.example.com/tinnlab/txr-method-env-layers/x:1", &seam)
+            .expect_err("other hosts stay refused");
+        assert_eq!(err.error_code(), ENV_REF_HOST_UNALLOWED_CODE);
+        // Release (no seam): the compiled spelling maps to itself.
+        let release = MethodEnvSeams::default();
+        let base = parse_oci_ref("ghcr.io/tinnlab/txresbench-env/base-py:2.0-amd64", &release)
+            .expect("release accepts the compiled spelling");
+        assert_eq!(base.registry_base, "ghcr.io/tinnlab/txresbench-env");
     }
 
     /// Write an executable stub script into `<data>/bin/oras`.

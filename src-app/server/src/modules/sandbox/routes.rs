@@ -41,7 +41,7 @@ use super::permissions::{SandboxExecute, SandboxSettingsManage, SandboxSettingsR
 use super::service::{run_analysis, run_method_in_stack, AnalysisRequest, AnalysisResult};
 use super::settings::{SandboxResourceLimits, SandboxSettingsRepository, UpdateSandboxResourceLimits};
 use super::settings_cache;
-use super::stack::{MethodRunRequest, MethodRunResult, TXR_BASE_REGISTRY_PREFIX};
+use super::stack::{MethodRunRequest, MethodRunResult};
 use crate::modules::rootfs::{self, cache, RootfsStatus};
 
 /// Combined sandbox status for the admin UI.
@@ -377,7 +377,11 @@ async fn list_envs(
             stack: StackStatus {
                 supported,
                 reason,
-                registry_base: TXR_BASE_REGISTRY_PREFIX.to_string(),
+                // The EFFECTIVE base prefix: a debug build with the dev
+                // registry seam reports the loopback host, a release build the
+                // compiled ghcr.io prefix — the surface never claims a fetch
+                // host it does not fetch from (ITEM-2, qa-hardening).
+                registry_base: method_env::effective_base_prefix(),
                 tool_bins: serde_json::json!({
                     "oras": oras.map(|p| p.to_string_lossy().into_owned())
                 }),
