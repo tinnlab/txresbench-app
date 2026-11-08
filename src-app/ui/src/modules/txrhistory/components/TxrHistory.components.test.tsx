@@ -632,6 +632,48 @@ describe('TxrHistoryDetailBlock + the composition helpers (TEST-HIST-7 — the f
       methods: [{ id: 'method-a', version: '1.0.0', elapsed_secs: 60 }],
     })
     expect(subtitleFor(sparse)).toBe('decision day 42 · progression, death by day 180')
+    // The wire's `null` IS the generator's "no property" (RES-01): a null
+    // learned/predicted fact omits its segment — never "learned from null
+    // patients" / "predicted null".
+    const nullFacts = item('run-1', {
+      learned_from: null as unknown as number,
+      predicted: null as unknown as number,
+      methods: [{ id: 'method-a', version: '1.0.0', elapsed_secs: 60 }],
+    })
+    expect(subtitleFor(nullFacts)).toBe('decision day 42 · progression, death by day 180')
+    const nullReuse = item('run-1', {
+      mode: 'reuse',
+      predicted: null as unknown as number,
+      methods: [{ id: 'method-a', version: '1.0.0', elapsed_secs: 60 }],
+    })
+    expect(subtitleFor(nullReuse)).toBe('progression, death by day 180')
+  })
+
+  it('the settings line: a null optional fact omits its segment — never "seed null" or "null CPUs" (RES-01)', () => {
+    const settings = detail('run-1', {
+      settings: {
+        endpoint: 'pfs',
+        decision_day: 42,
+        look_ahead_day: 180,
+        covariates: true,
+        at_a_time: 2,
+        cpus: 4,
+        save_models: false,
+        mode: 'train',
+        seed: 7,
+        memory_total_bytes: 16 * 1024 * 1024 * 1024,
+      },
+    }).settings
+    expect(settingsLine(settings)).toBe(
+      'landmark 42, horizon 180, covariates on, seed 7, 4 CPUs, 16 GB',
+    )
+    const nullOptionals: TxrHistoryDetail['settings'] = {
+      ...settings,
+      seed: null as unknown as number,
+      cpus: null as unknown as number,
+      memory_total_bytes: null as unknown as number,
+    }
+    expect(settingsLine(nullOptionals)).toBe('landmark 42, horizon 180, covariates on')
   })
 })
 

@@ -176,6 +176,20 @@ describe('reasonLine (TEST-HIST-5 — the provider detail is VERBATIM)', () => {
     expect(reasonLine('stopped', undefined)).toBe(`Stopped: ${NO_REASON_RECORDED}`)
     expect(reasonLine('failed', reason('   '))).toBe(`Failed: ${NO_REASON_RECORDED}`)
   })
+
+  it('treats a `null` reason like an absent one — the wire null IS the generator’s "no property" (RES-01)', () => {
+    // The blocker: the engine's `Option` serializes the absent reason as
+    // JSON `null` while the generated type renders it optional-only; the
+    // old `!== undefined` guard read `null.detail` and crashed the page.
+    expect(reasonLine('finished', null as unknown as TxrRunReason)).toBeNull()
+    expect(reasonLine('running', null as unknown as TxrRunReason)).toBeNull()
+    expect(reasonLine('failed', null as unknown as TxrRunReason)).toBe(
+      `Failed: ${NO_REASON_RECORDED}`,
+    )
+    expect(reasonLine('stopped', null as unknown as TxrRunReason)).toBe(
+      `Stopped: ${NO_REASON_RECORDED}`,
+    )
+  })
 })
 
 describe('tookLine (TEST-HIST-5)', () => {

@@ -346,6 +346,12 @@ describe('lib/flow.ts (TEST-INT-3, ITEM-6)', () => {
     const noMedian = responseOf()
     noMedian.patients = { rows: 4, with_primary_outcome: 1, median_followup_days: undefined }
     expect(patientsStatus(noMedian).line).toBe('Found 4 rows, 1 progressions or deaths. Ready.')
+    // The wire's `null` IS the generator's "no property" (qa-fixes RES-01):
+    // a validation response with no patient summary reads the honest
+    // "patients read / Ready." card — never a "reading 'rows'" crash.
+    const noPatients = responseOf()
+    noPatients.patients = null as unknown as ValidationResponse['patients']
+    expect(patientsStatus(noPatients)).toEqual({ heading: '✓ patients read', line: 'Ready.' })
   })
 
   it('measurementsStatus fills the board-N-style box from the measurements summary', () => {

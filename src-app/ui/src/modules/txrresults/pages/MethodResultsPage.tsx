@@ -7,8 +7,9 @@ import type { TxrRunDetail } from '@/api-client/types'
 import { TxrResults, useTxrResultsStore } from '../stores/Results.store'
 import { buildColumns, compareReport, divergentPatients, sortByFirstMethod, viewOf } from '../lib/heatmap'
 import { compareResultsPath, methodResultsPath, downloadPredictionsCsv, revealRunDir } from '../index'
-import { TxrResultsHeader } from '../components/TxrResultsHeader'
+import { TxrResultsHeader, subtitleFactsOf } from '../components/TxrResultsHeader'
 import { TxrCannotRunBanner } from '../components/TxrCannotRunBanner'
+import { TxrRunFailedState } from '../components/TxrRunFailedState'
 import { TxrMethodTabs } from '../components/TxrMethodTabs'
 import { TxrOutcomeTabs } from '../components/TxrOutcomeTabs'
 import { TxrBarsTable } from '../components/TxrBarsTable'
@@ -266,9 +267,13 @@ export function MethodResultsPage() {
   }
 
   const cannotRun = run.methods.filter(m => m.state === 'cannot_run')
+  const runFailed = run.status === 'failed' || run.status === 'stopped'
 
   // The 409 empty-heatmap state (DEC-18: banner + counts + disabled
-  // download, no spinner loop — the SSE fills it).
+  // download, no spinner loop — the SSE fills it). A terminal failed /
+  // stopped run renders the honest failure state instead (RES-02): the
+  // engine's per-method reasons, with the header's completed-run segments
+  // omitted.
   if (predictions === null) {
     return (
       <main data-testid="txr-results" style={PAGE_MAIN}>
@@ -278,12 +283,19 @@ export function MethodResultsPage() {
           predictionsError={predictionsError}
           onDownload={undefined}
           downloadLabel="Download predictions (CSV)"
+          subtitleFacts={
+            runFailed ? { ...subtitleFactsOf(run), trainedOn: null, tookSeconds: null } : undefined
+          }
         />
+        {runFailed ? (
+          <TxrRunFailedState run={run} onShowLog={method => TxrResults.openLog(method)} />
+        ) : null}
         <TxrCannotRunBanner
           methods={cannotRun}
           total={run.methods.length}
           onShowLog={method => TxrResults.openLog(method)}
         />
+        <TxrLogDialog />
       </main>
     )
   }

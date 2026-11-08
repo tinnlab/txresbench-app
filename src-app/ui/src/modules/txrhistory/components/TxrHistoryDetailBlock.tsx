@@ -118,7 +118,12 @@ export function formatGigabytes(bytes: number | undefined | null): string | null
 
 /**
  * The Settings line: the board's comma sentence, each segment omitted
- * when its fact is absent (optional facts never fabricated).
+ * when its fact is absent (optional facts never fabricated). The absent
+ * tests are `!= null` — the provider's `Option` fields serialize their
+ * absent value as JSON `null`, while the generated types render them
+ * optional-only (the RES-01 null-vs-undefined rule; an absent
+ * `seed`/`cpus`/`memory_total_bytes` must OMIT the segment, never print
+ * "seed null" / "null CPUs").
  */
 export function settingsLine(settings: TxrHistoryDetail['settings']): string {
   const segments: string[] = [
@@ -126,8 +131,8 @@ export function settingsLine(settings: TxrHistoryDetail['settings']): string {
     `horizon ${settings.look_ahead_day}`,
     `covariates ${settings.covariates ? 'on' : 'off'}`,
   ]
-  if (settings.seed !== undefined) segments.push(`seed ${settings.seed}`)
-  if (settings.cpus !== undefined) {
+  if (settings.seed != null) segments.push(`seed ${settings.seed}`)
+  if (settings.cpus != null) {
     segments.push(`${settings.cpus} ${settings.cpus === 1 ? 'CPU' : 'CPUs'}`)
   }
   const memory = formatGigabytes(settings.memory_total_bytes)

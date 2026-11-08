@@ -622,6 +622,33 @@ describe('MethodResultsPage (TEST-UR-7 — the H screen)', () => {
     expect(view.queryByTestId('txr-bars')).toBeNull()
     expect(view.queryByTestId('txr-results-loading')).toBeNull()
     expect(view.queryByTestId('txr-results-error')).toBeNull()
+    expect(view.queryByTestId('txr-results-run-failed')).toBeNull()
+  })
+
+  it('renders the honest failure state on the H route for a terminal failed run (TEST-QF-1, RES-02)', async () => {
+    const run = runFixture()
+    run.status = 'failed'
+    run.methods = run.methods.map(m => ({
+      ...m,
+      state: 'failed' as const,
+      reason: {
+        code: 'ENV_UNREADY',
+        detail: 'the method environment is not installed on this computer',
+      },
+    }))
+    run.counts = { ...run.counts, finished: 0, failed: run.methods.length, running: 0, cannot_run: 0 }
+    api.getRun.mockResolvedValue(run)
+    api.getPredictions.mockRejectedValueOnce(httpError(409))
+    const view = renderPage('/analysis/run-1/results/compare')
+    await waitFor(() => expect(view.getByTestId('txr-results-run-failed')).toBeTruthy())
+    const block = view.getByTestId('txr-results-run-failed')
+    expect(block.textContent).toContain('This run failed')
+    expect(block.textContent).toContain(
+      'the method environment is not installed on this computer',
+    )
+    const subtitle = view.getByTestId('txr-results-subtitle').textContent ?? ''
+    expect(subtitle).not.toContain('learned from')
+    expect(subtitle).not.toContain('took')
   })
 
   it('renders the not-found state on 404 (no crash, New-analysis CTA)', async () => {

@@ -26,7 +26,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import type { TxrMethodState, TxrRunMethod, TxrRunProgressFrame } from '@/api-client/types'
+import type { TxrMethodState, TxrRunLogLine, TxrRunMethod, TxrRunProgressFrame } from '@/api-client/types'
 import type { TxrRunBucket } from '../types'
 import {
   RESEARCH_NOTICE,
@@ -34,9 +34,12 @@ import {
   STATE_TONE,
   bucketOf,
   formatBytes,
+  formatLogLine,
   formatProgress,
+  formatRowTime,
   formatSecs,
   formatTimeLeft,
+  methodLabelOf,
 } from './format'
 
 const MB = 1024 * 1024
@@ -220,6 +223,44 @@ describe('formatProgress (TEST-RUN-04)', () => {
     expect(formatProgress(row('finished'), null)).toBe('')
     expect(formatProgress(row('stopped'), null)).toBe('')
     expect(formatProgress(row('skipped'), null)).toBe('')
+  })
+})
+
+describe('formatRowTime + methodLabelOf (qa-fixes RES-01 null-vs-undefined)', () => {
+  const row = (state: TxrMethodState, extra: Partial<TxrRunMethod> = {}): TxrRunMethod => ({
+    method_id: 'method-a',
+    label: 'method-a',
+    version: '1.0.0',
+    group: 'response-call',
+    group_label: 'Response call',
+    state,
+    bytes_downloaded: 0,
+    ...extra,
+  })
+
+  it('a null duration_ms reads an empty time cell — never "done in —" (the wire null IS absent)', () => {
+    expect(formatRowTime(row('finished', { duration_ms: 90_000 }))).toBe('done in 1 min 30 s')
+    expect(formatRowTime(row('finished', { duration_ms: null as unknown as number }))).toBe('')
+    expect(formatRowTime(row('finished'))).toBe('')
+    // The elapsed guard reads null the same way (no duration mark, not a dash).
+    expect(formatRowTime(row('running', { elapsed_secs: null as unknown as number }))).toBe('')
+  })
+
+  it('a null log-line method id is an engine-level line — never a "[null]" bracket', () => {
+    const methods = [{ method_id: 'method-a', label: 'method-a' }]
+    const engineLine: TxrRunLogLine = {
+      seq: 1,
+      content: 'run started',
+      stream: 'stdout',
+      created_at: '2026-11-01T05:00:00Z',
+      method_id: null as unknown as string,
+    }
+    expect(methodLabelOf(engineLine, methods)).toBe('stdout')
+    expect(formatLogLine(engineLine, methods)).toContain('[stdout] run started')
+    expect(formatLogLine(engineLine, methods)).not.toContain('[null]')
+    expect(
+      methodLabelOf({ ...engineLine, method_id: 'method-a' }, methods),
+    ).toBe('method-a')
   })
 })
 

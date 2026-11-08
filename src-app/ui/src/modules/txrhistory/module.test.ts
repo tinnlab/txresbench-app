@@ -235,15 +235,18 @@ describe('txrhistory module (TEST-HIST-1)', () => {
     expect(touched.filter(p => p === 'src-app/ui/src/modules/loader.ts')).toEqual([])
     expect(touched.filter(p => p.startsWith('src-app/server/'))).toEqual([])
     expect(touched.filter(p => p.startsWith('src-app/desktop/'))).toEqual([])
-    // EIGHT sanctioned exceptions (the DRIFT-1 #8 class plus the ITEM-4
-    // help handoff): the `/history` route handoff itself
+    // The sanctioned exceptions: the `/history` route handoff itself
     // (`txrshell/module.tsx`, pinned separately below), the scaffold
-    // `ShellPage.tsx` the `/help` handoff removes, the three sibling
-    // module test files whose pins this item maintains, and the
-    // `txrintake` files the validation problems' help links touch
-    // (module.tsx dependency line, `TxrProblemList.tsx`, the
-    // TxrFileCard test's router wrapper) + the new `txrhelp` module dir
-    // (a new auto-discovered module is an addition, not a global edit).
+    // `ShellPage.tsx` the `/help` handoff removes, the sibling module
+    // test files whose pins this item maintains, the `txrintake` files the
+    // validation problems' help links touch (module.tsx dependency line,
+    // `TxrProblemList.tsx`, the TxrFileCard test's router wrapper) + the
+    // new `txrhelp` module dir (a new auto-discovered module is an
+    // addition, not a global edit), and the qa-fixes ITEM-1's own
+    // cross-module fixes: the failed-run results state (RES-02 —
+    // `txrresults` pages/components/tests), the null-vs-undefined audit
+    // across the txr family (`txrrun/lib/format.ts`, `txrintake/lib/flow.ts`
+    // + their tests — RES-01's audit half).
     // Nothing else outside this module moves.
     expect(
       touched.filter(
@@ -259,9 +262,19 @@ describe('txrhistory module (TEST-HIST-1)', () => {
           p !== 'src-app/ui/src/modules/txrintake/pages/FilesPage.test.tsx' &&
           p !== 'src-app/ui/src/modules/txrintake/pages/PredictFilesPage.test.tsx' &&
           p !== 'src-app/ui/src/modules/txrintake/module.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrintake/lib/flow.ts' &&
+          p !== 'src-app/ui/src/modules/txrintake/lib/flow.test.ts' &&
           p !== 'src-app/ui/src/modules/txrmodels/module.test.ts' &&
           p !== 'src-app/ui/src/modules/txrrun/module.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrresults/module.test.ts',
+          p !== 'src-app/ui/src/modules/txrrun/lib/format.ts' &&
+          p !== 'src-app/ui/src/modules/txrrun/lib/format.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrresults/module.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrresults/pages/ResultsPage.tsx' &&
+          p !== 'src-app/ui/src/modules/txrresults/pages/MethodResultsPage.tsx' &&
+          p !== 'src-app/ui/src/modules/txrresults/pages/ResultsPage.test.tsx' &&
+          p !== 'src-app/ui/src/modules/txrresults/pages/MethodResultsPage.test.tsx' &&
+          p !== 'src-app/ui/src/modules/txrresults/components/TxrRunFailedState.tsx' &&
+          p !== 'src-app/ui/src/modules/txrresults/components/TxrResultsHeader.tsx',
       ),
     ).toEqual([])
   })

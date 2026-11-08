@@ -243,9 +243,14 @@ describe('txrmodels module (TEST-MOD-01)', () => {
     // handoff removes), the sibling module test files whose pins went
     // stale with the handoffs and are updated by this item, the
     // `txrhistory` and `txrhelp` module dirs (new auto-discovered modules
-    // are additions, not global edits), and the `txrintake` files the
+    // are additions, not global edits), the `txrintake` files the
     // validation problems' help links touch (module.tsx dependency line,
-    // `TxrProblemList.tsx`, the TxrFileCard test's router wrapper).
+    // `TxrProblemList.tsx`, the TxrFileCard test's router wrapper), and
+    // the qa-fixes ITEM-1 cross-module fixes (its DRIFT-1): the
+    // null-vs-undefined audit's finds in `txrrun/lib/format.ts` +
+    // `txrintake/lib/flow.ts` + their tests, and the failed-run results
+    // state (RES-02) in the `txrresults` pages/components/tests (the same
+    // file list the `txrhistory` sweep sanctions, its own comment).
     // Nothing else outside this module moves.
     expect(
       touched.filter(
@@ -262,8 +267,18 @@ describe('txrmodels module (TEST-MOD-01)', () => {
           p !== 'src-app/ui/src/modules/txrintake/pages/FilesPage.test.tsx' &&
           p !== 'src-app/ui/src/modules/txrintake/pages/PredictFilesPage.test.tsx' &&
           p !== 'src-app/ui/src/modules/txrintake/module.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrintake/lib/flow.ts' &&
+          p !== 'src-app/ui/src/modules/txrintake/lib/flow.test.ts' &&
           p !== 'src-app/ui/src/modules/txrrun/module.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrresults/module.test.ts',
+          p !== 'src-app/ui/src/modules/txrrun/lib/format.ts' &&
+          p !== 'src-app/ui/src/modules/txrrun/lib/format.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrresults/module.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrresults/pages/ResultsPage.tsx' &&
+          p !== 'src-app/ui/src/modules/txrresults/pages/MethodResultsPage.tsx' &&
+          p !== 'src-app/ui/src/modules/txrresults/pages/ResultsPage.test.tsx' &&
+          p !== 'src-app/ui/src/modules/txrresults/pages/MethodResultsPage.test.tsx' &&
+          p !== 'src-app/ui/src/modules/txrresults/components/TxrRunFailedState.tsx' &&
+          p !== 'src-app/ui/src/modules/txrresults/components/TxrResultsHeader.tsx',
       ),
     ).toEqual([])
   })

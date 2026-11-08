@@ -210,17 +210,23 @@ export function formatProgress(r: TxrRunMethod, progress: TxrRunProgressFrame | 
  * time-left line carries the schedule (DEC-3) and the board's per-row
  * "about 1 min" facts are design examples, never data (INV-6) — so an empty
  * empty column is the honest reading, never an invented duration.
+ *
+ * The absent tests are `== null` (NOT `=== undefined`): the engine's
+ * `Option` counters serialize their absent value as JSON `null` while the
+ * generated types render them optional-only (the qa-fixes RES-01
+ * null-vs-undefined rule) — a `duration_ms: null` wire value must read an
+ * empty cell, never "done in —".
  */
 export function formatRowTime(r: TxrRunMethod): string {
   switch (r.state) {
     case 'running':
     case 'failed':
     case 'cannot_run':
-      return r.elapsed_secs === undefined ? '' : formatSecs(r.elapsed_secs)
+      return r.elapsed_secs == null ? '' : formatSecs(r.elapsed_secs)
     case 'finished':
     case 'stopped':
     case 'skipped':
-      return r.duration_ms === undefined
+      return r.duration_ms == null
         ? ''
         : `done in ${formatSecs(r.duration_ms / 1000)}`
     default:
@@ -278,10 +284,14 @@ export function formatLogTime(createdAt: string): string {
  * provider line for a dropped method — the id stays visible, never a blank
  * bracket), and the line's own STREAM for an engine-level line without a
  * method (`method_id` absent — the whole-run view's own facts, the
- * sibling G screen's log dialog treats them the same way).
+ * sibling G screen's log dialog treats them the same way). The absent
+ * test is `== null`: the engine's `Option` emits JSON `null` where the
+ * generated type claims a missing property (the RES-01 null-vs-undefined
+ * rule) — a `null` method id is an engine-level line, never a "[null]"
+ * bracket.
  */
 export function methodLabelOf(line: TxrRunLogLine, methods: ReadonlyArray<TxrLogMethodRef>): string {
-  if (line.method_id === undefined) return line.stream
+  if (line.method_id == null) return line.stream
   const method = methods.find(m => m.method_id === line.method_id)
   return method?.label ?? line.method_id
 }

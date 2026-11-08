@@ -340,6 +340,63 @@ describe('ResultsPage (TEST-UR-6 — store wiring, states, actions)', () => {
     expect(view.queryByTestId('txr-results-search')).toBeNull()
   })
 
+  it('renders the honest failure state for a terminal failed run (TEST-QF-1, RES-02): engine reasons, no silent blank', async () => {
+    const run = runFixture()
+    run.status = 'failed'
+    run.methods = run.methods.map(m => ({
+      ...m,
+      state: 'failed' as const,
+      reason: {
+        code: 'ENV_UNREADY',
+        detail: 'the method environment is not installed on this computer',
+      },
+    }))
+    run.counts = { ...run.counts, finished: 0, failed: run.methods.length, running: 0, cannot_run: 0 }
+    api.getRun.mockResolvedValue(run)
+    api.getPredictions.mockRejectedValueOnce(httpError(409))
+    const view = await renderLoaded()
+    await waitFor(() => expect(view.getByTestId('txr-results-run-failed')).toBeTruthy())
+    const block = view.getByTestId('txr-results-run-failed')
+    expect(block.textContent).toContain('This run failed')
+    // The reason is the engine's own detail verbatim (INV-2), per row.
+    expect(block.textContent).toContain(
+      'the method environment is not installed on this computer',
+    )
+    expect(view.getByTestId('txr-results-run-failed-lm-cox-a')).toBeTruthy()
+    // The failed row's log action opens that method's dialog.
+    fireEvent.click(view.getByTestId('txr-results-failed-show-log-lm-cox-a'))
+    expect(state().logDialogFor).toBe('lm-cox-a')
+    // The header keeps the recorded counts + decision day but drops the
+    // completed-run segments (nothing was learned; the elapsed reads like
+    // a finished run's fact next to a failure).
+    const subtitle = view.getByTestId('txr-results-subtitle').textContent ?? ''
+    expect(subtitle).toContain('0 of 4 methods finished')
+    expect(subtitle).toContain('decision day 56')
+    expect(subtitle).not.toContain('learned from')
+    expect(subtitle).not.toContain('took')
+    // The download stays disabled and no spinner loop starts.
+    expect(view.getByTestId('txr-results-download').hasAttribute('disabled')).toBe(true)
+    expect(view.queryByTestId('txr-results-loading')).toBeNull()
+    expect(view.queryByTestId('txr-results-error')).toBeNull()
+  })
+
+  it('renders the stopped-run state with the same honesty (RES-02, the stopped half)', async () => {
+    const run = runFixture()
+    run.status = 'stopped'
+    run.methods = run.methods.map(m => ({
+      ...m,
+      state: 'stopped' as const,
+    }))
+    run.counts = { ...run.counts, finished: 0, stopped: run.methods.length, running: 0, cannot_run: 0 }
+    api.getRun.mockResolvedValue(run)
+    api.getPredictions.mockRejectedValueOnce(httpError(409))
+    const view = await renderLoaded()
+    await waitFor(() => expect(view.getByTestId('txr-results-run-failed')).toBeTruthy())
+    const block = view.getByTestId('txr-results-run-failed')
+    expect(block.textContent).toContain('This run was stopped')
+    expect(block.textContent).toContain('see the log for the reason')
+  })
+
   it('renders the not-found state on 404 and its New analysis CTA navigates home', async () => {
     api.getRun.mockRejectedValueOnce(httpError(404))
     const view = renderPage()

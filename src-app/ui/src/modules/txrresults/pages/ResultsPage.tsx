@@ -8,8 +8,9 @@ import type { TxrOutcomeKey } from '../types'
 import { TxrResults, useTxrResultsStore } from '../stores/Results.store'
 import { buildColumns, viewOf } from '../lib/heatmap'
 import { downloadPredictionsCsv } from '../index'
-import { TxrResultsHeader } from '../components/TxrResultsHeader'
+import { TxrResultsHeader, subtitleFactsOf } from '../components/TxrResultsHeader'
 import { TxrCannotRunBanner } from '../components/TxrCannotRunBanner'
+import { TxrRunFailedState } from '../components/TxrRunFailedState'
 import { TxrOutcomeTabs } from '../components/TxrOutcomeTabs'
 import { TxrMethodFilterBar } from '../components/TxrMethodFilterBar'
 import { TxrHeatmapTable } from '../components/TxrHeatmapTable'
@@ -239,6 +240,11 @@ export function ResultsPage() {
   }
 
   const cannotRun = run.methods.filter(m => m.state === 'cannot_run')
+  // A terminal failed/stopped run with no predictions is the honest
+  // failure state (RES-02): its reasons render below the header, and the
+  // header omits the segments that read like a completed run (nothing was
+  // learned — the counts + decision day stay, they are recorded facts).
+  const runFailed = run.status === 'failed' || run.status === 'stopped'
 
   // The 409 empty-heatmap state: header (counts + banners) + a disabled
   // download, NO table, NO spinner loop — the SSE's `prediction` frame
@@ -251,7 +257,13 @@ export function ResultsPage() {
           predictions={null}
           predictionsError={predictionsError}
           onDownload={undefined}
+          subtitleFacts={
+            runFailed ? { ...subtitleFactsOf(run), trainedOn: null, tookSeconds: null } : undefined
+          }
         />
+        {runFailed ? (
+          <TxrRunFailedState run={run} onShowLog={methodId => TxrResults.openLog(methodId)} />
+        ) : null}
         <TxrCannotRunBanner
           methods={cannotRun}
           total={run.methods.length}

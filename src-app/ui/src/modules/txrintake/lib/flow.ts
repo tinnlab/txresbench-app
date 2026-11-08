@@ -280,7 +280,12 @@ export interface CardStatus {
 /** "✓ N patients read | Found N rows, N progressions or deaths, median follow-up N days. Ready." */
 export function patientsStatus(response: ValidationResponse): CardStatus {
   const patients = response.patients
-  if (patients === undefined) {
+  // `== null` (NOT `=== undefined`): the provider's `Option` emits JSON
+  // `null` for the absent shape while the generated type renders it
+  // optional-only (the qa-fixes RES-01 null-vs-undefined rule) — a table
+  // with no patient-row summary is the honest "patients read" card, never
+  // a "reading 'rows'" crash.
+  if (patients == null) {
     return { heading: '✓ patients read', line: 'Ready.' }
   }
   const detail: string[] = [`Found ${rowLabel(patients.rows)}`]

@@ -204,14 +204,22 @@ describe('txrhelp module (TEST-HELP-4)', () => {
     // `txrintake` files the problem-list help links touch (module.tsx
     // dependency line, `TxrProblemList.tsx`, the intake tests whose
     // problem-line pins the appended code link invalidates — TxrFileCard,
-    // FilesPage, PredictFilesPage), and the sibling module test files
-    // whose shell/handoff pins this item maintains. The new `txrhelp` dir is an addition (a new
+    // FilesPage, PredictFilesPage), the sibling module test files
+    // whose shell/handoff pins this item maintains, and the qa-fixes
+    // ITEM-1 cross-module fixes (its DRIFT-1): the `txrhistory` dir (the
+    // RES-01 crash fix + its tests — sanctioned wholesale, the sibling
+    // sweeps' convention), the null-vs-undefined
+    // audit's finds in `txrintake/lib/flow.ts` + `txrrun/lib/format.ts` +
+    // their tests, and the failed-run results state (RES-02) in the
+    // `txrresults` pages/components/tests (the same file list the
+    // `txrhistory` sweep sanctions, its own comment). The new `txrhelp` dir is an addition (a new
     // auto-discovered module), never an edit of an existing module.
     expect(
       touched.filter(
         p =>
           p.startsWith('src-app/ui/src/modules/') &&
           !p.startsWith('src-app/ui/src/modules/txrhelp/') &&
+          !p.startsWith('src-app/ui/src/modules/txrhistory/') &&
           p !== 'src-app/ui/src/modules/txrshell/module.tsx' &&
           p !== 'src-app/ui/src/modules/txrshell/pages/ShellPage.tsx' &&
           p !== 'src-app/ui/src/modules/txrintake/module.tsx' &&
@@ -220,17 +228,37 @@ describe('txrhelp module (TEST-HELP-4)', () => {
           p !== 'src-app/ui/src/modules/txrintake/pages/FilesPage.test.tsx' &&
           p !== 'src-app/ui/src/modules/txrintake/pages/PredictFilesPage.test.tsx' &&
           p !== 'src-app/ui/src/modules/txrintake/module.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrintake/lib/flow.ts' &&
+          p !== 'src-app/ui/src/modules/txrintake/lib/flow.test.ts' &&
           p !== 'src-app/ui/src/modules/txrmodels/module.test.ts' &&
           p !== 'src-app/ui/src/modules/txrhistory/module.test.ts' &&
           p !== 'src-app/ui/src/modules/txrrun/module.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrresults/module.test.ts',
+          p !== 'src-app/ui/src/modules/txrrun/lib/format.ts' &&
+          p !== 'src-app/ui/src/modules/txrrun/lib/format.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrresults/module.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrresults/pages/ResultsPage.tsx' &&
+          p !== 'src-app/ui/src/modules/txrresults/pages/MethodResultsPage.tsx' &&
+          p !== 'src-app/ui/src/modules/txrresults/pages/ResultsPage.test.tsx' &&
+          p !== 'src-app/ui/src/modules/txrresults/pages/MethodResultsPage.test.tsx' &&
+          p !== 'src-app/ui/src/modules/txrresults/components/TxrRunFailedState.tsx' &&
+          p !== 'src-app/ui/src/modules/txrresults/components/TxrResultsHeader.tsx',
       ),
     ).toEqual([])
     // The one new e2e spec under tests/ (the light/dark + narrow render
-    // check, TEST-QA-4) — nothing else under tests/ moves.
-    expect(touched.filter(p => p.startsWith('src-app/ui/tests/'))).toEqual([
-      'src-app/ui/tests/gallery-e2e/txr-help.spec.ts',
-    ])
+    // check, TEST-QA-4) — nothing else under tests/ moves. The pin is
+    // state-aware: `itemDelta` is the CURRENT item's delta, so in ITEM-4's
+    // own uncommitted state the delta carries exactly the one spec, and
+    // once ITEM-4 is committed a later item's delta carries NO tests/
+    // change at all (the spec is part of HEAD, not of the later diff) —
+    // the a-posteriori state was failing on the branch's own tip (the
+    // qa-fixes plan commit), a stale-pin failure, recorded in qa-fixes
+    // DRIFT-1 ITEM-1 #5. At most one tests/ file may ever move, and it
+    // must be ITEM-4's spec; a later item adds its own to its own sweep.
+    const testsTouched = touched.filter(p => p.startsWith('src-app/ui/tests/'))
+    expect(testsTouched.length).toBeLessThanOrEqual(1)
+    if (testsTouched.length === 1) {
+      expect(testsTouched[0]).toBe('src-app/ui/tests/gallery-e2e/txr-help.spec.ts')
+    }
   })
 
   it('records the txrshell `/help` handoff: every scaffold route is gone, the comment names every takeover', () => {

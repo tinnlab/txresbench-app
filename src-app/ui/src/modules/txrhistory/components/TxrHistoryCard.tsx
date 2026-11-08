@@ -108,17 +108,17 @@ export function subtitleFor(item: TxrHistoryItem): string | null {
     segments.push(item.methods.map(method => method.id).join(', '))
   }
   if (item.mode === 'reuse') {
-    if (item.predicted !== undefined) {
+    if (item.predicted != null) {
       segments.push(`Predicted ${item.predicted} ${item.predicted === 1 ? 'patient' : 'patients'}`)
     }
     segments.push(endpointLabel(item.endpoint, item.look_ahead_day))
     return segments.join(' · ')
   }
   const learned =
-    item.learned_from !== undefined
+    item.learned_from != null
       ? `learned from ${item.learned_from} ${item.learned_from === 1 ? 'patient' : 'patients'}`
       : null
-  const predicted = item.predicted !== undefined ? `predicted ${item.predicted}` : null
+  const predicted = item.predicted != null ? `predicted ${item.predicted}` : null
   const pair = [learned, predicted].filter(Boolean).join(', ')
   if (pair.length > 0) segments.push(pair)
   segments.push(`decision day ${item.decision_day}`, endpointLabel(item.endpoint, item.look_ahead_day))
