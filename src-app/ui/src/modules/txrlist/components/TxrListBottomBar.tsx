@@ -130,6 +130,7 @@ export function TxrListBottomBar({
         <label style={SAVE_LABEL}>
           <Checkbox
             data-testid="txr-list-save-models"
+            className="txr-list-checkbox"
             aria-label="Save the trained models"
             checked={saveModels.checked}
             onCheckedChange={checked => saveModels.onChange(checked === true)}

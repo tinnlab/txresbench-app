@@ -631,6 +631,13 @@ pub enum ReasonCode {
     /// The method carries no runnable env image.
     #[serde(rename = "NOT_RUNNABLE")]
     NotRunnable,
+    /// The method has no published environment image for this computer (the
+    /// app's env manifest carries no host-arch entry) — the run would fail at
+    /// start, so the verdict names it in advance and the run row carries the
+    /// SAME code (one vocabulary, CONS-EE-10; the catalogue still lists the
+    /// method — the environment is the missing half).
+    #[serde(rename = "ENV_IMAGE_MISSING")]
+    EnvImageMissing,
     /// The method's task needs an outcome column the file lacks.
     #[serde(rename = "TASK_INCOMPATIBLE")]
     TaskIncompatible,
@@ -645,7 +652,7 @@ pub enum ReasonCode {
 impl ReasonCode {
     /// The closed code vocabulary, in documentation order — the compile-time
     /// constant the vocabulary test pins (TEST-MC-27).
-    pub const ALL: [ReasonCode; 12] = [
+    pub const ALL: [ReasonCode; 13] = [
         ReasonCode::RequiredMarkerMissing,
         ReasonCode::MarkerGroupMissing,
         ReasonCode::DetectionCallMissing,
@@ -655,6 +662,7 @@ impl ReasonCode {
         ReasonCode::UnitMismatch,
         ReasonCode::DecisionDayUnmet,
         ReasonCode::NotRunnable,
+        ReasonCode::EnvImageMissing,
         ReasonCode::TaskIncompatible,
         ReasonCode::ResponseLabelMissing,
         ReasonCode::SurvivalOutcomeMissing,
@@ -672,6 +680,7 @@ impl ReasonCode {
             ReasonCode::UnitMismatch => "UNIT_MISMATCH",
             ReasonCode::DecisionDayUnmet => "DECISION_DAY_UNMET",
             ReasonCode::NotRunnable => "NOT_RUNNABLE",
+            ReasonCode::EnvImageMissing => "ENV_IMAGE_MISSING",
             ReasonCode::TaskIncompatible => "TASK_INCOMPATIBLE",
             ReasonCode::ResponseLabelMissing => "RESPONSE_LABEL_MISSING",
             ReasonCode::SurvivalOutcomeMissing => "SURVIVAL_OUTCOME_MISSING",
@@ -749,28 +758,34 @@ pub struct EligibilityResponse {
     pub total_fit: u32,
     pub total_some: u32,
     pub total_cannot: u32,
+    /// The `cannot_run` methods whose reason is
+    /// [`ReasonCode::EnvImageMissing`] — the count of catalogue methods the
+    /// app cannot actually start (no published environment on this
+    /// computer), so the list header can say how many exist while still
+    /// listing them.
+    pub total_no_env: u32,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PROV-MC-6 — POST /api/methods/estimate
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// The estimate request: which methods, on how many patients, on how many CPUs,
-/// running `at_a_time` lanes.
+/// The estimate request: which methods, on how many patients, on how many
+/// CPUs, running `at_a_time` lanes.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct EstimateRequest {
     pub method_ids: Vec<String>,
     pub patients: u32,
-    /// Defaults to [`DEFAULT_ESTIMATE_CPUS`] when omitted.
-    #[serde(default = "default_estimate_cpus")]
-    pub cpus: u32,
+    /// The CPU count an estimate is scaled to. Absent (or `null`) means the
+    /// run's own resolution — the host's detected CPUs ([`estimate::host_cpus`],
+    /// the ONE implementation the execution engine's run-start detection also
+    /// calls), so the bar and the running header always employ the same count.
+    /// A present value is used as posted (0 is rejected).
+    #[serde(default)]
+    pub cpus: Option<u32>,
     /// Defaults to [`DEFAULT_ESTIMATE_AT_A_TIME`] when omitted.
     #[serde(default = "default_estimate_at_a_time")]
     pub at_a_time: u32,
-}
-
-fn default_estimate_cpus() -> u32 {
-    DEFAULT_ESTIMATE_CPUS
 }
 
 fn default_estimate_at_a_time() -> u32 {
@@ -787,13 +802,17 @@ pub struct MethodEstimate {
 
 /// The estimate response: per-method seconds, the plain sum, and the
 /// longest-processing-time schedule total over the `at_a_time` lanes (the
-/// bottom-bar "about X minutes in total on this computer").
+/// bottom-bar "about X minutes in total on this computer"). `cpus` is the
+/// count actually used (the posted value, or the run's own resolution —
+/// [`estimate::host_cpus`] — when omitted), so the consumer can show the
+/// number the estimate was scaled to.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct EstimateResponse {
     pub methods: Vec<MethodEstimate>,
     pub total_seconds: f64,
     pub schedule_seconds: f64,
     pub at_a_time: u32,
+    pub cpus: u32,
 }
 
 /// The wire contracts stay generate-able: every request/response schema is
@@ -818,16 +837,16 @@ mod tests {
     }
 
     /// TEST-MC-27 (unit half): the reason-code vocabulary is a CLOSED compile-
-    /// time set — exactly the 12 documented codes, each with a distinct wire
+    /// time set — exactly the 13 documented codes, each with a distinct wire
     /// string, so a consumer's per-code renderer can never meet an
     /// undocumented code and the serde side can never emit duplicates.
     #[test]
     fn reason_code_vocabulary_is_closed_and_distinct() {
-        assert_eq!(ReasonCode::ALL.len(), 12, "the 12 documented codes");
+        assert_eq!(ReasonCode::ALL.len(), 13, "the 13 documented codes");
         let mut wires: Vec<&str> = ReasonCode::ALL.iter().map(|c| c.as_str()).collect();
         wires.sort_unstable();
         wires.dedup();
-        assert_eq!(wires.len(), 12, "wire strings are distinct");
+        assert_eq!(wires.len(), 13, "wire strings are distinct");
         for code in ReasonCode::ALL {
             // The round-trip: serialize → deserialize must yield the same code
             // (the serde renames are the wire strings the engine emits).

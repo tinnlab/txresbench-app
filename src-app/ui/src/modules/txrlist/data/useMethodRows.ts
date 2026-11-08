@@ -34,6 +34,11 @@ import { buildMethodRows } from './methodRows'
 export interface UseMethodRowsResult {
   /** The joined screen-E rows for the last loaded inventory. */
   rows: TxrListRow[]
+  /** The eligibility response's `total_no_env` — the count of catalogue
+   *  methods with no published environment on this computer (the list still
+   *  shows them; the header counts them honestly — CM-1's "N are not
+   *  installed"). */
+  noEnvCount: number
   /** True from the inventory change until the response lands. */
   loading: boolean
   /** The fetch failure message, `null` when healthy. */
@@ -78,6 +83,7 @@ function errorMessage(err: unknown): string {
 export function useMethodRows(inventory: InventoryEligibilityRequest): UseMethodRowsResult {
   const key = useMemo(() => stableInventoryKey(inventory), [inventory])
   const [rows, setRows] = useState<TxrListRow[]>([])
+  const [noEnvCount, setNoEnvCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [refresh, setRefresh] = useState(0)
@@ -96,6 +102,7 @@ export function useMethodRows(inventory: InventoryEligibilityRequest): UseMethod
       .then(([list, eligibility]) => {
         if (cancelled) return
         setRows(buildMethodRows(list.methods, eligibility))
+        setNoEnvCount(eligibility.total_no_env ?? 0)
         setLoading(false)
       })
       .catch((err: unknown) => {
@@ -115,5 +122,5 @@ export function useMethodRows(inventory: InventoryEligibilityRequest): UseMethod
     setRefresh(count => count + 1)
   }, [])
 
-  return { rows, loading, error, refetch }
+  return { rows, noEnvCount, loading, error, refetch }
 }

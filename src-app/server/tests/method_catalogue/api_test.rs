@@ -18,6 +18,7 @@
 use serde_json::{json, Value};
 
 use crate::common::TestServer;
+use cytoanalyst::modules::method_catalogue::estimate::host_cpus;
 
 /// The fixed-owner mint (the desktop's local session) → bearer token.
 async fn owner_token(server: &TestServer) -> String {
@@ -385,7 +386,12 @@ async fn method_catalogue_eligibility_e2_can_run_when_required_are_present() {
     assert_eq!(verdict["status"], "can_run");
     assert_eq!(verdict["coverage"], json!({"eligible": 2, "total": 2, "fraction": 1.0}));
     assert_eq!(verdict["min_draws"]["unmet_patients"], 0);
-    assert_eq!(verdict["estimated_seconds"], 8.9_f64 * (2.0_f64 / 150.0_f64) * (4.0_f64 / 4.0_f64));
+    // The row's time scale is the run's OWN CPU count (CM-7 — the response
+    // no longer assumes 4): the same resolution the estimate endpoint uses.
+    assert_eq!(
+        verdict["estimated_seconds"],
+        8.9_f64 * (2.0_f64 / 150.0_f64) * (4.0_f64 / host_cpus() as f64)
+    );
 }
 
 /// TEST-MC-2's `other`-system name/alias fallback over the wire (the
@@ -447,7 +453,9 @@ async fn method_catalogue_eligibility_other_system_name_fallback() {
 
 /// EXAMPLE-E3 (coverage): `crp-flare-response-kinetics` (min_draws 3,
 /// needs_baseline) over 151 patients where 120 have 3 draw-days → the exact
-/// 120/151 numbers, `can_run_some`.
+/// 120/151 numbers; `cannot_run` here because the method has NO published
+/// environment (the ITEM-2 runtime stage — the coverage facts stay, the
+/// catalogue still lists it; the env reason is the row's first one).
 #[tokio::test]
 async fn method_catalogue_eligibility_e3_coverage_120_of_151() {
     let server = TestServer::spawn().await;
@@ -500,7 +508,11 @@ async fn method_catalogue_eligibility_e3_coverage_120_of_151() {
         .find(|m| m["id"] == "crp-flare-response-kinetics")
         .expect("verdict")
         .clone();
-    assert_eq!(verdict["status"], "can_run_some");
+    assert_eq!(
+        verdict["status"],
+        "cannot_run",
+        "the ITEM-2 runtime stage: the method has no published environment"
+    );
     assert_eq!(verdict["coverage"], json!({"eligible": 120, "total": 151, "fraction": 0.795}));
     assert_eq!(verdict["min_draws"], json!({"required": 3, "met": 120, "unmet_patients": 31}));
     let codes: Vec<&str> = verdict["reasons"]
@@ -509,15 +521,21 @@ async fn method_catalogue_eligibility_e3_coverage_120_of_151() {
         .iter()
         .map(|r| r["code"].as_str().expect("code"))
         .collect();
+    assert_eq!(codes[0], "ENV_IMAGE_MISSING", "the env reason is the row's first one: {codes:?}");
     assert!(codes.contains(&"MIN_DRAWS_UNMET"), "{codes:?}");
     assert!(!codes.contains(&"DECISION_DAY_UNMET"), "{codes:?}");
-    // The DEC-7 estimate at the default 4 CPUs.
-    assert_eq!(verdict["estimated_seconds"], 11.6_f64 * (151.0_f64 / 150.0_f64) * (4.0_f64 / 4.0_f64));
+    // The DEC-7 estimate at the run's OWN CPU count (CM-7).
+    assert_eq!(
+        verdict["estimated_seconds"],
+        11.6_f64 * (151.0_f64 / 150.0_f64) * (4.0_f64 / host_cpus() as f64)
+    );
 }
 
 /// Screen B (preview): group checkboxes → `MARKER_GROUP_MISSING` reasons; the
-/// all-groups-true schedule (always-baseline, 4 draws) fits 357 of 359 (two
-/// methods need 6 draws).
+/// all-groups-true schedule (always-baseline, 4 draws) fits EVERY env-published
+/// method — the shipped manifest publishes 94, so the runtime-adjusted counts
+/// are total_fit 94 / total_cannot 265 / total_no_env 265 (of 359; pure
+/// fit-only would be 357 of 359, the two 6-draw methods additionally no-env).
 #[tokio::test]
 async fn method_catalogue_eligibility_preview_screen_b() {
     let server = TestServer::spawn().await;
@@ -545,9 +563,14 @@ async fn method_catalogue_eligibility_preview_screen_b() {
     assert_eq!(resp.status().as_u16(), 200);
     let body: Value = resp.json().await.expect("body");
 
-    assert_eq!(body["total_fit"], 357, "all groups true, 5 planned draws");
+    assert_eq!(body["total_fit"], 94, "all groups true, 4 draws — the env-published fit");
     assert_eq!(body["total_some"], 0, "before-treatment always");
-    assert_eq!(body["total_cannot"], 2, "the two 6-draw methods");
+    assert_eq!(
+        body["total_cannot"],
+        359 - 94,
+        "every method without a published env is CannotRun (the two 6-draw included)"
+    );
+    assert_eq!(body["total_no_env"], 359 - 94, "the count agrees with the manifest (359 - 94 published)");
 
     let verdict = body["methods"]
         .as_array()
@@ -786,9 +809,12 @@ async fn method_catalogue_estimate_is_deterministic_and_dec7_consistent() {
     let server = TestServer::spawn().await;
     let token = owner_token(&server).await;
 
+    // Three env-published methods (the shipped manifest's 94): a non-published
+    // id is refused by the ITEM-2 runtime stage before ANY arithmetic — the
+    // refusal is pinned in `estimate_rejects_with_named_codes`.
     let ids = [
         "asm-best-change-rule",
-        "crp-flare-response-kinetics",
+        "cox-baseline-delta",
         "landmark-cox-current",
     ];
     // Read the facts from the detail surface (never from the estimate body —
@@ -882,8 +908,12 @@ async fn method_catalogue_estimate_is_deterministic_and_dec7_consistent() {
 }
 
 /// The 400s: unknown method, zero CPUs, zero lanes — each with its named code
-/// (TEST-MC-30's acceptance; METHOD_NOT_RUNNABLE is not reachable over HTTP on
-/// the shipped runnable-only set — DEC-2 — and is pinned at the engine seam).
+/// (TEST-MC-30's acceptance). METHOD_NOT_RUNNABLE is now REACHABLE over HTTP
+/// (ITEM-2: a known method with no published environment is refused, never
+/// summed — pinned here on `crp-flare-response-kinetics`, a committed
+/// catalogue method the shipped manifest does not publish; the engine seam
+/// pins the same contract); an id the catalogue does not know stays
+/// UNKNOWN_METHOD (the refusal names the real problem, in request order).
 #[tokio::test]
 async fn method_catalogue_estimate_rejects_with_named_codes() {
     let server = TestServer::spawn().await;
@@ -911,6 +941,18 @@ async fn method_catalogue_estimate_rejects_with_named_codes() {
     assert_eq!(resp.status().as_u16(), 400);
     let body: Value = resp.json().await.expect("body");
     assert_eq!(body["error_code"], "UNKNOWN_METHOD");
+
+    let resp = post(json!({
+        "method_ids": ["crp-flare-response-kinetics"], "patients": 10, "cpus": 4, "at_a_time": 2
+    }))
+    .await;
+    assert_eq!(resp.status().as_u16(), 400, "a known method with no published environment");
+    let body: Value = resp.json().await.expect("body");
+    assert_eq!(
+        body["error_code"],
+        "METHOD_NOT_RUNNABLE",
+        "the ITEM-2 runtime refusal — the honest answer to how long it will take"
+    );
 
     let resp = post(json!({
         "method_ids": ["landmark-cox-current"], "patients": 10, "cpus": 0, "at_a_time": 2
@@ -1021,7 +1063,7 @@ async fn method_catalogue_http_equals_the_in_process_seam() {
     let est_req = EstimateRequest {
         method_ids: vec!["landmark-cox-current".to_string()],
         patients: 2,
-        cpus: 4,
+        cpus: None,
         at_a_time: 3,
     };
     let in_process = estimate(&est_req).expect("engine estimate");

@@ -8851,7 +8851,7 @@
         "tags": [
           "method-catalogue"
         ],
-        "description": "Per-method eligibility verdicts (can_run / can_run_some / cannot_run) with structured reason codes, missing markers/groups and per-patient coverage aggregates. The body is a tagged union: `preview` (screen-B schedule answers) or `inventory` (the file validator's inventory).",
+        "description": "Per-method eligibility verdicts (can_run / can_run_some / cannot_run) with structured reason codes, missing markers/groups and per-patient coverage aggregates. A method with no published environment on this computer is cannot_run + ENV_IMAGE_MISSING (total_no_env counts them). The body is a tagged union: `preview` (screen-B schedule answers) or `inventory` (the file validator's inventory).",
         "operationId": "MethodCatalogue.eligibility",
         "requestBody": {
           "description": "The eligibility request body — a tagged union carrying exactly one of the two\n request kinds (`{\"preview\": …}` or `{\"inventory\": …}`).",
@@ -8920,10 +8920,10 @@
         "tags": [
           "method-catalogue"
         ],
-        "description": "Per-method estimated seconds (base per-fold seconds scaled by patients and CPUs — 150 reference patients, 4 reference CPUs), the plain sum, and the greedy longest-processing-time schedule total over `at_a_time` lanes (the run-N-at-a-time bar). Validation order: cpus/at_a_time (0 rejected) first, then method resolution — the first failure wins.",
+        "description": "Per-method estimated seconds (base per-fold seconds scaled by patients and CPUs — 150 reference patients; an absent `cpus` uses the run's own detected count), the plain sum, and the greedy longest-processing-time schedule total over `at_a_time` lanes (the run-N-at-a-time bar). Validation order: cpus/at_a_time (a posted 0 rejected) first, then method resolution — the first failure wins; a method with no published environment is METHOD_NOT_RUNNABLE.",
         "operationId": "MethodCatalogue.estimate",
         "requestBody": {
-          "description": "The estimate request: which methods, on how many patients, on how many CPUs,\n running `at_a_time` lanes.",
+          "description": "The estimate request: which methods, on how many patients, on how many\n CPUs, running `at_a_time` lanes.",
           "content": {
             "application/json": {
               "schema": {
@@ -8958,7 +8958,7 @@
             }
           },
           "200": {
-            "description": "The estimate response: per-method seconds, the plain sum, and the\n longest-processing-time schedule total over the `at_a_time` lanes (the\n bottom-bar \"about X minutes in total on this computer\").",
+            "description": "The estimate response: per-method seconds, the plain sum, and the\n longest-processing-time schedule total over the `at_a_time` lanes (the\n bottom-bar \"about X minutes in total on this computer\"). `cpus` is the\n count actually used (the posted value, or the run's own resolution —\n [`estimate::host_cpus`] — when omitted), so the consumer can show the\n number the estimate was scaled to.",
             "content": {
               "application/json": {
                 "schema": {
@@ -17122,6 +17122,12 @@
             "format": "uint32",
             "minimum": 0
           },
+          "total_no_env": {
+            "description": "The `cannot_run` methods whose reason is\n [`ReasonCode::EnvImageMissing`] — the count of catalogue methods the\n app cannot actually start (no published environment on this\n computer), so the list header can say how many exist while still\n listing them.",
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
           "total_some": {
             "type": "integer",
             "format": "uint32",
@@ -17132,7 +17138,8 @@
           "methods",
           "total_fit",
           "total_some",
-          "total_cannot"
+          "total_cannot",
+          "total_no_env"
         ]
       },
       "EligibilityStatus": {
@@ -17217,7 +17224,7 @@
         ]
       },
       "EstimateRequest": {
-        "description": "The estimate request: which methods, on how many patients, on how many CPUs,\n running `at_a_time` lanes.",
+        "description": "The estimate request: which methods, on how many patients, on how many\n CPUs, running `at_a_time` lanes.",
         "type": "object",
         "properties": {
           "at_a_time": {
@@ -17228,10 +17235,13 @@
             "minimum": 0
           },
           "cpus": {
-            "description": "Defaults to [`DEFAULT_ESTIMATE_CPUS`] when omitted.",
-            "type": "integer",
+            "description": "The CPU count an estimate is scaled to. Absent (or `null`) means the\n run's own resolution — the host's detected CPUs ([`estimate::host_cpus`],\n the ONE implementation the execution engine's run-start detection also\n calls), so the bar and the running header always employ the same count.\n A present value is used as posted (0 is rejected).",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "uint32",
-            "default": 4,
+            "default": null,
             "minimum": 0
           },
           "method_ids": {
@@ -17252,10 +17262,15 @@
         ]
       },
       "EstimateResponse": {
-        "description": "The estimate response: per-method seconds, the plain sum, and the\n longest-processing-time schedule total over the `at_a_time` lanes (the\n bottom-bar \"about X minutes in total on this computer\").",
+        "description": "The estimate response: per-method seconds, the plain sum, and the\n longest-processing-time schedule total over the `at_a_time` lanes (the\n bottom-bar \"about X minutes in total on this computer\"). `cpus` is the\n count actually used (the posted value, or the run's own resolution —\n [`estimate::host_cpus`] — when omitted), so the consumer can show the\n number the estimate was scaled to.",
         "type": "object",
         "properties": {
           "at_a_time": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "cpus": {
             "type": "integer",
             "format": "uint32",
             "minimum": 0
@@ -17279,7 +17294,8 @@
           "methods",
           "total_seconds",
           "schedule_seconds",
-          "at_a_time"
+          "at_a_time",
+          "cpus"
         ]
       },
       "ExportRequest": {
@@ -20128,7 +20144,7 @@
         ]
       },
       "MethodRunMode": {
-        "description": "What one stacked run does (DEC-5). Maps to the container contract's\n `SIGBENCH_MODE` (X1): unset = one fit+predict call, `fit` / `predict`.",
+        "description": "What one stacked run does (DEC-5). Maps to the container contract's\n mode field (X1): unset = one fit+predict call, `fit` / `predict`. The\n sandbox emits it under BOTH spellings, `SIGBENCH_MODE` (X1-era name) and\n `TXRESBENCH_MODE` (the 2.0 SDK's name — see TEST-05 / DRIFT-1 ITEM-3).",
         "oneOf": [
           {
             "description": "Single call: fit on the bundle, predict the same patients (X1's unset\n mode).",
@@ -20136,12 +20152,12 @@
             "const": "fit_predict"
           },
           {
-            "description": "`SIGBENCH_MODE=fit`; the derived `/model` is written to\n `model_out_dir`.",
+            "description": "`SIGBENCH_MODE`/`TXRESBENCH_MODE=fit`; the derived `/model` is\n written to `model_out_dir`.",
             "type": "string",
             "const": "fit_only"
           },
           {
-            "description": "`SIGBENCH_MODE=predict` on an already-trained, verified model bound\n read-only at `/model` (INV-4).",
+            "description": "`SIGBENCH_MODE`/`TXRESBENCH_MODE=predict` on an already-trained,\n verified model bound read-only at `/model` (INV-4).",
             "type": "string",
             "const": "reuse_model"
           }
@@ -21131,6 +21147,7 @@
           "UNIT_MISMATCH",
           "DECISION_DAY_UNMET",
           "NOT_RUNNABLE",
+          "ENV_IMAGE_MISSING",
           "TASK_INCOMPATIBLE",
           "RESPONSE_LABEL_MISSING",
           "SURVIVAL_OUTCOME_MISSING",
@@ -22610,6 +22627,7 @@
           "UNIT_MISMATCH",
           "DECISION_DAY_UNMET",
           "NOT_RUNNABLE",
+          "ENV_IMAGE_MISSING",
           "TASK_INCOMPATIBLE",
           "RESPONSE_LABEL_MISSING",
           "SURVIVAL_OUTCOME_MISSING",
@@ -23729,6 +23747,11 @@
             "description": "The method carries no runnable env image.",
             "type": "string",
             "const": "NOT_RUNNABLE"
+          },
+          {
+            "description": "The method has no published environment image for this computer (the\n app's env manifest carries no host-arch entry) — the run would fail at\n start with `ENV_UNKNOWN`, so the verdict names it in advance (the\n catalogue still lists the method; the environment is the missing\n half).",
+            "type": "string",
+            "const": "ENV_IMAGE_MISSING"
           },
           {
             "description": "The method's task needs an outcome column the file lacks.",

@@ -190,6 +190,7 @@ export function TxrSettingsBlock({
           <div style={INPUTS_LINE}>
             <Switch
               data-testid="txr-run-settings-covariates"
+              className="txr-settings-switch"
               aria-label="Extra inputs"
               checked={value.covariates}
               onCheckedChange={checked => onChange({ ...value, covariates: checked })}

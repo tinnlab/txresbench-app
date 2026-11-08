@@ -91,6 +91,13 @@ import { TxrSlotSummary } from '../components/TxrSlotSummary'
  */
 const PAGE_OUTER: CSSProperties = {
   flexGrow: 1,
+  // The bounded page (CM-2): the shell header is 56px, and the page below it
+  // is the ONE scroll container boundary — without a definite height the
+  // list's flex-fill has no bounded parent and the virtualizer renders every
+  // row (the 22,630 px report). The list gets the remaining height and
+  // scrolls inside itself; the bottom bar stays pinned to its frame.
+  height: 'calc(100dvh - 56px)',
+  minHeight: 0,
   display: 'flex',
   flexDirection: 'column',
   minWidth: 0,
@@ -98,6 +105,11 @@ const PAGE_OUTER: CSSProperties = {
 
 const PAGE_MAIN: CSSProperties = {
   flexGrow: 1,
+  minHeight: 0,
+  // A short window (or the phone's tall settings stack) scrolls the fixed
+  // parts instead of pushing the list off; on a normal desktop the list
+  // fills the space and scrolls inside ITSELF.
+  overflowY: 'auto',
   boxSizing: 'border-box',
   padding: '24px 36px',
   display: 'flex',
@@ -133,10 +145,13 @@ const SETTINGS_SKELETON: CSSProperties = {
 }
 
 /** The list area's frame (the bounded column the shared list fills; the
- *  board's max-height 330px on a taller real page becomes the flex fill). */
+ *  board's max-height 330px on a taller real page becomes the flex fill —
+ *  the fill is BOUNDED by the page's definite height, CM-2 — with a floor
+ *  so a short window never collapses the list into nothing). */
 const LIST_FRAME: CSSProperties = {
   flexGrow: 1,
-  minHeight: 0,
+  flexShrink: 1,
+  minHeight: 240,
   display: 'flex',
   flexDirection: 'column',
   border: '1px solid #cfcdc7',
@@ -159,6 +174,16 @@ const PENDING_LINE: CSSProperties = { margin: 0, fontSize: 13.5, color: '#5e5e5e
 
 /** The pending line (the list's place while the summary is transiently null). */
 const PENDING_REFRESH_LINE = 'Re-check your files to see what can run.'
+
+/** The no-env honesty line (CM-1): the count of catalogue methods with no
+ *  published environment, stated before the rows — the board has no such
+ *  line (every board method can start), so the copy follows the app's
+ *  plain-voice rule, never a raw code. */
+const NO_ENV_LINE: CSSProperties = { margin: 0, fontSize: 12.5, color: '#8a5a00' }
+
+export function noEnvLine(noEnv: number, total: number): string {
+  return `${noEnv} of ${total} methods have no published environment on this computer and can't start.`
+}
 
 /** The run statuses DEC-18 calls "active" (the one-active-run 409's target). */
 const ACTIVE_RUN_STATUSES: ReadonlySet<TxrRunStatus> = new Set([
@@ -217,6 +242,9 @@ interface TxrMethodListFrameProps {
   /** The active group chip (host filter state — the builder's facts are inert). */
   groupFilter: string | null
   onGroupFilterChange: (id: string | null) => void
+  /** The "Can run" pill (CM-3): only non-disabled rows when on. */
+  canOnly: boolean
+  onCanOnlyChange: (on: boolean) => void
   /** The screen's settings (the bar's at-a-time + save-models tie to them). */
   settings: RunSettings
   onSettingsChange: (next: RunSettings) => void
@@ -242,13 +270,15 @@ function TxrMethodListFrame({
   onSelectionChange,
   groupFilter,
   onGroupFilterChange,
+  canOnly,
+  onCanOnlyChange,
   settings,
   onSettingsChange,
   onAbout,
   onCreate,
   onRetryList,
 }: TxrMethodListFrameProps) {
-  const { rows, loading, error, refetch } = useMethodRows(inventory)
+  const { rows, noEnvCount, loading, error, refetch } = useMethodRows(inventory)
   const estimate = useListEstimate([...selected], {
     patients: inventory.patients,
     cpus: settings.cpus ?? undefined,
@@ -270,25 +300,42 @@ function TxrMethodListFrame({
   )
 
   // The row set the list shows: the group filter over the rows' chip labels
-  // (the rows carry the label, never the group id — DEC-8).
+  // (the rows carry the label, never the group id — DEC-8) composed with the
+  // can-run-only pill (CM-3's "Can run = only runnable rows").
   const groupLabelOf = useMemo(() => {
     const byGroup = new Map<string, string>()
     for (const method of methods) byGroup.set(method.group, method.group_label)
     return byGroup
   }, [methods])
-  const shown =
-    groupFilter === null
-      ? rows
-      : rows.filter(row => row.chip?.label === groupLabelOf.get(groupFilter))
+  const shown = useMemo(() => {
+    const grouped =
+      groupFilter === null
+        ? rows
+        : rows.filter(row => row.chip?.label === groupLabelOf.get(groupFilter))
+    return canOnly ? grouped.filter(row => !row.run.disabled) : grouped
+  }, [rows, groupFilter, canOnly, groupLabelOf])
 
   return (
     <div data-testid="txr-run-list" style={LIST_FRAME}>
+      {noEnvCount > 0 ? (
+        <p data-testid="txr-run-no-env-line" style={NO_ENV_LINE}>
+          {noEnvLine(noEnvCount, rows.length)}
+        </p>
+      ) : null}
       <TxrSelectList
         rows={shown}
         itemLabel="method"
         selected={selected}
         onSelectionChange={onSelectionChange}
         filterChips={chips}
+        allFilter={{
+          active: groupFilter === null && !canOnly,
+          onClick: () => {
+            onGroupFilterChange(null)
+            onCanOnlyChange(false)
+          },
+        }}
+        canRunFilter={{ active: canOnly, onClick: () => onCanOnlyChange(!canOnly) }}
         loading={loading}
         error={error}
         onRetry={() => {
@@ -321,6 +368,7 @@ export function ChooseMethodsPage() {
   const [settingsPatch, setSettingsPatch] = useState<Partial<RunSettings> | null>(null)
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [groupFilter, setGroupFilter] = useState<string | null>(null)
+  const [canOnly, setCanOnly] = useState(false)
   const [aboutId, setAboutId] = useState<string | null>(null)
   const [runError, setRunError] = useState<string | null>(null)
   const [runNotice, setRunNotice] = useState<string | null>(null)
@@ -532,6 +580,8 @@ export function ChooseMethodsPage() {
             onSelectionChange={setSelected}
             groupFilter={groupFilter}
             onGroupFilterChange={setGroupFilter}
+            canOnly={canOnly}
+            onCanOnlyChange={setCanOnly}
             settings={settings}
             onSettingsChange={change}
             onAbout={setAboutId}

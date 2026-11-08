@@ -153,8 +153,23 @@ describe('txrresults module (TEST-UR-13)', () => {
 
   it('does not change the generated client, the openapi, the guards, the shell or the loader (DEC-16)', () => {
     const touched = itemDelta()
-    expect(touched.filter(p => p.startsWith('src-app/ui/src/api-client/'))).toEqual([])
-    expect(touched.filter(p => p.startsWith('src-app/ui/openapi/'))).toEqual([])
+    // The qa-fixes ITEM-2 client surface (its DRIFT-1): the regenerated
+    // `types.ts` (the new `ENV_IMAGE_MISSING` reason code + the
+    // `total_no_env`/`cpus` eligibility+estimate fields) and the
+    // regenerated `openapi.json` — the ONLY two generated files this item
+    // moves; the pins stay strict for anything else under either prefix.
+    expect(
+      touched.filter(
+        p =>
+          p.startsWith('src-app/ui/src/api-client/') &&
+          p !== 'src-app/ui/src/api-client/types.ts',
+      ),
+    ).toEqual([])
+    expect(
+      touched.filter(
+        p => p.startsWith('src-app/ui/openapi/') && p !== 'src-app/ui/openapi/openapi.json',
+      ),
+    ).toEqual([])
     expect(touched.filter(p => p.startsWith('scripts/'))).toEqual([])
     expect(touched.filter(p => p.startsWith('src-app/ui/scripts/'))).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/package.json')).toEqual([])
@@ -172,7 +187,33 @@ describe('txrresults module (TEST-UR-13)', () => {
       ),
     ).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/src/modules/loader.ts')).toEqual([])
-    expect(touched.filter(p => p.startsWith('src-app/server/'))).toEqual([])
+    // The whole server half of the qa-fixes ITEM-2 delta (its DRIFT-1):
+    // the method_catalogue eligibility/estimate/routes/types rework
+    // (CM-1/CM-6/CM-7), the execution_engine environment-classify detail,
+    // the model_store + pretrained reason-code vocabulary growth and the
+    // method_catalogue API test, plus the execution_engine types/README + the
+    // integration tests whose ENV_UNKNOWN pins the one-vocabulary change
+    // reclassifies (DRIFT-1 ITEM-2 #2) — pinned verbatim; anything else under
+    // `src-app/server/` still fails.
+    expect(
+      touched.filter(
+        p =>
+          p.startsWith('src-app/server/') &&
+          p !== 'src-app/server/src/modules/method_catalogue/types.rs' &&
+          p !== 'src-app/server/src/modules/method_catalogue/eligibility.rs' &&
+          p !== 'src-app/server/src/modules/method_catalogue/estimate.rs' &&
+          p !== 'src-app/server/src/modules/method_catalogue/routes.rs' &&
+          p !== 'src-app/server/src/modules/execution_engine/orchestrator.rs' &&
+          p !== 'src-app/server/src/modules/model_store/types.rs' &&
+          p !== 'src-app/server/src/modules/pretrained_catalogue/types.rs' &&
+          p !== 'src-app/server/tests/method_catalogue/api_test.rs' &&
+          p !== 'src-app/server/src/modules/execution_engine/types.rs' &&
+          p !== 'src-app/server/src/modules/execution_engine/README.md' &&
+          p !== 'src-app/server/tests/execution_engine/api_test.rs' &&
+          p !== 'src-app/server/tests/execution_engine/bundle_test.rs' &&
+          p !== 'src-app/server/tests/history_store/mod.rs',
+      ),
+    ).toEqual([])
   })
 
   it('carries no status words and no literal design-example numbers in its own files (INV-4/5)', () => {

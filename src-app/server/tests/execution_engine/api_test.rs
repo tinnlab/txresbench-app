@@ -208,7 +208,8 @@ async fn embedded_data_serves_the_surface_without_a_benchmark_tree() {
 
     // A real create through the embedded facts: jm-mem-lq is a runnable
     // catalogue method with NO published layer — the run starts, classifies
-    // the method cannot_run + ENV_UNKNOWN (never erased, never a silent
+    // the method cannot_run + ENV_IMAGE_MISSING (the ITEM-2 code the
+    // eligibility stage pushes first — never erased, never a silent
     // hole), and finishes.
     let resp = server
         .client
@@ -243,7 +244,7 @@ async fn embedded_data_serves_the_surface_without_a_benchmark_tree() {
     let method = &detail["methods"][0];
     assert_eq!(method["method_id"], "jm-mem-lq");
     assert_eq!(method["state"], "cannot_run");
-    assert_eq!(method["reason"]["code"], "ENV_UNKNOWN", "{method}");
+    assert_eq!(method["reason"]["code"], "ENV_IMAGE_MISSING", "{method}");
     assert_eq!(
         method["label"], "jm-mem-lq",
         "the catalogue id is the label"
@@ -376,8 +377,8 @@ async fn history_surface_lists_reruns_deletes_and_round_trips_the_config() {
     );
 
     // Rerun: the new run clone's config + methods come from the STORED input
-    // record; its drive classifies jm-mem-lq cannot_run (+ENV_UNKNOWN) and
-    // finishes without touching the sandbox.
+    // record; its drive classifies jm-mem-lq cannot_run (+ENV_IMAGE_MISSING)
+    // and finishes without touching the sandbox.
     let resp = server
         .client
         .post(server.api_url(&format!("/txr/runs/{id_a}/rerun")))

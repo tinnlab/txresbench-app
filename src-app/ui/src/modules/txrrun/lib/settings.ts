@@ -89,7 +89,13 @@ export const SETTING_OPTIONS = {
  * analysis, so it beats any stored config), then the engine's sticky
  * config for every OTHER field (its decision day applies only when the
  * intake carries none — the entry path without a fresh answer), then the
- * engine's defaults. `baseline_max_day` rides on the intake parameters
+ * engine's defaults. `at_a_time` is the ONE exception: it is a RUN-option
+ * (the bottom bar's "run N at a time"), not an analysis setting, so it
+ * never restores across analyses — each screen starts at the engine's
+ * default 3 and only the bar's own value is used when the run is created
+ * (qa-fixes ITEM-2: "the '1 at a time' setting persisting across
+ * analyses" is the defect; the sticky store's stale value is ignored
+ * here). `baseline_max_day` rides on the intake parameters
  * (fix 0, the contract rule) for shape compatibility; it is not a
  * screen setting, so it stops here.
  */
@@ -104,7 +110,7 @@ export function mergeRunSettings(
       params?.decision_day ?? config?.decision_day ?? DEFAULT_RUN_SETTINGS.decision_day,
     look_ahead_day: config?.look_ahead_day ?? DEFAULT_RUN_SETTINGS.look_ahead_day,
     covariates: config?.covariates ?? DEFAULT_RUN_SETTINGS.covariates,
-    at_a_time: config?.at_a_time ?? DEFAULT_RUN_SETTINGS.at_a_time,
+    at_a_time: DEFAULT_RUN_SETTINGS.at_a_time,
     cpus: config?.cpus ?? DEFAULT_RUN_SETTINGS.cpus,
     save_models: config?.save_models ?? DEFAULT_RUN_SETTINGS.save_models,
   }

@@ -2995,7 +2995,7 @@ fn compute_estimate(
     let resp = match estimate::estimate(&EstimateRequest {
         method_ids,
         patients,
-        cpus,
+        cpus: Some(cpus),
         at_a_time,
     }) {
         Ok(r) => r,
@@ -3052,11 +3052,12 @@ fn input_summary(req: &CreateRunRequest, prepared: &PreparedRun) -> TxrRunInputS
     }
 }
 
-/// Detected CPU count (DEC-12: `available_parallelism`, fallback 4).
+/// Detected CPU count (DEC-12: `available_parallelism`, fallback 4) — the ONE
+/// implementation lives with the estimate provider ([`method_catalogue::estimate::host_cpus`]),
+/// so the run's detection and the estimate's Auto resolution cannot drift
+/// (CM-7); this accessor is the engine's name for the same fact.
 pub fn detect_cpus() -> u32 {
-    std::thread::available_parallelism()
-        .map(|n| n.get() as u32)
-        .unwrap_or(4)
+    crate::modules::method_catalogue::estimate::host_cpus()
 }
 
 /// The per-method lane CPU count (DEC-12: `clamp(floor(cpus / at_a_time), 1, 4)`
@@ -3263,9 +3264,12 @@ fn reason_line(reason: &crate::modules::method_catalogue::types::Reason) -> Stri
 
 /// Classify every selected method (train: the provider's eligibility verdict
 /// + the env entry; reuse: asset verification + the env entry) into the plan
-/// list — DEC-15's replay of the screens' one judgement, plus the env-manifest
-/// classification of TEST-EE-06: a runnable method with no published
-/// environment is `cannot_run` + `ENV_UNKNOWN`, never a silent skip.
+/// list — DEC-15's replay of the screens' one judgement; a runnable method
+/// with no published environment is `cannot_run` + `ENV_UNKNOWN` at the env
+/// resolution layer and `ENV_IMAGE_MISSING` from the eligibility stage
+/// (TEST-EE-06: the screens' verdict and the run row now carry the SAME code
+/// — the stage runs before this branch, so the CannotRun arm is what its
+/// rows take; the ENV_UNKNOWN arm stays the defensive backstop).
 fn classify(
     mode: super::types::TxrRunMode,
     method_ids: &[String],
@@ -3295,10 +3299,27 @@ fn classify(
                 let facts = envmanifest::facts_for(id).expect("checked at start");
                 let plan = match verdict.status {
                     EligibilityStatus::CannotRun => {
+                        // The verdict's first reason is the row's one reason
+                        // (the eligibility stage pushes ENV_IMAGE_MISSING
+                        // first for a method with no published environment —
+                        // the SAME fact this branch used to discover itself
+                        // and report as ENV_UNKNOWN; one vocabulary now, the
+                        // screens' verdict and the run row agree, CONS-EE-10).
                         let reason = verdict
                             .reasons
                             .first()
-                            .map(|r| TxrRunReason::from_catalogue(r.code, reason_line(r)))
+                            .map(|r| {
+                                if r.code
+                                    == crate::modules::method_catalogue::types::ReasonCode::EnvImageMissing
+                                {
+                                    TxrRunReason::from_catalogue(
+                                        r.code,
+                                        format!("no published environment for method {id:?}"),
+                                    )
+                                } else {
+                                    TxrRunReason::from_catalogue(r.code, reason_line(r))
+                                }
+                            })
                             .unwrap_or_else(|| {
                                 TxrRunReason::from_catalogue(
                                     crate::modules::method_catalogue::types::ReasonCode::NotRunnable,
@@ -4843,15 +4864,21 @@ mod tests {
         assert!(jm.cannot_run);
         assert_eq!(
             jm.reason.as_ref().map(|r| r.code.as_str()),
-            Some("ENV_UNKNOWN"),
-            "runnable method with no published environment — never a silent skip"
+            Some("ENV_IMAGE_MISSING"),
+            "runnable method with no published environment — never a silent skip; the \
+             eligibility stage's own code is the run row's code (one vocabulary)"
+        );
+        assert_eq!(
+            jm.reason.as_ref().map(|r| r.detail.as_str()),
+            Some("no published environment for method \"jm-mem-lq\""),
+            "the row's detail line is the engine's plain reason"
         );
 
         let bayes = by_id["bayes-pt-cure-joint"];
         assert!(bayes.cannot_run);
         assert_eq!(
             bayes.reason.as_ref().map(|r| r.code.as_str()),
-            Some("ENV_UNKNOWN"),
+            Some("ENV_IMAGE_MISSING"),
             "task-less method is compatible with the file's outcomes (owner rule 2026-10-20) \
              but has no published environment — the cannot-run reason is the env entry, never \
              a task mismatch"

@@ -43,17 +43,18 @@
 //!
 //! ## Errors and edge semantics (deterministic, first failure wins)
 //!
-//! - `cpus == 0` / `at_a_time == 0` are rejected FIRST (named validation
-//!   errors — they are not defaults here; the serde defaults, 4 and 3, are the
-//!   omission path; the zero-default of
-//!   [`eligibility::estimate_seconds_for`] serves the eligibility path, which
-//!   never posts a user CPU count).
+//! - `cpus == 0` (a POSTED zero; absent is the omission path) / `at_a_time ==
+//!   0` are rejected FIRST (named validation errors — they are not defaults
+//!   here; the serde default 3 is at_a_time's omission path, and the cpus
+//!   omission path is the run's own resolution, [`host_cpus`], the same count
+//!   the run will start with — CM-7's one source of truth; the zero-default of
+//!   [`eligibility::estimate_seconds_for`] serves the pure eligibility helper).
 //! - `method_ids` are then resolved IN REQUEST ORDER; the first unknown id is
 //!   [`EstimateError::UnknownMethod`], the first non-runnable id is
 //!   [`EstimateError::MethodNotRunnable`] (`400 METHOD_NOT_RUNNABLE` on the
-//!   wire — plan-named; unreachable for the shipped runnable-only set, DEC-2,
-//!   hence the handcrafted-catalogue test seam, like eligibility's NOT_RUNNABLE
-//!   note, PLAN `p`).
+//!   wire — plan-named; the runtime surface adds the no-published-environment
+//!   refusal there too ([`estimate_for_runtime`]) — the E screen never asks
+//!   (its rows are disabled), a stray id is refused, never summed).
 //! - The response `methods[]` is in request order; duplicates are estimated as
 //!   posted (the consumer posts a selection SET, so this is a caller bug's
 //!   shape, not a silent dedup — the totals count what was asked).
@@ -68,10 +69,23 @@ use std::fmt;
 
 use crate::modules::method_catalogue::eligibility::{estimate_quality_for, estimate_seconds_for};
 use crate::modules::method_catalogue::types::{
-    Catalogue, EstimateRequest, EstimateResponse, Method, MethodEstimate,
+    Catalogue, EstimateRequest, EstimateResponse, Method, MethodEstimate, DEFAULT_ESTIMATE_CPUS,
 };
 
-/// A named estimate failure — the engine's closed error vocabulary. The wire
+/// The effective CPU count the run uses when the user leaves CPUs at Auto
+/// (DEC-12's detect-at-run-start; the E screen's `cpus: null`): the machine's
+/// available parallelism, [`DEFAULT_ESTIMATE_CPUS`] when it cannot be read.
+/// This is the ONE implementation — the execution engine's run-start
+/// detection delegates here, and the estimate endpoint's omission path
+/// resolves through the same call, so the bottom bar, the per-method rows and
+/// the running header always employ the same count (CM-7).
+pub fn host_cpus() -> u32 {
+    std::thread::available_parallelism()
+        .map(|n| n.get() as u32)
+        .unwrap_or(DEFAULT_ESTIMATE_CPUS)
+}
+
+/// Named estimate failures — the engine's closed error vocabulary. The wire
 /// mapping (400 for every variant; the codes below) is ITEM-5's routes layer;
 /// the engine itself is HTTP-free (PROV-MC-7).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,10 +93,13 @@ pub enum EstimateError {
     /// A `method_ids` entry is not a catalogue id.
     UnknownMethod { method_id: String },
     /// A `method_ids` entry is a catalogue method but is not runnable (no env
-    /// image) — the PROV-MC-6 `METHOD_NOT_RUNNABLE` case.
+    /// image) — the PROV-MC-6 `METHOD_NOT_RUNNABLE` case. Covers BOTH the
+    /// catalogue's `runnable: false` shape and the runtime no-published-
+    /// environment verdict ([`eligibility::runtime_env_available`]) — the
+    /// estimate of a method the app cannot start is never a promising number.
     MethodNotRunnable { method_id: String },
-    /// `cpus` is 0 (the serde default 4 is the omission path; a posted 0 is
-    /// not a request for "default CPUs").
+    /// `cpus` is 0 (a posted 0 is not a request for "default CPUs"; absent
+    /// means the run's own resolution — [`host_cpus`]).
     InvalidCpus { value: u32 },
     /// `at_a_time` is 0 (the serde default 3 is the omission path).
     InvalidAtATime { value: u32 },
@@ -123,28 +140,24 @@ impl fmt::Display for EstimateError {
 
 impl std::error::Error for EstimateError {}
 
-/// Run the estimate over the embedded catalogue (the PROV-MC-7 in-process seam;
-/// TEST-MC-31 name-checks it).
+/// Run the estimate over the embedded catalogue — the runtime surface (the
+/// no-published-environment refusal + the pure core; PROV-MC-7's in-process
+/// seam — the execution engine's create-time estimate goes through the same
+/// path, one code system).
 pub fn estimate(req: &EstimateRequest) -> Result<EstimateResponse, EstimateError> {
-    estimate_for(crate::modules::method_catalogue::catalogue::catalogue(), req)
+    estimate_for_runtime(crate::modules::method_catalogue::catalogue::catalogue(), req)
 }
 
-/// Run the estimate over a given catalogue — the same engine as [`estimate`]
-/// with the catalogue passed in (the test seam: a handcrafted catalogue can
-/// exercise the METHOD_NOT_RUNNABLE case the shipped runnable-only set never
-/// triggers — DEC-2, same posture as `eligibility_for`).
+/// The pure core over a given catalogue (no runtime-env stage — the test seam:
+/// a handcrafted catalogue can exercise the METHOD_NOT_RUNNABLE case the
+/// shipped runnable-only set never triggers — DEC-2, same posture as
+/// `eligibility_for`). Production consumers call [`estimate`] or
+/// [`estimate_for_runtime`]. `cpus: None` resolves through [`host_cpus`].
 pub fn estimate_for(
     cat: &Catalogue,
     req: &EstimateRequest,
 ) -> Result<EstimateResponse, EstimateError> {
-    if req.cpus == 0 {
-        return Err(EstimateError::InvalidCpus { value: req.cpus });
-    }
-    if req.at_a_time == 0 {
-        return Err(EstimateError::InvalidAtATime {
-            value: req.at_a_time,
-        });
-    }
+    let cpus = validate_estimate_request(req)?;
     // Resolve the requested methods in order; the FIRST failure is reported
     // (deterministic: the same request always names the same problem).
     let mut methods: Vec<&Method> = Vec::with_capacity(req.method_ids.len());
@@ -165,7 +178,7 @@ pub fn estimate_for(
         .iter()
         .map(|m| MethodEstimate {
             id: m.id.clone(),
-            estimated_seconds: estimate_seconds_for(m, req.patients, req.cpus),
+            estimated_seconds: estimate_seconds_for(m, req.patients, cpus),
             estimate_quality: estimate_quality_for(m),
         })
         .collect();
@@ -188,7 +201,56 @@ pub fn estimate_for(
         total_seconds,
         schedule_seconds,
         at_a_time: req.at_a_time,
+        cpus,
     })
+}
+
+/// The structural validation of one estimate request — the documented order
+/// ("cpus/at_a_time rejected first, then method resolution — the first
+/// failure wins", the route's contract): a posted 0 is refused before ANY
+/// method is resolved, so the runtime stage cannot shadow it. ONE
+/// implementation: the pure core and the runtime stage share it.
+fn validate_estimate_request(req: &EstimateRequest) -> Result<u32, EstimateError> {
+    let cpus = req.cpus.unwrap_or_else(host_cpus);
+    if cpus == 0 {
+        return Err(EstimateError::InvalidCpus { value: req.cpus.unwrap_or(0) });
+    }
+    if req.at_a_time == 0 {
+        return Err(EstimateError::InvalidAtATime {
+            value: req.at_a_time,
+        });
+    }
+    Ok(cpus)
+}
+
+/// The runtime-availability refusal stage over the pure core: a catalogue
+/// method with no published environment on this computer is never estimated
+/// (the honest answer to "how long will it take" is that it will not start —
+/// the E screen's rows are disabled on this verdict, so the UI never asks;
+/// a stray id is refused, never summed). The HTTP surface's seat.
+pub fn estimate_for_runtime(
+    cat: &Catalogue,
+    req: &EstimateRequest,
+) -> Result<EstimateResponse, EstimateError> {
+    // Structural validation first (see the shared validator), then name the
+    // REAL method problem, in request order (the pure core's own
+    // first-failure-wins convention): an id the catalogue does not know is
+    // UNKNOWN_METHOD even when it also has no published environment; a known
+    // id with no env is METHOD_NOT_RUNNABLE.
+    validate_estimate_request(req)?;
+    for id in &req.method_ids {
+        if cat.method(id).is_none() {
+            return Err(EstimateError::UnknownMethod {
+                method_id: id.clone(),
+            });
+        }
+        if !crate::modules::method_catalogue::eligibility::runtime_env_available(id) {
+            return Err(EstimateError::MethodNotRunnable {
+                method_id: id.clone(),
+            });
+        }
+    }
+    estimate_for(cat, req)
 }
 
 /// The greedy LPT makespan: per-method seconds sorted descending, each placed
@@ -284,7 +346,7 @@ mod tests {
         parse_catalogue(serde_json::to_vec(&doc).unwrap().as_slice()).expect("test catalogue")
     }
 
-    fn req(ids: &[&str], patients: u32, cpus: u32, at_a_time: u32) -> EstimateRequest {
+    fn req(ids: &[&str], patients: u32, cpus: Option<u32>, at_a_time: u32) -> EstimateRequest {
         EstimateRequest {
             method_ids: ids.iter().map(|s| s.to_string()).collect(),
             patients,
@@ -302,11 +364,11 @@ mod tests {
         let cat = catalogue_with(serde_json::json!([
             method_json("fx-timing", 60.0, "measured", 1)
         ]));
-        let r = estimate_for(&cat, &req(&["fx-timing"], 300, 8, 3)).unwrap();
+        let r = estimate_for(&cat, &req(&["fx-timing"], 300, Some(8), 3)).unwrap();
         assert_eq!(r.methods[0].estimated_seconds, 60.0); // x 2 x 0.5
-        let r = estimate_for(&cat, &req(&["fx-timing"], 300, 2, 3)).unwrap();
+        let r = estimate_for(&cat, &req(&["fx-timing"], 300, Some(2), 3)).unwrap();
         assert_eq!(r.methods[0].estimated_seconds, 240.0); // x 2 x 2
-        let r = estimate_for(&cat, &req(&["fx-timing"], 150, 4, 3)).unwrap();
+        let r = estimate_for(&cat, &req(&["fx-timing"], 150, Some(4), 3)).unwrap();
         assert_eq!(r.methods[0].estimated_seconds, 60.0); // the reference point
         assert_eq!(r.total_seconds, r.methods[0].estimated_seconds);
         assert_eq!(r.schedule_seconds, r.methods[0].estimated_seconds);
@@ -321,7 +383,7 @@ mod tests {
             method_json("fx-measured", 60.0, "measured", 2),
             method_json("fx-fallback", 120.0, "estimate", 0)
         ]));
-        let r = estimate_for(&cat, &req(&["fx-measured", "fx-fallback"], 150, 4, 3)).unwrap();
+        let r = estimate_for(&cat, &req(&["fx-measured", "fx-fallback"], 150, Some(4), 3)).unwrap();
         assert_eq!(r.methods[0].estimate_quality, TimingQuality::Measured);
         assert_eq!(r.methods[0].estimated_seconds, 60.0);
         assert_eq!(r.methods[1].estimate_quality, TimingQuality::Estimate);
@@ -340,15 +402,15 @@ mod tests {
             method_json("fx-b", 240.0, "measured", 1),
             method_json("fx-c", 300.0, "measured", 1)
         ]));
-        let r = estimate_for(&cat, &req(&["fx-a", "fx-b", "fx-c"], 150, 4, 3)).unwrap();
+        let r = estimate_for(&cat, &req(&["fx-a", "fx-b", "fx-c"], 150, Some(4), 3)).unwrap();
         assert_eq!(r.total_seconds, 660.0);
         assert_eq!(r.schedule_seconds, 300.0);
-        let r = estimate_for(&cat, &req(&["fx-a", "fx-b", "fx-c"], 150, 4, 2)).unwrap();
+        let r = estimate_for(&cat, &req(&["fx-a", "fx-b", "fx-c"], 150, Some(4), 2)).unwrap();
         assert_eq!(r.schedule_seconds, 360.0);
         // One lane is the plain sum; more lanes than methods is the single wave.
-        let r = estimate_for(&cat, &req(&["fx-a", "fx-b", "fx-c"], 150, 4, 1)).unwrap();
+        let r = estimate_for(&cat, &req(&["fx-a", "fx-b", "fx-c"], 150, Some(4), 1)).unwrap();
         assert_eq!(r.schedule_seconds, 660.0);
-        let r = estimate_for(&cat, &req(&["fx-a", "fx-b", "fx-c"], 150, 4, 9)).unwrap();
+        let r = estimate_for(&cat, &req(&["fx-a", "fx-b", "fx-c"], 150, Some(4), 9)).unwrap();
         assert_eq!(r.schedule_seconds, 300.0);
         // The response mirrors the requested order exactly.
         assert_eq!(
@@ -357,7 +419,7 @@ mod tests {
         );
         // Unscaled 2-lane packing keeps the same shape under a 2x scale
         // (patients 150, cpus 2 -> factor 4/2 = 2).
-        let r = estimate_for(&cat, &req(&["fx-a", "fx-b", "fx-c"], 150, 2, 2)).unwrap();
+        let r = estimate_for(&cat, &req(&["fx-a", "fx-b", "fx-c"], 150, Some(2), 2)).unwrap();
         assert_eq!(r.schedule_seconds, 720.0); // [600]|[480,240] -> 720
     }
 
@@ -375,7 +437,7 @@ mod tests {
             method_json("fx-b", 11.6, "measured", 1),
             method_json("fx-c", 25.6, "measured", 1)
         ]));
-        let r = estimate_for(&cat, &req(&["fx-a", "fx-b", "fx-c"], 151, 4, 1)).unwrap();
+        let r = estimate_for(&cat, &req(&["fx-a", "fx-b", "fx-c"], 151, Some(4), 1)).unwrap();
         assert_eq!(r.schedule_seconds, r.total_seconds);
         // The ULP split really exists in these facts (the reason the exact
         // equality is a deliberate branch, not an accident of order).
@@ -398,17 +460,17 @@ mod tests {
         let mut not_runnable = method_json("fx-blocked", 60.0, "estimate", 0);
         not_runnable["runnable"] = serde_json::json!(false);
         let cat = catalogue_with(serde_json::json!([not_runnable]));
-        let err = estimate_for(&cat, &req(&["nope"], 150, 4, 3)).unwrap_err();
+        let err = estimate_for(&cat, &req(&["nope"], 150, Some(4), 3)).unwrap_err();
         assert_eq!(err, EstimateError::UnknownMethod { method_id: "nope".into() });
         assert_eq!(err.code(), "UNKNOWN_METHOD");
-        let err = estimate_for(&cat, &req(&["fx-blocked"], 150, 4, 3)).unwrap_err();
+        let err = estimate_for(&cat, &req(&["fx-blocked"], 150, Some(4), 3)).unwrap_err();
         assert_eq!(
             err,
             EstimateError::MethodNotRunnable { method_id: "fx-blocked".into() }
         );
         assert_eq!(err.code(), "METHOD_NOT_RUNNABLE");
         // First failure wins, in request order.
-        let err = estimate_for(&cat, &req(&["nope", "fx-blocked"], 150, 4, 3)).unwrap_err();
+        let err = estimate_for(&cat, &req(&["nope", "fx-blocked"], 150, Some(4), 3)).unwrap_err();
         assert_eq!(err.code(), "UNKNOWN_METHOD");
     }
 
@@ -418,24 +480,24 @@ mod tests {
         // surface is TEST-MC-13's; the serde defaults 4/3 are the omission
         // path). Validation runs before method resolution.
         let cat = catalogue_with(serde_json::json!([method_json("fx-a", 60.0, "measured", 1)]));
-        let err = estimate_for(&cat, &req(&["fx-a"], 150, 0, 3)).unwrap_err();
+        let err = estimate_for(&cat, &req(&["fx-a"], 150, Some(0), 3)).unwrap_err();
         assert_eq!(err, EstimateError::InvalidCpus { value: 0 });
         assert_eq!(err.code(), "INVALID_CPUS");
-        let err = estimate_for(&cat, &req(&["fx-a"], 150, 4, 0)).unwrap_err();
+        let err = estimate_for(&cat, &req(&["fx-a"], 150, Some(4), 0)).unwrap_err();
         assert_eq!(err, EstimateError::InvalidAtATime { value: 0 });
         assert_eq!(err.code(), "INVALID_AT_A_TIME");
-        let err = estimate_for(&cat, &req(&["fx-a"], 150, 0, 0)).unwrap_err();
+        let err = estimate_for(&cat, &req(&["fx-a"], 150, Some(0), 0)).unwrap_err();
         assert_eq!(err.code(), "INVALID_CPUS");
     }
 
     #[test]
     fn empty_selection_and_zero_patients_are_zero_totals() {
         let cat = catalogue_with(serde_json::json!([method_json("fx-a", 60.0, "measured", 1)]));
-        let r = estimate_for(&cat, &req(&[], 150, 4, 3)).unwrap();
+        let r = estimate_for(&cat, &req(&[], 150, Some(4), 3)).unwrap();
         assert!(r.methods.is_empty());
         assert_eq!(r.total_seconds, 0.0);
         assert_eq!(r.schedule_seconds, 0.0);
-        let r = estimate_for(&cat, &req(&["fx-a"], 0, 4, 3)).unwrap();
+        let r = estimate_for(&cat, &req(&["fx-a"], 0, Some(4), 3)).unwrap();
         assert_eq!(r.methods[0].estimated_seconds, 0.0);
         assert_eq!(r.total_seconds, 0.0);
         assert_eq!(r.schedule_seconds, 0.0);
@@ -451,8 +513,8 @@ mod tests {
         let cat = crate::modules::method_catalogue::catalogue::ensure_loaded()
             .expect("the committed catalogue loads");
         let ids: Vec<&str> = vec!["landmark-cox-current", "asm-best-change-rule"];
-        let r1 = estimate_for(cat, &req(&ids, 150, 4, 3)).unwrap();
-        let r2 = estimate_for(cat, &req(&ids, 150, 4, 3)).unwrap();
+        let r1 = estimate_for(cat, &req(&ids, 150, Some(4), 3)).unwrap();
+        let r2 = estimate_for(cat, &req(&ids, 150, Some(4), 3)).unwrap();
         assert_eq!(r1.total_seconds, r2.total_seconds);
         assert_eq!(r1.schedule_seconds, r2.schedule_seconds);
         assert_eq!(r1.methods.len(), 2);
@@ -465,5 +527,61 @@ mod tests {
             );
             assert_eq!(m.estimate_quality, entry.timing.quality);
         }
+    }
+
+    #[test]
+    fn omitted_cpus_resolve_the_runs_own_count() {
+        // CM-7's one source of truth: the estimate request with NO cpus (the
+        // E screen's Auto) resolves through host_cpus() — the same count the
+        // engine's run-start detection uses — and the response reports it, so
+        // the bar and the running header always agree. A posted count is used
+        // as posted (never silently replaced).
+        let cat = catalogue_with(serde_json::json!([method_json("fx-timing", 60.0, "measured", 1)]));
+        let r = estimate_for(&cat, &req(&["fx-timing"], 150, None, 3)).unwrap();
+        assert_eq!(r.cpus, host_cpus());
+        assert_eq!(r.methods[0].estimated_seconds, 60.0 * 4.0 / host_cpus() as f64);
+        let r = estimate_for(&cat, &req(&["fx-timing"], 150, Some(2), 3)).unwrap();
+        assert_eq!(r.cpus, 2);
+        assert_eq!(r.methods[0].estimated_seconds, 120.0, "posted cpus scale as posted");
+    }
+
+    #[test]
+    fn runtime_surface_refuses_methods_without_a_published_environment() {
+        // The CM-1 refusal: the estimate of a known catalogue method with no
+        // published environment on this computer is METHOD_NOT_RUNNABLE (the
+        // E screen never asks — its rows are disabled — a stray id is refused,
+        // never summed). `crp-flare-response-kinetics` is a committed
+        // catalogue method NOT in the embedded manifest; `asm-best-change-rule`
+        // IS (the manifest has 94 entries); `fx-noenv` is handcrafted and the
+        // real catalogue does not know it — that refusal is UNKNOWN_METHOD
+        // (the error names the real problem: no catalogue method at all).
+        let cat = crate::modules::method_catalogue::catalogue::ensure_loaded()
+            .expect("the committed catalogue loads");
+        let err =
+            estimate_for_runtime(&cat, &req(&["crp-flare-response-kinetics"], 150, Some(4), 3))
+                .unwrap_err();
+        assert_eq!(
+            err,
+            EstimateError::MethodNotRunnable {
+                method_id: "crp-flare-response-kinetics".into()
+            }
+        );
+        assert_eq!(err.code(), "METHOD_NOT_RUNNABLE");
+        let err = estimate_for_runtime(&cat, &req(&["fx-noenv"], 150, Some(4), 3)).unwrap_err();
+        assert_eq!(
+            err,
+            EstimateError::UnknownMethod { method_id: "fx-noenv".into() }
+        );
+        assert_eq!(err.code(), "UNKNOWN_METHOD");
+        let ok = estimate_for_runtime(&cat, &req(&["asm-best-change-rule"], 150, Some(4), 3));
+        assert!(ok.is_ok(), "a manifest method estimates: {:?}", ok.err());
+        // The pure core does not consult the manifest: the same id on a
+        // handcrafted catalogue stays estimable (refusal is a property of
+        // the runtime surface, never of the catalogue fact itself), and the
+        // runtime surface refuses it on that handcrafted catalogue too —
+        // the manifest check is the whole gate.
+        let cat_h = catalogue_with(serde_json::json!([method_json("fx-noenv", 60.0, "measured", 1)]));
+        assert!(estimate_for(&cat_h, &req(&["fx-noenv"], 150, Some(4), 3)).is_ok());
+        assert!(estimate_for_runtime(&cat_h, &req(&["fx-noenv"], 150, Some(4), 3)).is_err());
     }
 }

@@ -110,6 +110,10 @@ export interface TxrSelectListProps {
   onSelectionChange(next: ReadonlySet<string>): void
   /** The host-controlled chips (group / model-kind / outcome). */
   filterChips?: TxrFilterChip[]
+  /** The built-in "All N" pill's wiring (see TxrListFilterBar). */
+  allFilter?: { active: boolean; onClick(): void }
+  /** The built-in "Can run N" pill's wiring. */
+  canRunFilter?: { active: boolean; onClick(): void }
   /** The find-a-model box (screen I), or null for no search. */
   search?: TxrSearchControl | null
   /** The sort control (D/I), or null for no sort. */
@@ -187,6 +191,8 @@ export function TxrSelectList({
   selected,
   onSelectionChange,
   filterChips,
+  allFilter,
+  canRunFilter,
   search,
   sort,
   bottomBar,
@@ -246,6 +252,8 @@ export function TxrSelectList({
         rows={rows}
         selected={selected}
         filterChips={filterChips}
+        allFilter={allFilter}
+        canRunFilter={canRunFilter}
         search={search}
         sort={sort}
         onToggleAllCanRun={() => onSelectionChange(toggleAllCanRun(selected, rows))}

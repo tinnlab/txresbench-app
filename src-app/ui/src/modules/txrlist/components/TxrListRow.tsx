@@ -112,6 +112,7 @@ export function TxrListRowView({ row, checked, onToggle, onAction }: TxrListRowP
     >
       <Checkbox
         data-testid={`txr-list-checkbox-${row.key}`}
+        className="txr-list-checkbox"
         aria-label={`Select ${row.name}`}
         checked={isChecked}
         disabled={disabled}

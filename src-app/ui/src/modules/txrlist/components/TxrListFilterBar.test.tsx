@@ -86,6 +86,49 @@ describe('TxrListFilterBar (TEST-UL-9 — filter/search/sort bar)', () => {
     expect(getByTestId('txr-list-filter-can-run').textContent).toBe('Can run 33')
   })
 
+  it('the wired built-in chips are real filters: All clears, Can run toggles (CM-3)', () => {
+    const onAll = vi.fn()
+    const onCanRun = vi.fn()
+    const { rerender, getByTestId } = render(
+      <TxrListFilterBar
+        rows={rows(38, 5)}
+        selected={new Set()}
+        allFilter={{ active: false, onClick: onAll }}
+        canRunFilter={{ active: false, onClick: onCanRun }}
+      />,
+    )
+    const all = getByTestId('txr-list-filter-all')
+    const canRun = getByTestId('txr-list-filter-can-run')
+    expect(all.getAttribute('aria-pressed')).toBe('false')
+    expect(canRun.getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(all)
+    expect(onAll).toHaveBeenCalledTimes(1)
+    fireEvent.click(canRun)
+    expect(onCanRun).toHaveBeenCalledTimes(1)
+    // The host's active state drives the pressed look (the host's "All = no
+    // filter" rule: pressed exactly when no filter is on).
+    rerender(
+      <TxrListFilterBar
+        rows={rows(38, 5)}
+        selected={new Set()}
+        allFilter={{ active: true, onClick: onAll }}
+        canRunFilter={{ active: false, onClick: onCanRun }}
+      />,
+    )
+    expect(getByTestId('txr-list-filter-all').getAttribute('aria-pressed')).toBe('true')
+    expect(getByTestId('txr-list-filter-all').style.background).toBe('rgb(232, 238, 246)')
+    rerender(
+      <TxrListFilterBar
+        rows={rows(38, 5)}
+        selected={new Set()}
+        allFilter={{ active: false, onClick: onAll }}
+        canRunFilter={{ active: true, onClick: onCanRun }}
+      />,
+    )
+    expect(getByTestId('txr-list-filter-can-run').getAttribute('aria-pressed')).toBe('true')
+    expect(getByTestId('txr-list-filter-all').getAttribute('aria-pressed')).toBe('false')
+  })
+
   it('host chips render with their counts, fire onToggle, and carry pressed/unpressed looks', () => {
     const onToggleA = vi.fn()
     const onToggleB = vi.fn()

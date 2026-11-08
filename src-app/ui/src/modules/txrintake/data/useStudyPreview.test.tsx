@@ -80,6 +80,7 @@ function response(overrides: Partial<EligibilityResponse> = {}): EligibilityResp
     total_fit: 1,
     total_some: 0,
     total_cannot: 1,
+    total_no_env: 0,
     ...overrides,
   }
 }

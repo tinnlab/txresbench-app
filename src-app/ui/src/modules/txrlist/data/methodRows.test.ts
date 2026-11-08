@@ -18,7 +18,9 @@
  *   cannot_run → can / some / cannot), `run.disabled` is `cannot`, the
  *   headline is the board string, and the detail line is FIRST-reason board
  *   copy when the verdict carries reasons, the coverage line otherwise;
- * - `timeText` comes from the verdict's `estimated_seconds`;
+ * - `timeText` comes from the verdict's `estimated_seconds` — except on a
+ *   `cannot` row, which carries NO time (CM-4: the board shows none and the
+ *   provider still posts seconds);
  * - `performanceText` renders "other cohorts: AUC <2dp>" when the summary
  *   carries its performance facts (OWNER-UL-1 / D36), else null;
  * - a catalogue method the eligibility response does not know becomes a
@@ -89,6 +91,7 @@ function eligibility(
     total_cannot: 0,
     total_fit: 0,
     total_some: 0,
+    total_no_env: 0,
     ...over,
   }
 }
@@ -162,7 +165,31 @@ describe('buildMethodRows', () => {
       detail: 'needs LDH, not in your file',
       disabled: true,
     })
-    expect(row.timeText).toBe('about 2 min')
+    // CM-4: a cannot-run row carries no time entry (the board shows none).
+    expect(row.timeText).toBeNull()
+  })
+
+  it('renders the ENV_IMAGE_MISSING no-published-environment row with the plain reason (CM-1)', () => {
+    const row = buildMethodRows(
+      [summary({ id: 'bjm', year: 2020, language: 'R' })],
+      eligibility({
+        methods: [
+          verdict({
+            id: 'bjm',
+            status: 'cannot_run',
+            reasons: [{ code: 'ENV_IMAGE_MISSING' }],
+          }),
+        ],
+      }),
+    )[0]
+
+    expect(row.run).toEqual({
+      status: 'cannot',
+      headline: 'Cannot run',
+      detail: 'no published environment for this computer',
+      disabled: true,
+    })
+    expect(row.timeText).toBeNull()
   })
 
   it('maps all three provider verdict codes to the board status codes', () => {

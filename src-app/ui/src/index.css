@@ -103,3 +103,24 @@ html.dark .os-theme-dark {
 [data-sonner-toaster][data-sonner-theme] {
   z-index: 49;
 }
+
+/* QA-fixes ITEM-2 (CM-5): the kit checkbox + switch on the board's light
+ * surfaces. In dark OS mode the kit swaps to dark tokens (a white-15%
+ * border and white-30% fill) — invisible on the white rows of the
+ * method/model lists and the settings card. These surfaces stay light
+ * until the full dark palette lands (ITEM-7), so the controls keep their
+ * light look while the theme is mixed: a visible gray border + white fill
+ * (checked keeps the primary fill), and the toggle's light track + white
+ * thumb. `!important` because the kit's own `dark:` utilities tie the
+ * specificity and some ship with the state on the control — see the
+ * switch's `dark:data-unchecked:` pair. */
+.txr-list-checkbox:is(.dark *):not([data-checked]) {
+  border-color: #cfcdc7 !important;
+  background-color: #ffffff !important;
+}
+.txr-settings-switch:is(.dark *):not([data-checked]) {
+  background-color: oklch(0.922 0 0) !important;
+}
+.txr-settings-switch:is(.dark *):not([data-checked]) [data-slot='switch-thumb'] {
+  background-color: #ffffff !important;
+}

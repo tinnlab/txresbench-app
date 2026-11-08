@@ -628,6 +628,8 @@ pub enum ModelReasonCode {
     DecisionDayUnmet,
     #[serde(rename = "NOT_RUNNABLE")]
     NotRunnable,
+    #[serde(rename = "ENV_IMAGE_MISSING")]
+    EnvImageMissing,
     #[serde(rename = "TASK_INCOMPATIBLE")]
     TaskIncompatible,
     #[serde(rename = "RESPONSE_LABEL_MISSING")]
@@ -639,9 +641,9 @@ pub enum ModelReasonCode {
 }
 
 impl ModelReasonCode {
-    /// The closed code list, in documentation order (12 provider codes + the
+    /// The closed code list, in documentation order (13 provider codes + the
     /// store's own).
-    pub const ALL: [ModelReasonCode; 13] = [
+    pub const ALL: [ModelReasonCode; 14] = [
         ModelReasonCode::RequiredMarkerMissing,
         ModelReasonCode::MarkerGroupMissing,
         ModelReasonCode::DetectionCallMissing,
@@ -651,6 +653,7 @@ impl ModelReasonCode {
         ModelReasonCode::UnitMismatch,
         ModelReasonCode::DecisionDayUnmet,
         ModelReasonCode::NotRunnable,
+        ModelReasonCode::EnvImageMissing,
         ModelReasonCode::TaskIncompatible,
         ModelReasonCode::ResponseLabelMissing,
         ModelReasonCode::SurvivalOutcomeMissing,
@@ -669,6 +672,7 @@ impl ModelReasonCode {
             ModelReasonCode::UnitMismatch => "UNIT_MISMATCH",
             ModelReasonCode::DecisionDayUnmet => "DECISION_DAY_UNMET",
             ModelReasonCode::NotRunnable => "NOT_RUNNABLE",
+            ModelReasonCode::EnvImageMissing => "ENV_IMAGE_MISSING",
             ModelReasonCode::TaskIncompatible => "TASK_INCOMPATIBLE",
             ModelReasonCode::ResponseLabelMissing => "RESPONSE_LABEL_MISSING",
             ModelReasonCode::SurvivalOutcomeMissing => "SURVIVAL_OUTCOME_MISSING",
@@ -690,6 +694,7 @@ impl ModelReasonCode {
             ReasonCode::UnitMismatch => ModelReasonCode::UnitMismatch,
             ReasonCode::DecisionDayUnmet => ModelReasonCode::DecisionDayUnmet,
             ReasonCode::NotRunnable => ModelReasonCode::NotRunnable,
+            ReasonCode::EnvImageMissing => ModelReasonCode::EnvImageMissing,
             ReasonCode::TaskIncompatible => ModelReasonCode::TaskIncompatible,
             ReasonCode::ResponseLabelMissing => ModelReasonCode::ResponseLabelMissing,
             ReasonCode::SurvivalOutcomeMissing => ModelReasonCode::SurvivalOutcomeMissing,

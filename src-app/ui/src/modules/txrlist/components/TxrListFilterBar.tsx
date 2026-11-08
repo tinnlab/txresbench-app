@@ -35,6 +35,16 @@ export interface TxrListFilterBarProps {
   selected: ReadonlySet<string>
   /** The host-controlled chips (group / model-kind / outcome). */
   filterChips?: ReadonlyArray<TxrFilterChip>
+  /** The built-in "All N" pill's wiring (CM-3): absent = the board's inert
+   *  count chip (the D/I screens keep it); present = a real filter — `active`
+   *  is the host's state (highlighted exactly when NO filter is on) and
+   *  `onClick` is the host's clear-to-all (clears the group filter AND the
+   *  can-run filter — the QA's "All = no filter, All highlighted only when
+   *  no filter"). */
+  allFilter?: { active: boolean; onClick(): void }
+  /** The built-in "Can run N" pill's wiring: `active` = the can-run-only
+   *  filter is on; `onClick` toggles it. */
+  canRunFilter?: { active: boolean; onClick(): void }
   /** The find-a-model box (screen I), or `null` for no search. */
   search?: TxrSearchControl | null
   /** The sort control (screens D/I), or `null` for no sort. */
@@ -62,10 +72,46 @@ const ACTIVE_CHIP = {
   borderColor: '#1d4e89',
 } as const
 
+/** One built-in pill: the host-wired chip (a real button with the pressed
+ *  look) or the inert count span (previous D/I behavior). */
+function BuiltInChip({
+  testId,
+  label,
+  count,
+  wired,
+}: {
+  testId: string
+  label: string
+  count: number
+  wired?: { active: boolean; onClick(): void }
+}) {
+  if (wired === undefined) {
+    return (
+      <span data-testid={testId} style={ACTIVE_CHIP}>
+        {label} {count}
+      </span>
+    )
+  }
+  return (
+    <Button
+      data-testid={testId}
+      variant="outline"
+      className="rounded-full font-normal"
+      style={{ ...(wired.active ? ACTIVE_CHIP : BUILT_IN_CHIP), height: 'auto' }}
+      aria-pressed={wired.active}
+      onClick={wired.onClick}
+    >
+      {label} {count}
+    </Button>
+  )
+}
+
 export function TxrListFilterBar({
   rows,
   selected,
   filterChips,
+  allFilter,
+  canRunFilter,
   search,
   sort,
   onToggleAllCanRun,
@@ -75,12 +121,13 @@ export function TxrListFilterBar({
     canRunCount > 0 && rows.every(row => row.run.disabled || selected.has(row.key))
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-      <span data-testid="txr-list-filter-all" style={ACTIVE_CHIP}>
-        All {rows.length}
-      </span>
-      <span data-testid="txr-list-filter-can-run" style={BUILT_IN_CHIP}>
-        Can run {canRunCount}
-      </span>
+      <BuiltInChip testId="txr-list-filter-all" label="All" count={rows.length} wired={allFilter} />
+      <BuiltInChip
+        testId="txr-list-filter-can-run"
+        label="Can run"
+        count={canRunCount}
+        wired={canRunFilter}
+      />
       {filterChips?.map(chip => (
         <Button
           key={chip.id}
@@ -109,6 +156,7 @@ export function TxrListFilterBar({
       <span style={{ flexGrow: 1 }} />
       <Checkbox
         data-testid="txr-list-select-all-can-run"
+        className="txr-list-checkbox"
         aria-label="Select all that can run"
         checked={allCanRunSelected}
         onCheckedChange={() => onToggleAllCanRun?.()}

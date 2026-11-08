@@ -696,6 +696,8 @@ pub enum PretrainedReasonCode {
     DecisionDayUnmet,
     #[serde(rename = "NOT_RUNNABLE")]
     NotRunnable,
+    #[serde(rename = "ENV_IMAGE_MISSING")]
+    EnvImageMissing,
     #[serde(rename = "TASK_INCOMPATIBLE")]
     TaskIncompatible,
     #[serde(rename = "RESPONSE_LABEL_MISSING")]
@@ -707,9 +709,9 @@ pub enum PretrainedReasonCode {
 }
 
 impl PretrainedReasonCode {
-    /// The closed code list, in documentation order (12 provider codes + the
+    /// The closed code list, in documentation order (13 provider codes + the
     /// catalogue's own).
-    pub const ALL: [PretrainedReasonCode; 13] = [
+    pub const ALL: [PretrainedReasonCode; 14] = [
         PretrainedReasonCode::RequiredMarkerMissing,
         PretrainedReasonCode::MarkerGroupMissing,
         PretrainedReasonCode::DetectionCallMissing,
@@ -719,6 +721,7 @@ impl PretrainedReasonCode {
         PretrainedReasonCode::UnitMismatch,
         PretrainedReasonCode::DecisionDayUnmet,
         PretrainedReasonCode::NotRunnable,
+        PretrainedReasonCode::EnvImageMissing,
         PretrainedReasonCode::TaskIncompatible,
         PretrainedReasonCode::ResponseLabelMissing,
         PretrainedReasonCode::SurvivalOutcomeMissing,
@@ -737,6 +740,7 @@ impl PretrainedReasonCode {
             PretrainedReasonCode::UnitMismatch => "UNIT_MISMATCH",
             PretrainedReasonCode::DecisionDayUnmet => "DECISION_DAY_UNMET",
             PretrainedReasonCode::NotRunnable => "NOT_RUNNABLE",
+            PretrainedReasonCode::EnvImageMissing => "ENV_IMAGE_MISSING",
             PretrainedReasonCode::TaskIncompatible => "TASK_INCOMPATIBLE",
             PretrainedReasonCode::ResponseLabelMissing => "RESPONSE_LABEL_MISSING",
             PretrainedReasonCode::SurvivalOutcomeMissing => "SURVIVAL_OUTCOME_MISSING",
@@ -757,6 +761,7 @@ impl PretrainedReasonCode {
             ReasonCode::UnitMismatch => PretrainedReasonCode::UnitMismatch,
             ReasonCode::DecisionDayUnmet => PretrainedReasonCode::DecisionDayUnmet,
             ReasonCode::NotRunnable => PretrainedReasonCode::NotRunnable,
+            ReasonCode::EnvImageMissing => PretrainedReasonCode::EnvImageMissing,
             ReasonCode::TaskIncompatible => PretrainedReasonCode::TaskIncompatible,
             ReasonCode::ResponseLabelMissing => PretrainedReasonCode::ResponseLabelMissing,
             ReasonCode::SurvivalOutcomeMissing => PretrainedReasonCode::SurvivalOutcomeMissing,
@@ -1028,8 +1033,8 @@ mod tests {
     fn reason_code_vocabulary_is_closed_and_maps_provider_codes() {
         assert_eq!(
             PretrainedReasonCode::ALL.len(),
-            13,
-            "12 provider codes + ASSET_NOT_AVAILABLE"
+            14,
+            "13 provider codes + ASSET_NOT_AVAILABLE"
         );
         let mut wires: Vec<&str> = PretrainedReasonCode::ALL
             .iter()
@@ -1037,7 +1042,7 @@ mod tests {
             .collect();
         wires.sort_unstable();
         wires.dedup();
-        assert_eq!(wires.len(), 13, "wire strings are distinct");
+        assert_eq!(wires.len(), 14, "wire strings are distinct");
         for code in PretrainedReasonCode::ALL {
             let json = serde_json::to_value(code).expect("serialize");
             let back: PretrainedReasonCode =
@@ -1048,7 +1053,7 @@ mod tests {
 
         assert_eq!(
             crate::modules::method_catalogue::types::ReasonCode::ALL.len(),
-            12,
+            13,
             "the provider vocabulary"
         );
         let mut mapped: Vec<&str> = ReasonCode::ALL
@@ -1059,8 +1064,8 @@ mod tests {
         mapped.dedup();
         assert_eq!(
             mapped.len(),
-            12,
-            "the 12 provider codes map 1:1, no collisions"
+            13,
+            "the 13 provider codes map 1:1, no collisions"
         );
     }
 

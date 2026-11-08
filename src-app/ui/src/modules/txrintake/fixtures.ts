@@ -582,6 +582,7 @@ export function txrPreviewEligibility(body: {
     total_fit: canRun,
     total_some: some,
     total_cannot: cannot,
+    total_no_env: 0,
   }
 }
 

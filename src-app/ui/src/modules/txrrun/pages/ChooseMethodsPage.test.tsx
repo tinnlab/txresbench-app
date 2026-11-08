@@ -280,6 +280,7 @@ function eligibility(): EligibilityResponse {
     total_fit: 1,
     total_some: 1,
     total_cannot: 1,
+    total_no_env: 0,
   }
 }
 
@@ -578,7 +579,7 @@ describe('ChooseMethodsPage settings wiring (ITEM-7)', () => {
         decision_day: 84,
         look_ahead_day: 365,
         covariates: true,
-        at_a_time: 4,
+        at_a_time: 3,
         cpus: 2,
         save_models: true,
         label_day: null,
@@ -625,10 +626,13 @@ describe('ChooseMethodsPage list + create path (ITEM-8, TEST-RUN-17)', () => {
     await selectRow('direct-on')
     // One debounced estimate call with the screen's patients/at-a-time/CPUs.
     await settle(250)
+    // Auto CPU: the field is omitted so the SERVER resolves the run's own
+    // count (CM-7's one source of truth — the old 4-CPU client default was
+    // what made the bar disagree with the running header).
     expect(api.estimate).toHaveBeenCalledWith({
       method_ids: ['direct-on'],
       patients: 18,
-      cpus: 4,
+      cpus: undefined,
       at_a_time: 3,
     })
     // The bar's total line is the estimate response through the provider's
@@ -671,6 +675,61 @@ describe('ChooseMethodsPage list + create path (ITEM-8, TEST-RUN-17)', () => {
     })
     expect(probability.getAttribute('aria-pressed')).toBe('false')
     expect(screen.getByTestId('txr-list-row-dynforest')).toBeTruthy()
+  })
+
+  it('the All and Can run pills are real filters: All clears both, Can run shows only runnable rows (CM-3)', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore()
+    renderPage()
+    await settle()
+
+    const all = screen.getByTestId('txr-list-filter-all')
+    const canRun = screen.getByTestId('txr-list-filter-can-run')
+    expect(all.textContent).toBe('All 3')
+    expect(canRun.textContent).toBe('Can run 2')
+    expect(all.getAttribute('aria-pressed')).toBe('true')
+
+    // Can run on: the cannot row (ki67) is filtered out of the view.
+    await act(async () => {
+      fireEvent.click(canRun)
+      await Promise.resolve()
+    })
+    expect(canRun.getAttribute('aria-pressed')).toBe('true')
+    expect(all.getAttribute('aria-pressed')).toBe('false')
+    expect(screen.getByTestId('txr-list-row-direct-on')).toBeTruthy()
+    expect(screen.queryByTestId('txr-list-row-ki67-two-week-four-group')).toBeNull()
+    expect(screen.getByTestId('txr-list-filter-can-run').textContent).toBe('Can run 2')
+
+    // The group filter composes with Can run; All clears BOTH.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-list-filter-dynamic-risk'))
+      await Promise.resolve()
+    })
+    expect(screen.getByTestId('txr-list-row-dynforest')).toBeTruthy()
+    expect(screen.queryByTestId('txr-list-row-direct-on')).toBeNull()
+    await act(async () => {
+      fireEvent.click(all)
+      await Promise.resolve()
+    })
+    expect(all.getAttribute('aria-pressed')).toBe('true')
+    expect(canRun.getAttribute('aria-pressed')).toBe('false')
+    expect(screen.getByTestId('txr-list-row-direct-on')).toBeTruthy()
+    expect(screen.getByTestId('txr-list-row-ki67-two-week-four-group')).toBeTruthy()
+  })
+
+  it('states the no-published-environment count above the list (CM-1)', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    const eligibilityWithNoEnv = eligibility()
+    eligibilityWithNoEnv.total_no_env = 2
+    api.eligibility.mockResolvedValue(eligibilityWithNoEnv)
+    seedStore()
+    renderPage()
+    await settle()
+
+    expect(screen.getByTestId('txr-run-no-env-line').textContent).toBe(
+      "2 of 3 methods have no published environment on this computer and can't start.",
+    )
+    expect(screen.getByTestId('txr-list-filter-can-run').textContent).toBe('Can run 2')
   })
 
   it('Run posts the frozen request and navigates to the new run runningPath on 202', async () => {

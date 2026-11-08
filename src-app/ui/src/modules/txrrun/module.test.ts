@@ -16,7 +16,8 @@
  * no generated client, no OpenAPI, no guard/script, no package.json line,
  * no txrshell edit, no loader edit, no server path, and no edit inside any
  * OTHER module's directory (BASE.md's conflict surface: the node touches
- * its own `txrrun` subdir only).
+ * its own `txrrun` subdir only — the qa-fixes ITEM-2 exceptions to both,
+ * its DRIFT-1, are recorded at the pins below).
  *
  * The status-word / design-example-number / URL / study-literal scans cover
  * the module's own `.ts`/`.tsx` files (INV-4/5/6) — the item's copy carries
@@ -157,8 +158,23 @@ describe('txrrun module (TEST-RUN-01)', () => {
 
   it('does not change the generated client, the openapi, the guards, the shell, the loader, the server or any other module (DEC-14)', () => {
     const touched = itemDelta()
-    expect(touched.filter(p => p.startsWith('src-app/ui/src/api-client/'))).toEqual([])
-    expect(touched.filter(p => p.startsWith('src-app/ui/openapi/'))).toEqual([])
+    // The qa-fixes ITEM-2 client surface (its DRIFT-1): the regenerated
+    // `types.ts` (the new `ENV_IMAGE_MISSING` reason code + the
+    // `total_no_env`/`cpus` eligibility+estimate fields) and the
+    // regenerated `openapi.json` — the ONLY two generated files this item
+    // moves; the pins stay strict for anything else under either prefix.
+    expect(
+      touched.filter(
+        p =>
+          p.startsWith('src-app/ui/src/api-client/') &&
+          p !== 'src-app/ui/src/api-client/types.ts',
+      ),
+    ).toEqual([])
+    expect(
+      touched.filter(
+        p => p.startsWith('src-app/ui/openapi/') && p !== 'src-app/ui/openapi/openapi.json',
+      ),
+    ).toEqual([])
     expect(touched.filter(p => p.startsWith('scripts/'))).toEqual([])
     expect(touched.filter(p => p.startsWith('src-app/ui/scripts/'))).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/package.json')).toEqual([])
@@ -176,13 +192,38 @@ describe('txrrun module (TEST-RUN-01)', () => {
       ),
     ).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/src/modules/loader.ts')).toEqual([])
-    expect(touched.filter(p => p.startsWith('src-app/server/'))).toEqual([])
-    // ONE provider-file exception (ITEM-13, DRIFT-1 #3): the ui-list
-    // adapter's null-performance guard — the wire sends `performance:
-    // null` for 138 of 359 catalogue methods and the `=== undefined`
-    // check threw before the null branch of the adapter's own DEC-17
-    // contract; the fix is the missing half of that contract, recorded
-    // with the evidence.
+    // The whole server half of the qa-fixes ITEM-2 delta (its DRIFT-1):
+    // the method_catalogue eligibility/estimate/routes/types rework
+    // (CM-1/CM-6/CM-7), the execution_engine environment-classify detail,
+    // the model_store + pretrained reason-code vocabulary growth and the
+    // method_catalogue API test, plus the execution_engine types/README + the
+    // integration tests whose ENV_UNKNOWN pins the one-vocabulary change
+    // reclassifies (DRIFT-1 ITEM-2 #2) — pinned verbatim; anything else under
+    // `src-app/server/` still fails.
+    expect(
+      touched.filter(
+        p =>
+          p.startsWith('src-app/server/') &&
+          p !== 'src-app/server/src/modules/method_catalogue/types.rs' &&
+          p !== 'src-app/server/src/modules/method_catalogue/eligibility.rs' &&
+          p !== 'src-app/server/src/modules/method_catalogue/estimate.rs' &&
+          p !== 'src-app/server/src/modules/method_catalogue/routes.rs' &&
+          p !== 'src-app/server/src/modules/execution_engine/orchestrator.rs' &&
+          p !== 'src-app/server/src/modules/model_store/types.rs' &&
+          p !== 'src-app/server/src/modules/pretrained_catalogue/types.rs' &&
+          p !== 'src-app/server/tests/method_catalogue/api_test.rs' &&
+          p !== 'src-app/server/src/modules/execution_engine/types.rs' &&
+          p !== 'src-app/server/src/modules/execution_engine/README.md' &&
+          p !== 'src-app/server/tests/execution_engine/api_test.rs' &&
+          p !== 'src-app/server/tests/execution_engine/bundle_test.rs' &&
+          p !== 'src-app/server/tests/history_store/mod.rs',
+      ),
+    ).toEqual([])
+    // The ITEM-13 provider-file exception (DRIFT-1 #3) — the ui-list
+    // adapter's null-performance guard, the `=== undefined` check that
+    // threw before the null branch of the adapter's own DEC-17 contract —
+    // is SUBSUMED by the qa-fixes ITEM-2 wholesale `txrlist` dir sanction
+    // below (the same file list, now the whole module).
     // THREE further exceptions (the `feat/ui-models` item, recorded in its
     // DRIFT-1 #8): the new `txrmodels` module dir (a new auto-discovered
     // module is an addition, not a global edit of an existing module), the
@@ -204,12 +245,17 @@ describe('txrrun module (TEST-RUN-01)', () => {
     // `txrintake/lib/flow.ts` + its test, and the failed-run results
     // state (RES-02) in the `txrresults` pages/components/tests (the same
     // file list the `txrhistory` sweep sanctions, its own comment).
+    // The qa-fixes ITEM-2 cross-module surface (its DRIFT-1): the whole
+    // `txrlist` module dir is now the item's list/estimate/format surface,
+    // sanctioned wholesale per the sibling-dir convention (this subsumes
+    // the ITEM-13 single-file pin above), and the four `txrintake` preview
+    // fixtures/pins the estimate/eligibility field additions require.
     expect(
       touched.filter(
         p =>
           p.startsWith('src-app/ui/src/modules/') &&
           !p.startsWith('src-app/ui/src/modules/txrrun/') &&
-          p !== 'src-app/ui/src/modules/txrlist/data/methodRows.ts' &&
+          !p.startsWith('src-app/ui/src/modules/txrlist/') &&
           !p.startsWith('src-app/ui/src/modules/txrmodels/') &&
           !p.startsWith('src-app/ui/src/modules/txrhistory/') &&
           !p.startsWith('src-app/ui/src/modules/txrhelp/') &&
@@ -221,6 +267,10 @@ describe('txrrun module (TEST-RUN-01)', () => {
           p !== 'src-app/ui/src/modules/txrintake/module.test.ts' &&
           p !== 'src-app/ui/src/modules/txrintake/lib/flow.ts' &&
           p !== 'src-app/ui/src/modules/txrintake/lib/flow.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrintake/fixtures.ts' &&
+          p !== 'src-app/ui/src/modules/txrintake/lib/preview.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrintake/data/useStudyPreview.test.tsx' &&
+          p !== 'src-app/ui/src/modules/txrintake/pages/StudyPage.test.tsx' &&
           p !== 'src-app/ui/src/modules/txrresults/module.test.ts' &&
           p !== 'src-app/ui/src/modules/txrresults/pages/ResultsPage.tsx' &&
           p !== 'src-app/ui/src/modules/txrresults/pages/MethodResultsPage.tsx' &&

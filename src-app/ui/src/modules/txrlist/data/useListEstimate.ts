@@ -31,7 +31,10 @@ import type { EstimateResponse } from '@/api-client/types'
 export interface UseListEstimateOptions {
   /** The inventory's patient count (the estimate's scale factor). */
   patients: number
-  /** The lane count the run will use; defaults to 4 (PROV-MC-6 / DEC-7). */
+  /** The CPU count to scale by; absent (the E screen's Auto) omits the field
+   *  so the SERVER resolves the run's own count — the same count the running
+   *  header shows (CM-7's one source of truth, changed from the old 4-CPU
+   *  default here). */
   cpus?: number
   /** The run-N-at-a-time lanes the schedule is packed onto. */
   atATime: number
@@ -59,8 +62,8 @@ function selectionKey(ids: string[]): string {
 }
 
 /** The cache key: the selection set + the estimate's own arguments. */
-function cacheKey(ids: string[], patients: number, cpus: number, atATime: number): string {
-  return `${selectionKey(ids)}\u0000${patients}\u0000${cpus}\u0000${atATime}`
+function cacheKey(ids: string[], patients: number, cpus: number | undefined, atATime: number): string {
+  return `${selectionKey(ids)}\u0000${patients}\u0000${cpus ?? 'auto'}\u0000${atATime}`
 }
 
 function errorMessage(err: unknown): string {
@@ -71,7 +74,7 @@ export function useListEstimate(
   ids: string[],
   options: UseListEstimateOptions,
 ): UseListEstimateResult {
-  const { patients, cpus = 4, atATime } = options
+  const { patients, cpus, atATime } = options
   const key = selectionKey(ids)
   const [state, setState] = useState<UseListEstimateResult>({
     totalSeconds: null,

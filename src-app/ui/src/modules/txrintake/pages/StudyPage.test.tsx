@@ -144,6 +144,7 @@ function eligibilityResponse(): EligibilityResponse {
     total_fit: CAN_RUN,
     total_some: SOME,
     total_cannot: CANNOT,
+    total_no_env: 0,
   }
 }
 

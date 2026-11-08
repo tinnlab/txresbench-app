@@ -292,6 +292,7 @@ export const TXRLIST_ELIGIBILITY: EligibilityResponse = {
   total_fit: FX_METHODS.filter(m => m.status === 'can_run').length,
   total_some: FX_METHODS.filter(m => m.status === 'can_run_some').length,
   total_cannot: FX_METHODS.filter(m => m.status === 'cannot_run').length,
+  total_no_env: 0,
 }
 
 /**
@@ -340,6 +341,9 @@ export function txrlistEstimate(body: { method_ids?: string[]; at_a_time?: numbe
   const atATime = body.at_a_time ?? 3
   return {
     at_a_time: atATime,
+    // The mirror of the request (absent cpus resolves the run's own count;
+    // the fixture returns the posted value by convention).
+    cpus: 4,
     methods: ids.map(id => ({
       id,
       estimated_seconds: TXRLIST_ESTIMATE_SECONDS[id] ?? 0,

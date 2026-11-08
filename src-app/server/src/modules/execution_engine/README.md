@@ -47,9 +47,12 @@ The manifest's `base_ref` is the pairing-anchor NAME, never a fetch target:
 the layer design (§7 of `docs/design/method-env-layer-artifacts.md`) makes
 the digest the identity (`com.txr.trimmed-from-digest`), and the app's own
 base namespace is the `sandbox` module's. A method whose manifest entry is
-missing stays a per-method `cannot_run` + `ENV_UNKNOWN` at run start (the
-catalogue set and the published layer set legitimately differ — the layer set
-grows as methods are published).
+missing stays a per-method `cannot_run` at run start; its reason is the
+eligibility verdict's own code `ENV_IMAGE_MISSING` (ITEM-2 — one vocabulary
+with the screens, CONS-EE-10), with `ENV_UNKNOWN` remaining the
+env-resolution layer's defensive backstop. The catalogue set and the
+published layer set legitimately differ — the layer set grows as methods are
+published.
 
 Regeneration (on the publisher's machine; the generator reads the methods
 repository at build time only):

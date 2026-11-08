@@ -75,6 +75,7 @@ export function TxrListSectionHeader({
       }}
     >
       <Checkbox
+        className="txr-list-checkbox"
         data-testid={`txr-list-section-select-all-${section.key}`}
         aria-label={`Select all of ${section.title}`}
         checked={allSelected}

@@ -132,7 +132,7 @@ describe('SETTING_OPTIONS (TEST-RUN-06)', () => {
 describe('mergeRunSettings (TEST-RUN-06)', () => {
   it('uses the intake decision day over any stored config, every other field from the engine', () => {
     const merged = mergeRunSettings(engine(), params(42))
-    expect(merged).toEqual({ ...engineConfig, decision_day: 42 })
+    expect(merged).toEqual({ ...engineConfig, decision_day: 42, at_a_time: 3 })
   })
 
   it('lets the intake null fall through to the engine config decision day', () => {
@@ -141,7 +141,17 @@ describe('mergeRunSettings (TEST-RUN-06)', () => {
   })
 
   it('applies the engine config fields when the intake is absent (the restored path)', () => {
-    expect(mergeRunSettings(engine(), null)).toEqual(engineConfig)
+    // The ONE exception: at_a_time is a RUN option, not an analysis setting —
+    // the sticky "1 at a time" must not persist across analyses (qa-fixes
+    // ITEM-2), so the restore always lands at the engine's default 3 while
+    // every other stored field comes back.
+    expect(mergeRunSettings(engine(), null)).toEqual({ ...engineConfig, at_a_time: 3 })
+  })
+
+  it('never restores a stored run-N-at-a-time value across analyses', () => {
+    const merged = mergeRunSettings(engine(), null)
+    expect(merged.at_a_time).toBe(DEFAULT_RUN_SETTINGS.at_a_time)
+    expect(merged.at_a_time).toBe(3)
   })
 
   it('falls back to the engine defaults with no engine config and no intake', () => {

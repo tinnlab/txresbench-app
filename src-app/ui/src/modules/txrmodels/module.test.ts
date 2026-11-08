@@ -228,15 +228,56 @@ describe('txrmodels module (TEST-MOD-01)', () => {
 
   it('does not change the generated client, the openapi, the guards, the loader, the server or any other module (DEC-2/17/18)', () => {
     const touched = itemDelta()
-    expect(touched.filter(p => p.startsWith('src-app/ui/src/api-client/'))).toEqual([])
-    expect(touched.filter(p => p.startsWith('src-app/ui/openapi/'))).toEqual([])
+    // The qa-fixes ITEM-2 client surface (its DRIFT-1): the regenerated
+    // `types.ts` (the new `ENV_IMAGE_MISSING` reason code + the
+    // `total_no_env`/`cpus` eligibility+estimate fields) and the
+    // regenerated `openapi.json` — the ONLY two generated files this item
+    // moves; the pins stay strict for anything else under either prefix.
+    expect(
+      touched.filter(
+        p =>
+          p.startsWith('src-app/ui/src/api-client/') &&
+          p !== 'src-app/ui/src/api-client/types.ts',
+      ),
+    ).toEqual([])
+    expect(
+      touched.filter(
+        p => p.startsWith('src-app/ui/openapi/') && p !== 'src-app/ui/openapi/openapi.json',
+      ),
+    ).toEqual([])
     expect(touched.filter(p => p.startsWith('scripts/'))).toEqual([])
     expect(touched.filter(p => p.startsWith('src-app/ui/scripts/'))).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/package.json')).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/package-lock.json')).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/scripts/domain-baseline.json')).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/src/modules/loader.ts')).toEqual([])
-    expect(touched.filter(p => p.startsWith('src-app/server/'))).toEqual([])
+    // The whole server half of the qa-fixes ITEM-2 delta (its DRIFT-1):
+    // the method_catalogue eligibility/estimate/routes/types rework
+    // (CM-1/CM-6/CM-7), the execution_engine environment-classify detail,
+    // the model_store + pretrained reason-code vocabulary growth and the
+    // method_catalogue API test, plus the execution_engine types/README + the
+    // integration tests whose ENV_UNKNOWN pins the one-vocabulary change
+    // reclassifies (DRIFT-1 ITEM-2 #2) — pinned verbatim; anything else under
+    // `src-app/server/` still fails.
+    expect(
+      touched.filter(
+        p =>
+          p.startsWith('src-app/server/') &&
+          p !== 'src-app/server/src/modules/method_catalogue/types.rs' &&
+          p !== 'src-app/server/src/modules/method_catalogue/eligibility.rs' &&
+          p !== 'src-app/server/src/modules/method_catalogue/estimate.rs' &&
+          p !== 'src-app/server/src/modules/method_catalogue/routes.rs' &&
+          p !== 'src-app/server/src/modules/execution_engine/orchestrator.rs' &&
+          p !== 'src-app/server/src/modules/model_store/types.rs' &&
+          p !== 'src-app/server/src/modules/pretrained_catalogue/types.rs' &&
+          p !== 'src-app/server/tests/method_catalogue/api_test.rs' &&
+          p !== 'src-app/server/src/modules/execution_engine/types.rs' &&
+          p !== 'src-app/server/src/modules/execution_engine/README.md' &&
+          p !== 'src-app/server/tests/execution_engine/api_test.rs' &&
+          p !== 'src-app/server/tests/execution_engine/bundle_test.rs' &&
+          p !== 'src-app/server/tests/history_store/mod.rs',
+      ),
+    ).toEqual([])
     // TEN sanctioned exceptions (the DRIFT-1 #8 class + the `/history` +
     // the ITEM-4 `/help` handoffs): the shell handoff files themselves
     // (`txrshell/module.tsx` + the scaffold `ShellPage.tsx` the `/help`
@@ -252,6 +293,14 @@ describe('txrmodels module (TEST-MOD-01)', () => {
     // state (RES-02) in the `txrresults` pages/components/tests (the same
     // file list the `txrhistory` sweep sanctions, its own comment).
     // Nothing else outside this module moves.
+    // The qa-fixes ITEM-2 cross-module surface (its DRIFT-1): the
+    // `txrlist` module dir — the item's list/estimate/format rework
+    // (CM-1's no-env count, CM-4's rounded durations, CM-5's dark-mode
+    // checkboxes), sanctioned wholesale per the sibling-dir convention —
+    // the `txrrun` files the run screens' settings rework touches
+    // (ChooseMethodsPage + TxrSettingsBlock + settings.ts + the tests the
+    // at-a-time/estimate pins invalidate), and the `txrintake` preview
+    // fixtures/pins the estimate/eligibility field additions require.
     expect(
       touched.filter(
         p =>
@@ -259,6 +308,7 @@ describe('txrmodels module (TEST-MOD-01)', () => {
           !p.startsWith('src-app/ui/src/modules/txrmodels/') &&
           !p.startsWith('src-app/ui/src/modules/txrhistory/') &&
           !p.startsWith('src-app/ui/src/modules/txrhelp/') &&
+          !p.startsWith('src-app/ui/src/modules/txrlist/') &&
           p !== 'src-app/ui/src/modules/txrshell/module.tsx' &&
           p !== 'src-app/ui/src/modules/txrshell/pages/ShellPage.tsx' &&
           p !== 'src-app/ui/src/modules/txrintake/module.tsx' &&
@@ -269,9 +319,19 @@ describe('txrmodels module (TEST-MOD-01)', () => {
           p !== 'src-app/ui/src/modules/txrintake/module.test.ts' &&
           p !== 'src-app/ui/src/modules/txrintake/lib/flow.ts' &&
           p !== 'src-app/ui/src/modules/txrintake/lib/flow.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrintake/fixtures.ts' &&
+          p !== 'src-app/ui/src/modules/txrintake/lib/preview.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrintake/data/useStudyPreview.test.tsx' &&
+          p !== 'src-app/ui/src/modules/txrintake/pages/StudyPage.test.tsx' &&
           p !== 'src-app/ui/src/modules/txrrun/module.test.ts' &&
           p !== 'src-app/ui/src/modules/txrrun/lib/format.ts' &&
           p !== 'src-app/ui/src/modules/txrrun/lib/format.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrrun/components/TxrSettingsBlock.tsx' &&
+          p !== 'src-app/ui/src/modules/txrrun/data/useRunConfig.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrrun/lib/settings.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrrun/lib/settings.ts' &&
+          p !== 'src-app/ui/src/modules/txrrun/pages/ChooseMethodsPage.test.tsx' &&
+          p !== 'src-app/ui/src/modules/txrrun/pages/ChooseMethodsPage.tsx' &&
           p !== 'src-app/ui/src/modules/txrresults/module.test.ts' &&
           p !== 'src-app/ui/src/modules/txrresults/pages/ResultsPage.tsx' &&
           p !== 'src-app/ui/src/modules/txrresults/pages/MethodResultsPage.tsx' &&
