@@ -24,11 +24,16 @@ import type {
 import type { ParsedTable } from '@/lib/txr-files/types'
 import {
   cardProblems,
+  fileHasNoDataRows,
+  formatFollowUpDays,
   hasErrorProblems,
   inspectRequest,
   measurementsStatus,
+  parsePickedFile,
   patientsStatus,
   predictMeasurementsStatus,
+  renamedTable,
+  resolveColumnRenames,
   resolveJoins,
   resolveMapping,
   validateRequest,
@@ -58,6 +63,7 @@ function loadedFile(name: string, table: ParsedTable): LoadedFile {
     prepared: false,
     joinOffers: [],
     vocabOffers: [],
+    columnOffers: [],
   }
 }
 
@@ -164,7 +170,8 @@ function responseOf(overrides: Partial<ValidationResponse> = {}): ValidationResp
       patients: 38,
       distinct_draw_days: [0, 14, 28, 56],
     },
-    patients: { rows: 151, with_primary_outcome: 62, median_followup_days: 231 },
+    patients: { rows: 151, with_primary_outcome: 62,
+    primary_outcome_events: 62, median_followup_days: 231 },
     inventory: {
       baseline_max_day: 0,
       decision_day: 56,
@@ -344,7 +351,8 @@ describe('lib/flow.ts (TEST-INT-3, ITEM-6)', () => {
       line: 'Found 151 rows, 62 progressions or deaths, median follow-up 231 days. Ready.',
     })
     const noMedian = responseOf()
-    noMedian.patients = { rows: 4, with_primary_outcome: 1, median_followup_days: undefined }
+    noMedian.patients = { rows: 4, with_primary_outcome: 1,
+    primary_outcome_events: 1, median_followup_days: undefined }
     expect(patientsStatus(noMedian).line).toBe('Found 4 rows, 1 progressions or deaths. Ready.')
     // The wire's `null` IS the generator's "no property" (qa-fixes RES-01):
     // a validation response with no patient summary reads the honest
@@ -387,7 +395,8 @@ describe('lib/flow.ts (TEST-INT-3, ITEM-6)', () => {
       'Found 1,102 rows: markers ldh and cea; draws at day 0, 14, 28 and 56. Ready.',
     )
     const bigPatients = responseOf()
-    bigPatients.patients = { rows: 1234, with_primary_outcome: 62, median_followup_days: 231 }
+    bigPatients.patients = { rows: 1234, with_primary_outcome: 62,
+    primary_outcome_events: 62, median_followup_days: 231 }
     expect(patientsStatus(bigPatients).heading).toBe('✓ 1,234 patients read')
     expect(predictMeasurementsStatus(big).heading).toBe('✓ 38 patients read')
   })
@@ -406,5 +415,126 @@ describe('lib/flow.ts (TEST-INT-3, ITEM-6)', () => {
     expect(predictMeasurementsStatus(many).line).toBe(
       'Found 102 rows: markers ldh, cea, wbc, plt, nse and cyfra…; draws at day 0, 14, 28 and 56. Next you choose the models that can run on it.',
     )
+  })
+})
+
+describe('ITEM-6 (global QA intake fixes) — F1 events, F2 mapping, F3 empty, F4 pick guard, F5a noise, F7 bounded draws', () => {
+  it('the patients line reports EVENTS, not patients with an outcome (F1)', () => {
+    // The defect: the old line read `with_primary_outcome` ("94
+    // progressions or deaths" for a file with 94 patients but 82 events).
+    const response = responseOf()
+    response.patients = {
+      rows: 94,
+      with_primary_outcome: 94,
+      primary_outcome_events: 82,
+      median_followup_days: 59,
+    }
+    expect(patientsStatus(response).line).toBe(
+      'Found 94 rows, 82 progressions or deaths, median follow-up 59 days. Ready.',
+    )
+  })
+
+  it('the draw-days segment bounds the schedule: four spelled, more a count (F7)', () => {
+    const four = responseOf({ measurements: { rows: 630, patients: 94, distinct_draw_days: [0, 14, 28, 56] } })
+    expect(measurementsStatus(four).line).toContain('draws at day 0, 14, 28 and 56.')
+    const many = responseOf({
+      measurements: { rows: 630, patients: 94, distinct_draw_days: [...Array.from({ length: 93 }, (_, i) => i * 12), 799] },
+    })
+    expect(measurementsStatus(many).line).not.toContain('draws at day 0, 12, 24')
+    expect(measurementsStatus(many).line).toContain('draws on 94 days (0 to 1104).')
+  })
+
+  it('the mapping step suggests obvious renamed columns only (F2)', () => {
+    // The report's renamed file: pid, study_day, analyte, result, units.
+    expect(
+      resolveColumnRenames(['pid', 'study_day', 'analyte', 'result', 'units'], 'measurements'),
+    ).toEqual([
+      { from: 'pid', to: 'patient_id' },
+      { from: 'study_day', to: 'day' },
+      { from: 'analyte', to: 'marker' },
+      { from: 'result', to: 'value' },
+    ])
+    // `units` is the SERVER's own alias (UNIT_ALIASES) — no overlap: the
+    // app never re-offers a spelling the validator already reads.
+    expect(resolveColumnRenames(['units'], 'measurements')).toEqual([])
+    expect(resolveColumnRenames(['patient_id', 'day', 'marker', 'value'], 'measurements')).toEqual([])
+    expect(resolveColumnRenames(['pid'], 'patients')).toEqual([
+      { from: 'pid', to: 'patient_id' },
+    ])
+    // The dismissed "not now" record suppresses the offer (session rule).
+    expect(
+      resolveColumnRenames(['pid'], 'measurements', new Set(['pid'])),
+    ).toEqual([])
+  })
+
+  it('an accepted rename rewrites the table columns (F2)', () => {
+    const table = csv('m.csv', ['pid', 'day', 'marker', 'value'], [['P1', '0', 'ldh', '1']])
+    const next = renamedTable(table, { from: 'pid', to: 'patient_id' })
+    expect(next.columns).toEqual(['patient_id', 'day', 'marker', 'value'])
+    expect(next.rows).toBe(table.rows)
+    expect(next.source).toBe(table.source)
+  })
+
+  it('a header-only file is an error fact (F3)', () => {
+    const empty = loadedFile('m.csv', csv('m.csv', ['patient_id', 'day'], []))
+    empty.inspection = { ...inspectionOf('measurements'), summary: { rows: 0, markers: [], draw_days: [] } }
+    expect(fileHasNoDataRows(empty)).toBe(true)
+    const full = loadedFile('m.csv', MEASUREMENTS_TABLE)
+    full.inspection = inspectionOf('measurements')
+    expect(fileHasNoDataRows(full)).toBe(false)
+    expect(fileHasNoDataRows(loadedFile('m.csv', MEASUREMENTS_TABLE))).toBe(false)
+  })
+
+  it('the pick guard refuses wrong file types and empty files plainly (F4)', async () => {
+    await expect(
+      parsePickedFile(new File(['x'], 'report.pdf', { type: 'application/pdf' }), 'measurements'),
+    ).rejects.toThrow('This is not a CSV or Excel file — choose a .csv or .xlsx file.')
+    await expect(
+      parsePickedFile(new File([''], 'empty.csv', { type: 'text/csv' }), 'measurements'),
+    ).rejects.toThrow('This file is empty — choose the file with its data.')
+    // A legacy .xls reaches the workbook decode (the provider's own
+    // legacy_xls message is the authority — the read-side tolerance).
+    await expect(
+      parsePickedFile(new File(['x'], 'old.xls', { type: 'application/vnd.ms-excel' }), 'measurements'),
+    ).rejects.not.toThrow('This is not a CSV or Excel file')
+  })
+
+  it('the A01 header-less cause suppresses the per-role storm (F5a)', () => {
+    const a01: FileProblem = {
+      code: 'A01',
+      severity: 'error',
+      row: 1,
+      column: undefined,
+      message: 'no recognizable header in the measurements table: none of the 5 column(s) matches a known name; is row 1 the header?',
+    }
+    const r02: FileProblem = {
+      code: 'R02',
+      severity: 'error',
+      row: 1,
+      column: 'day',
+      message: 'required column `day` is missing from the measurements table',
+    }
+    const a02: FileProblem = {
+      code: 'A02',
+      severity: 'error',
+      row: 1,
+      column: undefined,
+      message: 'no outcome column',
+    }
+    const r03 = errorProblem(4)
+    const response = responseOf({ problems: [a01, r02, a02, r03] })
+    const inspection = inspectionOf('measurements')
+    inspection.problems = [a01]
+    const problems = cardProblems('measurements', inspection, inspectionOf('patients'), response)
+    expect(problems.some(p => p.code === 'R02')).toBe(false)
+    expect(problems.some(p => p.code === 'A02')).toBe(false)
+    expect(problems.some(p => p.code === 'A01')).toBe(true)
+    expect(problems.some(p => p.code === 'R03')).toBe(true)
+  })
+
+  it('the median follow-up renders whole or one-decimal (F6)', () => {
+    expect(formatFollowUpDays(215.72024826342715)).toBe(215.7)
+    expect(formatFollowUpDays(231)).toBe(231)
+    expect(formatFollowUpDays(215.5)).toBe(215.5)
   })
 })

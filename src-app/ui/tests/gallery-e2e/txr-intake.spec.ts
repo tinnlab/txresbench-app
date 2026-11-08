@@ -161,9 +161,9 @@ test.describe('txr-intake-c — the shared file-card flow (TEST-INT-15)', () => 
     const measurementsStatus = page.getByTestId('txr-intake-file-status-measurements')
     await expect(measurementsStatus).toContainText('5 problems in 120 rows')
     const problems = page.getByTestId('txr-intake-file-problems-measurements')
-    await expect(problems).toContainText('Row 14: `week 4` is not a number in the day column')
-    await expect(problems).toContainText('Row 88: `P0187` is not in the patients table')
-    await expect(problems).toContainText('Row 91: `P0187` is not in the patients table')
+    await expect(problems).toContainText('Row 14: week 4 is not a number in the day column')
+    await expect(problems).toContainText('Row 88: P0187 is not in the patients table')
+    await expect(problems).toContainText('Row 91: P0187 is not in the patients table')
     await expect(problems.getByRole('listitem')).toHaveCount(5)
 
     // The A03 join question is its own offer row (never a problem line).

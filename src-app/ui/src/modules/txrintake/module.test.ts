@@ -229,6 +229,8 @@ describe('ITEM-2 — the state-contract barrel (PROV-UI-INTAKE-2)', () => {
       prepared: false,
       joinOffers: [],
       vocabOffers: [],
+
+      columnOffers: [],
     }
     const joins: JoinOffer[] = [{ variants: ['ldh', 'LDH'], key: 'LDH' }]
     const mapping = [{ key: 'LDH', marker_id: 'ldh' }]

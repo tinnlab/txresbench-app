@@ -196,6 +196,19 @@ export const TXR_INTAKE_MEASUREMENTS_FIXED_CSV = buildMeasurementsCsv({
   missingPatient: false,
 })
 
+/**
+ * The renamed-header measurements file (qa-fixes ITEM-6, F2): the fixed
+ * twin's rows under `pid,study_day,analyte,result,units` — the report's
+ * renamed.light screenshot case. The fixture validator resolves columns by
+ * NAME, so this table reports the four R02 missing-required-column errors
+ * until the user accepts the mapping-step offers (then the re-inspected
+ * table is the canonical one and the card turns green).
+ */
+export const TXR_INTAKE_RENAMED_CSV = ((): string => {
+  const rows = TXR_INTAKE_MEASUREMENTS_FIXED_CSV.split('\n')
+  return ['pid,study_day,analyte,result,units', ...rows.slice(1)].join('\n')
+})()
+
 /** The predict-mode file: the same cohort, clean (24 × 4 = 96 rows). */
 export const TXR_INTAKE_PREDICT_CSV = ((): string => {
   const lines = ['patient_id,day,marker,value,unit']
@@ -225,6 +238,52 @@ interface FixtureTable {
   header_row: number
   rows: (string | null)[][]
   source?: { name: string; format: string }
+}
+
+/** Fold a header name the way the server does (`rules.rs` twin). */
+function foldedName(name: string): string {
+  return name.toLowerCase().replace(/[_\-\s]+/g, ' ').trim()
+}
+
+/**
+ * The fixture validator's canonical column spellings + the obvious aliases
+ * (a miniature of `rules.rs`'s alias table — the story's honest judge: a
+ * header the fixture resolves by NAME the real validator resolves too).
+ */
+const CANONICAL_NAMES: Record<FileTableKind, readonly string[]> = {
+  patients: ['patient_id', 'pfs_days', 'pfs_event', 'os_days', 'os_event', 'age', 'sex', 'stage'],
+  measurements: ['patient_id', 'day', 'marker', 'value', 'unit'],
+}
+
+/** The aliases the fixture resolver accepts (the server's own spellings). */
+const COLUMN_ALIASES: Readonly<Record<string, string>> = {
+  'patient id': 'patient_id',
+  patientid: 'patient_id',
+  'days from start': 'day',
+  'day from start': 'day',
+  dayfromstart: 'day',
+  feature: 'marker',
+  units: 'unit',
+}
+
+/** The R02 required-role set (D48's four board columns on the patients side). */
+const REQUIRED_COLUMNS: Record<FileTableKind, readonly string[]> = {
+  patients: ['patient_id', 'pfs_days', 'pfs_event', 'os_days', 'os_event'],
+  measurements: ['patient_id', 'day', 'marker', 'value'],
+}
+
+/** The role one column name resolves to (canonical + the obvious aliases). */
+function resolveRoleOf(column: string, kind: FileTableKind): string | null {
+  for (const canonical of CANONICAL_NAMES[kind]) {
+    if (foldedName(canonical) === foldedName(column)) return canonical
+  }
+  return COLUMN_ALIASES[foldedName(column)] ?? null
+}
+
+/** The required roles the table's own header fails to resolve (R02 fact). */
+function missingRequiredColumns(table: FixtureTable, kind: FileTableKind): string[] {
+  const resolved = new Set(table.columns.map(c => resolveRoleOf(c, kind)))
+  return REQUIRED_COLUMNS[kind].filter(role => !resolved.has(role))
 }
 
 /** The data rows (the parsed table carries only data rows). */
@@ -353,6 +412,19 @@ export function txrInspectResponse(body: {
       })
     }
   }
+  // ITEM-6 F2: the fixture resolves columns by NAME (like the real
+  // validator) — a renamed header (pid, study_day, analyzer, result) leaves
+  // the required roles unresolved and reports one R02 per missing role; the
+  // mapping step's accepted renames make the next inspect clean.
+  for (const role of missingRequiredColumns(table, body.kind)) {
+    problems.push({
+      code: 'R02',
+      severity: 'error',
+      row: table.header_row,
+      column: role,
+      message: `required column \`${role}\` is missing from the ${body.kind} table`,
+    })
+  }
   return {
     kind: body.kind,
     source_name: body.table.source?.name ?? 'example.csv',
@@ -376,7 +448,7 @@ export function txrInspectResponse(body: {
               value: 'value',
               unit: 'unit',
             },
-      unresolved: [],
+      unresolved: missingRequiredColumns(table, body.kind).map(role => role),
       covariate_columns: [],
     },
     problems,
@@ -422,9 +494,15 @@ function rowProblem(
 /** The patients-table summary of the fixture (validated against the parse). */
 export function txrPatientsSummary(table: FixtureTable) {
   const rows = dataRows(table).map(row => row)
+  // The fixture patients carry the pfs pair first (pfs_days, pfs_event); the
+  // events count is the primary pair's indicator — same rule as the
+  // server's `primary_outcome_events` (qa-fixes ITEM-6, F1: the board's
+  // "N progressions or deaths" is the EVENTS count, never
+  // `with_primary_outcome`).
   return {
     rows: rows.length,
-    with_primary_outcome: rows.filter(row => row[2] === '1' || row[4] === '1').length,
+    with_primary_outcome: rows.length,
+    primary_outcome_events: rows.filter(row => row[2] === '1').length,
     median_followup_days: 231,
   }
 }
@@ -597,6 +675,7 @@ export interface TxrIntakeFixtureBundle {
   patients: string
   measurements: string
   measurementsFixed: string
+  measurementsRenamed: string
   predict: string
   templatePatients: string
   templateMeasurements: string
@@ -607,6 +686,7 @@ export const TXR_INTAKE_FIXTURE_BUNDLE: TxrIntakeFixtureBundle = {
   patients: TXR_INTAKE_PATIENTS_CSV,
   measurements: TXR_INTAKE_MEASUREMENTS_CSV,
   measurementsFixed: TXR_INTAKE_MEASUREMENTS_FIXED_CSV,
+  measurementsRenamed: TXR_INTAKE_RENAMED_CSV,
   predict: TXR_INTAKE_PREDICT_CSV,
   templatePatients: TXR_INTAKE_TEMPLATE_CSV.patients,
   templateMeasurements: TXR_INTAKE_TEMPLATE_CSV.measurements,

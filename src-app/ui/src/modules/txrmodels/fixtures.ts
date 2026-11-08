@@ -800,7 +800,7 @@ export const TXRMODELS_VALIDATION: ValidationResponse = {
   inventory: TXRMODELS_INVENTORY,
   markers: [],
   measurements: { rows: 168, patients: 42, distinct_draw_days: [0, 14, 28, 56] },
-  patients: { rows: 42, with_primary_outcome: 40 },
+  patients: { rows: 42, with_primary_outcome: 40, primary_outcome_events: 40 },
   problems: [],
 }
 
@@ -820,6 +820,8 @@ export const TXRMODELS_PREDICT_FILE: LoadedFile = {
   prepared: true,
   joinOffers: [],
   vocabOffers: [],
+
+  columnOffers: [],
 }
 
 /**

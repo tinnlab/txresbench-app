@@ -189,6 +189,8 @@ const PANEL_COUNT: CSSProperties = {
   lineHeight: 1,
 }
 
+// qa-fixes ITEM-6 S1: the suffix begins with a SPACE — the number and "of"
+// are separate spans and the report read "173of 359 methods fit".
 const PANEL_SUFFIX: CSSProperties = {
   fontSize: 20,
   color: '#5e5e5e',
@@ -224,11 +226,22 @@ const UPLOAD_TITLE: CSSProperties = { fontWeight: 700, margin: 0 }
 
 const UPLOAD_LIST: CSSProperties = {
   margin: 0,
-  paddingLeft: 18,
+  paddingLeft: 20,
+  // The board's list has bullet markers (the same ITEM-6 P1 fix as the
+  // predict aside — the kit reset removed them).
+  listStyle: 'disc',
   fontSize: 14.5,
 }
 
-const LINK: CSSProperties = { fontSize: 13.5, color: '#1d4e89', fontWeight: 600 }
+// qa-fixes ITEM-6 S4: the "Show all N" button carried the kit link's own
+// horizontal padding, so it sat ~11 px right of the list above it (the L1
+// indent class). Link buttons render flush; the list is their guide.
+const LINK: CSSProperties = {
+  padding: 0,
+  fontSize: 13.5,
+  color: '#1d4e89',
+  fontWeight: 600,
+}
 
 const EXCLUDED_HEADING: CSSProperties = { fontWeight: 700, marginBottom: 4 }
 
@@ -248,8 +261,14 @@ const EXCLUDED_LI: CSSProperties = {
 const EXCLUDED_ID: CSSProperties = {
   fontFamily: "'Source Code Pro', monospace",
   fontSize: 12.5,
-  minWidth: 190,
-  wordBreak: 'break-all',
+  minWidth: 210,
+  // qa-fixes ITEM-6 S2: `wordBreak: 'break-all'` broke ids MID-WORD at the
+  // hyphens' worst place ("ca125-confirmed-50pct-res / ponse").
+  // `overflowWrap: 'anywhere'` (with the break rule back to normal) prefers
+  // the hyphen break points and only breaks anywhere when a single word is
+  // longer than the column — the ids stay whole.
+  wordBreak: 'normal',
+  overflowWrap: 'anywhere',
 }
 
 const EXCLUDED_REASON: CSSProperties = { color: '#5e5e5e', fontSize: 13.5 }
@@ -293,7 +312,12 @@ export function StudyPage() {
   const hasMoreExcluded = excluded.length > EXCLUDED_LIST_LIMIT
 
   return (
-    <div role="main" style={PAGE_CONTAINER} data-testid="txr-intake-study">
+    <div
+      role="main"
+      style={PAGE_CONTAINER}
+      className="txr-intake-page"
+      data-testid="txr-intake-study"
+    >
       <div style={COLUMNS}>
         <section style={LEFT_COLUMN}>
           <div>
@@ -455,7 +479,7 @@ export function StudyPage() {
                 <span style={{ fontWeight: 600, color: '#5e5e5e' }}>…</span>
               )}
               <span style={PANEL_SUFFIX}>
-                {panel.fit !== null ? `of ${panel.fit.total} methods fit` : 'methods fit'}
+                {panel.fit !== null ? ` of ${panel.fit.total} methods fit` : ' methods fit'}
               </span>
             </div>
             <p style={PANEL_SENTENCE} data-testid="txr-intake-panel-sentence">

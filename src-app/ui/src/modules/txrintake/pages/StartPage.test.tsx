@@ -209,3 +209,40 @@ describe('StartPage (TEST-INT-11, ITEM-4)', () => {
     }
   })
 })
+
+
+describe('ITEM-6 L1/L2/L3/F6 — the banner link, the board dots, the distinct saved-model CTA, the example banner fact', () => {
+  it('the three path cards keep the board dots and the CTA bodies (L2, L3)', () => {
+    renderStart()
+    const bullets = screen.getByText('Works with a small cohort, and with no outcomes').closest('ul') as HTMLElement
+    expect(bullets.style.listStyle).toBe('disc')
+    const reuse = screen.getByTestId('txr-intake-start-card-reuse-cta')
+    expect(reuse.textContent).toBe('Predict with a model I saved')
+    // Only ONE card carries the board's "Add the patients to predict" label
+    // with a different action — the two flows are distinguishable (L3).
+    expect(screen.getAllByText('Add the patients to predict')).toHaveLength(1)
+  })
+
+  it('the example-data link renders flush with the banner paragraph (L1)', () => {
+    renderStart()
+    const example = screen.getByTestId('txr-intake-start-example') as HTMLElement
+    expect(example.style.padding).toBe('0px')
+  })
+
+  it('Try the example data records the example-loaded fact for the C banner (F6)', async () => {
+    renderStart()
+    fireEvent.click(screen.getByTestId('txr-intake-start-example'))
+    await waitFor(() => {
+      expect(routeAt()).toBe('/files')
+    })
+    expect(store().exampleLoaded).toBe(true)
+    // An adoption of the user's OWN file clears the fact (the banner
+    // announces only the example that is still loaded — the FilesPage test
+    // renders the banner itself).
+    store().adoptFile(
+      'patients',
+      store().patients as NonNullable<ReturnType<typeof store>['patients']>,
+    )
+    expect(store().exampleLoaded).toBe(false)
+  })
+})

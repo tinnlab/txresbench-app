@@ -36,10 +36,14 @@ WHAT IS DELIBERATE (each a recorded choice, in `inputs.json` + the report):
   they belong to a later stage of the app's multi-marker contract.
 - **Days.** The tidy `day_from_start` is already days from treatment start
   (day 0 = first dose), which is the app's own origin (`baseline_max_day`
-  pins 0); the patients-table survival times are converted to days with the
-  benchmark's own factor (Bratman2020 meta: months x 30.4375 = exact integer
-  days, verified over all 188 values). The app admits days only (`pfs_days`);
-  no `time_unit` column is written (R12's default days).
+  pins 0); the patients-table survival times follow the tidy's OWN
+  `time_unit` declaration (qa-fixes ITEM-6, F8): values declared `day` pass
+  through, values declared `month` convert with the benchmark's factor
+  (30.4375), and an unrecognized unit refuses loudly — the old converter
+  multiplied ALREADY-DAY values by 30.4375 and shipped follow-ups of up to
+  32,812 days (90 years). The app admits days only (`pfs_days`); no
+  `time_unit` column is written (R12's default days). Every converted value
+  is range-checked against [`MAX_PLAUSIBLE_DAYS`].
 - **The response pair is both-or-neither** (R18): a patient whose tidy row has
   a label but no assessment day is written with BOTH cells empty (the
   label-without-day shape is not in the app's outcome-pair contract; the
@@ -70,9 +74,46 @@ BENCHMARK_ROOT = "/data/share/pbya/sigtrans/dev/data/benchmark"
 DEFAULT_OUT = "/data/pbya/txresbench-app-work/qa-data"
 #: Month -> day factor (the benchmark's own day decoding, 365.25/12).
 DAY_PER_MONTH = 30.4375
+#: The longest plausible survival (20 years in days) — a converted follow-up
+#: beyond this means the unit was misread (qa-fixes ITEM-6, F8: the old
+#: converter multiplied ALREADY-DAY values by 30.4375 and shipped follow-ups
+#: of up to 32,812 days).
+MAX_PLAUSIBLE_DAYS = 7300
 #: The converter's default dataset (open, tidy-validated, serial ctDNA +
 #: response + PFS/OS in one cohort — the shape ITEM-3's run needs).
 DEFAULT_DATASET = "Bratman2020_INSPIRE-ctDNA"
+
+
+def survival_unit_of(unit_text):
+    """The tidy time_unit spelling -> the conversion rule (qa-fixes ITEM-6, F8).
+
+    The tidy patients table declares the unit of EVERY survival value in its
+    own `time_unit` column; the converter respects that declaration instead of
+    assuming months. `'month'` is converted (x DAY_PER_MONTH), `'day'` /
+    `'days'` passes through, anything else refuses loudly - a mixed/unread
+    unit would silently ship implausible follow-ups (the F8 defect: values
+    already in days multiplied by 30.4375, max 32,812 days = 90 years).
+    """
+    norm = str(unit_text).strip().lower()
+    if norm in ("day", "days"):
+        return "day"
+    if norm in ("month", "months"):
+        return "month"
+    raise RuntimeError(f"unrecognized survival time_unit {unit_text!r}")
+
+
+def convert_survival_time(value, unit):
+    """One survival time to app days: months x DAY_PER_MONTH, days verbatim."""
+    f = float(value)
+    if survival_unit_of(unit) == "month":
+        f = f * DAY_PER_MONTH
+    days = int(round(f))
+    if days < 0 or days > MAX_PLAUSIBLE_DAYS:
+        raise RuntimeError(
+            f"survival time {value} {unit} converts to {days} days "
+            f"(> {MAX_PLAUSIBLE_DAYS}); the unit is likely misread"
+        )
+    return days
 
 
 def fmt_value(v):
@@ -142,6 +183,10 @@ def build_tables(dataset, out, markers):
         pid = str(r.patient_id)
         if not pid:
             continue
+        unit_text = getattr(r, "time_unit", None)
+        if unit_text is None or str(unit_text).strip() == "":
+            raise RuntimeError(f"patient {pid}: the tidy patients table carries no time_unit")
+        unit = survival_unit_of(unit_text)
         pfs_days = ""
         pfs_ev = ""
         os_days = ""
@@ -152,16 +197,20 @@ def build_tables(dataset, out, markers):
         e = getattr(r, "pfs_event", None)
         try:
             if t is not None and t == t and e is not None:
-                pfs_days = str(int(round(float(t) * DAY_PER_MONTH)))
+                pfs_days = str(convert_survival_time(t, unit))
                 pfs_ev = str(int(float(e)))
+        except RuntimeError as ex:
+            raise RuntimeError(f"patient {pid} pfs: {ex}") from ex
         except (TypeError, ValueError):
             pass
         try:
             to = getattr(r, "os_time", None)
             eo = getattr(r, "os_event", None)
             if to is not None and to == to and eo is not None:
-                os_days = str(int(round(float(to) * DAY_PER_MONTH)))
+                os_days = str(convert_survival_time(to, unit))
                 os_ev = str(int(float(eo)))
+        except RuntimeError as ex:
+            raise RuntimeError(f"patient {pid} os: {ex}") from ex
         except (TypeError, ValueError):
             pass
         rb = getattr(r, "responder_binary", None)
@@ -246,11 +295,14 @@ def main(argv=None):
     write_csv(predict_path, ["patient_id", "day", "marker", "value", "unit"], value_rows)
 
     with_response = sum(1 for r in patient_rows if r[5] and r[6])
+    pfs_days = [int(r[1]) for r in patient_rows if r[1]]
+    os_days = [int(r[3]) for r in patient_rows if r[3]]
+    events = sum(1 for r in patient_rows if r[2] == "1")
     conversion_facts = {
         "dataset": dataset,
         "source": os.path.join(BENCHMARK_ROOT, dataset, "tidy"),
         "access": "open",
-        "converted_at": "item-3",
+        "converted_at": "item-6-f8",
         "markers": markers,
         "marker_mapping": [
             {"key": m, "marker_id": mapping_id(m)} for m in markers if not m.endswith("__detected")
@@ -260,9 +312,12 @@ def main(argv=None):
         "n_values": len(value_rows),
         "n_duplicate_draw_rows_dropped": dropped,
         "n_patients_with_response_pair": with_response,
-        "pfs_origin_days": bool(patient_rows),
+        "n_primary_events": events,
+        "survival_time_unit": "day (tidy time_unit declaration)",
+        "pfs_days_range": [min(pfs_days), max(pfs_days)] if pfs_days else None,
+        "os_days_range": [min(os_days), max(os_days)] if os_days else None,
         "notes": [
-            "survival times converted months -> days (x 30.4375, the benchmark's own verified factor)",
+            "survival times follow the tidy time_unit declaration: day values pass through, month values convert (x 30.4375); each converted value is range-checked (<= 7300 days) - the old converter multiplied already-days values (max 32,812 days = 90 years)",
             "the deposit's variant-level and alternate-scale ctDNA features are not converted (single-marker app contract)",
             "patients with a response label but no assessment day carry BOTH cells empty (R18 both-or-neither)",
             "one draw day holding two samples (INS-D-001 day 419) is reduced to the first sample (the app's key is patient/day/marker; see n_duplicate_draw_rows_dropped)",
@@ -274,6 +329,9 @@ def main(argv=None):
 
     print(f"dataset {dataset}: {len(patient_rows)} patients, {len(value_rows)} measurement rows")
     print(f"markers: {', '.join(markers)}")
+    print(f"survival unit: {conversion_facts['survival_time_unit']}; "
+          f"pfs range {conversion_facts['pfs_days_range']}, "
+          f"os range {conversion_facts['os_days_range']}, events {events}")
     print(f"wrote {out_dir}/ {{patients.csv, measurements.csv, predict-measurements.csv, inputs.json}}")
     return 0
 

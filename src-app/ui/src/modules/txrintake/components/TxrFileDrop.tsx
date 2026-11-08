@@ -67,6 +67,10 @@ export function TxrFileDrop(props: TxrFileDropProps) {
       label={label}
       accept={TXR_FILE_ACCEPT}
       disabled={busy}
+      // ITEM-6 F11: the kit's own dashed border would draw a second (pale)
+      // dashed box around the board's red-dashed zone — the board has ONE
+      // drop border, ours; the kit box is cleared.
+      className="border-none"
       onFiles={picked => {
         const pick = picked[0]
         if (pick) onPick(pick)

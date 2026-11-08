@@ -299,13 +299,16 @@ function loaded(name: string) {
     prepared: true,
     joinOffers: [] as never[],
     vocabOffers: [] as never[],
+
+    columnOffers: [],
   }
 }
 
 /** The fixture's one validation (small synthetic counts — INV-6). */
 function validation(): ValidationResponse {
   return {
-    patients: { rows: 18, with_primary_outcome: 7, median_followup_days: 84 },
+    patients: { rows: 18, with_primary_outcome: 7,
+    primary_outcome_events: 7, median_followup_days: 84 },
     measurements: { rows: 36, patients: 4, distinct_draw_days: [0, 14, 28] },
     markers: [
       {

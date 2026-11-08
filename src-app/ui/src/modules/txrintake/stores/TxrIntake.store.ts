@@ -46,6 +46,8 @@ import type {
   StudyAnswers,
   VocabOffer,
 } from '../types'
+import type { ColumnRenameOffer } from '../types'
+import { renamedTable } from '../lib/flow'
 
 /** The three file slots of the snapshot (screen C's two, screen N's one). */
 export type FileSlot = 'patients' | 'measurements' | 'predictMeasurements'
@@ -77,12 +79,20 @@ export interface IntakeValidationKey {
 
 /** A per-file card-state patch (the card surface on C/N and the E-screen slots). */
 export type FileCardPatch = Partial<
-  Pick<LoadedFile, 'inspection' | 'problems' | 'prepared' | 'joinOffers' | 'vocabOffers'>
+  Pick<LoadedFile, 'inspection' | 'problems' | 'prepared' | 'joinOffers' | 'vocabOffers' | 'columnOffers'>
 >
 
 /** The store's data fields (the `IntakeSnapshot` + the recall map). */
 export interface TxrIntakeState extends IntakeSnapshot {
   fileRecalls: FileRecalls
+  /**
+   * The A-screen "Try the example data" was the source of the files now in
+   * the cards (qa-fixes ITEM-6, F6) — a presentation fact, never part of
+   * `IntakeSnapshot` (the state contract stays the flow's); the C screen
+   * announces "example data loaded" while it is true, and ANY adoption or
+   * removal of a file clears it (the cards then hold the user's own files).
+   */
+  exampleLoaded: boolean
 }
 
 /**
@@ -237,6 +247,7 @@ const TxrIntakeDef = defineStore('TxrIntake', {
     parameters: { decision_day: 56, baseline_max_day: 0 },
     validation: null as ValidationResponse | null,
     fileRecalls: { ...BIRTH_FILE_RECALLS },
+    exampleLoaded: false,
   },
   actions: (set, get) => {
     /** The state snapshot the current validation is STILL valid against. */
@@ -264,15 +275,19 @@ const TxrIntakeDef = defineStore('TxrIntake', {
        * Adopt a dropped file for a slot. The file's pending offers are reset
        * (a fresh drop has no offers — the validate pass derives them next),
        * the slot's recall is kept, and the current validation is invalidated.
+       * The adoption ALSO clears the example-data fact (the cards then hold
+       * the user's own files — ITEM-6 F6's banner announces only the example
+       * that is still there).
        */
       adoptFile: (slot: FileSlot, file: LoadedFile) => {
         set(s => ({
-          ...withFile(s, slot, { ...file, joinOffers: [], vocabOffers: [] }),
+          ...withFile(s, slot, { ...file, joinOffers: [], vocabOffers: [], columnOffers: [] }),
           fileRecalls: {
             ...s.fileRecalls,
             [slot]: { name: file.source.name, prepared: file.prepared },
           },
           validation: null,
+          exampleLoaded: false,
         }))
       },
 
@@ -282,7 +297,65 @@ const TxrIntakeDef = defineStore('TxrIntake', {
           ...withFile(s, slot, null),
           fileRecalls: { ...s.fileRecalls, [slot]: null },
           validation: null,
+          exampleLoaded: false,
         }))
+      },
+
+      /**
+       * Accept one column-renaming suggestion (qa-fixes ITEM-6, F2): the
+       * file's table is rewritten with the canonical column spelling, the
+       * offer leaves the card's pending list, and the inspection + validation
+       * are invalidated so the next round reads the file as if its header
+       * carried the canonical name (the re-inspect re-resolves the roles and
+       * the re-validate re-derives the problems from the canonical columns).
+       * The rename is stored IN the table (the preview shows the canonical
+       * spelling; the wire tables the inspect / validate posts carry it) —
+       * no separate rename registry to drift.
+       */
+      renameColumn: (slot: FileSlot, offer: ColumnRenameOffer) => {
+        set(s => {
+          const file = s[slot]
+          if (!file) return {}
+          const next: LoadedFile = {
+            ...file,
+            table: renamedTable(file.table, offer),
+            inspection: null,
+            problems: [],
+            prepared: false,
+            columnOffers: file.columnOffers.filter(o => o.from !== offer.from),
+          }
+          return {
+            ...withFile(s, slot, next),
+            validation: null,
+          }
+        })
+      },
+
+      /** The A-screen's example adoption fact (ITEM-6 F6's banner). */
+      setExampleLoaded: (loaded: boolean) => {
+        set({ exampleLoaded: loaded })
+      },
+
+      /**
+       * "Not now" for one column-renaming suggestion (qa-fixes ITEM-6, F2):
+       * the offer leaves the card's pending list and no rename is applied.
+       * The validation stays (a "not now" changes no validated input — the
+       * accepted side of the offer is the rename, which DOES re-validate);
+       * the owning page's session `dismissed` set keeps the suggestion from
+       * re-offering on the next round.
+       */
+      rejectColumnOffer: (slot: FileSlot, from: string) => {
+        set(s => {
+          const file = s[slot]
+          if (!file) return {}
+          const next: LoadedFile = {
+            ...file,
+            columnOffers: file.columnOffers.filter(o => o.from !== from),
+          }
+          return {
+            ...withFile(s, slot, next),
+          }
+        })
       },
 
       /**
@@ -415,6 +488,7 @@ const TxrIntakeDef = defineStore('TxrIntake', {
           parameters: { decision_day: 56, baseline_max_day: 0 },
           validation: null,
           fileRecalls: { ...BIRTH_FILE_RECALLS },
+          exampleLoaded: false,
         })
       },
 

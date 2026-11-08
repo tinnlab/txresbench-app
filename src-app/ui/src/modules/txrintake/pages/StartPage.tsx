@@ -123,7 +123,10 @@ const CARD_BODY: CSSProperties = {
 
 const CARD_BULLETS: CSSProperties = {
   margin: 0,
-  paddingLeft: 18,
+  paddingLeft: 20,
+  // qa-fixes ITEM-6 L2: the board's dots — the kit's global reset removed
+  // `list-style` and the cards read as indented paragraphs.
+  listStyle: 'disc',
   color: '#3a3a3a',
   fontSize: 14.5,
 }
@@ -168,7 +171,7 @@ const BANNER: CSSProperties = {
   display: 'flex',
   flexWrap: 'wrap',
   gap: 14,
-  alignItems: 'center',
+  alignItems: 'baseline',
   padding: '14px 18px',
   border: '1px solid #e7e5e0',
   borderRadius: 10,
@@ -179,7 +182,10 @@ const BANNER: CSSProperties = {
 
 const BANNER_SPACER: CSSProperties = { flexGrow: 1 }
 
-const EXAMPLE_LINK: CSSProperties = { color: '#1d4e89', fontWeight: 600 }
+// qa-fixes ITEM-6 L1: the button carried the kit link's padding (the
+// 11 px indent + the extra top gap vs the paragraph above it); it now
+// renders flush with the banner's line.
+const EXAMPLE_LINK: CSSProperties = { padding: 0, color: '#1d4e89', fontWeight: 600 }
 
 /** The one-line web notice (DEC-12): origin read at runtime, never a literal. */
 const WEB_URL_NOTICE: CSSProperties = {
@@ -218,6 +224,7 @@ function loadedFrom(table: ParsedTable): LoadedFile {
     prepared: false,
     joinOffers: [],
     vocabOffers: [],
+    columnOffers: [],
   }
 }
 
@@ -253,6 +260,9 @@ export function StartPage() {
       TxrIntake.setIntent('train')
       TxrIntake.adoptFile('patients', loadedFrom(patients))
       TxrIntake.adoptFile('measurements', loadedFrom(measurements))
+      // ITEM-6 F6: the C screen announces the example (the old flow landed
+      // on /files with both cards filled and no word about what was loaded).
+      TxrIntake.setExampleLoaded(true)
       navigate(FILES_ROUTE)
     } catch {
       setExampleError('The example files could not be loaded. Try again.')
@@ -350,12 +360,16 @@ export function StartPage() {
             </li>
           </ul>
           <div style={CARD_BUTTON_ROW}>
+            {/* qa-fixes ITEM-6 L3: the board labels BOTH flows "Add the
+                patients to predict" — the pretrained card's words — so the
+                saved-model path was indistinguishable at a glance; the
+                plain sentence names the flow this button starts. */}
             <Button
               data-testid="txr-intake-start-card-reuse-cta"
               style={OUTLINE_BUTTON}
               onClick={() => pickPath('reuse')}
             >
-              Add the patients to predict
+              Predict with a model I saved
             </Button>
           </div>
         </section>

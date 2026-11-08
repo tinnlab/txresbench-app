@@ -236,3 +236,36 @@ html.dark .os-theme-dark {
     color: #5e5e5e;
   }
 }
+
+/* QA-fixes ITEM-6 (S3, F9, F10, P2): the intake pages at phone width. The
+ * board's pages are desktop-first; at 390 px the 48 px side padding left
+ * the content column ~44 px narrower than the viewport (S3: rules and pills
+ * ended at different x, the methods-fit aside below), the patients role
+ * table ran past the card border (F10 — the "your own code, the same in
+ * both files" description wrapped six lines past x=342), the preview "first
+ * rows" table clipped its last column (F9) and the tall line on the predict
+ * card title (P2). Below 640 px the page padding tightens, the content
+ * column fills the width, the role table's monospace column wraps (the
+ * description column can then take the width it needs), the preview table
+ * scrolls inside its own box, and the panels stack full-width. */
+@media (max-width: 640px) {
+  .txr-intake-page {
+    padding: 24px 16px !important;
+  }
+  .txr-intake-page .txr-intake-role-table {
+    width: 100%;
+  }
+  .txr-intake-page .txr-intake-role-table td {
+    white-space: normal !important;
+    word-break: break-word;
+  }
+  .txr-intake-page .txr-intake-role-table td:first-child {
+    min-width: 96px !important;
+  }
+  .txr-intake-page .txr-intake-first-rows {
+    max-width: 100%;
+  }
+  .txr-intake-page .txr-intake-first-rows table {
+    min-width: 520px;
+  }
+}

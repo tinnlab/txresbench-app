@@ -8,7 +8,8 @@
  * the drop zone (`TxrFileDrop`, kit `Upload`), the status box (green board
  * line / red "N problems in N rows" / the neutral "check as soon as you
  * choose it" state), the per-row problem list (`TxrProblemList`) and the
- * join / vocabulary offer rows (`TxrJoinOffer` / `TxrVocabOffer`).
+ * join / vocabulary / column-rename offer rows (`TxrJoinOffer` /
+ * `TxrVocabOffer` / `TxrColumnOffer`).
  *
  * The surface is CONTROLLED — the frozen props carry the card facts and the
  * host's store actions (onPick / onRemove / the four offer answers / the two
@@ -38,6 +39,7 @@ import { Alert, Button } from '@ziee/kit'
 import { useStore } from 'zustand'
 import type { FileTableKind } from '@/api-client/types'
 import {
+  fileHasNoDataRows,
   hasErrorProblems,
   measurementsStatus,
   patientsStatus,
@@ -45,7 +47,8 @@ import {
 } from '../lib/flow'
 import type { CardStatus } from '../lib/flow'
 import { useTxrIntakeStore } from '../stores/TxrIntake.store'
-import type { JoinOffer, LoadedFile, VocabOffer } from '../types'
+import type { ColumnRenameOffer, JoinOffer, LoadedFile, VocabOffer } from '../types'
+import { TxrColumnOffer } from './TxrColumnOffer'
 import { TxrFileDrop } from './TxrFileDrop'
 import { TxrJoinOffer } from './TxrJoinOffer'
 import { TxrProblemList } from './TxrProblemList'
@@ -67,6 +70,8 @@ export interface TxrFileCardProps {
   onRejectJoin: (offer: JoinOffer) => void
   onAcceptVocab: (offer: VocabOffer) => void
   onRejectVocab: (offer: VocabOffer) => void
+  onAcceptColumn: (offer: ColumnRenameOffer) => void
+  onRejectColumn: (offer: ColumnRenameOffer) => void
   onDownloadTemplate: () => void
   onDownloadExample: () => void
 }
@@ -108,6 +113,11 @@ const ROLE_NAME: CSSProperties = {
   fontSize: 12.5,
   verticalAlign: 'top',
   whiteSpace: 'nowrap',
+  // ITEM-6 F11: one fixed name-column width so the two cards' tag columns
+  // start at the SAME x (the Patients names are longer than the
+  // Measurements names — the unaligned tag column was the report's
+  // cosmetic complaint; the fixed width is the board's aligned look).
+  minWidth: 168,
 }
 const ROLE_TAG: CSSProperties = {
   padding: '3px 10px 3px 0',
@@ -143,7 +153,12 @@ const STUDY_PATIENTS: CardSpec = {
       tag: 'required',
       copy: '1 = progressed or died, 0 = still well at last follow-up',
     },
-    { roles: ['os_days', 'os_event'], tag: 'optional', copy: 'the same for death alone' },
+    // qa-fixes ITEM-6 F5a: the board's "optional" tag for os_days/os_event
+    // contradicts the validator's R02 set (D48 — the four board outcome
+    // columns are required; responder/response_day are the optional pair);
+    // the card now says what the check enforces, the "required column `os_days`
+    // is missing" line is no longer a surprise.
+    { roles: ['os_days', 'os_event'], tag: 'required', copy: 'the same for death alone' },
     { roles: ['age', 'sex', 'stage'], tag: 'optional', copy: 'used as extra inputs by some methods' },
   ],
 }
@@ -293,6 +308,8 @@ export function TxrFileCard(props: TxrFileCardProps) {
     onRejectJoin,
     onAcceptVocab,
     onRejectVocab,
+    onAcceptColumn,
+    onRejectColumn,
     onDownloadTemplate,
     onDownloadExample,
   } = props
@@ -304,12 +321,19 @@ export function TxrFileCard(props: TxrFileCardProps) {
   const exampleRows = (file?.table.rows ?? []).slice(0, EXAMPLE_ROW_LIMIT)
   const problems = file?.problems ?? []
   const errors = hasErrorProblems(problems)
+  const errorsOnly = problems.filter(problem => problem.severity === 'error')
   const rowCount = cardRowCount(file)
   const status = validation !== null ? statusFor(mode, kind, validation) : null
   const showStatusBox = file !== null && file.inspection !== null
   const warnings = problems.filter(problem => problem.severity === 'warning')
+  const hasNoDataRows = fileHasNoDataRows(file)
+  // ITEM-6 F5d: the red box counts and lists ERROR problems; warnings are
+  // notes ("N notes"), even under an error — one severity per box.
+  const errorCount = errorsOnly.length
   const hasOffers =
-    (file?.joinOffers.length ?? 0) > 0 || (file?.vocabOffers.length ?? 0) > 0
+    (file?.joinOffers.length ?? 0) > 0 ||
+    (file?.vocabOffers.length ?? 0) > 0 ||
+    (file?.columnOffers.length ?? 0) > 0
 
   return (
     <section style={CARD} data-testid={`txr-intake-file-card-${kind}`}>
@@ -361,15 +385,35 @@ export function TxrFileCard(props: TxrFileCardProps) {
         {showStatusBox ? (
           <div
             data-testid={`txr-intake-file-status-${kind}`}
-            style={errors ? STATUS_BAD : status !== null ? STATUS_GOOD : STATUS_NEUTRAL}
+            style={
+              errors || hasNoDataRows
+                ? STATUS_BAD
+                : status !== null
+                  ? STATUS_GOOD
+                  : STATUS_NEUTRAL
+            }
           >
-            {errors ? (
+            {errors || hasNoDataRows ? (
               <>
-                <div style={STATUS_BAD_HEADING}>
-                  {problems.length} problem{problems.length === 1 ? '' : 's'}{' '}
-                  {rowCount !== null ? `in ${rowCount} row${rowCount === 1 ? '' : 's'}` : ''}
-                </div>
-                <TxrProblemList kind={kind} problems={problems} />
+                {hasNoDataRows ? (
+                  <div style={STATUS_BAD_HEADING}>This file has no data rows</div>
+                ) : (
+                  <div style={STATUS_BAD_HEADING}>
+                    {errorCount} problem{errorCount === 1 ? '' : 's'}
+                    {rowCount !== null && rowCount > 0
+                      ? ` in ${rowCount} row${rowCount === 1 ? '' : 's'}`
+                      : ''}
+                  </div>
+                )}
+                <TxrProblemList kind={kind} problems={errorsOnly} />
+                {warnings.length > 0 ? (
+                  <div style={WARNING_GROUP}>
+                    <div style={WARNING_TITLE}>
+                      {warnings.length} note{warnings.length === 1 ? '' : 's'}
+                    </div>
+                    <TxrProblemList kind={kind} group="notes" problems={warnings} />
+                  </div>
+                ) : null}
                 <Button
                   variant="link"
                   data-testid={`txr-intake-file-fix-${kind}`}
@@ -388,7 +432,7 @@ export function TxrFileCard(props: TxrFileCardProps) {
                     <div style={WARNING_TITLE}>
                       {warnings.length} note{warnings.length === 1 ? '' : 's'}
                     </div>
-                    <TxrProblemList kind={kind} problems={warnings} />
+                    <TxrProblemList kind={kind} group="notes" problems={warnings} />
                   </div>
                 ) : null}
               </>
@@ -398,7 +442,7 @@ export function TxrFileCard(props: TxrFileCardProps) {
                   {rowCount !== null ? `${rowCount} rows read` : 'File read'}
                 </div>
                 <p style={STATUS_LINE}>We check each file as soon as you choose it.</p>
-                {warnings.length > 0 ? <TxrProblemList kind={kind} problems={warnings} /> : null}
+                {warnings.length > 0 ? <TxrProblemList kind={kind} group="notes" problems={warnings} /> : null}
                 <Button
                   variant="link"
                   data-testid={`txr-intake-file-choose-again-${kind}`}
@@ -430,6 +474,14 @@ export function TxrFileCard(props: TxrFileCardProps) {
                 onReject={onRejectVocab}
               />
             ))}
+            {(file?.columnOffers ?? []).map(offer => (
+              <TxrColumnOffer
+                key={offer.from}
+                offer={offer}
+                onAccept={onAcceptColumn}
+                onReject={onRejectColumn}
+              />
+            ))}
           </div>
         ) : null}
       </div>
@@ -440,7 +492,7 @@ export function TxrFileCard(props: TxrFileCardProps) {
 /** The board's static per-role table (role, tag, copy — verbatim bytes). */
 function RoleTable({ roles }: { roles: RoleRow[] }) {
   return (
-    <table style={ROLE_TABLE}>
+    <table className="txr-intake-role-table" style={ROLE_TABLE}>
       <tbody>
         {roles.map(row => (
           <tr key={row.roles.join(',')}>
@@ -457,7 +509,11 @@ function RoleTable({ roles }: { roles: RoleRow[] }) {
 /** The adopted file's first rows (the board's "Example (first rows)" box). */
 function FirstRows({ columns, rows }: { columns: string[]; rows: (string | null)[][] }) {
   return (
-    <div style={{ overflow: 'hidden', borderRadius: 8 }}>
+    // ITEM-6 F9: the table scrolls INSIDE its box (the last column of the
+    // patients preview used to clip at the card edge with no way to see it —
+    // "response_da" cut mid-word; the box's own overflow keeps the page
+    // fixed and the hint-comma inside cells no longer hides the tail).
+    <div className="txr-intake-first-rows" style={{ overflowX: 'auto', borderRadius: 8 }}>
       <table style={EXAMPLE_TABLE}>
         <thead>
           <tr>

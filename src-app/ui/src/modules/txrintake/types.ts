@@ -139,6 +139,29 @@ export interface LoadedFile {
   prepared: boolean
   joinOffers: JoinOffer[]
   vocabOffers: VocabOffer[]
+  /**
+   * The pending column-renaming suggestions (qa-fixes ITEM-6, F2): a file
+   * column with an obvious canonical match ("pid looks like patient_id")
+   * — the column-mapping step, DEC-9-confirmed like the join/vocabulary
+   * offers. An ACCEPTED rename rewrites the table's columns (the next
+   * inspect/validate reads the canonical spelling); a declined one is
+   * dismissed for the session.
+   */
+  columnOffers: ColumnRenameOffer[]
+}
+
+/**
+ * One column-renaming suggestion of the mapping step (qa-fixes ITEM-6, F2):
+ * the file's raw spelling and the canonical column it looks like. The shape
+ * is the flow's own (the offer drives the store's `renameColumn`), never a
+ * wire type — the rename is resolved locally before the validator sees the
+ * table.
+ */
+export interface ColumnRenameOffer {
+  /** The file's raw column spelling (the offer's stable key). */
+  from: string
+  /** The canonical column spelling it is renamed to. */
+  to: string
 }
 
 /**

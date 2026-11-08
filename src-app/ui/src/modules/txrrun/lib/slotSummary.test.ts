@@ -39,6 +39,8 @@ function snapshot(overrides: Partial<IntakeSnapshot> = {}): IntakeSnapshot {
       prepared: false,
       joinOffers: [],
       vocabOffers: [],
+
+      columnOffers: [],
     },
     measurements: {
       source: { name: 'measurements.csv', format: 'csv' },
@@ -53,6 +55,8 @@ function snapshot(overrides: Partial<IntakeSnapshot> = {}): IntakeSnapshot {
       prepared: false,
       joinOffers: [],
       vocabOffers: [],
+
+      columnOffers: [],
     },
     predictMeasurements: null,
     joins: [],
@@ -66,7 +70,8 @@ function snapshot(overrides: Partial<IntakeSnapshot> = {}): IntakeSnapshot {
 /** The ONE validation response (the fixture's small synthetic facts). */
 function validation(overrides: Partial<ValidationResponse> = {}): ValidationResponse {
   return {
-    patients: { rows: 18, with_primary_outcome: 7, median_followup_days: 84 },
+    patients: { rows: 18, with_primary_outcome: 7,
+    primary_outcome_events: 7, median_followup_days: 84 },
     measurements: { rows: 36, patients: 4, distinct_draw_days: [0, 14, 28] },
     markers: [
       { key: 'ldh', spellings: ['ldh'], n_rows: 20, unit_status: 'matches', coverage: { patients_with_value: 4, patients_with_baseline: 4, patients_with_ontreatment: 4 }, vocabulary: [] },

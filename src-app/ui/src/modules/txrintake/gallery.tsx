@@ -139,6 +139,8 @@ function loadedFrom(table: ReturnType<typeof parseCsvText>): LoadedFile {
     prepared: false,
     joinOffers: [],
     vocabOffers: [],
+
+    columnOffers: [],
   }
 }
 

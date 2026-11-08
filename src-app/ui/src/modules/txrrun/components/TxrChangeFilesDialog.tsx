@@ -112,6 +112,11 @@ export function TxrChangeFilesDialog({ mode, open, onOpenChange }: TxrChangeFile
             onRejectJoin={offer => TxrIntake.rejectJoin(offer)}
             onAcceptVocab={offer => TxrIntake.acceptVocab(offer)}
             onRejectVocab={offer => TxrIntake.rejectVocab(offer)}
+            // qa-fixes ITEM-6 F2: the mapping step's rename affordance rides
+            // the shared card surface — the E-screen mount applies the same
+            // store action the intake screens do (one rename rule).
+            onAcceptColumn={offer => TxrIntake.renameColumn(card.slot, offer)}
+            onRejectColumn={offer => TxrIntake.rejectColumnOffer(card.slot, offer.from)}
             onDownloadTemplate={handOff}
             onDownloadExample={handOff}
           />

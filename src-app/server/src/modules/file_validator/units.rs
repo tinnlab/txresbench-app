@@ -333,7 +333,9 @@ pub fn unit_mismatch_problem(
 ) -> FileProblem {
     let agreement_text = match agreement {
         UnitAgreement::Family(_) => "the unit agrees only by unit family",
-        UnitAgreement::Unknown => "the unit has no unit-family agreement",
+        UnitAgreement::Unknown => {
+            "the unit is not recognized, so the scale cannot be compared"
+        }
         UnitAgreement::Matches => {
             "the unit matches — no problem"
         }
@@ -534,7 +536,7 @@ mod tests {
             UnitAgreement::Unknown,
         );
         assert_eq!(unknown.code, ProblemCode::A04UnitDiffers);
-        assert!(unknown.message.contains("no unit-family agreement"), "{}", unknown.message);
+        assert!(unknown.message.contains("is not recognized"), "{}", unknown.message);
 
         let unclassified = unit_unclassified_problem("unit", "furlongs");
         assert_eq!(unclassified.code, ProblemCode::A04UnitDiffers);
@@ -557,7 +559,7 @@ mod tests {
             problem.message
         );
         assert!(
-            problem.message.contains("no unit-family agreement"),
+            problem.message.contains("is not recognized"),
             "{}",
             problem.message
         );

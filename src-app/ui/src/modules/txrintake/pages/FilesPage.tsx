@@ -4,14 +4,15 @@ import { useNavigate } from 'react-router-dom'
 import { Button } from '@ziee/kit'
 import { ApiClient } from '@/api-client'
 import type { FileTableKind } from '@/api-client/types'
-import { parseCsvFile } from '@/lib/txr-files/csv'
-import { parseWorkbookFile } from '@/lib/txr-files/workbook'
 import { useStore } from 'zustand'
 import { TxrIntake, useTxrIntakeStore } from '../stores/TxrIntake.store'
 import {
   cardProblems,
+  fileHasNoDataRows,
   hasErrorProblems,
   inspectRequest,
+  parsePickedFile,
+  resolveColumnRenames,
   resolveJoins,
   resolveMapping,
   validateRequest,
@@ -19,7 +20,7 @@ import {
 import { fetchTemplateCsv, downloadText, templateFilename } from '../lib/download'
 import { ROUTE_CONVENTIONS } from '../module'
 import { TxrFileCard } from '../components/TxrFileCard'
-import type { JoinOffer, LoadedFile, VocabOffer } from '../types'
+import type { ColumnRenameOffer, JoinOffer, LoadedFile, VocabOffer } from '../types'
 
 /**
  * Screen C — Your files (board Files.dc.html, ITEM-6): the two file cards
@@ -116,20 +117,11 @@ function errorText(err: unknown): string {
   return err instanceof Error ? err.message : 'The file could not be read.'
 }
 
-/** Decode a File as CSV or Excel through PROV-FV-7 (one shared decode library). */
-async function parseIntakeFile(
-  file: File,
-  kind: FileTableKind,
-): Promise<Awaited<ReturnType<typeof parseCsvFile>>> {
-  const lower = file.name.toLowerCase()
-  if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) {
-    return parseWorkbookFile(file, { kind })
-  }
-  return parseCsvFile(file, { kind })
-}
-
 /** The adopted-file shell (decode only; the flows fill the card facts). */
-function loadedFrom(table: Awaited<ReturnType<typeof parseIntakeFile>>): LoadedFile {
+function loadedFrom(
+  table: Awaited<ReturnType<typeof parsePickedFile>>,
+  kind: FileTableKind,
+): LoadedFile {
   return {
     source: table.source,
     table,
@@ -138,6 +130,10 @@ function loadedFrom(table: Awaited<ReturnType<typeof parseIntakeFile>>): LoadedF
     prepared: false,
     joinOffers: [],
     vocabOffers: [],
+    // ITEM-6 F2: the column-mapping suggestions are derived the moment the
+    // file is adopted — the "pid looks like patient_id" step needs no
+    // validation round to show.
+    columnOffers: resolveColumnRenames(table.columns, kind),
   }
 }
 
@@ -149,6 +145,7 @@ export function FilesPage() {
   const mapping = useStore(useTxrIntakeStore, s => s.mapping)
   const parameters = useStore(useTxrIntakeStore, s => s.parameters)
   const validation = useStore(useTxrIntakeStore, s => s.validation)
+  const exampleLoaded = useStore(useTxrIntakeStore, s => s.exampleLoaded)
 
   const [busySlot, setBusySlot] = useState<Slot | null>(null)
   const [cardErrors, setCardErrors] = useState<Partial<Record<Slot, string>>>({})
@@ -169,9 +166,9 @@ export function FilesPage() {
     setBusySlot(slot)
     flowBusy.current = true
     try {
-      const table = await parseIntakeFile(file, kind)
+      const table = await parsePickedFile(file, kind)
       dismissed.current.clear()
-      TxrIntake.adoptFile(slot, loadedFrom(table))
+      TxrIntake.adoptFile(slot, loadedFrom(table, kind))
       // A join key / mapping key is a raw spelling the server must find in
       // the CURRENT file — the confirmed offers describe the PREVIOUS file's
       // columns, so a new measurements drop forgets them (the re-validation
@@ -216,6 +213,31 @@ export function FilesPage() {
   const rejectVocab = useCallback((offer: VocabOffer) => {
     dismissed.current.add(offer.key)
     TxrIntake.rejectVocab(offer)
+  }, [])
+
+  // ITEM-6 F2 (the mapping step): an ACCEPTED rename rewrites the table's
+  // columns (the next inspect/validate reads the canonical spelling) — the
+  // offer's re-derivation then finds nothing to re-offer; a "Not now" is
+  // remembered for the session like the join/vocab "not now" answers. The
+  // offer's slot is the card that owns it (a patients-card column never
+  // lives on the measurements card).
+  const acceptColumn = useCallback((offer: ColumnRenameOffer) => {
+    const state = useTxrIntakeStore.getState()
+    const slot =
+      state.patients?.columnOffers.some(o => o.from === offer.from) === true
+        ? 'patients'
+        : 'measurements'
+    TxrIntake.renameColumn(slot, offer)
+  }, [])
+
+  const rejectColumn = useCallback((offer: ColumnRenameOffer) => {
+    dismissed.current.add(offer.from)
+    const state = useTxrIntakeStore.getState()
+    const slot =
+      state.patients?.columnOffers.some(o => o.from === offer.from) === true
+        ? 'patients'
+        : 'measurements'
+    TxrIntake.rejectColumnOffer(slot, offer.from)
   }, [])
 
   /** The download links (CONS-UI-INTAKE-6, DEC-11) — one card error line. */
@@ -287,12 +309,22 @@ export function FilesPage() {
     settled.patchFile('patients', {
       problems: patientsProblems,
       prepared: !hasErrorProblems(patientsProblems),
+      columnOffers: resolveColumnRenames(
+        settled.patients?.table.columns ?? [],
+        'patients',
+        dismissed.current,
+      ),
     })
     settled.patchFile('measurements', {
       problems: measurementsProblems,
       prepared: !hasErrorProblems(measurementsProblems),
       joinOffers,
       vocabOffers: resolution.offers,
+      columnOffers: resolveColumnRenames(
+        settled.measurements?.table.columns ?? [],
+        'measurements',
+        dismissed.current,
+      ),
     })
   }, [])
 
@@ -318,13 +350,22 @@ export function FilesPage() {
     // inputs the validation reads (a change = a new validation).
   }, [patients, measurements, joins, mapping, parameters, validation, retryTick, runFlow])
 
-  const canContinue = validation !== null && !hasErrorProblems(validation.problems)
+  const canContinue =
+    validation !== null &&
+    !hasErrorProblems(validation.problems) &&
+    !fileHasNoDataRows(patients) &&
+    !fileHasNoDataRows(measurements)
   const continueFlow = useCallback(() => {
     navigate(ROUTE_CONVENTIONS.methods)
   }, [navigate])
 
   return (
-    <div role="main" style={PAGE_CONTAINER} data-testid="txr-intake-files">
+    <div
+      role="main"
+      style={PAGE_CONTAINER}
+      className="txr-intake-page"
+      data-testid="txr-intake-files"
+    >
       <div>
         <div style={STEP_LINE}>Step 3 of 4</div>
         <h1 style={TITLE}>Add your files</h1>
@@ -333,6 +374,13 @@ export function FilesPage() {
           each file as soon as you choose it.
         </p>
       </div>
+
+      {exampleLoaded ? (
+        <p data-testid="txr-intake-example-loaded" style={INTRO}>
+          Example data loaded — the two files above are the example set; replace them with your
+          own files at any time.
+        </p>
+      ) : null}
 
       <TxrFileCard
         kind="patients"
@@ -346,6 +394,8 @@ export function FilesPage() {
         onRejectJoin={rejectJoin}
         onAcceptVocab={acceptVocab}
         onRejectVocab={rejectVocab}
+        onAcceptColumn={acceptColumn}
+        onRejectColumn={rejectColumn}
         onDownloadTemplate={() => void downloadCsv('patients', 'template')}
         onDownloadExample={() => void downloadCsv('patients', 'example')}
       />
@@ -362,6 +412,8 @@ export function FilesPage() {
         onRejectJoin={rejectJoin}
         onAcceptVocab={acceptVocab}
         onRejectVocab={rejectVocab}
+        onAcceptColumn={acceptColumn}
+        onRejectColumn={rejectColumn}
         onDownloadTemplate={() => void downloadCsv('measurements', 'template')}
         onDownloadExample={() => void downloadCsv('measurements', 'example')}
       />

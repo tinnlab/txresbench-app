@@ -21779,6 +21779,12 @@
             ],
             "format": "double"
           },
+          "primary_outcome_events": {
+            "description": "Patients whose PRIMARY outcome indicator is 1 (pfs_event/os_event = 1,\n responder = 1) on the same pfs → os → responder ladder\n [`primary_outcome`](super::validate::primary_outcome) uses — the\n board's \"N progressions or deaths\" fact: EVENTS, not patients with an\n outcome (qa-fixes ITEM-6, F1; the old display read\n `with_primary_outcome` and reported \"94 progressions or deaths\" for a\n file with 82 events).",
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
           "rows": {
             "type": "integer",
             "format": "uint32",
@@ -21793,7 +21799,8 @@
         },
         "required": [
           "rows",
-          "with_primary_outcome"
+          "with_primary_outcome",
+          "primary_outcome_events"
         ]
       },
       "Performance": {

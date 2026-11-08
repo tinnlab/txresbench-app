@@ -4412,6 +4412,16 @@ export interface PatientsSummary {
    *  `null` when no outcome is resolvable.
    */
   median_followup_days?: number
+  /**
+   * Patients whose PRIMARY outcome indicator is 1 (pfs_event/os_event = 1,
+   *  responder = 1) on the same pfs → os → responder ladder
+   *  [`primary_outcome`](super::validate::primary_outcome) uses — the
+   *  board's "N progressions or deaths" fact: EVENTS, not patients with an
+   *  outcome (qa-fixes ITEM-6, F1; the old display read
+   *  `with_primary_outcome` and reported "94 progressions or deaths" for a
+   *  file with 82 events).
+   */
+  primary_outcome_events: number
   rows: number
   /**
    * Patients with a resolvable primary outcome (pfs or os event+time, or a

@@ -405,29 +405,41 @@ fn column_has_detection_companion(column: &ResolvedMarker, columns: &[ResolvedMa
 // The validate response
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// The primary outcome time of one patients-table row: the first resolvable
+/// The primary outcome of one patients-table row: the first resolvable
 /// COMPLETE pair, pfs → os → responder (a complete pair = both cells non-blank
-/// AND type-parseable — an event without a time is not an outcome).
-fn primary_outcome_time(row: &PatientRow) -> Option<f64> {
-    if row.pfs_days.parse_f64().is_some() && row.pfs_event.parse_i64().is_some() {
-        return row.pfs_days.parse_f64();
+/// AND type-parseable — an event without a time is not an outcome), together
+/// with the pair's indicator value (the event/response flag the time belongs
+/// to). The pair ordering is the single ladder the summary's facts use:
+/// `with_primary_outcome` (a complete pair exists) and
+/// `primary_outcome_events` (that pair's indicator is 1) come from the SAME
+/// resolution, so the two counts can never disagree about which patients an
+/// "event" belongs to (qa-fixes ITEM-6, F1).
+fn primary_outcome(row: &PatientRow) -> Option<(f64, i64)> {
+    if let (Some(time), Some(event)) = (row.pfs_days.parse_f64(), row.pfs_event.parse_i64()) {
+        return Some((time, event));
     }
-    if row.os_days.parse_f64().is_some() && row.os_event.parse_i64().is_some() {
-        return row.os_days.parse_f64();
+    if let (Some(time), Some(event)) = (row.os_days.parse_f64(), row.os_event.parse_i64()) {
+        return Some((time, event));
     }
-    if row.responder.parse_i64().is_some() && row.response_day.parse_f64().is_some() {
-        return row.response_day.parse_f64();
+    if let (Some(day), Some(response)) = (row.response_day.parse_f64(), row.responder.parse_i64()) {
+        return Some((day, response));
     }
     None
 }
 
 /// The patients summary (PROV-FV-3): row count, patients with a resolvable
-/// primary outcome (complete pair), and the median follow-up time.
+/// primary outcome (complete pair), events (the primary pair's indicator is
+/// 1 — pfs_event/os_event = 1, responder = 1, on the same ladder) and the
+/// median follow-up time.
 fn patients_summary(rows: &[PatientRow]) -> PatientsSummary {
     let mut times: Vec<f64> = Vec::new();
+    let mut events: u32 = 0;
     for row in rows {
-        if let Some(t) = primary_outcome_time(row) {
-            times.push(t);
+        if let Some((time, indicator)) = primary_outcome(row) {
+            times.push(time);
+            if indicator == 1 {
+                events += 1;
+            }
         }
     }
     let median = if times.is_empty() {
@@ -444,6 +456,7 @@ fn patients_summary(rows: &[PatientRow]) -> PatientsSummary {
     PatientsSummary {
         rows: rows.len() as u32,
         with_primary_outcome: times.len() as u32,
+        primary_outcome_events: events,
         median_followup_days: median,
     }
 }
@@ -1187,5 +1200,39 @@ mod tests {
         assert_eq!(a03.len(), 1, "the ldh/LDH join offer");
         let ldh = v.markers.iter().find(|m| m.key == "ldh").unwrap();
         assert_eq!(ldh.spellings, vec!["ldh".to_string(), "LDH".to_string()]);
+    }
+
+    #[test]
+    fn test_fv15_patients_summary_counts_events_not_outcome_patients() {
+        // qa-fixes ITEM-6, F1: the board's "N progressions or deaths" is the
+        // EVENTS count (the primary outcome pair's indicator is 1), never the
+        // patients-with-an-outcome count (the old display read
+        // `with_primary_outcome` and reported "94 progressions or deaths" for
+        // a file with 82 events). The ladder is the same one the outcome time
+        // uses: pfs → os → responder, first COMPLETE pair wins.
+        let patients = table(
+            &["patient_id", "pfs_days", "pfs_event", "os_days", "os_event"],
+            &[
+                &["P1", "10", "1", "20", "1"], // pfs pair, event
+                &["P2", "30", "0", "30", "0"], // pfs pair, censored
+                &["P3", "", "", "15", "1"],    // complete OS pair only → event
+                &["P4", "40", "1", "", "1"],   // pfs pair wins (os time missing)
+            ],
+        );
+        let empty_meas: &[&[&str]] = &[];
+        let v = validate(&req(
+            ValidationMode::Files,
+            Some(patients),
+            table(&meas_cols(), empty_meas),
+            vec![],
+            vec![],
+            56.0,
+            0.0,
+        ))
+        .expect("validate");
+        let s = v.patients.as_ref().expect("patients side");
+        assert_eq!(s.rows, 4);
+        assert_eq!(s.with_primary_outcome, 4, "all four have a complete pair");
+        assert_eq!(s.primary_outcome_events, 3, "P1 + P3 + P4; P2 is censored");
     }
 }

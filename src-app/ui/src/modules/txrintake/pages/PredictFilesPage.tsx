@@ -4,14 +4,15 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Button } from '@ziee/kit'
 import { ApiClient } from '@/api-client'
 import type { FileTableKind } from '@/api-client/types'
-import { parseCsvFile } from '@/lib/txr-files/csv'
-import { parseWorkbookFile } from '@/lib/txr-files/workbook'
 import { useStore } from 'zustand'
 import { TxrIntake, useTxrIntakeStore } from '../stores/TxrIntake.store'
 import {
   cardProblems,
+  fileHasNoDataRows,
   hasErrorProblems,
   inspectRequest,
+  parsePickedFile,
+  resolveColumnRenames,
   resolveJoins,
   resolveMapping,
   validateRequest,
@@ -19,7 +20,7 @@ import {
 import { fetchTemplateCsv, downloadText, templateFilename } from '../lib/download'
 import { ROUTE_CONVENTIONS } from '../module'
 import { TxrFileCard } from '../components/TxrFileCard'
-import type { JoinOffer, LoadedFile, VocabOffer } from '../types'
+import type { ColumnRenameOffer, JoinOffer, LoadedFile, VocabOffer } from '../types'
 
 /**
  * Screen N — Add the patients to predict (board PredictFiles.dc.html,
@@ -74,6 +75,9 @@ const PAGE_CONTAINER: CSSProperties = {
   alignItems: 'flex-start',
 }
 
+/** The page container's phone class (the ITEM-6 narrow block in index.css). */
+const PAGE_CONTAINER_CLASS = 'txr-intake-page'
+
 /** The board's left main column (the card + the Continue footer). */
 const MAIN_COLUMN: CSSProperties = {
   flex: '3 1 620px',
@@ -108,7 +112,18 @@ const ASIDE_EYEBROW: CSSProperties = {
 
 const ASIDE_PARA: CSSProperties = { margin: 0, fontSize: 14, color: '#3a3a3a' }
 
-const ASIDE_LIST: CSSProperties = { margin: 0, paddingLeft: 18, fontSize: 14.5, color: '#3a3a3a' }
+const ASIDE_LIST: CSSProperties = {
+  margin: 0,
+  paddingLeft: 20,
+  // qa-fixes ITEM-6 P1: the board's list has bullet markers — the kit's
+  // global reset removed them and the items read as one grey block.
+  listStyle: 'disc',
+  fontSize: 14.5,
+  color: '#3a3a3a',
+}
+
+/** One aside item: the board's bold lead-in on its own line, then the fact. */
+const ASIDE_ITEM: CSSProperties = { margin: '2px 0' }
 
 /** The board's "Not sure what you have?" note (the study clause is a link). */
 const ASIDE_NOTE: CSSProperties = {
@@ -170,20 +185,11 @@ function errorText(err: unknown): string {
   return err instanceof Error ? err.message : 'The file could not be read.'
 }
 
-/** Decode a File as CSV or Excel through PROV-FV-7 (one shared decode library). */
-async function parseIntakeFile(
-  file: File,
-  kind: FileTableKind,
-): Promise<Awaited<ReturnType<typeof parseCsvFile>>> {
-  const lower = file.name.toLowerCase()
-  if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) {
-    return parseWorkbookFile(file, { kind })
-  }
-  return parseCsvFile(file, { kind })
-}
-
 /** The adopted-file shell (decode only; the flows fill the card facts). */
-function loadedFrom(table: Awaited<ReturnType<typeof parseIntakeFile>>): LoadedFile {
+function loadedFrom(
+  table: Awaited<ReturnType<typeof parsePickedFile>>,
+  kind: FileTableKind,
+): LoadedFile {
   return {
     source: table.source,
     table,
@@ -192,6 +198,7 @@ function loadedFrom(table: Awaited<ReturnType<typeof parseIntakeFile>>): LoadedF
     prepared: false,
     joinOffers: [],
     vocabOffers: [],
+    columnOffers: resolveColumnRenames(table.columns, kind),
   }
 }
 
@@ -229,9 +236,9 @@ export function PredictFilesPage() {
     setBusy(true)
     flowBusy.current = true
     try {
-      const table = await parseIntakeFile(picked, kind)
+      const table = await parsePickedFile(picked, kind)
       dismissed.current.clear()
-      TxrIntake.adoptFile('predictMeasurements', loadedFrom(table))
+      TxrIntake.adoptFile('predictMeasurements', loadedFrom(table, kind))
       // Same rule as the C screen's measurements drop: a join/mapping key is
       // a raw spelling the server must find in the CURRENT file — the
       // confirmed offers describe the PREVIOUS file's columns, so a new
@@ -272,6 +279,15 @@ export function PredictFilesPage() {
   const rejectVocab = useCallback((offer: VocabOffer) => {
     dismissed.current.add(offer.key)
     TxrIntake.rejectVocab(offer)
+  }, [])
+
+  const acceptColumn = useCallback((offer: ColumnRenameOffer) => {
+    TxrIntake.renameColumn('predictMeasurements', offer)
+  }, [])
+
+  const rejectColumn = useCallback((offer: ColumnRenameOffer) => {
+    dismissed.current.add(offer.from)
+    TxrIntake.rejectColumnOffer('predictMeasurements', offer.from)
   }, [])
 
   /** The download links (CONS-UI-INTAKE-6, DEC-11) — one card error line. */
@@ -335,6 +351,11 @@ export function PredictFilesPage() {
       prepared: !hasErrorProblems(problems),
       joinOffers,
       vocabOffers: resolution.offers,
+      columnOffers: resolveColumnRenames(
+        settled.predictMeasurements?.table.columns ?? [],
+        'measurements',
+        dismissed.current,
+      ),
     })
   }, [])
 
@@ -360,7 +381,10 @@ export function PredictFilesPage() {
     // inputs the validation reads (a change = a new validation).
   }, [file, joins, mapping, parameters, validation, retryTick, runFlow])
 
-  const canContinue = validation !== null && !hasErrorProblems(validation.problems)
+  const canContinue =
+    validation !== null &&
+    !hasErrorProblems(validation.problems) &&
+    !fileHasNoDataRows(file)
   /**
    * The board's Continue — into the model choice screens: pretrained (D)
    * for intent `pretrained`, saved (I) for `reuse` (DEC-3's declared
@@ -373,7 +397,12 @@ export function PredictFilesPage() {
   }, [navigate, intent])
 
   return (
-    <div role="main" style={PAGE_CONTAINER} data-testid="txr-intake-predict-files">
+    <div
+      role="main"
+      style={PAGE_CONTAINER}
+      className={PAGE_CONTAINER_CLASS}
+      data-testid="txr-intake-predict-files"
+    >
       <div style={MAIN_COLUMN}>
         <div>
           <div style={STEP_LINE}>Step 3 of 4</div>
@@ -403,6 +432,8 @@ export function PredictFilesPage() {
           onRejectJoin={rejectJoin}
           onAcceptVocab={acceptVocab}
           onRejectVocab={rejectVocab}
+          onAcceptColumn={acceptColumn}
+          onRejectColumn={rejectColumn}
           onDownloadTemplate={() => void downloadCsv('template')}
           onDownloadExample={() => void downloadCsv('example')}
         />
@@ -440,19 +471,26 @@ export function PredictFilesPage() {
           draws most models use:
         </p>
         <ul style={ASIDE_LIST}>
-          <li>
-            <b>Before treatment</b> (day 0): needed by almost all models
+          <li style={ASIDE_ITEM}>
+            <b>Before treatment</b>
+            <br />
+            (day 0): needed by almost all models
           </li>
-          <li>
-            <b>Early on treatment</b> (about day 14 to 28): needed by the models that look at
-            change
+          <li style={ASIDE_ITEM}>
+            <b>Early on treatment</b>
+            <br />
+            (about day 14 to 28): needed by the models that look at change
           </li>
-          <li>
-            <b>Markers</b>: ctDNA, LDH, blood counts and tumour markers are the most used. The
-            more you measured, the more models can run
+          <li style={ASIDE_ITEM}>
+            <b>Markers</b>
+            <br />
+            : ctDNA, LDH, blood counts and tumour markers are the most used. The more you measured,
+            the more models can run
           </li>
-          <li>
-            <b>Units</b>: add the unit column so we can check that the scale matches the model
+          <li style={ASIDE_ITEM}>
+            <b>Units</b>
+            <br />
+            : add the unit column so we can check that the scale matches the model
           </li>
         </ul>
         <div style={ASIDE_NOTE}>

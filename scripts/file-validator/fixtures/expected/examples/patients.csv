@@ -1,4 +1,4 @@
 patient_id,pfs_days,pfs_event,os_days,os_event,age,sex,stage
-J001,120.5,1,240.0,0,52,F,III
-J002,88.0,1,88.0,1,61,M,IV
-J003,330.25,0,330.25,0,47,F,III
+J001,120,1,240,0,52,F,III
+J002,88,1,88,1,61,M,IV
+J003,330,0,330,0,47,F,III

@@ -323,3 +323,35 @@ describe('StudyPage (screen B, ITEM-5)', () => {
     expect(await screen.findByText('markers down')).toBeTruthy()
   })
 })
+
+
+describe('ITEM-6 S1/S2/S4 — the panel spacing, the id wrapping, the flush Show all link', () => {
+  it('the panel headline keeps a space between the number and "of" (S1)', async () => {
+    renderStudy()
+    await waitFor(() => {
+      expect(screen.getByTestId('txr-intake-panel-fit-count').textContent).toBe(
+        `${CAN_RUN} of ${TOTAL} methods fit`,
+      )
+    })
+  })
+
+  it('excluded ids break at hyphens, never mid-word (S2)', async () => {
+    renderStudy()
+    await waitFor(() => {
+      expect(screen.getByText(`${CANNOT} methods are left out`)).toBeTruthy()
+    })
+    const id = screen.getByText('ki67-two-week-four-group')
+    expect(id.style.wordBreak).toBe('normal')
+    expect(id.style.overflowWrap).toBe('anywhere')
+    expect(id.style.minWidth).toBe('210px')
+  })
+
+  it('the Show all link renders flush (no kit padding — S4)', async () => {
+    renderStudy()
+    await waitFor(() => {
+      expect(screen.getByText(`Show all ${CANNOT}`)).toBeTruthy()
+    })
+    const showAll = screen.getByTestId('txr-intake-excluded-show-all') as HTMLElement
+    expect(showAll.style.padding).toBe('0px')
+  })
+})

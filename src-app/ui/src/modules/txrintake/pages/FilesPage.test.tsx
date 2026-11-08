@@ -16,7 +16,7 @@
  * browser bytes, jsdom fixture).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import type {
   FileInspection,
@@ -171,7 +171,8 @@ function validationFixture(
       markerColumn({ key: 'cea', spellings: ['cea'], vocabulary: [fuzzyMatch] }),
     ],
     measurements: { rows: 2, patients: 2, distinct_draw_days: [0, 14] },
-    patients: { rows: 2, with_primary_outcome: 1, median_followup_days: 214 },
+    patients: { rows: 2, with_primary_outcome: 1,
+    primary_outcome_events: 1, median_followup_days: 214 },
     inventory: {
       baseline_max_day: 0,
       decision_day: 56,
@@ -309,7 +310,7 @@ describe('FilesPage (screen C, ITEM-6)', () => {
       within(screen.getByTestId('txr-intake-file-problems-measurements'))
         .getAllByRole('listitem')[0]
         .textContent,
-    ).toContain('Row 4: `week 4` is not a number in the day column')
+    ).toContain('Row 4: week 4 is not a number in the day column')
     expect(screen.getByTestId('txr-intake-join-offer-ldh')).toBeTruthy()
     expect(screen.getByTestId('txr-intake-vocab-offer-cea')).toBeTruthy()
   })
@@ -398,5 +399,124 @@ describe('FilesPage (screen C, ITEM-6)', () => {
     await waitFor(() => expect(api.template).toHaveBeenCalledWith({ kind: 'patients' }))
     fireEvent.click(screen.getByTestId('txr-intake-download-example-measurements'))
     await waitFor(() => expect(api.example).toHaveBeenCalledWith({ kind: 'measurements' }))
+  })
+})
+
+describe('ITEM-6 F2/F3/F4/F12 — the mapping step, the no-data-rows gate, the pick guard, drag-and-drop', () => {
+  const RENAMED_CSV =
+    'pid,study_day,analyte,result,units\nP0001,0,ldh,210,U/L\nP0001,14,LDH,160,U/L\n'
+
+  it('a wrong file type is refused with the plain sentence (F4)', async () => {
+    renderFiles()
+    pickFile('txr-intake-file-drop-measurements', 'report.pdf', 'not a table')
+    await waitFor(() => {
+      expect(
+        screen.getByText('This is not a CSV or Excel file — choose a .csv or .xlsx file.'),
+      ).toBeTruthy()
+    })
+    expect(api.inspect).not.toHaveBeenCalled()
+    expect(store().measurements).toBeNull()
+    expect(continueButton().disabled).toBe(true)
+  })
+
+  it('an empty file is refused with the plain sentence (F4)', async () => {
+    renderFiles()
+    pickFile('txr-intake-file-drop-measurements', 'empty.csv', '')
+    await waitFor(() => {
+      expect(screen.getByText('This file is empty — choose the file with its data.')).toBeTruthy()
+    })
+  })
+
+  it('a header-only file blocks Continue with the red "no data rows" box (F3)', async () => {
+    const inspections = inspectionFixtures()
+    inspections.measurements.summary = { rows: 0, markers: [], draw_days: [] }
+    inspections.measurements.problems = []
+    api.inspect.mockImplementation((request: FileInspectionRequest) =>
+      Promise.resolve(inspections[request.kind]),
+    )
+    api.validate.mockResolvedValue(validationFixture({ problems: [] }))
+    renderFiles()
+    pickFile('txr-intake-file-drop-patients', 'patients.csv', PATIENTS_CSV)
+    await waitFor(() => expect(api.inspect).toHaveBeenCalledTimes(1))
+    pickFile('txr-intake-file-drop-measurements', 'measurements.csv', 'patient_id,day,marker,value,unit\n')
+    await waitFor(() => expect(api.validate).toHaveBeenCalledTimes(1))
+    expect(screen.getByText('This file has no data rows')).toBeTruthy()
+    expect(continueButton().disabled).toBe(true)
+  })
+
+  it('the mapping step accepts "pid looks like patient_id" and re-inspects the canonical table (F2)', async () => {
+    const inspections = inspectionFixtures()
+    api.inspect.mockImplementation((request: FileInspectionRequest) => {
+      const kind = request.kind
+      const resolved =
+        kind === 'patients'
+          ? inspections.patients
+          : request.table.columns.includes('pid')
+            ? { ...inspections.measurements, problems: [{ ...row14Problem, row: 2 }] }
+            : inspections.measurements
+      return Promise.resolve(resolved)
+    })
+    api.validate.mockImplementation(() => {
+      const key = useTxrIntakeStore.getState().measurements?.table.columns[0]
+      return Promise.resolve(
+        validationFixture({
+          problems: key === 'patient_id' ? [a03Problem] : [row14Problem, row88Problem, a03Problem],
+        }),
+      )
+    })
+    renderFiles()
+    pickFile('txr-intake-file-drop-patients', 'patients.csv', PATIENTS_CSV)
+    await waitFor(() => expect(api.inspect).toHaveBeenCalledTimes(1))
+    pickFile('txr-intake-file-drop-measurements', 'measurements.csv', RENAMED_CSV)
+    await waitFor(() => expect(api.inspect).toHaveBeenCalledTimes(2))
+
+    // The suggestion is the mapping step: the offer row names both sides.
+    const offer = screen.getByTestId('txr-intake-column-offer-pid')
+    expect(within(offer).getByText(/pid/)).toBeTruthy()
+    fireEvent.click(screen.getByTestId('txr-intake-column-accept-pid'))
+
+    await waitFor(() => {
+      const calls = api.inspect.mock.calls.filter(
+        c => (c[0] as FileInspectionRequest).kind === 'measurements',
+      )
+      expect(calls).toHaveLength(2)
+      expect((calls[1][0] as FileInspectionRequest).table.columns[0]).toBe('patient_id')
+    })
+    expect(screen.queryByTestId('txr-intake-column-offer-pid')).toBeNull()
+    // The renamed file reads clean: the card's problems no longer include
+    // the missing-column error and Continue is enabled.
+    await waitFor(() => {
+      expect(screen.queryByText(/missing from the measurements table/)).toBeNull()
+      expect(continueButton().disabled).toBe(false)
+    })
+  })
+
+  it('the example-loaded banner shows while the example files are loaded (F6)', () => {
+    renderFiles()
+    expect(screen.queryByTestId('txr-intake-example-loaded')).toBeNull()
+    act(() => store().setExampleLoaded(true))
+    expect(screen.getByTestId('txr-intake-example-loaded').textContent).toContain(
+      'Example data loaded',
+    )
+  })
+
+  it('the drop path hands the File to the flow (F12)', async () => {
+    renderFiles()
+    const file = new File([MEASUREMENTS_CSV], 'measurements.csv', { type: 'text/csv' })
+    // The kit Upload's drop handler lives on its inner role="button"
+    // dropzone (the testid wrapper is the sibling input's root) — the event
+    // must target that element.
+    const dropzone = screen
+      .getByTestId('txr-intake-file-drop-measurements')
+      .querySelector('[role="button"]') as HTMLElement
+    const event = new Event('drop', { bubbles: true })
+    Object.defineProperty(event, 'dataTransfer', { value: { files: [file] } })
+    fireEvent(dropzone, event)
+    await waitFor(() => {
+      expect(api.inspect).toHaveBeenCalledTimes(1)
+    })
+    const call = api.inspect.mock.calls[0][0] as FileInspectionRequest
+    expect(call.table.columns).toEqual(['patient_id', 'day', 'marker', 'value', 'unit'])
+    expect(call.table.rows).toHaveLength(2)
   })
 })

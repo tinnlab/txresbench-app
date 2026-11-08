@@ -205,7 +205,22 @@ describe('txrhelp module (TEST-HELP-4)', () => {
         p => p.startsWith('src-app/ui/openapi/') && p !== 'src-app/ui/openapi/openapi.json',
       ),
     ).toEqual([])
-    expect(touched.filter(p => p.startsWith('scripts/'))).toEqual([])
+        // The qa-fixes ITEM-6 scripts half (its DRIFT-1): the input converter's
+    // F8 unit fix (scripts/dev-registry/make-real-inputs.py + its new test)
+    // and the file-validator generator's F6 example rounding
+    // (scripts/file-validator/gen_material.py + the regenerated fixture
+    // expected example bytes). Nothing else under scripts/ moves.
+    expect(
+      touched.filter(
+        p =>
+          p.startsWith('scripts/') &&
+          p !== 'scripts/dev-registry/make-real-inputs.py' &&
+          p !== 'scripts/dev-registry/make_real_inputs.test.py' &&
+          p !== 'scripts/file-validator/gen_material.py' &&
+          p !== 'scripts/file-validator/fixtures/expected/examples/patients.csv' &&
+          p !== 'scripts/file-validator/fixtures/expected/examples/measurements.csv',
+      ),
+    ).toEqual([])
     expect(touched.filter(p => p.startsWith('src-app/ui/scripts/'))).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/package.json')).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/package-lock.json')).toEqual([])
@@ -224,6 +239,11 @@ describe('txrhelp module (TEST-HELP-4)', () => {
     // "any marker" subline for the catalogue-`any` rows (RES-19) — and the
     // A04 unit note stops quoting a blank canonical unit
     // (file_validator/units.rs, RES-24). Nothing else moves.
+    // The qa-fixes ITEM-6 server half (its DRIFT-1): the patients summary
+    // grows the `primary_outcome_events` fact (file_validator types.rs +
+    // validate.rs — the board's "N progressions or deaths" is the EVENTS
+    // count, never with_primary_outcome; F1) and the A04 "no unit-family
+    // agreement" wording reads plainly (units.rs again, F5e).
     expect(
       touched.filter(
         p =>
@@ -243,6 +263,8 @@ describe('txrhelp module (TEST-HELP-4)', () => {
           p !== 'src-app/server/tests/execution_engine/bundle_test.rs' &&
           p !== 'src-app/server/tests/history_store/mod.rs' &&
           p !== 'src-app/server/src/modules/model_store/store.rs' &&
+          p !== 'src-app/server/src/modules/file_validator/types.rs' &&
+          p !== 'src-app/server/src/modules/file_validator/validate.rs' &&
           p !== 'src-app/server/src/modules/file_validator/units.rs' &&
           p !== 'src-app/server/tests/model_store/api_test.rs',
       ),
@@ -316,6 +338,13 @@ describe('txrhelp module (TEST-HELP-4)', () => {
       // one-accounting totals line and the J subline/fixture growth + the
       // 390 px J story's no-overflow assertion (its own DRIFT-1).
       'src-app/ui/tests/gallery-e2e/txr-models.spec.ts',
+      // The qa-fixes ITEM-6 pins in the two txr-intake specs (its own
+      // DRIFT-1): the events-line + bounded draw-days + backtick-free
+      // problem-line needles in the gallery story, and the same facts
+      // through the real backend in the full e2e spec (the " of " fit
+      // count, the 206-events/216-day patients line, "draws on 9 days").
+      'src-app/ui/tests/gallery-e2e/txr-intake.spec.ts',
+      'src-app/ui/tests/e2e/txrintake/txr-intake-full.spec.ts',
     ])
     expect(testsTouched.length).toBeLessThanOrEqual(sanctionedTests.size)
     for (const file of testsTouched) {
