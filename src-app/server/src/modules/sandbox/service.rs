@@ -560,7 +560,8 @@ pub async fn run_method_in_stack(
 }
 
 /// The fit-mode `/model` mount (DEC-6): the request's `model_out_dir` bound
-/// READ-WRITE at the fixed `/model` dest, so `SIGBENCH_MODE=fit` writes the
+/// READ-WRITE at the fixed `/model` dest, so the mode (`SIGBENCH_MODE` /
+/// `TXRESBENCH_MODE=fit`) writes the
 /// trained model into the caller's staging tree. `None` for a reuse run (its
 /// verification + read-only bind is the separate [`ModelMount`] path — never
 /// both, enforced by [`validate_model_contract`]). Pure + testable.

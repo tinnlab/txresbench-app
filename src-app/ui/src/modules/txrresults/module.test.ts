@@ -167,7 +167,8 @@ describe('txrresults module (TEST-UR-13)', () => {
       touched.filter(
         p =>
           p.startsWith('src-app/ui/src/modules/txrshell/') &&
-          p !== 'src-app/ui/src/modules/txrshell/module.tsx',
+          p !== 'src-app/ui/src/modules/txrshell/module.tsx' &&
+          p !== 'src-app/ui/src/modules/txrshell/pages/ShellPage.tsx',
       ),
     ).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/src/modules/loader.ts')).toEqual([])

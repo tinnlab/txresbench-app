@@ -303,7 +303,13 @@ describe('FilesPage (screen C, ITEM-6)', () => {
     })
     const measurementsProblems = within(screen.getByTestId('txr-intake-file-problems-measurements'))
     expect(measurementsProblems.getAllByRole('listitem')).toHaveLength(2)
-    expect(within(screen.getByTestId('txr-intake-file-problems-measurements')).getByText('Row 4: `week 4` is not a number in the day column')).toBeTruthy()
+    // The ITEM-4 code link is appended to the provider's line (the row
+    // message bytes are the provider's; the link carries the code).
+    expect(
+      within(screen.getByTestId('txr-intake-file-problems-measurements'))
+        .getAllByRole('listitem')[0]
+        .textContent,
+    ).toContain('Row 4: `week 4` is not a number in the day column')
     expect(screen.getByTestId('txr-intake-join-offer-ldh')).toBeTruthy()
     expect(screen.getByTestId('txr-intake-vocab-offer-cea')).toBeTruthy()
   })

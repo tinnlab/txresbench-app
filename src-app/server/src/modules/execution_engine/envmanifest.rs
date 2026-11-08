@@ -379,6 +379,40 @@ const MANIFEST_JSON: &[u8] = include_bytes!(concat!(
     "/data/method-env-images.json"
 ));
 
+/// ITEM-2 (qa-hardening): a DEBUG build may point the engine at a dev
+/// manifest (`CYTO_TXR_ENV_MANIFEST=<path>`) — the dev publisher's schema-v1
+/// file whose pins are its own built digests. The bytes go through the SAME
+/// [`parse_manifest`] validator, so every `MANIFEST_*` check applies to the
+/// dev data too (nothing is skipped, nothing unverified). A RELEASE build
+/// never reads the variable — the `#[cfg]` halves make it the embedded bytes
+/// unconditionally, so a dev manifest can never reach a shipped binary.
+fn manifest_bytes() -> Result<Vec<u8>, ManifestLoadError> {
+    if let Some(path) = manifest_override_path(&|k| std::env::var(k).ok()) {
+        return std::fs::read(&path).map_err(|e| ManifestLoadError::EmbedParse {
+            message: format!("read the CYTO_TXR_ENV_MANIFEST override {}: {e}", path),
+        });
+    }
+    #[cfg(not(debug_assertions))]
+    {}
+    Ok(MANIFEST_JSON.to_vec())
+}
+
+/// The pure env → path core of the override (injected read): a debug build
+/// honors `CYTO_TXR_ENV_MANIFEST`; a release build never sees it.
+fn manifest_override_path(read: &impl Fn(&str) -> Option<String>) -> Option<String> {
+    #[cfg(debug_assertions)]
+    {
+        return read("CYTO_TXR_ENV_MANIFEST")
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty());
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = read;
+        None
+    }
+}
+
 /// The process-wide manifest, installed by the module's `init` (the boot
 /// check). `OnceLock`: the manifest is immutable for the process lifetime.
 static MANIFEST: OnceLock<EnvManifest> = OnceLock::new();
@@ -545,7 +579,7 @@ pub fn ensure_loaded() -> Result<&'static EnvManifest, ManifestLoadError> {
     if let Some(m) = MANIFEST.get() {
         return Ok(m);
     }
-    let parsed = parse_manifest(MANIFEST_JSON)?;
+    let parsed = parse_manifest(&manifest_bytes()?)?;
     let _ = MANIFEST.set(parsed);
     Ok(MANIFEST
         .get()
@@ -944,6 +978,26 @@ mod tests {
         );
         let err = parse_manifest(json.as_bytes()).unwrap_err();
         assert_eq!(err.code(), "MANIFEST_EMBED_INVALID");
+    }
+
+    /// ITEM-2 (qa-hardening): the dev-manifest override is pure env → path,
+    /// with a blank value meaning "the embedded manifest" (a debug build with
+    /// nothing configured is byte-identical to release).
+    #[test]
+    #[cfg(debug_assertions)]
+    fn dev_manifest_override_maps_env_to_path() {
+        let set = |v: &str| {
+            let held = format!("/data/pbya/txresbench-app-work/qa-build/method-env-images.dev.json");
+            let mut m = std::collections::HashMap::new();
+            m.insert("CYTO_TXR_ENV_MANIFEST".to_string(), held);
+            m.get(v).cloned()
+        };
+        assert_eq!(
+            manifest_override_path(&set).as_deref(),
+            Some("/data/pbya/txresbench-app-work/qa-build/method-env-images.dev.json")
+        );
+        assert_eq!(manifest_override_path(&|_| None), None);
+        assert_eq!(manifest_override_path(&|_| Some("   ".to_string())), None);
     }
 
     /// TEST-EE-06 (companion): a runnable catalogue method WITH a manifest

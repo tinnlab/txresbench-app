@@ -793,6 +793,15 @@ fn outcome_reasons(m: &Method, outcomes: &FileOutcomes, reasons: &mut Vec<Reason
     let has_survival = outcomes.has_event && outcomes.has_survival_day;
     let task_response = m.tasks.iter().any(|t| t.eq_ignore_ascii_case("response"));
     let task_survival = m.tasks.iter().any(|t| t.eq_ignore_ascii_case("survival"));
+    // No declared task = any outcome the file carries (the owner's
+    // 2026-10-20 rule: task/endpoint are not part of a run — every method
+    // runs on every outcome the patients table supports; the earlier
+    // "a task-less method covers no file outcome" verdict bases a mismatch
+    // on a fact never curated for the real registry — 343 of 359 catalogue
+    // methods carry `tasks: []` — see execution-engine DRIFT-1 ITEM-4 #5).
+    if m.tasks.is_empty() {
+        return;
+    }
     if task_response && !has_response {
         reasons.push(Reason {
             code: ReasonCode::ResponseLabelMissing,
@@ -1947,6 +1956,33 @@ mod tests {
             Some(FileOutcomes { has_responder: true, has_response_day: true, has_event: false, has_survival_day: false }),
         );
         assert_eq!(v.status, EligibilityStatus::CanRun);
+    }
+
+    #[test]
+    fn taskless_method_is_compatible_with_any_file_outcome() {
+        // The shipped catalogue carries `tasks: []` for 343 of 359 methods
+        // (execution-engine DRIFT-1 ITEM-4 #5); the owner's rule (2026-10-20:
+        // task/endpoint are not part of a run — every method runs on every
+        // outcome the patients table supports) makes the empty list mean
+        // "any outcome", never a TASK_INCOMPATIBLE.
+        for outcomes in [
+            Some(FileOutcomes { has_responder: true, has_response_day: true, has_event: true, has_survival_day: true }),
+            Some(FileOutcomes { has_responder: false, has_response_day: false, has_event: true, has_survival_day: true }),
+            Some(FileOutcomes { has_responder: true, has_response_day: true, has_event: false, has_survival_day: false }),
+            Some(FileOutcomes { has_responder: false, has_response_day: false, has_event: false, has_survival_day: false }),
+            None,
+        ] {
+            let (v, _c) = resp_method(
+                method_json("fx-taskless", &[("tasks", serde_json::json!([]))]),
+                outcomes,
+            );
+            assert!(
+                !v.reasons.iter().any(|r| {
+                    matches!(r.code, ReasonCode::TaskIncompatible | ReasonCode::ResponseLabelMissing | ReasonCode::SurvivalOutcomeMissing)
+                }),
+                "task-less method must carry no outcome verdict: {v:?}"
+            );
+        }
     }
 
     #[test]

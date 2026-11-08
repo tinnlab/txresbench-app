@@ -604,8 +604,12 @@ async fn method_catalogue_eligibility_preview_screen_b() {
 
 /// TEST-MC-27 (HTTP half): the outcome-availability codes reach the wire —
 /// RESPONSE_LABEL_MISSING for a response method without the outcome columns,
-/// SURVIVAL_OUTCOME_MISSING for a survival method, TASK_INCOMPATIBLE for a
-/// method whose declared tasks do not consume the file's outcome columns.
+/// SURVIVAL_OUTCOME_MISSING for a survival method, and NO mismatch for a
+/// task-less method on any outcome-carrying file (the owner's 2026-10-20
+/// rule: a run is not task-scoped — every method runs on every outcome the
+/// patients table supports). The odd-task mismatch case (a task word naming
+/// no outcome kind) is pinned at the engine seam (eligibility.rs
+/// `outcome_availability_codes`'s "none"-task fixture case).
 #[tokio::test]
 async fn method_catalogue_eligibility_outcome_availability_codes() {
     let server = TestServer::spawn().await;
@@ -688,7 +692,8 @@ async fn method_catalogue_eligibility_outcome_availability_codes() {
     verify("cox-cutpoint-risk", &body, "SURVIVAL_OUTCOME_MISSING");
 
     // `crp-flare-response-kinetics`: no declared tasks, file carries response
-    // columns → the tasks-vs-outcome mismatch.
+    // columns → task-less is compatible with any outcome (owner rule
+    // 2026-10-20); the method must NOT carry an outcome-availability verdict.
     let resp = server
         .client
         .post(server.api_url("/methods/eligibility"))
@@ -701,7 +706,25 @@ async fn method_catalogue_eligibility_outcome_availability_codes() {
         .await
         .expect("eligibility");
     let body: Value = resp.json().await.expect("body");
-    verify("crp-flare-response-kinetics", &body, "TASK_INCOMPATIBLE");
+    let verdict = body["methods"]
+        .as_array()
+        .expect("methods")
+        .iter()
+        .find(|m| m["id"] == "crp-flare-response-kinetics")
+        .expect("verdict")
+        .clone();
+    let codes: Vec<&str> = verdict["reasons"]
+        .as_array()
+        .expect("reasons")
+        .iter()
+        .map(|r| r["code"].as_str().expect("code"))
+        .collect();
+    assert!(
+        !codes.contains(&"TASK_INCOMPATIBLE")
+            && !codes.contains(&"RESPONSE_LABEL_MISSING")
+            && !codes.contains(&"SURVIVAL_OUTCOME_MISSING"),
+        "task-less method must carry no outcome verdict: {codes:?}"
+    );
 }
 
 /// Malformed bodies: invalid JSON → 400 (the plan's pin); a body that parses

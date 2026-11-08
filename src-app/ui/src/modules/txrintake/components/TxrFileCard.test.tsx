@@ -19,6 +19,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import type {
   FileInspection,
   MarkerMatch,
@@ -141,14 +142,16 @@ function renderCard(
     onDownloadExample: vi.fn(),
   }
   render(
-    <TxrFileCard
-      kind={props.kind ?? 'patients'}
-      mode={props.mode ?? 'study'}
-      file={props.file ?? null}
-      busy={props.busy ?? false}
-      error={props.error ?? null}
-      {...callbacks}
-    />,
+    <MemoryRouter initialEntries={['/files']}>
+      <TxrFileCard
+        kind={props.kind ?? 'patients'}
+        mode={props.mode ?? 'study'}
+        file={props.file ?? null}
+        busy={props.busy ?? false}
+        error={props.error ?? null}
+        {...callbacks}
+      />
+    </MemoryRouter>,
   )
   return callbacks
 }
@@ -304,11 +307,22 @@ describe('TxrFileCard (shared file card, ITEM-9)', () => {
     const list = within(screen.getByTestId('txr-intake-file-problems-patients'))
     const items = list.getAllByRole('listitem')
     expect(items).toHaveLength(2)
-    expect(items[0].textContent).toBe('Row 14: `week 4` is not a number in the day column')
+    // ITEM-4: each problem line carries its code as a link to the matching
+    // Help entry (`row` + provider message bytes unchanged, the code
+    // appended).
+    expect(items[0].textContent).toBe(
+      'Row 14: `week 4` is not a number in the day columnR03',
+    )
+    expect(within(items[0] as HTMLElement).getByRole('link', { name: 'Help for problem code R03' }).getAttribute('href')).toBe(
+      '/help#problem-r03',
+    )
     // jsdom serializes the inline hex to its rgb form (the bytes are the
     // component's, `#b3261e` per DEC-14 — RGB is the same color).
     expect(items[0].style.color).toBe('rgb(179, 38, 30)')
-    expect(items[1].textContent).toBe('Row 88: `P0187` is not in the patients table')
+    expect(items[1].textContent).toBe('Row 88: `P0187` is not in the patients tableR08')
+    expect(within(items[1] as HTMLElement).getByRole('link', { name: 'Help for problem code R08' }).getAttribute('href')).toBe(
+      '/help#problem-r08',
+    )
     expect(items[1].style.color).toBe('rgb(138, 90, 0)')
     fireEvent.click(within(status).getByText('Fix and choose the file again'))
     expect(callbacks.onRemove).toHaveBeenCalledTimes(1)

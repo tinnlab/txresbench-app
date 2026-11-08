@@ -237,13 +237,15 @@ describe('txrmodels module (TEST-MOD-01)', () => {
     expect(touched.filter(p => p === 'src-app/ui/scripts/domain-baseline.json')).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/src/modules/loader.ts')).toEqual([])
     expect(touched.filter(p => p.startsWith('src-app/server/'))).toEqual([])
-    // FIVE sanctioned exceptions (the DRIFT-1 #8 four + the
-    // feat/ui-history item's DRIFT-1 #1 module dir): the `/models` route
-    // handoff itself (`txrshell/module.tsx`, pinned separately below), the
-    // three sibling module test files whose pins went stale with the
-    // handoff and are updated by this item, and the `txrhistory` module
-    // dir (the feat/ui-history ITEM-1 module — a new auto-discovered
-    // module is an addition, not a global edit of an existing module).
+    // TEN sanctioned exceptions (the DRIFT-1 #8 class + the `/history` +
+    // the ITEM-4 `/help` handoffs): the shell handoff files themselves
+    // (`txrshell/module.tsx` + the scaffold `ShellPage.tsx` the `/help`
+    // handoff removes), the sibling module test files whose pins went
+    // stale with the handoffs and are updated by this item, the
+    // `txrhistory` and `txrhelp` module dirs (new auto-discovered modules
+    // are additions, not global edits), and the `txrintake` files the
+    // validation problems' help links touch (module.tsx dependency line,
+    // `TxrProblemList.tsx`, the TxrFileCard test's router wrapper).
     // Nothing else outside this module moves.
     expect(
       touched.filter(
@@ -251,7 +253,14 @@ describe('txrmodels module (TEST-MOD-01)', () => {
           p.startsWith('src-app/ui/src/modules/') &&
           !p.startsWith('src-app/ui/src/modules/txrmodels/') &&
           !p.startsWith('src-app/ui/src/modules/txrhistory/') &&
+          !p.startsWith('src-app/ui/src/modules/txrhelp/') &&
           p !== 'src-app/ui/src/modules/txrshell/module.tsx' &&
+          p !== 'src-app/ui/src/modules/txrshell/pages/ShellPage.tsx' &&
+          p !== 'src-app/ui/src/modules/txrintake/module.tsx' &&
+          p !== 'src-app/ui/src/modules/txrintake/components/TxrProblemList.tsx' &&
+          p !== 'src-app/ui/src/modules/txrintake/components/TxrFileCard.test.tsx' &&
+          p !== 'src-app/ui/src/modules/txrintake/pages/FilesPage.test.tsx' &&
+          p !== 'src-app/ui/src/modules/txrintake/pages/PredictFilesPage.test.tsx' &&
           p !== 'src-app/ui/src/modules/txrintake/module.test.ts' &&
           p !== 'src-app/ui/src/modules/txrrun/module.test.ts' &&
           p !== 'src-app/ui/src/modules/txrresults/module.test.ts',
@@ -260,8 +269,9 @@ describe('txrmodels module (TEST-MOD-01)', () => {
   })
 
   it('records the txrshell route handoffs: the `/models` route is gone, the handoff comment is there, nothing else in the shell moves', () => {
-    // The current shell state (all three handoffs' result): `/help` only.
-    expect(routesOf(txrShellModule).map(r => r.path)).toEqual(['/help'])
+    // The current shell state (all four handoffs' result): no screen route
+    // — `/help` left the shell with the ITEM-4 handoff (`txrhelp` owns it).
+    expect(routesOf(txrShellModule).map(r => r.path)).toEqual([])
     const shellSource = readFileSync(
       fileURLToPath(new URL('../txrshell/module.tsx', import.meta.url)),
       'utf8',
@@ -272,33 +282,43 @@ describe('txrmodels module (TEST-MOD-01)', () => {
     // own block) — the shell comment names the incoming module.
     expect(shellSource).toContain('`txrhistory` module')
     expect(shellSource).not.toContain("path: '/history'")
+    // The `/help` handoff (the qa-hardening ITEM-4, same file) — the last
+    // scaffold route; the shell owns the layout only.
+    expect(shellSource).toContain('`txrhelp` module')
+    expect(shellSource).not.toContain("path: '/help'")
+    expect(shellSource).not.toContain('ShellPage') // the scaffold component left with the route
 
     // The patch itself: the NEWEST shell-touching commit is the
-    // `/history` handoff (the walk-back takes the nearest one — the
-    // `/models` handoff is an ancestor of it now), so the byte pin
+    // `/help` handoff (the walk-back takes the nearest one — the
+    // `/history` handoff is an ancestor of it now), so the byte pin
     // asserts THAT patch: removed lines are the old comment block + the
-    // `/history` route block only; added lines are the new comment block
-    // only. Byte-pins "NO other change" (DEC-2).
+    // ShellPage import + the `/help` route block only; added lines are
+    // the new comment block + the empty `routes: []` line only.
+    // Byte-pins "NO other change" (DEC-2).
     const { added, removed } = shellPatch()
     const commentLine = (l: string) => /^(\s*\/\*\*|\s*\*(?:\s.*)?|\s*\*\/)$/.test(l)
     const routeBlockLine = (l: string) =>
       [
+        "import { ShellPage } from './pages/ShellPage'",
+        '  routes: [',
+        '  ],',
         '    {',
-        "      path: '/history',",
-        '      element: <ShellPage title="History" />,',
+        "      path: '/help',",
+        '      element: <ShellPage title="Help" />,',
         '      requiresAuth: true,',
         '      layout: TxrLayoutDef,',
         '    },',
       ].includes(l)
     expect(removed.length).toBeGreaterThan(0)
-    expect(removed).toContain("      path: '/history',")
+    expect(removed).toContain("      path: '/help',")
+    expect(removed).toContain("import { ShellPage } from './pages/ShellPage'")
     for (const line of removed) {
       expect(commentLine(line) || routeBlockLine(line)).toBe(true)
     }
     for (const line of added) {
       // The new comment block words the handoff (asserted on the source
-      // above); every added line is comment text.
-      expect(commentLine(line)).toBe(true)
+      // above); every added line is comment text or the empty route list.
+      expect(commentLine(line) || line === '  routes: [],').toBe(true)
     }
   })
 

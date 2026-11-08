@@ -157,10 +157,14 @@ pub fn layer_env_ref(entry: &envmanifest::ManifestEntry) -> EnvRef {
 /// The BASE ref: the entry `language` mapped onto the sandbox's own base repo
 /// (`ghcr.io/tinnlab/txresbench-env/base-<family>` — the only spelling the
 /// provider's `validate_oci_ref` accepts; the manifest's `base_ref` is the
-/// BENCHMARK namespace, provenance only), paired by the manifest's
-/// `base_digest` (the design §7 anchor: the trimmed base carries
-/// `com.txr.trimmed-from-digest` = this value). Digest-addressed so the pull
-/// never falls back to a moving tag (DEC-3).
+/// BENCHMARK namespace, provenance only), pinned by the immutable base tag
+/// `<contract>-<arch>` and verified against the payload digest — the manifest
+/// `base_digest` recorded by the app-side base publisher (ITEM-2 note: for
+/// the qa-hardening dev publisher that value is the dev base squashfs sha256;
+/// see DRIFT-1 ITEM-2 — the published manifest's benchmark base digest is a
+/// provenance anchor, never a fetch target, and the digest-addressed spelling
+/// cannot work because an OCI manifest digest never equals the payload hash
+/// it references).
 pub fn base_env_ref(entry: &envmanifest::ManifestEntry) -> EnvRef {
     let digest = entry
         .base_digest
@@ -168,11 +172,11 @@ pub fn base_env_ref(entry: &envmanifest::ManifestEntry) -> EnvRef {
         .unwrap_or(&entry.base_digest);
     EnvRef {
         oci_ref: format!(
-            "{TXR_BASE_REGISTRY_PREFIX}/base-{}@{digest}",
+            "{TXR_BASE_REGISTRY_PREFIX}/base-{}",
             entry.language.base_family()
         ),
         digest: digest.to_string(),
-        tag: None,
+        tag: Some(format!("{}-{}", entry.contract, entry.arch.as_str())),
     }
 }
 
@@ -4721,17 +4725,20 @@ mod tests {
         let base = base_env_ref(&entry);
         assert_eq!(
             base.oci_ref,
-            format!("{TXR_BASE_REGISTRY_PREFIX}/base-r@{}", "f".repeat(64)),
-            "language → the app's base repo, digest-addressed, NEVER the benchmark base_ref"
+            format!("{TXR_BASE_REGISTRY_PREFIX}/base-r"),
+            "language → the app's base repo, NEVER the benchmark base_ref (provenance only)"
         );
         assert_eq!(
             base.digest,
             "f".repeat(64),
-            "the pairing anchor minus the sha256: prefix"
+            "the app-side base payload pin (DEV: the dev publisher records the base squashfs sha256; \
+             the published manifest's benchmark base digest is provenance)"
         );
-        assert!(
-            base.tag.is_none(),
-            "digest-addressed — a tag would be a moving ref"
+        assert_eq!(
+            base.tag.as_deref(),
+            Some("2.0-amd64"),
+            "the immutable base tag <contract>-<arch> — a digest-addressed ref would need a \
+             manifest digest that equals the payload hash, which no OCI registry can serve"
         );
         assert_eq!(base_env_id(&entry), "base-r");
     }
@@ -4844,8 +4851,10 @@ mod tests {
         assert!(bayes.cannot_run);
         assert_eq!(
             bayes.reason.as_ref().map(|r| r.code.as_str()),
-            Some("TASK_INCOMPATIBLE"),
-            "the provider's code verbatim (task-less method on an outcome file)"
+            Some("ENV_UNKNOWN"),
+            "task-less method is compatible with the file's outcomes (owner rule 2026-10-20) \
+             but has no published environment — the cannot-run reason is the env entry, never \
+             a task mismatch"
         );
     }
 

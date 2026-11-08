@@ -114,8 +114,11 @@ describe('txrintake module', () => {
     expect(txrIntakeModule.cleanup).toBeUndefined()
   })
 
-  it('declares only the router as a framework dependency', () => {
-    expect(txrIntakeModule.registerDependencies?.()).toEqual(['router'])
+  it('declares only the router and the help module as framework dependencies', () => {
+    // The help module's route builder is the validation problems list's
+    // deep-link seam (ITEM-4: TxrProblemList binds each problem to its
+    // Help entry through `helpPath` + `problemAnchorOf`).
+    expect(txrIntakeModule.registerDependencies?.()).toEqual(['router', 'txrhelp'])
   })
 
   it('is picked up by the loader auto-discovery glob', () => {
@@ -139,12 +142,13 @@ describe('txrintake module', () => {
     expect(source).toContain('/saved-models')
   })
 
-  it('records the txrshell route handoffs: the `/`, `/models` and `/history` scaffold routes are gone, the shell keeps `/help`', () => {
+  it('records the txrshell route handoffs: the `/`, `/models`, `/history` and `/help` scaffold routes are gone', () => {
     // The `/models` route was handed to `txrmodels` (screen J) after this
-    // test was written, and the `/history` route to `txrhistory` (screen
-    // K) — the sanctioned handoffs of this epic's route takeovers (each
-    // module edits the same shell file, its own block).
-    expect(routesOf(txrShellModule).map(r => r.path)).toEqual(['/help'])
+    // test was written, the `/history` route to `txrhistory` (screen K),
+    // and the `/help` route to `txrhelp` (the content page) — the
+    // sanctioned handoffs of this epic's route takeovers (each module
+    // edits the same shell file, its own block).
+    expect(routesOf(txrShellModule).map(r => r.path)).toEqual([])
     const shellSource = readFileSync(
       fileURLToPath(new URL('../txrshell/module.tsx', import.meta.url)),
       'utf8',
@@ -158,6 +162,10 @@ describe('txrintake module', () => {
     // The `/history` handoff's words (this epic's newest takeover).
     expect(shellSource).toContain('`txrhistory` module')
     expect(shellSource).not.toContain("path: '/history'")
+    // The `/help` handoff (ITEM-4 — the last scaffold route; the shell now
+    // owns no screen route, only the shared layout).
+    expect(shellSource).toContain('`txrhelp` module')
+    expect(shellSource).not.toContain("path: '/help'")
   })
 
   it('does not change the dependency set, the ui scripts tree or the domain ledger (INV-5/6)', () => {
