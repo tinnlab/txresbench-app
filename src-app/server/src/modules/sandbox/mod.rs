@@ -21,7 +21,9 @@
 //!    top of the base (a layer never shadows the base wholesale),
 //!    `/input` read-only, `/output` writable, `/model` read-only after a
 //!    whole-tree sha256 check (fit writes `/model` into the caller's staging
-//!    dir), `SIGBENCH_MODE` fit/predict per contract.md X1, and `--network
+//!    dir), `SIGBENCH_MODE`/`TXRESBENCH_MODE` fit/predict per contract.md X1
+//!    (one value under both spellings — the X1-era and the 2.0 SDK's name),
+//!    and `--network
 //!    none` is the shipped `--unshare-net`. [`stack::build_stacked_bwrap_argv`]
 //!    REUSES [`sandbox::build_bwrap_argv`] for the byte-identical hardening
 //!    prefix and splices the layer/model/mount/env block at ONE fixed seam —

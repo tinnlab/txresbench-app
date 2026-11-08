@@ -147,24 +147,27 @@ pub struct EnvRef {
 }
 
 /// What one stacked run does (DEC-5). Maps to the container contract's
-/// `SIGBENCH_MODE` (X1): unset = one fit+predict call, `fit` / `predict`.
+/// mode field (X1): unset = one fit+predict call, `fit` / `predict`. The
+/// sandbox emits it under BOTH spellings, `SIGBENCH_MODE` (X1-era name) and
+/// `TXRESBENCH_MODE` (the 2.0 SDK's name — see TEST-05 / DRIFT-1 ITEM-3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum MethodRunMode {
     /// Single call: fit on the bundle, predict the same patients (X1's unset
     /// mode).
     FitPredict,
-    /// `SIGBENCH_MODE=fit`; the derived `/model` is written to
-    /// `model_out_dir`.
+    /// `SIGBENCH_MODE`/`TXRESBENCH_MODE=fit`; the derived `/model` is
+    /// written to `model_out_dir`.
     FitOnly,
-    /// `SIGBENCH_MODE=predict` on an already-trained, verified model bound
-    /// read-only at `/model` (INV-4).
+    /// `SIGBENCH_MODE`/`TXRESBENCH_MODE=predict` on an already-trained,
+    /// verified model bound read-only at `/model` (INV-4).
     ReuseModel,
 }
 
 impl MethodRunMode {
-    /// The `SIGBENCH_MODE` value for this mode, or `None` for [`FitPredict`]
-    /// (X1: unset = single fit+predict call).
+    /// The mode-field value for this mode, or `None` for [`FitPredict`]
+    /// (X1: unset = single fit+predict call). The builder emits it under
+    /// both `SIGBENCH_MODE` and `TXRESBENCH_MODE`.
     pub fn sigbench_mode(&self) -> Option<&'static str> {
         match self {
             MethodRunMode::FitPredict => None,
@@ -522,9 +525,19 @@ pub(crate) fn build_stacked_bwrap_argv(
     }
 
     if let Some(mode) = sigbench_mode {
-        block.push("--setenv".into());
-        block.push("SIGBENCH_MODE".into());
-        block.push(mode.to_string());
+        // The X1 contract field under BOTH spellings: `SIGBENCH_MODE` (the
+        // contract X1-era name the app's own stacked fixtures read) and
+        // `TXRESBENCH_MODE` (the name the shipped 2.0 SDK's txrmethod /
+        // TxrMethod reads — package/base-images; under the old name a real
+        // wrapper's `mode()` returns "" → it runs the predict branch during
+        // fit and fails on the absent /model). One value, two spellings —
+        // the ITEM-3 live real-data run found the gap; the epic-level
+        // naming question stands (DRIFT-1 ITEM-3).
+        for var in ["SIGBENCH_MODE", "TXRESBENCH_MODE"] {
+            block.push("--setenv".into());
+            block.push(var.into());
+            block.push(mode.to_string());
+        }
     }
     // Thread overrides AFTER the prefix's `1` defaults (last-wins, TEST-05).
     // `n_cpu <= 1` emits nothing (the prefix default is `1`), which keeps the
@@ -1185,10 +1198,14 @@ mod tests {
         assert_eq!(a[out_p - 1], "/host/output");
         assert!(m < in_p && in_p < out_p, "model before mounts");
 
-        // Env after the mounts; SIGBENCH_MODE + n_cpu overrides. `rposition`
-        // picks the LAST occurrence — the prefix's own `1` defaults precede.
+        // Env after the mounts; the X1 mode field under BOTH spellings
+        // (SIGBENCH_MODE = X1-era name, TXRESBENCH_MODE = the 2.0 SDK's name)
+        // + n_cpu overrides. `rposition` picks the LAST occurrence — the
+        // prefix's own `1` defaults precede.
         let env_p = pos(&a, "SIGBENCH_MODE").expect("mode env present");
         assert_eq!(a[env_p + 1], "fit");
+        let env_t = pos(&a, "TXRESBENCH_MODE").expect("2.0 mode env present");
+        assert_eq!(a[env_t + 1], "fit", "both spellings carry the mode");
         assert!(out_p < env_p, "env setenvs after the mounts");
         let omp = rpos(&a, "OMP_NUM_THREADS").expect("thread override present");
         assert_eq!(a[omp + 1], "4");
