@@ -20770,6 +20770,17 @@
           "marker_facts": {
             "$ref": "#/components/schemas/MarkerFacts"
           },
+          "marker_kind": {
+            "description": "Mirrors the row's `marker_facts.kind` — the catalogue's marker mode\n (qa-fixes ITEM-5, RES-19): a `count` of 0 with kind `any` IS \"any\n marker\" — the J subline renders the kind's word, never a \"0 markers\".",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MarkerKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "method_id": {
             "type": "string"
           },
@@ -21259,6 +21270,17 @@
             ],
             "format": "uint32",
             "minimum": 0
+          },
+          "marker_kind": {
+            "description": "Mirrors the row's `marker_facts.kind` — the catalogue's marker mode\n (qa-fixes ITEM-5, RES-19): a `count` of 0 with kind `any` IS \"any\n marker\" — the J subline renders the kind's word, never a \"0 markers\".",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MarkerKind"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "method_id": {
             "type": "string"

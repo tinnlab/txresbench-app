@@ -651,9 +651,45 @@ describe('PretrainedModelsPage — TEST-MOD-09 (screen D)', () => {
     expect(screen.getByTestId('txr-models-d-empty').textContent).toContain(
       'Add the patients\u2019 measurements you want to predict first.',
     )
+    // RES-20: a direct visit is not ON step 4 (the flow has not reached
+    // it) and counts nothing — the step line and the "…" totals are gone.
+    expect(screen.queryByText('Step 4 of 4')).toBeNull()
+    expect(screen.queryByTestId('txr-models-d-totals')).toBeNull()
+    // The CTA is the step that unlocks this screen — the predict-files
+    // step, never the landing page (the old "Go to the start").
+    expect(screen.getByTestId('txr-models-d-empty-cta').textContent).toBe(
+      'Go to the measurements step',
+    )
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-models-d-empty-cta'))
+    })
+    expect(screen.getByTestId('route-location').textContent).toBe('/predict-files')
     // No verdict request against a null inventory (DEC-6: the eligibility
     // call is never built without the intake's object).
     expect(api.eligibility).not.toHaveBeenCalled()
+  })
+
+  it('renders the honest no-catalogue state when the published catalogue is empty (ITEM-5, the pretrained arm)', async () => {
+    api.listModels.mockResolvedValue({
+      origin: 'embedded',
+      generated_at: '2026-11-29T09:00:00Z',
+      total: 0,
+      models: [],
+    })
+    renderPage()
+    await settle(0)
+    // The catalogue is loaded and empty — never "No models to show" in a
+    // bare list; the honest state names the release reality and hands the
+    // user to the models they already have.
+    expect(screen.getByTestId('txr-models-d-no-catalogue')).toBeTruthy()
+    expect(screen.getByTestId('txr-models-d-no-catalogue').textContent).toContain(
+      'No published models are available yet.',
+    )
+    expect(screen.queryByTestId('txr-list')).toBeNull()
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-models-d-no-catalogue-cta'))
+    })
+    expect(screen.getByTestId('route-location').textContent).toBe('/models')
   })
 })
 

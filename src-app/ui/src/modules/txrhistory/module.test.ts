@@ -256,6 +256,11 @@ describe('txrhistory module (TEST-HIST-1)', () => {
     // integration tests whose ENV_UNKNOWN pins the one-vocabulary change
     // reclassifies (DRIFT-1 ITEM-2 #2) — pinned verbatim; anything else under
     // `src-app/server/` still fails.
+    // The qa-fixes ITEM-5 server half (its DRIFT-1): ModelSummary grows
+    // the `marker_kind` fact (model_store types.rs + store.rs) — the J
+    // "any marker" subline for the catalogue-`any` rows (RES-19) — and the
+    // A04 unit note stops quoting a blank canonical unit
+    // (file_validator/units.rs, RES-24). Nothing else moves.
     expect(
       touched.filter(
         p =>
@@ -273,7 +278,10 @@ describe('txrhistory module (TEST-HIST-1)', () => {
           p !== 'src-app/server/src/modules/execution_engine/README.md' &&
           p !== 'src-app/server/tests/execution_engine/api_test.rs' &&
           p !== 'src-app/server/tests/execution_engine/bundle_test.rs' &&
-          p !== 'src-app/server/tests/history_store/mod.rs',
+          p !== 'src-app/server/tests/history_store/mod.rs' &&
+          p !== 'src-app/server/src/modules/model_store/store.rs' &&
+          p !== 'src-app/server/src/modules/file_validator/units.rs' &&
+          p !== 'src-app/server/tests/model_store/api_test.rs',
       ),
     ).toEqual([])
     expect(touched.filter(p => p.startsWith('src-app/desktop/'))).toEqual([])

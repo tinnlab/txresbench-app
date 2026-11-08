@@ -100,7 +100,12 @@ const SUBTITLE: CSSProperties = {
   fontSize: 14,
 }
 
-const HEADER_CONTROLS: CSSProperties = { display: 'flex', gap: 10, alignItems: 'center' }
+const HEADER_CONTROLS: CSSProperties = {
+  display: 'flex',
+  gap: 10,
+  alignItems: 'center',
+  flexWrap: 'wrap',
+}
 
 /** The table's rounded card (the board's frame; horizontal scroll on a narrow screen). */
 const TABLE_BOX: CSSProperties = {
@@ -274,7 +279,10 @@ export function ModelsPage() {
     (model: ModelSummary): void => {
       useTxrIntakeStore.getState().setIntent('reuse')
       useTxrModelsStore.getState().setPendingUse(model.id)
-      navigate(predictFilesPath())
+      // The URL announces the choice (the J "?set=" view precedent, DEC-19):
+      // the N screen names the chosen model while the handoff is live
+      // (RES-21 — "which model did I pick?" was left unspoken by the flow).
+      navigate(`${predictFilesPath()}?use=${encodeURIComponent(model.id)}&name=${encodeURIComponent(model.name)}`)
     },
     [navigate],
   )
@@ -335,8 +343,12 @@ export function ModelsPage() {
   const firstLoading = inventory.loading && inventory.response === null
 
   return (
-    <main data-testid="txr-models-j" style={PAGE_MAIN}>
-      <div style={HEADER}>
+    <main
+      data-testid="txr-models-j"
+      className="txr-models-j-main"
+      style={PAGE_MAIN}
+    >
+      <div className="txr-models-j-header" style={HEADER}>
         <div>
           <h1 style={TITLE}>Your models</h1>
           <div style={SUBTITLE}>
@@ -347,7 +359,9 @@ export function ModelsPage() {
         <div style={HEADER_CONTROLS}>
           <Input
             data-testid="txr-models-j-search"
+            className="txr-models-j-search"
             type="search"
+            placeholder="Search models"
             aria-label="Search models"
             value={search}
             onChange={event => setSearch(event.target.value)}
@@ -430,7 +444,11 @@ export function ModelsPage() {
             ) : null}
           </div>
         ) : (
-          <table data-testid="txr-models-j-table" style={TABLE}>
+          <table
+            data-testid="txr-models-j-table"
+            className="txr-models-j-table"
+            style={TABLE}
+          >
             <thead>
               <tr>
                 <th scope="col" style={HEAD_LOOK}>Model</th>
@@ -446,33 +464,49 @@ export function ModelsPage() {
             </thead>
             <tbody>
               {models.map(model => {
+                const setName =
+                  model.set_name !== null &&
+                  model.set_name !== undefined &&
+                  model.set_name.trim().length > 0 &&
+                  model.set_name !== model.name
+                    ? model.set_name
+                    : null
                 const subline = formatModelSublines(
                   model.marker_count ?? null,
                   model.uses_covariates,
                   model.imported_from,
+                  setName,
+                  model.marker_kind ?? null,
                 )
                 const trainedOn = formatTrainedOn(model.trained_on_patients ?? null)
                 const lastTd = { ...TD_LOOK, borderBottom: 'none' }
                 return (
                   <tr key={model.id} data-testid={`txr-models-row-${model.id}`}>
-                    <th scope="row" style={{ ...ROW_HEADER, borderBottom: 'none' }}>
+                    <th
+                      scope="row"
+                      data-label="Model"
+                      style={{ ...ROW_HEADER, borderBottom: 'none' }}
+                    >
                       {model.name}
                       {subline.length > 0 ? <div style={SUBLINE}>{subline}</div> : null}
                     </th>
-                    <td style={lastTd}>
+                    <td data-label="Method" style={lastTd}>
                       <span style={MONO}>{model.method_id}</span>
                     </td>
-                    <td style={lastTd}>
+                    <td data-label="Predicts" style={lastTd}>
                       {formatPredicts(model.task ?? null, model.endpoint, model.horizon)}
                     </td>
-                    <td style={{ ...lastTd, textAlign: 'right' }}>{model.decision_day}</td>
-                    <td style={{ ...lastTd, textAlign: 'right' }}>
+                    <td data-label="Decision day" style={{ ...lastTd, textAlign: 'right' }}>
+                      {model.decision_day}
+                    </td>
+                    <td data-label="Trained on" style={{ ...lastTd, textAlign: 'right' }}>
                       <span style={model.trained_on_patients == null ? MUTED : undefined}>
                         {trainedOn}
                       </span>
                     </td>
-                    <td style={lastTd}>{formatMade(model.created_at, model.provenance)}</td>
+                    <td data-label="Made" style={lastTd}>{formatMade(model.created_at, model.provenance)}</td>
                     <td
+                      data-label="Actions"
                       style={{
                         ...lastTd,
                         textAlign: 'right',

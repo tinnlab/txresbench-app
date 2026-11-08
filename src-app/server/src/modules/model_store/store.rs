@@ -825,6 +825,7 @@ pub fn summary_from(row: &ModelRow, set_name: Option<&str>) -> Result<ModelSumma
         embeds_training_data: row.embeds_training_data,
         own_auc: row.own_auc,
         marker_count: Some(marker_facts.count),
+        marker_kind: Some(marker_facts.kind.clone()),
         uses_covariates: covariates.used,
         created_at: row.created_at,
     })

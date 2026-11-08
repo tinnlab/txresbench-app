@@ -189,6 +189,23 @@ describe('TxrListFilterBar (TEST-UL-9 — filter/search/sort bar)', () => {
     expect(onToggleAllCanRun).toHaveBeenCalledTimes(1)
   })
 
+  it('the "Select all that can run" TEXT is part of the toggle: a label click reports once (RES-22)', () => {
+    const onToggleAllCanRun = vi.fn()
+    render(
+      <TxrListFilterBar
+        rows={rows(38, 5)}
+        selected={new Set()}
+        onToggleAllCanRun={onToggleAllCanRun}
+      />,
+    )
+    // The text click must not fall through to the box's own handler (no double
+    // report), so the label click reports exactly once.
+    fireEvent.click(
+      document.querySelector<HTMLElement>('[data-testid="txr-list-select-all-label"]')!,
+    )
+    expect(onToggleAllCanRun).toHaveBeenCalledTimes(1)
+  })
+
   it('the search control renders and reports what the user typed', () => {
     const onChange = vi.fn()
     const search: TxrSearchControl = { value: '', onChange }

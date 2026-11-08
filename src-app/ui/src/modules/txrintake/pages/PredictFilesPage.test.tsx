@@ -157,9 +157,9 @@ function LocationProbe() {
   return <div data-testid="route-location">{location.pathname}</div>
 }
 
-function renderPredict() {
+function renderPredict(entry = '/predict-files') {
   return render(
-    <MemoryRouter initialEntries={['/predict-files']}>
+    <MemoryRouter initialEntries={[entry]}>
       <PredictFilesPage />
       <LocationProbe />
     </MemoryRouter>,
@@ -223,6 +223,18 @@ describe('PredictFilesPage (screen N, ITEM-7)', () => {
     expect(screen.getByText('No outcomes are needed, and no patients file.')).toBeTruthy()
     expect(continueButton().disabled).toBe(true)
     expect(continueButton().textContent).toBe('Continue: choose models')
+  })
+
+  it('names the model the J "Use" handoff chose (RES-21) — and stays silent without one', () => {
+    renderPredict()
+    expect(screen.queryByTestId('txr-intake-pending-use')).toBeNull()
+    cleanup()
+    renderPredict(
+      '/predict-files?use=a0000000-0000-4000-8000-000000000004&name=landmark-cox-current',
+    )
+    expect(screen.getByTestId('txr-intake-pending-use').textContent).toBe(
+      'You chose the model \u201clandmark-cox-current\u201d. Add its patients\u2019 measurements to predict.',
+    )
   })
 
   it('a dropped file validates in predict mode with the patients key OMITTED', async () => {

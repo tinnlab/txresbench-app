@@ -179,3 +179,60 @@ html.dark .os-theme-dark {
 .txr-run-see-results:hover {
   color: #143a68 !important;
 }
+
+/* QA-fixes ITEM-5 (RES-16): screen J's inventory table at phone width.
+ * The board's seven-column table cannot fit 390 px (the measured 1002 px
+ * page scrollWidth: the columns clipped and the "Open a model file" button
+ * ran to x=411). Below 640 px the rows stack as labelled cards (the F
+ * screen's RP-5 pattern — the header row hides, each cell's data-label
+ * names it), the page padding tightens, and the header's search input
+ * takes the full row so the controls wrap instead of pushing the button
+ * off-screen. The desktop table keeps the board's 960 px minimum and
+ * scrolls inside its own box (the board's own overflow-x container). */
+@media (max-width: 640px) {
+  .txr-models-j-main {
+    padding: 20px 16px !important;
+  }
+  .txr-models-j-search {
+    width: 100% !important;
+  }
+  .txr-models-j-table {
+    display: block;
+    min-width: 0;
+  }
+  .txr-models-j-table thead {
+    display: none;
+  }
+  .txr-models-j-table tbody {
+    display: block;
+  }
+  .txr-models-j-table > tbody > tr {
+    display: block;
+    padding: 10px 0 14px;
+    border-bottom: 1px solid #e7e5e0;
+  }
+  .txr-models-j-table > tbody > tr:last-child {
+    border-bottom: none;
+  }
+  .txr-models-j-table > tbody > tr th,
+  .txr-models-j-table > tbody > tr td {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 3px 14px;
+    border-bottom: none;
+    white-space: normal !important;
+    text-align: left !important;
+  }
+  .txr-models-j-table > tbody > tr th {
+    white-space: normal !important;
+    word-break: break-word;
+  }
+  .txr-models-j-table > tbody > tr td::before {
+    content: attr(data-label);
+    flex: 0 0 96px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #5e5e5e;
+  }
+}

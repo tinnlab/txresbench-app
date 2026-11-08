@@ -21,7 +21,7 @@ emits the event; the dialog host subscribes and owns the save flow.
 |---|---|---|---|
 | D — choose pretrained models | `Pretrained.dc.html` | `/pretrained-models` | the real model catalogue, checked against the uploaded predict file: the card rows (tag, performance on other cohorts, can-run status with what is missing, time, Model card), the download state for non-bundled models, the chips + sort, the bottom bar (selected count, total time, run-at-a-time, research notice, Run) |
 | I — choose saved models | `Saved.dc.html` | `/saved-models` | one section per saved set (facts line, select-all, Rename / Delete the run's models), the model rows with their own-data performance, search + "Same outcome as my file" + sort, the same bottom bar, Run (reuse mode) |
-| J — your models | `Models.dc.html` | `/models` | the inventory table (Model + subline, Method, Predicts, Decision day, Trained on, Made, Use / Export / Rename / Delete), search, "Open a model file", the models-folder footnotes + desktop-gated "Open the folder" |
+| J — your models | `Models.dc.html` | `/models` | the inventory table (Model + subline, Method, Predicts, Decision day, Trained on, Made, Use / Export / Rename / Delete), search with the board's label, "Open a model file", the models-folder footnotes + desktop-gated "Open the folder"; the subline reads the marker KIND ("any marker" for the catalogue-`any` rows, never "0 markers") and names the set for same-named rows; under 640 px the table stacks as labelled cards (ITEM-5, RES-16/17/18/19) |
 
 Every route is `requiresAuth: true` under the shell layout (`TxrLayoutDef`
 from `txrshell/module.tsx`). The path builders live in `routes.ts` and are

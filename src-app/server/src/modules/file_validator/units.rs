@@ -338,14 +338,25 @@ pub fn unit_mismatch_problem(
             "the unit matches — no problem"
         }
     };
+    // The vocabulary entry's canonical unit is not always recorded: an empty
+    // string rendered inside the quotes would read "vocabulary unit ''" — a
+    // bug-shaped blank (qa-fixes ITEM-5, RES-24). The empty case names the
+    // vocabulary without quoting a non-fact.
+    let message = if canonical_unit.trim().is_empty() {
+        format!(
+            "column `{column}` unit '{user_unit}' differs from the vocabulary unit: {agreement_text}"
+        )
+    } else {
+        format!(
+            "column `{column}` unit '{user_unit}' differs from the vocabulary unit '{canonical_unit}': {agreement_text}"
+        )
+    };
     FileProblem::new(
         ProblemCode::A04UnitDiffers,
         ProblemSeverity::Warning,
         None,
         Some(column.to_string()),
-        format!(
-            "column `{column}` unit '{user_unit}' differs from the vocabulary unit '{canonical_unit}': {agreement_text}"
-        ),
+        message,
     )
 }
 
@@ -529,6 +540,28 @@ mod tests {
         assert_eq!(unclassified.code, ProblemCode::A04UnitDiffers);
         assert_eq!(unclassified.severity, ProblemSeverity::Warning);
         assert!(unclassified.message.contains("furlongs"), "{}", unclassified.message);
+    }
+
+    #[test]
+    fn test_fv8_mismatch_with_unrecorded_canonical_unit_quotes_nothing() {
+        // A vocabulary-matched marker whose vocabulary entry records no
+        // canonical unit: the message must not quote a blank ('' — the
+        // qa-fixes ITEM-5 RES-24 shape); it names the vocabulary without
+        // a non-fact and keeps the agreement verdict.
+        let problem = unit_mismatch_problem("ctdna", "ng/mL", "", UnitAgreement::Unknown);
+        assert_eq!(problem.code, ProblemCode::A04UnitDiffers);
+        assert_eq!(problem.severity, ProblemSeverity::Warning);
+        assert!(
+            problem.message.contains("unit 'ng/mL' differs from the vocabulary unit"),
+            "{}",
+            problem.message
+        );
+        assert!(
+            problem.message.contains("no unit-family agreement"),
+            "{}",
+            problem.message
+        );
+        assert!(!problem.message.contains("''"), "{}", problem.message);
     }
 
     #[test]

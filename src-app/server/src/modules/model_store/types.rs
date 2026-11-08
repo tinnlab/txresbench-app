@@ -308,6 +308,10 @@ pub struct ModelSummary {
     /// Mirrors the row's `marker_facts.count` (TEST-MS-24 — the J "N markers"
     /// subline with no per-row detail fetch).
     pub marker_count: Option<u32>,
+    /// Mirrors the row's `marker_facts.kind` — the catalogue's marker mode
+    /// (qa-fixes ITEM-5, RES-19): a `count` of 0 with kind `any` IS "any
+    /// marker" — the J subline renders the kind's word, never a "0 markers".
+    pub marker_kind: Option<MarkerKind>,
     /// Mirrors the row's `covariates.used` (the J "uses age" subline).
     pub uses_covariates: bool,
     pub created_at: DateTime<Utc>,

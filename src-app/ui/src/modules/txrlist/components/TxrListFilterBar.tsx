@@ -21,7 +21,9 @@
  * - "Select all that can run" is a toggle: checked ⇔ every non-disabled
  *   row is selected, a change reports the toggle — the host applies
  *   `lib/selection.ts`'s `toggleAllCanRun`, so the `cannot` rows never
- *   move (EXAMPLE-UL-8);
+ *   move (EXAMPLE-UL-8). The WHOLE row (box AND its text label) is the
+ *   toggle target — a text click reports the same toggle as the box
+ *   (RES-22: the text click used to do nothing);
  * - the search placeholder is the board's byte ("Find a model or run");
  *   the sort control is the board's "Sort by" label + select.
  */
@@ -154,14 +156,22 @@ export function TxrListFilterBar({
         />
       ) : null}
       <span style={{ flexGrow: 1 }} />
-      <Checkbox
-        data-testid="txr-list-select-all-can-run"
-        className="txr-list-checkbox"
-        aria-label="Select all that can run"
-        checked={allCanRunSelected}
-        onCheckedChange={() => onToggleAllCanRun?.()}
-      />
-      <span style={{ fontSize: 13.5 }}>Select all that can run</span>
+      {/* The label IS the toggle: a text click activates the box natively
+          (RES-22 — the text used to be a dead span). The checkbox's own
+          change handler reports the same toggle, so one click = one report. */}
+      <label
+        data-testid="txr-list-select-all-label"
+        style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}
+      >
+        <Checkbox
+          data-testid="txr-list-select-all-can-run"
+          className="txr-list-checkbox"
+          aria-label="Select all that can run"
+          checked={allCanRunSelected}
+          onCheckedChange={() => onToggleAllCanRun?.()}
+        />
+        <span style={{ fontSize: 13.5 }}>Select all that can run</span>
+      </label>
       {sort ? (
         <label style={{ fontSize: 13.5, display: 'flex', gap: 6, alignItems: 'center' }}>
           Sort by

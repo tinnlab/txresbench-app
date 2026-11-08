@@ -262,7 +262,7 @@ function detailPayload(id: string): ModelDetail {
     env: { base_digest: 'sha256:base', layer_digest: 'sha256:layer' },
     marker_facts: {
       count: 6,
-      kind: 'any',
+      kind: 'single',
       marker_groups_required: [],
       min_draws: 2,
       needs_baseline: false,
@@ -366,10 +366,12 @@ describe('SavedModelsPage — TEST-MOD-10 (screen I)', () => {
     expect(screen.getByTestId('txr-models-i-checked').textContent).toBe(
       'Checked against your file: 42 patients, 4 markers, draws at day 0, 14, 28 and 56. Models from one training run are grouped; pick any of them.',
     )
-    // The board's grouping: fit / cannot / some, with the board's own
-    // "partly" word for the some rows.
+    // One accounting (ITEM-5, RES-22): "can run" is what can START — the
+    // 5 fit + 3 some verdicts — so the sentence agrees with the built-in
+    // "Can run 8" chip (the old line read "5 can run … 3 partly" next to
+    // the chip's 8; the board's own "partly" shorthand is DEC-12-banned).
     expect(screen.getByTestId('txr-models-i-totals').textContent).toBe(
-      '10 saved models shown \u00b7 5 can run, 2 cannot, 3 partly',
+      '10 saved models shown \u00b7 8 can run, 2 cannot (3 of them for some patients)',
     )
   })
 
@@ -566,6 +568,19 @@ describe('SavedModelsPage — TEST-MOD-10 (screen I)', () => {
     expect(screen.getByTestId('txr-models-i-empty').textContent).toContain(
       'Add the patients\u2019 measurements you want to predict first.',
     )
+    // RES-20: a direct visit is not ON step 4 (the flow has not reached
+    // it) and counts nothing — the step line and the "…" totals are gone.
+    expect(screen.queryByText('Step 4 of 4')).toBeNull()
+    expect(screen.queryByTestId('txr-models-i-totals')).toBeNull()
+    // The CTA is the step that unlocks this screen — the predict-files
+    // step, never the landing page (the old "Go to the start").
+    expect(screen.getByTestId('txr-models-i-empty-cta').textContent).toBe(
+      'Go to the measurements step',
+    )
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-models-i-empty-cta'))
+    })
+    expect(screen.getByTestId('route-location').textContent).toBe('/predict-files')
     // No verdict request against a null inventory (DEC-6).
     expect(api.eligibility).not.toHaveBeenCalled()
   })

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Button } from '@ziee/kit'
 import { ApiClient } from '@/api-client'
 import type { FileTableKind } from '@/api-client/types'
@@ -197,12 +197,19 @@ function loadedFrom(table: Awaited<ReturnType<typeof parseIntakeFile>>): LoadedF
 
 export function PredictFilesPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const file = useStore(useTxrIntakeStore, s => s.predictMeasurements)
   const intent = useStore(useTxrIntakeStore, s => s.intent)
   const joins = useStore(useTxrIntakeStore, s => s.joins)
   const mapping = useStore(useTxrIntakeStore, s => s.mapping)
   const parameters = useStore(useTxrIntakeStore, s => s.parameters)
   const validation = useStore(useTxrIntakeStore, s => s.validation)
+  // The J "Use" handoff (RES-21): the id + display label ride the URL (the
+  // J "?set=" view precedent) so this screen can name the chosen model —
+  // the reuse flow said nothing about WHICH model was picked between the
+  // Use click and the choice screen's preselection.
+  const pendingUseId = searchParams.get('use')
+  const pendingUseName = searchParams.get('name')
 
   const [busy, setBusy] = useState(false)
   const [cardError, setCardError] = useState<string | null>(null)
@@ -376,6 +383,13 @@ export function PredictFilesPage() {
             example; we check the file as soon as you choose it.
           </p>
         </div>
+
+        {pendingUseId !== null ? (
+          <p data-testid="txr-intake-pending-use" style={INTRO}>
+            You chose the model &ldquo;{pendingUseName ?? 'this model'}&rdquo;. Add its
+            patients&rsquo; measurements to predict.
+          </p>
+        ) : null}
 
         <TxrFileCard
           kind="measurements"

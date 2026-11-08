@@ -166,6 +166,10 @@ function factsOf(detail: ModelDetail): DescriptionsItem[] {
             detail.marker_count ?? null,
             detail.uses_covariates === true,
             detail.imported_from ?? null,
+            null,
+            // The detail carries the block's kind directly; the summary's
+            // flattened `marker_kind` is the same fact (ITEM-5, RES-19).
+            detail.marker_facts?.kind ?? detail.marker_kind ?? null,
           ) || UNRECORDED}
         </span>
       ),

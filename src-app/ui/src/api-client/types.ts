@@ -3928,6 +3928,12 @@ export interface ModelDetail {
    */
   marker_count?: number
   marker_facts: MarkerFacts
+  /**
+   * Mirrors the row's `marker_facts.kind` — the catalogue's marker mode
+   *  (qa-fixes ITEM-5, RES-19): a `count` of 0 with kind `any` IS "any
+   *  marker" — the J subline renders the kind's word, never a "0 markers".
+   */
+  marker_kind?: MarkerKind
   method_id: string
   method_version: string
   /** The display label (default = the catalogue label at save). */
@@ -4132,6 +4138,12 @@ export interface ModelSummary {
    *  subline with no per-row detail fetch).
    */
   marker_count?: number
+  /**
+   * Mirrors the row's `marker_facts.kind` — the catalogue's marker mode
+   *  (qa-fixes ITEM-5, RES-19): a `count` of 0 with kind `any` IS "any
+   *  marker" — the J subline renders the kind's word, never a "0 markers".
+   */
+  marker_kind?: MarkerKind
   method_id: string
   method_version: string
   /** The display label (default = the catalogue label at save). */

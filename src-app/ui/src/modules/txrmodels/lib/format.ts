@@ -32,7 +32,7 @@
  * a board fact; the instant still renders in the machine's local zone like
  * every other date label in the app.
  */
-import type { ModelProvenance, TxrEndpoint, TxrTask } from '@/api-client/types'
+import type { MarkerKind, ModelProvenance, TxrEndpoint, TxrTask } from '@/api-client/types'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The board copy constants (ITEM-2)
@@ -189,8 +189,11 @@ export function formatTrainedOn(patients: number | null | undefined): string {
 /**
  * The J table's model subline, the board's three facts joined with the
  * board's " · " separator, in the board's order — the import source first
- * ("opened from breast-panel.txr · 5 markers"), then the marker count
- * ("6 markers"), then the covariate note ("uses age"):
+ * ("opened from breast-panel.txr · 5 markers"), then the marker fact, then
+ * the covariate note ("uses age"), then the set it was saved in
+ * ("from the set 'qa-results-set'" — ITEM-5, RES-17: two runs' models can
+ * carry the same default name; the set is the row's distinguisher in the
+ * inventory table):
  *
  * - `(6, true, null)` → "6 markers · uses age";
  * - `(4, false, null)` → "4 markers" (singular at one marker);
@@ -199,21 +202,44 @@ export function formatTrainedOn(patients: number | null | undefined): string {
  * - `(null, false, null)` → `""` — the column shows the name alone (the
  *   board's `null`-facts row), THE deliberate blank this file allows.
  *
+ * The marker fact is the row's recorded kind, never a bare count (ITEM-5,
+ * RES-19): the catalogue's `any` mode (77 of the 359 shipped methods —
+ * e.g. the ctDNA delta/landmark families) records count 0, and "0 markers"
+ * would read as "uses no markers" for a method that runs on ANY marker.
+ * The kind's word is the honest fact: `any` → "any marker"; `single` /
+ * `panel` / `multi` → the count with the board's plural. A row with no
+ * kind fact (a grown response's defensive read) falls back to the count.
+ *
  * The covariate note is the board's spell verbatim ("uses age" — the
  * `uses_covariates` fact carries no names on the summary row, DEC-11).
+ * The set segment renders only when the set name is present AND differs
+ * from the model's own display name — the caller passes the name's
+ * duplicate as `null`: a set named after its models (the board's example
+ * rows) would spell the same fact twice.
  */
 export function formatModelSublines(
   markerCount: number | null | undefined,
   usesCovariates: boolean,
   importedFrom: string | null | undefined,
+  setName: string | null | undefined,
+  markerKind: MarkerKind | null | undefined,
 ): string {
   const parts: string[] = []
   const source = importedFrom?.trim()
   if (source && source.length > 0) parts.push(`opened from ${source}`)
-  if (markerCount !== null && markerCount !== undefined && Number.isFinite(markerCount)) {
+  const anyMarker = markerKind === 'any'
+  if (markerKind === 'single' || markerKind === 'panel' || markerKind === 'multi') {
+    if (markerCount !== null && markerCount !== undefined && Number.isFinite(markerCount)) {
+      parts.push(`${markerCount} ${markerCount === 1 ? 'marker' : 'markers'}`)
+    }
+  } else if (anyMarker) {
+    parts.push('any marker')
+  } else if (markerCount !== null && markerCount !== undefined && Number.isFinite(markerCount)) {
     parts.push(`${markerCount} ${markerCount === 1 ? 'marker' : 'markers'}`)
   }
   if (usesCovariates) parts.push('uses age')
+  const set = setName?.trim()
+  if (set && set.length > 0) parts.push(`from the set '${set}'`)
   return parts.join(' \u00b7 ')
 }
 
@@ -303,4 +329,84 @@ export function formatTrainingDataWarning(modelNames: ReadonlyArray<string>): st
     return `1 model (${names[0]}) keeps parts of the training data inside it. It stays on this computer; check before you copy or share its files.`
   }
   return `${count} models (${names.join(', ')}) ${TRAINING_WARNING_KEEP} ${TRAINING_WARNING_STAYS}`
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// `formatCheckedAgainstLine` — the D/I "Checked against your file" line
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The board's draw-days spelling: [0, 14, 28, 56] → "0, 14, 28 and 56". */
+function drawDaysText(days: ReadonlyArray<number>): string {
+  if (days.length === 0) return ''
+  if (days.length === 1) return `${days[0]}`
+  return `${days.slice(0, -1).join(', ')} and ${days[days.length - 1]}`
+}
+
+/**
+ * The D/I "Checked against your file" line from the validation
+ * (CONS-UM-11): `"Checked against your file: 42 patients, 4 markers, draws
+ * at day 0, 14, 28 and 56."` with the board's own tail — I's "Models from
+ * one training run are grouped; pick any of them." (Saved.dc.html) or D's
+ * "Pick as many as you like." (Pretrained.dc.html; the two live in the
+ * pages as one `tail` argument, one formatter).
+ *
+ * The draw-days segment is bounded (ITEM-5, RES-22): the board's example
+ * shows four days; a real file with many draw days used to list every one
+ * (a 14-day meas-urements file spelled a 14-item list in the intro). Four
+ * or fewer days keep the board's spelling; more read as a count — "draws
+ * on 14 days" — with the segment then omitted from the sentence when there
+ * are no draw days at all.
+ */
+export function formatCheckedAgainstLine(
+  raw: {
+    inventory: { patients: number; markers: ReadonlyArray<unknown> }
+    measurements?: { distinct_draw_days?: ReadonlyArray<number> } | null
+  },
+  tail: string,
+): string {
+  const days = raw.measurements?.distinct_draw_days ?? []
+  const drawSegment =
+    days.length === 0
+      ? ''
+      : days.length <= 4
+        ? `, draws at day ${drawDaysText(days)}`
+        : `, draws on ${days.length} days`
+  return `Checked against your file: ${raw.inventory.patients} patients, ${raw.inventory.markers.length} markers${drawSegment}. ${tail}`
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// `formatSavedTotals` — screen I's totals line (Saved.dc.html)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Screen I's header totals line — the shown count + the one accounting
+ * over the eligibility response's three verdicts (ITEM-5, RES-22):
+ *
+ * - "can run" is the count of what the engine can ACTUALLY START — the
+ *   `fit` AND `some` verdicts (a "Can run for some patients" model starts
+ *   and scores its eligible cohort; the 0-eligible verdict is `cannot`),
+ *   the same definition the built-in "Can run N" chip counts (the shared
+ *   bar's non-disabled rows), so the sentence and the chip can never
+ *   disagree again;
+ * - the `some` split is spelled inline with the chip's word ("6 of them
+ *   for some patients") and is omitted entirely when none — never a
+ *   "0 for some patients" sentence;
+ * - the totals sum to the shown count (fit + some + cannot == shown), a
+ *   closed accounting the page's `shown` count obeys.
+ *
+ * The boards' two examples disagree with each other here (I counts
+ * can-run as fit-only in its example, D folds the some-verdicts into its
+ * own can-run count) — the app's ONE definition is this item's
+ * (qa-fixes ITEM-2's CM-1 "what can really start"); the board's "partly"
+ * shorthand is deliberately unused (DEC-12, the module's own rule).
+ */
+export function formatSavedTotals(
+  shown: number,
+  fit: number,
+  some: number,
+  cannot: number,
+): string {
+  const canRun = fit + some
+  const someSegment = some > 0 ? ` (${some} of them for some patients)` : ''
+  return `${shown} saved models shown \u00b7 ${canRun} can run, ${cannot} cannot${someSegment}`
 }

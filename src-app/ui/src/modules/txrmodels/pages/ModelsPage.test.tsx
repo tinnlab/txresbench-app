@@ -240,9 +240,40 @@ describe('ModelsPage — TEST-MOD-11 (screen J)', () => {
     await settle(2)
     expect(api.listModels).toHaveBeenCalledTimes(2)
     expect(api.listModels).toHaveBeenLastCalledWith({ q: 'ldh' })
-    expect(screen.getByTestId('txr-models-j-search').getAttribute('aria-label')).toBe(
-      'Search models',
-    )
+    const search = screen.getByTestId('txr-models-j-search')
+    expect(search.getAttribute('aria-label')).toBe('Search models')
+    // RES-18: the board's placeholder is on the box too (the box was
+    // aria-only, invisible at a glance; the dark-mode palette half is
+    // ITEM-7's).
+    expect(search.getAttribute('placeholder')).toBe('Search models')
+  })
+
+  it('renders the marker kind and the set segment on the subline (RES-19/RES-17)', async () => {
+    renderPage()
+    await settle(0)
+    // The catalogue-any row (kind any, count 0): "any marker", never
+    // "0 markers" — the report's row said "0 markers" for a method that
+    // runs on any ctDNA marker.
+    const anyRow = within(screen.getByTestId(`txr-models-row-${fixtureModelId(16)}`))
+    expect(anyRow.getByText(/any marker/)).toBeTruthy()
+    expect(anyRow.queryByText(/0 markers/)).toBeNull()
+    // The same-name row from another set: the set segment is the
+    // distinguisher in the inventory (the 12-rows-6-names-twice report).
+    const sameNameRow = within(screen.getByTestId(`txr-models-row-${fixtureModelId(15)}`))
+    expect(
+      sameNameRow.getByText("6 markers \u00b7 uses age \u00b7 from the set 'Second run, day 60'"),
+    ).toBeTruthy()
+    // The board-shaped row whose set name equals its display name shows
+    // no duplicate set segment.
+    expect(within(screen.getByTestId(`txr-models-row-${fixtureModelId(11)}`)).getByText('6 markers \u00b7 uses age')).toBeTruthy()
+  })
+
+  it('labels every J table cell for the phone card layout (RES-16)', async () => {
+    renderPage()
+    await settle(0)
+    const row = screen.getByTestId(`txr-models-row-${fixtureModelId(11)}`)
+    const labels = [...row.querySelectorAll('th, td')].map(cell => cell.getAttribute('data-label'))
+    expect(labels).toEqual(['Model', 'Method', 'Predicts', 'Decision day', 'Trained on', 'Made', 'Actions'])
   })
 
   it('posts the multipart import and refreshes the list (success), and surfaces a failure inline', async () => {
@@ -270,7 +301,11 @@ describe('ModelsPage — TEST-MOD-11 (screen J)', () => {
       fireEvent.click(screen.getByTestId(`txr-models-use-${RUN_ROW.id}`))
       await Promise.resolve()
     })
-    expect(screen.getByTestId('route-location').textContent).toBe('/predict-files')
+    // RES-21: the handoff announces the chosen model's id + name on the
+    // URL (the "?set=" view precedent) so the N screen names it.
+    expect(screen.getByTestId('route-location').textContent).toBe(
+      '/predict-files?use=a0000000-0000-4000-8000-000000000011&name=CRC%20cohort%2C%20day%2060',
+    )
     expect(useTxrIntakeStore.getState().intent).toBe('reuse')
     expect(useTxrModelsStore.getState().pendingUseModelId).toBe(RUN_ROW.id)
   })
