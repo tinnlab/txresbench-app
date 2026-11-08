@@ -9,8 +9,12 @@ import { lazyWithPreload } from '@/utils/lazyWithPreload'
  * that `ui-run` and `ui-models` build.
  *
  * Route handoff: this module owns `/` (screen A) — the `txrshell` scaffold
- * route for `/` is removed so the app opens on the real Start screen; the
- * shell keeps `/models`, `/history`, `/help` (see `txrshell/module.tsx`).
+ * route for `/` is removed so the app opens on the real Start screen. Same
+ * handoff class: `/help` belongs to the `txrhelp` module (the content page
+ * the shell scaffold used to render) — the validation problems list of this
+ * module links each problem to its Help entry through that module's route
+ * builder (see `components/TxrProblemList.tsx`), so `txrhelp` is a
+ * dependency here.
  *
  * Route conventions DECLARED here for the sibling choice screens (the
  * ownership stays with their modules; RECONCILE confirms the bindings with
@@ -46,7 +50,7 @@ export default createModule({
     description:
       'TxResBench intake — Start (A), Your study (B), Your files (C), Add the patients to predict (N).',
   },
-  dependencies: ['router'],
+  dependencies: ['router', 'txrhelp'],
   routes: [
     {
       path: '/',

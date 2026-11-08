@@ -301,9 +301,10 @@ describe('PredictFilesPage (screen N, ITEM-7)', () => {
 
     const status = screen.getByTestId('txr-intake-file-status-measurements')
     expect(within(status).getByText('1 problem in 2 rows')).toBeTruthy()
+    // The ITEM-4 code link is appended to the provider's line.
     expect(
-      within(status).getByText('Row 4: `week 4` is not a number in the day column'),
-    ).toBeTruthy()
+      within(status).getAllByRole('listitem')[0].textContent,
+    ).toContain('Row 4: `week 4` is not a number in the day column')
     expect(continueButton().disabled).toBe(true)
 
     fireEvent.click(within(status).getByText('Fix and choose the file again'))

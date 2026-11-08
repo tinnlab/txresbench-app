@@ -171,7 +171,8 @@ describe('txrrun module (TEST-RUN-01)', () => {
       touched.filter(
         p =>
           p.startsWith('src-app/ui/src/modules/txrshell/') &&
-          p !== 'src-app/ui/src/modules/txrshell/module.tsx',
+          p !== 'src-app/ui/src/modules/txrshell/module.tsx' &&
+          p !== 'src-app/ui/src/modules/txrshell/pages/ShellPage.tsx',
       ),
     ).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/src/modules/loader.ts')).toEqual([])
@@ -193,6 +194,11 @@ describe('txrrun module (TEST-RUN-01)', () => {
     // same addition class), the `txrhistory` item's maintenance of the
     // stale pins in `txrmodels/module.test.ts` + `txrintake/module.test.ts`
     // and this node's own sweep line here.
+    // FIVE further exceptions (the qa-hardening ITEM-4 `/help` handoff):
+    // the new `txrhelp` module dir (the same addition class), the scaffold
+    // `ShellPage.tsx` the handoff removes, and the `txrintake` files the
+    // validation problems' help links touch (module.tsx dependency line,
+    // `TxrProblemList.tsx`, the TxrFileCard test's router wrapper).
     expect(
       touched.filter(
         p =>
@@ -201,9 +207,16 @@ describe('txrrun module (TEST-RUN-01)', () => {
           p !== 'src-app/ui/src/modules/txrlist/data/methodRows.ts' &&
           !p.startsWith('src-app/ui/src/modules/txrmodels/') &&
           !p.startsWith('src-app/ui/src/modules/txrhistory/') &&
+          !p.startsWith('src-app/ui/src/modules/txrhelp/') &&
+          p !== 'src-app/ui/src/modules/txrintake/module.tsx' &&
+          p !== 'src-app/ui/src/modules/txrintake/components/TxrProblemList.tsx' &&
+          p !== 'src-app/ui/src/modules/txrintake/components/TxrFileCard.test.tsx' &&
+          p !== 'src-app/ui/src/modules/txrintake/pages/FilesPage.test.tsx' &&
+          p !== 'src-app/ui/src/modules/txrintake/pages/PredictFilesPage.test.tsx' &&
           p !== 'src-app/ui/src/modules/txrintake/module.test.ts' &&
           p !== 'src-app/ui/src/modules/txrresults/module.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrshell/module.tsx',
+          p !== 'src-app/ui/src/modules/txrshell/module.tsx' &&
+          p !== 'src-app/ui/src/modules/txrshell/pages/ShellPage.tsx',
       ),
     ).toEqual([])
   })
