@@ -27,7 +27,7 @@ assertion is about the BYTES the app parses:
   * the `oras_dev` drop-in resolves + pulls the pushed artifacts (the exact
     subcommands the app shells out to) and the pulled bytes match.
 
-The real-method publish (six real layers + both bases) is the heavy
+The real-method publish (five real layers + both bases) is the heavy
 TXR_DEV_TEST_REAL=1 leg, gated so the structural suite stays fast; the
 fixture family is the same code path.
 
@@ -312,10 +312,11 @@ class PublishServerCase(unittest.TestCase):
 
 
 class RealMethodsCase(unittest.TestCase):
-    """The six real methods: layer build + manifest entry rules (fast, code
-    only — no base rebuild). The full real publish (bases + push) is the
-    `TXR_DEV_TEST_REAL=1` leg; the CI-shaped gates of qa-hardening run the
-    fixture contract above."""
+    """The six real methods (ITEM-3: gate-failed linear-response-score
+    excluded, gate-passing ctdna-anytime-detectability added): layer build +
+    manifest entry rules (fast, code only — no base rebuild). The full real
+    publish (bases + push) is the `TXR_DEV_TEST_REAL=1` leg; the CI-shaped
+    gates of qa-hardening run the fixture contract above."""
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp(prefix="txr-dev-publish-real-", dir=TEST_TMP_ROOT)
@@ -325,7 +326,30 @@ class RealMethodsCase(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def test_six_real_methods_produce_layers_and_manifest_entries(self):
+    def test_real_methods_are_the_apps_own_env_set(self):
+        """ITEM-3: the real-method set must be a subset of the app's shipped
+        env manifest — a dev manifest entry outside it is unreachable
+        (createRun answers METHOD_NOT_FOUND). The gate-failed
+        linear-response-score (pass false, spec_status blocked) is the case
+        that must never come back."""
+        with open(publish.APP_ENV_MANIFEST) as f:
+            app_ids = {e.get("method_id") for e in json.load(f).get("envs", [])}
+        self.assertTrue(publish.REAL_METHODS, "the default set is non-empty")
+        self.assertTrue(
+            set(publish.REAL_METHODS).issubset(app_ids),
+            "REAL_METHODS must be the app's own env set: %s" % (
+                set(publish.REAL_METHODS) - app_ids),
+        )
+        self.assertNotIn("linear-response-score", publish.REAL_METHODS)
+
+    def test_app_manifest_membership_guard_refuses_unknown_methods(self):
+        bad = "linear-response-score"
+        self.assertNotIn(bad, publish.REAL_METHODS)
+        with self.assertRaises(publish.PublishError) as ctx:
+            publish.check_methods_in_app_manifest(["ctdna-clearance", bad])
+        self.assertIn(bad, str(ctx.exception))
+
+    def test_real_methods_produce_layers_and_manifest_entries(self):
         entries = []
         for mid in publish.REAL_METHODS:
             method_dir, spec = publish.load_method(publish.DEFAULT_METHODS_DIR, mid)

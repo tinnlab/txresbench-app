@@ -50,8 +50,12 @@ refuses any path inside a git work tree).
 The six methods (`publish.REAL_METHODS`) — runnable, in
 `src-app/server/data/method-env-images.json`, covering both kinds:
 `cfmedip-ctdna-clearance-three-group`, `cox-baseline-delta`,
-`ctdna-clearance`, `ctdna-week4-rise-or-emergence`, `landmark-cox-current`,
-`linear-response-score`.
+`ctdna-anytime-detectability`, `ctdna-clearance`,
+`ctdna-week4-rise-or-emergence`, `landmark-cox-current`.
+(ITEM-3: the original sixth, `linear-response-score`, is gate-failed and
+absent from the app's catalogue + shipped ENV manifest — a dev manifest
+entry for it is unreachable, so it is not published; `build_and_publish`
+now refuses any real `--methods` id outside the app's own ENV manifest.)
 
 ## Start the app against it (debug builds only)
 

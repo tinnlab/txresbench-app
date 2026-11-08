@@ -112,16 +112,55 @@ def base_tag(contract, arch):
 #: `base-<family>` spelling).
 BASE_FAMILY = {"R": "r", "Python": "py"}
 
-#: The six real methods of the ITEM-2 publish (both kinds: response-call and
-#: survival/risk; all runnable and in src-app/server/data/method-env-images.json).
+#: The six real methods of the ITEM-2/3 publish (all three kinds:
+#: response-call, static-risk and dynamic-risk/survival; all runnable and in
+#: src-app/server/data/method-env-images.json). NOTE (ITEM-3):
+#: `linear-response-score` is NOT in the default set — its method gate FAILS
+#: (methods/gates/linear-response-score.json: pass false, spec_status
+#: "blocked"), so it is absent from the app's shipped environment manifest
+#: AND from the app catalogue (method-catalogue DEC-2: runnable-only); a dev
+#: manifest entry for it is unreachable (createRun answers METHOD_NOT_FOUND,
+#: "no method ... in the shipped catalogue"). The gate-passing
+#: `ctdna-anytime-detectability` replaced it (the plan pins at least six real
+#: methods), and `build_and_publish` now REFUSES any real `--methods` id
+#: absent from the app's own env manifest, so the dev publish can never
+#: diverge from it again.
 REAL_METHODS = [
     "cfmedip-ctdna-clearance-three-group",  # R  — response-call, survival (km-ish)
     "cox-baseline-delta",                    # R  — static-risk (survival)
+    "ctdna-anytime-detectability",           # Py — static-risk (rule, uses the __detected companion)
     "ctdna-clearance",                       # Py — response-call (rule)
     "ctdna-week4-rise-or-emergence",         # Py — response-call (rule)
     "landmark-cox-current",                  # R  — dynamic-risk (survival)
-    "linear-response-score",                 # Py — response-probability
 ]
+
+#: The app's own env-manifest path (the set the app can actually run — the
+#: ITEM-3 membership guard of the real-methods publish).
+APP_ENV_MANIFEST = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "..",
+    "src-app", "server", "data", "method-env-images.json",
+)
+
+
+def check_methods_in_app_manifest(method_ids):
+    """Refuse a publish whose methods are outside the app's own env manifest
+    (ITEM-3): the app validates a run's method ids against the CATALOGUE and
+    the env set against the manifest — a dev manifest entry for a method the
+    app does not ship is unreachable (`METHOD_NOT_FOUND: no method ... in the
+    shipped catalogue`), so a dev publish naming one would diverge from the
+    app's own set. The gate-failed `linear-response-score` was exactly that
+    case (absent from both the app manifest and the catalogue)."""
+    if not os.path.exists(APP_ENV_MANIFEST):
+        raise PublishError("app env manifest missing: %s (run from the repo root)" % APP_ENV_MANIFEST)
+    with open(APP_ENV_MANIFEST) as mf:
+        app_ids = {e.get("method_id") for e in json.load(mf).get("envs", [])}
+    for method_id in method_ids:
+        if method_id not in app_ids:
+            raise PublishError(
+                "method %s is not in the app's shipped environment manifest (%s entries) — "
+                "a dev manifest entry for it would be unreachable (createRun answers "
+                "METHOD_NOT_FOUND); the publish set must be the app's own set" % (method_id, len(app_ids))
+            )
 
 #: The fixture ids. The fixture base is published under the SAME app-side repo
 #: the real base-py uses (`tinnlab/txresbench-env/base-py`, the language →
@@ -697,6 +736,7 @@ def build_and_publish(args):
             family = BASE_FAMILY[language]
             if family not in bases:
                 raise PublishError("method %s wants %s but that base was not built" % (method_id, language))
+            check_methods_in_app_manifest(args.methods)
             sqfs, env_id = build_layer(method_dir, stage)
             payload_sha = sha256_file(sqfs)
             version = spec.get("version", "0.0.0")
