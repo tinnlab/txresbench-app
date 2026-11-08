@@ -356,6 +356,15 @@ test.describe('txr-results-h — one-method view + the web-mode reveal gate (TES
       'inactive',
     )
 
+    // ── RES-11: the one-method tab is the method's OWN view — its heading,
+    //    its facts card, its column only (the other method's bars stay away) ──
+    await expect(page.getByTestId('txr-results-method-heading')).toContainText(
+      'landmark-cox-current',
+    )
+    await expect(page.getByTestId('txr-results-method-facts')).toBeVisible()
+    await expect(page.getByTestId('txr-bars-cox-cutpoint-risk')).toHaveCount(0)
+    await expect(page.getByTestId('txr-results-outcome')).toHaveCount(0)
+
     // ── the bar table: the board's sentence + the fixture's window ──
     await expect(page.getByTestId('txr-bars-footer')).toHaveText(
       'Chance of treatment failure by day 238, sorted by the first method. Showing 8 of 40.',
@@ -405,7 +414,11 @@ test.describe('txr-results-h-compare — the two-method compare view (TEST-UR-14
     // ── the compare card: the two board sentences (fixture-derived names) ──
     const card = page.getByTestId('txr-compare-card')
     await expect(card).toBeVisible()
-    await expect(card).toContainText('How the two methods compare')
+    // RES-10: the card names the two methods it compares, never a bare
+    // "the two methods".
+    await expect(page.getByTestId('txr-compare-card-title')).toHaveText(
+      'How landmark-cox-current and cox-cutpoint-risk compare',
+    )
     await expect(card).toContainText(SHARED_TOP_SENTENCE)
     await expect(card).toContainText(DIFFER_SENTENCE)
 

@@ -50,7 +50,7 @@
  * example numbers are never data (INV-5) — every count here is the view's.
  */
 import type { CSSProperties } from 'react'
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { Button, Tooltip } from '@ziee/kit'
 import type { TxrHeatmapRow, TxrHeatmapView } from '../types'
 import { formatPct } from '../lib/format'
@@ -64,6 +64,16 @@ export const HEATMAP_ROW_HEIGHT = 36
 
 /** The board's scroll box height (`max-height: 470px`, `BusyResults.dc.html`). */
 export const HEATMAP_MAX_HEIGHT = 470
+
+/**
+ * The viewport budget the scroll box's max-height uses (qa-fixes RES-07):
+ * a hard 470 px wasted most of a 1440x900 desktop screen (12 of 94 rows) —
+ * the box now takes the room the viewport has (the shell's 56 px header
+ * plus the page's own chrome ≈ 300 px), never less than the board's 470 px
+ * cap. At 1440x900 the box is 600 px (16 rows of 36 px), on a phone the
+ * 470 px floor keeps the board's shape.
+ */
+export const HEATMAP_BOX_BUDGET_CSS = 'max(470px, calc(100dvh - 300px))'
 
 /**
  * The rows the board's box shows at once: the 470 px box minus the sticky
@@ -157,7 +167,7 @@ const SCROLL_BOX: CSSProperties = {
   overflow: 'auto',
   border: '1px solid #cfcdc7',
   borderRadius: 10,
-  maxHeight: HEATMAP_MAX_HEIGHT,
+  maxHeight: HEATMAP_BOX_BUDGET_CSS,
 }
 
 const TABLE: CSSProperties = {
@@ -231,6 +241,7 @@ const PATIENT_COLUMN_STYLE: CSSProperties = {
   fontFamily: MONO_FONT,
   fontSize: 12.5,
   fontWeight: 400,
+  whiteSpace: 'nowrap',
 }
 
 const AVERAGE_COLUMN_STYLE: CSSProperties = {
@@ -290,9 +301,14 @@ function HeatmapRow({ row, columns }: { row: TxrHeatmapRow; columns: TxrHeatmapV
         const note = row.notes[i] ?? null
         const testId = `txr-heatmap-cell-${col.methodId}`
         if (value === null) {
+          // RES-08: an abstain cell is never a silent blank — the note in the
+          // tooltip AND a visible dash mark (the note is the cell's only
+          // content; a null note renders a plain empty cell).
           return note !== null ? (
             <Tooltip key={col.methodId} content={note}>
-              <td data-testid={testId} style={CHANCE_STYLE} />
+              <td data-testid={testId} style={CHANCE_STYLE}>
+                {'\u2013'}
+              </td>
             </Tooltip>
           ) : (
             <td key={col.methodId} data-testid={testId} style={CHANCE_STYLE} />
@@ -320,56 +336,98 @@ export interface TxrHeatmapTableProps {
 }
 
 export function TxrHeatmapTable({ view, onShowAll }: TxrHeatmapTableProps) {
-  const { columns, rows, shownCount, totalCount } = view
+  const { columns, rows, shownCount, totalCount, averageBy } = view
   const [scrollTop, setScrollTop] = useState(0)
+  const [columnsOverflow, setColumnsOverflow] = useState(false)
+  const [rowsOverflow, setRowsOverflow] = useState(false)
+  const boxRef = useRef<HTMLDivElement | null>(null)
+  // The footer's "Scroll sideways for more methods" / "down for more
+  // patients" claims are measured (RES-07): the board's sentence renders only
+  // when the method columns really do overflow, and the down-scroll sentence
+  // only when the rows do — a view that fits its box is never told to scroll.
+  // One ResizeObserver (re-laid-out boxes change the fit).
+  useLayoutEffect(() => {
+    const box = boxRef.current
+    if (box === null) return
+    const measure = () => {
+      setColumnsOverflow(box.scrollWidth > box.clientWidth)
+      setRowsOverflow(box.scrollHeight > box.clientHeight)
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(box)
+    return () => observer.disconnect()
+  }, [])
   const windowed = heatmapWindowOf(scrollTop, rows.length)
   const visibleRows = rows.slice(windowed.start, windowed.end)
   const colCount = columns.length + 2
   const topSpacer = windowed.start * HEATMAP_ROW_HEIGHT
   const bottomSpacer = (rows.length - windowed.end) * HEATMAP_ROW_HEIGHT
+  const averageHeader =
+    averageBy === 'recomputed' ? 'Average (methods shown)' : 'Average'
   return (
     <div>
       <div
+        ref={boxRef}
         data-testid="txr-heatmap"
         style={SCROLL_BOX}
         onScroll={event => setScrollTop(event.currentTarget.scrollTop)}
       >
-        <table style={TABLE}>
-          <thead>
-            <tr>
-              <th scope="col" style={CORNER_HEADER}>
-                Patient
-              </th>
-              <th scope="col" style={AVERAGE_HEADER}>
-                Average
-              </th>
-              {columns.map(col => (
-                <th
-                  key={col.methodId}
-                  scope="col"
-                  title={col.methodId}
-                  style={METHOD_HEADER}
-                  data-testid={`txr-heatmap-header-${col.methodId}`}
-                >
-                  <span>{col.label}</span>
-                  <span style={METHOD_HEADER_LABEL}>{col.groupLabel}</span>
+        {totalCount === 0 ? (
+          // RES-06: a search with no match is its own message, never a bare
+          // empty table plus the "Showing 0 of 0 patients" scroll sentence.
+          <div
+            data-testid="txr-heatmap-empty"
+            style={{ padding: '18px 16px', fontSize: 13.5, color: '#3a3a3a' }}
+          >
+            No patient matches your search.
+          </div>
+        ) : (
+          <table style={TABLE}>
+            <thead>
+              <tr>
+                <th scope="col" style={CORNER_HEADER}>
+                  Patient
                 </th>
+                <th scope="col" style={AVERAGE_HEADER}>
+                  {averageHeader}
+                </th>
+                {columns.map(col => (
+                  <th
+                    key={col.methodId}
+                    scope="col"
+                    title={col.methodId}
+                    style={METHOD_HEADER}
+                    data-testid={`txr-heatmap-header-${col.methodId}`}
+                  >
+                    <span>{col.label}</span>
+                    <span style={METHOD_HEADER_LABEL}>{col.groupLabel}</span>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {topSpacer > 0 ? <SpacerRow key="top-spacer" height={topSpacer} colCount={colCount} /> : null}
+              {visibleRows.map(row => (
+                <HeatmapRow key={row.patientId} row={row} columns={columns} />
               ))}
-            </tr>
-          </thead>
-          <tbody>
-            {topSpacer > 0 ? <SpacerRow key="top-spacer" height={topSpacer} colCount={colCount} /> : null}
-            {visibleRows.map(row => (
-              <HeatmapRow key={row.patientId} row={row} columns={columns} />
-            ))}
-            {bottomSpacer > 0 ? <SpacerRow key="bottom-spacer" height={bottomSpacer} colCount={colCount} /> : null}
-          </tbody>
-        </table>
+              {bottomSpacer > 0 ? <SpacerRow key="bottom-spacer" height={bottomSpacer} colCount={colCount} /> : null}
+            </tbody>
+          </table>
+        )}
       </div>
       <div style={FOOTER}>
-        <span>
-          Showing {shownCount} of {totalCount} patients. Scroll sideways for more methods, down
-          for more patients; the first columns stay in view.
+        <span data-testid="txr-heatmap-footer">
+          {totalCount === 0
+            ? ''
+            : `Showing ${shownCount} of ${totalCount} patients.`}
+          {totalCount > 0
+            ? columnsOverflow
+              ? ' Scroll sideways for more methods, down for more patients; the first columns stay in view.'
+              : rowsOverflow
+                ? ' Scroll down for more patients.'
+                : ''
+            : ''}
         </span>
         {shownCount < totalCount ? (
           <Button

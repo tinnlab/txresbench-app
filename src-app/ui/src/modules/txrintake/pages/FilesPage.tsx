@@ -324,7 +324,7 @@ export function FilesPage() {
   }, [navigate])
 
   return (
-    <div style={PAGE_CONTAINER} data-testid="txr-intake-files">
+    <div role="main" style={PAGE_CONTAINER} data-testid="txr-intake-files">
       <div>
         <div style={STEP_LINE}>Step 3 of 4</div>
         <h1 style={TITLE}>Add your files</h1>

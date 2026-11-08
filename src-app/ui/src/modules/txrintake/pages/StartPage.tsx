@@ -267,7 +267,7 @@ export function StartPage() {
     import.meta.env.DEV
 
   return (
-    <div style={PAGE_CONTAINER}>
+    <div role="main" style={PAGE_CONTAINER}>
       <div>
         <div style={STEP_LINE}>Step 1 of 4</div>
         <h1 style={TITLE}>What do you want to do?</h1>

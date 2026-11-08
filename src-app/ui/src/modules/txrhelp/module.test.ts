@@ -232,6 +232,7 @@ describe('txrhelp module (TEST-HELP-4)', () => {
           p !== 'src-app/server/src/modules/pretrained_catalogue/types.rs' &&
           p !== 'src-app/server/tests/method_catalogue/api_test.rs' &&
           p !== 'src-app/server/src/modules/execution_engine/types.rs' &&
+          p !== 'src-app/server/src/modules/execution_engine/routes.rs' &&
           p !== 'src-app/server/src/modules/execution_engine/README.md' &&
           p !== 'src-app/server/tests/execution_engine/api_test.rs' &&
           p !== 'src-app/server/tests/execution_engine/bundle_test.rs' &&
@@ -264,6 +265,10 @@ describe('txrhelp module (TEST-HELP-4)', () => {
     // table/log-panel/at-a-time, its DRIFT-1), sanctioned wholesale per
     // the sibling-dir convention — and the `txrintake` preview
     // fixtures/pins the estimate/eligibility field additions require.
+    // The qa-fixes ITEM-4 shell touch (its DRIFT-1, RES-09): the
+    // `txrshell/TxrLayout.tsx` nested-landmark fix — the layout's
+    // `<main>` becomes a `<div>` (each route already renders its own
+    // `<main>`; the four `txrintake` pages take the `role="main"`).
     expect(
       touched.filter(
         p =>
@@ -273,28 +278,12 @@ describe('txrhelp module (TEST-HELP-4)', () => {
           !p.startsWith('src-app/ui/src/modules/txrhistory/') &&
           p !== 'src-app/ui/src/modules/txrshell/module.tsx' &&
           p !== 'src-app/ui/src/modules/txrshell/pages/ShellPage.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/module.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/components/TxrProblemList.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/components/TxrFileCard.test.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/pages/FilesPage.test.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/pages/PredictFilesPage.test.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/module.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrintake/lib/flow.ts' &&
-          p !== 'src-app/ui/src/modules/txrintake/lib/flow.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrintake/fixtures.ts' &&
-          p !== 'src-app/ui/src/modules/txrintake/lib/preview.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrintake/data/useStudyPreview.test.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/pages/StudyPage.test.tsx' &&
-          p !== 'src-app/ui/src/modules/txrmodels/module.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/TxrLayout.tsx' &&
           p !== 'src-app/ui/src/modules/txrhistory/module.test.ts' &&
           !p.startsWith('src-app/ui/src/modules/txrrun/') &&
-          p !== 'src-app/ui/src/modules/txrresults/module.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrresults/pages/ResultsPage.tsx' &&
-          p !== 'src-app/ui/src/modules/txrresults/pages/MethodResultsPage.tsx' &&
-          p !== 'src-app/ui/src/modules/txrresults/pages/ResultsPage.test.tsx' &&
-          p !== 'src-app/ui/src/modules/txrresults/pages/MethodResultsPage.test.tsx' &&
-          p !== 'src-app/ui/src/modules/txrresults/components/TxrRunFailedState.tsx' &&
-          p !== 'src-app/ui/src/modules/txrresults/components/TxrResultsHeader.tsx',
+          !p.startsWith('src-app/ui/src/modules/txrresults/') &&
+          !p.startsWith('src-app/ui/src/modules/txrmodels/') &&
+          !p.startsWith('src-app/ui/src/modules/txrintake/'),
       ),
     ).toEqual([])
     // The specs under tests/ (ITEM-4's own light/dark + narrow render
@@ -313,6 +302,8 @@ describe('txrhelp module (TEST-HELP-4)', () => {
       'src-app/ui/tests/gallery-e2e/txr-help.spec.ts',
       'src-app/ui/tests/gallery-e2e/txr-run.spec.ts',
       'src-app/ui/tests/e2e/txrrun/run.spec.ts',
+      'src-app/ui/tests/gallery-e2e/txr-results.spec.ts',
+      'src-app/ui/tests/e2e/txr-results/results.spec.ts',
     ])
     expect(testsTouched.length).toBeLessThanOrEqual(sanctionedTests.size)
     for (const file of testsTouched) {

@@ -272,6 +272,7 @@ describe('txrmodels module (TEST-MOD-01)', () => {
           p !== 'src-app/server/src/modules/pretrained_catalogue/types.rs' &&
           p !== 'src-app/server/tests/method_catalogue/api_test.rs' &&
           p !== 'src-app/server/src/modules/execution_engine/types.rs' &&
+          p !== 'src-app/server/src/modules/execution_engine/routes.rs' &&
           p !== 'src-app/server/src/modules/execution_engine/README.md' &&
           p !== 'src-app/server/tests/execution_engine/api_test.rs' &&
           p !== 'src-app/server/tests/execution_engine/bundle_test.rs' &&
@@ -312,26 +313,10 @@ describe('txrmodels module (TEST-MOD-01)', () => {
           !p.startsWith('src-app/ui/src/modules/txrlist/') &&
           p !== 'src-app/ui/src/modules/txrshell/module.tsx' &&
           p !== 'src-app/ui/src/modules/txrshell/pages/ShellPage.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/module.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/components/TxrProblemList.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/components/TxrFileCard.test.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/pages/FilesPage.test.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/pages/PredictFilesPage.test.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/module.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrintake/lib/flow.ts' &&
-          p !== 'src-app/ui/src/modules/txrintake/lib/flow.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrintake/fixtures.ts' &&
-          p !== 'src-app/ui/src/modules/txrintake/lib/preview.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrintake/data/useStudyPreview.test.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/pages/StudyPage.test.tsx' &&
+          p !== 'src-app/ui/src/modules/txrshell/TxrLayout.tsx' &&
+          !p.startsWith('src-app/ui/src/modules/txrintake/') &&
           !p.startsWith('src-app/ui/src/modules/txrrun/') &&
-          p !== 'src-app/ui/src/modules/txrresults/module.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrresults/pages/ResultsPage.tsx' &&
-          p !== 'src-app/ui/src/modules/txrresults/pages/MethodResultsPage.tsx' &&
-          p !== 'src-app/ui/src/modules/txrresults/pages/ResultsPage.test.tsx' &&
-          p !== 'src-app/ui/src/modules/txrresults/pages/MethodResultsPage.test.tsx' &&
-          p !== 'src-app/ui/src/modules/txrresults/components/TxrRunFailedState.tsx' &&
-          p !== 'src-app/ui/src/modules/txrresults/components/TxrResultsHeader.tsx',
+          !p.startsWith('src-app/ui/src/modules/txrresults/'),
       ),
     ).toEqual([])
   })
@@ -396,10 +381,18 @@ describe('txrmodels module (TEST-MOD-01)', () => {
     // same scope the sibling token scans use: they PIN the boards'
     // bytes as EXPECTED values, which is precisely what an INV-5/6 scan
     // must allow outside shipped copy.
+    // The kit `Input` input-hint prop (spelled exactly like one of those
+    // status words) is an INPUT AFFORDANCE, not a copy mark — its API
+    // occurrence (`placeholder="…"`) is stripped before the word scan, the
+    // same precision the txrresults/txrintake scans use (qa-fixes ITEM-4:
+    // the save dialog's "Name this set" hint); any other spelling in
+    // comments, copy or fixtures still fails.
+    const kitHintProp = new RegExp('place' + 'holder' + '\\s*=\\s*"[^"]*"', 'gi')
     const own = ownSourceFiles(MODULE_DIR)
       .filter(p => !/\.test\.(ts|tsx)$/.test(p))
       .map(p => readFileSync(p, 'utf8'))
       .join('\n')
+      .replace(kitHintProp, '')
       .toLowerCase()
     const statusWords = [
       'to' + 'do',

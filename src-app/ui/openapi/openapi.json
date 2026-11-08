@@ -23749,7 +23749,7 @@
             "const": "NOT_RUNNABLE"
           },
           {
-            "description": "The method has no published environment image for this computer (the\n app's env manifest carries no host-arch entry) — the run would fail at\n start with `ENV_UNKNOWN`, so the verdict names it in advance (the\n catalogue still lists the method; the environment is the missing\n half).",
+            "description": "The method has no published environment image for this computer (the\n app's env manifest carries no host-arch entry) — the run would fail at\n start, so the verdict names it in advance and the run row carries the\n SAME code (one vocabulary, CONS-EE-10; the catalogue still lists the\n method — the environment is the missing half).",
             "type": "string",
             "const": "ENV_IMAGE_MISSING"
           },
@@ -26353,6 +26353,10 @@
           "group_label": {
             "type": "string"
           },
+          "label": {
+            "description": "The column's display name (qa-fixes RES-05): the same `label` the run\n detail's method rows carry — for a reuse run that is the SAVED MODEL's\n name, never the model id's UUID.",
+            "type": "string"
+          },
           "method_id": {
             "type": "string"
           },
@@ -26384,6 +26388,7 @@
         },
         "required": [
           "method_id",
+          "label",
           "group",
           "group_label",
           "task",

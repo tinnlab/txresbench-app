@@ -23,13 +23,13 @@ import type { CSSProperties, ReactNode } from 'react'
 import { Button } from '@ziee/kit'
 import type { TxrCompareReport } from '../types'
 import {
-  COMPARE_CARD_TITLE,
   DIFFER_LEAD,
   DIFFER_NONE,
   DIVERGENT_TOGGLE,
   SHARED_TOP_LEAD,
   SHARED_TOP_NONE,
   SHARED_TOP_TAIL,
+  compareCardTitle,
 } from '../lib/format'
 
 const CARD: CSSProperties = {
@@ -120,15 +120,27 @@ function DifferSentence({
 export interface TxrCompareCardProps {
   /** ITEM-4's report over the view's first two columns (never empty in compare mode). */
   report: TxrCompareReport
+  /** The first compared method's display label (the card's title, RES-10). */
+  aLabel: string
+  /** The second compared method's display label (the card's title, RES-10). */
+  bLabel: string
   /** The divergent-only filter state (the store's `divergentOnly`). */
   divergentOnly: boolean
   onToggleDivergent: (on: boolean) => void
 }
 
-export function TxrCompareCard({ report, divergentOnly, onToggleDivergent }: TxrCompareCardProps) {
+export function TxrCompareCard({
+  report,
+  aLabel,
+  bLabel,
+  divergentOnly,
+  onToggleDivergent,
+}: TxrCompareCardProps) {
   return (
     <div data-testid="txr-compare-card" style={CARD}>
-      <div style={TITLE}>{COMPARE_CARD_TITLE}</div>
+      <div style={TITLE} data-testid="txr-compare-card-title">
+        {compareCardTitle(aLabel, bLabel)}
+      </div>
       <div style={SENTENCES}>
         <SharedTopSentence shared={report.sharedTop} />
         <DifferSentence differing={report.mostDiffering} />
@@ -137,6 +149,7 @@ export function TxrCompareCard({ report, divergentOnly, onToggleDivergent }: Txr
           variant="link"
           className="p-0"
           aria-pressed={divergentOnly}
+          disabled={report.divergentCount === 0}
           style={TOGGLE}
           onClick={() => onToggleDivergent(!divergentOnly)}
         >

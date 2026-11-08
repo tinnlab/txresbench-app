@@ -133,6 +133,7 @@ export function TxrBarsTable({
       render: (row: TxrHeatmapRow) => (
         <BarValue
           value01={row.cells[index] ?? null}
+          note={row.notes[index] ?? null}
           methodId={col.methodId}
           patientId={row.patientId}
         />
@@ -170,16 +171,22 @@ export function TxrBarsTable({
 
 function BarValue({
   value01,
+  note,
   methodId,
   patientId,
 }: {
   value01: number | null
+  note: string | null
   methodId: string
   patientId: string
 }) {
   const label = formatPct(value01 === null ? null : value01 * 100)
   return (
-    <div data-testid={`txr-bars-${methodId}`} style={BAR_ROW}>
+    <div
+      data-testid={`txr-bars-${methodId}`}
+      style={BAR_ROW}
+      title={value01 === null && note !== null ? note : undefined}
+    >
       <div style={{ flex: 1 }}>
         <Progress
           value={value01 === null ? 0 : value01 * 100}
@@ -189,7 +196,7 @@ function BarValue({
           className="w-full"
         />
       </div>
-      <span style={PERCENT}>{label ?? ''}</span>
+      <span style={PERCENT}>{value01 === null && note !== null ? '\u2013' : (label ?? '')}</span>
     </div>
   )
 }

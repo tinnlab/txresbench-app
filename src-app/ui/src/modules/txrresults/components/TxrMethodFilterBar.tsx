@@ -28,11 +28,15 @@
  * "Methods" (the select's aria-label "Which methods to show"; the option
  * labels "All N", "<Group> (<count>)", "Choose methods…" — method-group
  * labels + counts are data, the board's numbers are examples); the legend
- * reads "Chance of failure" + the alpha gradient + "0 to 100%".
+ * reads "Chance of failure" + the alpha gradient + "0 to 100%" on the pfs
+ * tab and the same board words for the other outcome tabs ("Chance of
+ * death", "Chance of no response" — RES-04: the no-response tab must never
+ * read "failure").
  */
 import type { CSSProperties } from 'react'
 import { Input, MultiSelect, Select } from '@ziee/kit'
-import type { TxrHeatmapColumn, TxrSortKey } from '../types'
+import type { TxrHeatmapColumn, TxrOutcomeKey, TxrSortKey } from '../types'
+import { LEGEND_LABEL } from '../lib/format'
 
 const ROW: CSSProperties = { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }
 const LABEL: CSSProperties = { fontSize: 13.5, display: 'flex', gap: 6, alignItems: 'center' }
@@ -67,6 +71,8 @@ export interface TxrMethodFilterBarProps {
   search: string
   /** The active "Sort by" option. */
   sort: TxrSortKey
+  /** The active outcome tab — the legend's "Chance of …" word (RES-04). */
+  outcome: TxrOutcomeKey
   onFilterChange: (filter: TxrMethodFilter | null) => void
   onSearchChange: (search: string) => void
   onSortChange: (sort: TxrSortKey) => void
@@ -122,6 +128,7 @@ export function TxrMethodFilterBar({
   filter,
   search,
   sort,
+  outcome,
   onFilterChange,
   onSearchChange,
   onSortChange,
@@ -186,7 +193,7 @@ export function TxrMethodFilterBar({
         />
       ) : null}
       <span data-testid="txr-results-legend" style={LEGEND}>
-        Chance of failure
+        {LEGEND_LABEL[outcome]}
         <span aria-hidden style={LEGEND_GRADIENT} />
         {' '}0 to 100%
       </span>

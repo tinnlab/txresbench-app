@@ -173,17 +173,23 @@ describe('txrresults module (TEST-UR-13)', () => {
     expect(touched.filter(p => p.startsWith('scripts/'))).toEqual([])
     expect(touched.filter(p => p.startsWith('src-app/ui/scripts/'))).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/package.json')).toEqual([])
-    // ONE shell exception (the sanctioned `/models` route handoff of the
-    // `feat/ui-models` item, recorded in its DRIFT-1 #8): the `txrmodels`
-    // module takes over the shell's `/models` scaffold route — the route
-    // block is removed from `txrshell/module.tsx` with the handoff
-    // comment. Nothing else in the shell moves.
+    // TWO shell exceptions. (i) The sanctioned `/models` route handoff of
+    // the `feat/ui-models` item (recorded in its DRIFT-1 #8): the
+    // `txrmodels` module takes over the shell's `/models` scaffold route —
+    // the route block is removed from `txrshell/module.tsx` with the
+    // handoff comment. (ii) The qa-fixes ITEM-4 RES-09 fix: the layout's
+    // `<main>` around every module's page becomes a `<div>` (the routes
+    // inside each already render their own `<main>` — the nested landmark
+    // named no ASI for screen readers); the four `txrintake` pages carry
+    // the `role="main"` on their own container instead. Nothing else in
+    // the shell moves.
     expect(
       touched.filter(
         p =>
           p.startsWith('src-app/ui/src/modules/txrshell/') &&
           p !== 'src-app/ui/src/modules/txrshell/module.tsx' &&
-          p !== 'src-app/ui/src/modules/txrshell/pages/ShellPage.tsx',
+          p !== 'src-app/ui/src/modules/txrshell/pages/ShellPage.tsx' &&
+          p !== 'src-app/ui/src/modules/txrshell/TxrLayout.tsx',
       ),
     ).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/src/modules/loader.ts')).toEqual([])
@@ -195,6 +201,11 @@ describe('txrresults module (TEST-UR-13)', () => {
     // integration tests whose ENV_UNKNOWN pins the one-vocabulary change
     // reclassifies (DRIFT-1 ITEM-2 #2) — pinned verbatim; anything else under
     // `src-app/server/` still fails.
+    // The qa-fixes ITEM-4 server half (its DRIFT-1): the predictions
+    // response grows the per-column `label` (the saved model's name for a
+    // reuse run) and resolves its group label through that name — the
+    // execution_engine `types.rs` (again, ITEM-2's file) + `routes.rs`.
+    // Nothing else under `src-app/server/` moves.
     expect(
       touched.filter(
         p =>
@@ -208,6 +219,7 @@ describe('txrresults module (TEST-UR-13)', () => {
           p !== 'src-app/server/src/modules/pretrained_catalogue/types.rs' &&
           p !== 'src-app/server/tests/method_catalogue/api_test.rs' &&
           p !== 'src-app/server/src/modules/execution_engine/types.rs' &&
+          p !== 'src-app/server/src/modules/execution_engine/routes.rs' &&
           p !== 'src-app/server/src/modules/execution_engine/README.md' &&
           p !== 'src-app/server/tests/execution_engine/api_test.rs' &&
           p !== 'src-app/server/tests/execution_engine/bundle_test.rs' &&

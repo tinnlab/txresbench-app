@@ -366,7 +366,7 @@ export function PredictFilesPage() {
   }, [navigate, intent])
 
   return (
-    <div style={PAGE_CONTAINER} data-testid="txr-intake-predict-files">
+    <div role="main" style={PAGE_CONTAINER} data-testid="txr-intake-predict-files">
       <div style={MAIN_COLUMN}>
         <div>
           <div style={STEP_LINE}>Step 3 of 4</div>

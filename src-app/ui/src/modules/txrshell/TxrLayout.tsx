@@ -110,9 +110,14 @@ export function TxrShell({ children }: { children: ReactNode }) {
           </Link>
         </div>
       </header>
-      <main style={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+      {/* The routed area is a plain flex frame, NOT a second <main> (qa-fixes
+          RES-09): every page owns its own main landmark (txrresults,
+          txrhistory, txrmodels, txrrun, txrhelp, and the txrintake pages'
+          role="main" containers) — the layout's main would nest two document
+          landmarks per page. */}
+      <div style={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
         {children}
-      </main>
+      </div>
     </div>
   )
 }

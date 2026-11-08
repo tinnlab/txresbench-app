@@ -15,6 +15,7 @@ import { TxrOutcomeTabs } from '../components/TxrOutcomeTabs'
 import { TxrMethodFilterBar } from '../components/TxrMethodFilterBar'
 import { TxrHeatmapTable } from '../components/TxrHeatmapTable'
 import { TxrLogDialog } from '../components/TxrLogDialog'
+import { formatConstantNote, formatMixedOutcomeNote } from '../lib/format'
 
 /**
  * Screen G — the run's predictions (board `BusyResults.dc.html`): the
@@ -199,6 +200,26 @@ export function ResultsPage() {
         : null,
     [allColumns, predictions, outcomeTab, methodFilter, search, sort, patientLimit],
   )
+  // The plain-voice notes (RES-03/04): a constant column is named, and a
+  // mixed run's hidden tasks are counted — the "6 of 6 methods" header next
+  // to an "All 5" picker never goes unexplained.
+  const constantNote = useMemo(
+    () => (view ? formatConstantNote(view.columns) : null),
+    [view],
+  )
+  const mixedNote = useMemo(
+    () =>
+      view
+        ? formatMixedOutcomeNote(
+            view.columns.length,
+            allColumns.length,
+            allColumns
+              .filter(c => c.task !== outcomeTab)
+              .map(c => ({ key: c.task, day: c.task === 'response' ? (labelDay ?? horizon) : horizon })),
+          )
+        : null,
+    [view, allColumns, outcomeTab, horizon, labelDay],
+  )
 
   if (runError === 'not-found') {
     return (
@@ -315,12 +336,23 @@ export function ResultsPage() {
           filter={methodFilter}
           search={search}
           sort={sort}
+          outcome={outcomeTab}
           onFilterChange={filter => TxrResults.setMethodFilter(filter)}
           onSearchChange={value => TxrResults.setSearch(value)}
           onSortChange={value => TxrResults.setSort(value)}
         />
       </div>
       <TxrHeatmapTable view={view} onShowAll={() => TxrResults.setPatientLimit(-1)} />
+      {mixedNote !== null ? (
+        <p data-testid="txr-results-mixed-note" style={{ margin: 0, fontSize: 13.5, color: '#3a3a3a' }}>
+          {mixedNote}
+        </p>
+      ) : null}
+      {constantNote !== null ? (
+        <p data-testid="txr-results-constant-note" style={{ margin: 0, fontSize: 13.5, color: '#3a3a3a' }}>
+          {constantNote}
+        </p>
+      ) : null}
       <TxrLogDialog />
     </main>
   )

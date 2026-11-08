@@ -6396,6 +6396,12 @@ export interface TxrPredictionMethod {
   coverage: TxrCoverage
   group: string
   group_label: string
+  /**
+   * The column's display name (qa-fixes RES-05): the same `label` the run
+   *  detail's method rows carry — for a reuse run that is the SAVED MODEL's
+   *  name, never the model id's UUID.
+   */
+  label: string
   method_id: string
   notes: string | null[]
   prob_source: TxrProbSource

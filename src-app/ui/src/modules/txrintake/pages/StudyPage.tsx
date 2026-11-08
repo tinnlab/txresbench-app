@@ -293,7 +293,7 @@ export function StudyPage() {
   const hasMoreExcluded = excluded.length > EXCLUDED_LIST_LIMIT
 
   return (
-    <div style={PAGE_CONTAINER} data-testid="txr-intake-study">
+    <div role="main" style={PAGE_CONTAINER} data-testid="txr-intake-study">
       <div style={COLUMNS}>
         <section style={LEFT_COLUMN}>
           <div>

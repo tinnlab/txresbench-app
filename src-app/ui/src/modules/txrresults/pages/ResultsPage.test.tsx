@@ -177,6 +177,7 @@ function methodColumn(
   const dynamic = index !== 1
   return {
     method_id: methodId,
+    label: methodId,
     group: dynamic ? 'dynamic-risk' : 'static-risk',
     group_label: dynamic ? 'Dynamic risk' : 'Static risk',
     task: 'pfs',

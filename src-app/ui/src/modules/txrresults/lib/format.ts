@@ -63,6 +63,27 @@ export const DIFFER_NONE = 'They do not differ for any patient'
 /** The divergent-only toggle label (`Results.dc.html`, verbatim). */
 export const DIVERGENT_TOGGLE = 'Show only the patients where they differ'
 
+/**
+ * The compare-card title names the two methods it compares (qa-fixes
+ * RES-10 — the board's "How the two methods compare" never says WHICH two):
+ * "How landmark-cox-current and cox-cutpoint-risk compare".
+ */
+export function compareCardTitle(aLabel: string, bLabel: string): string {
+  return `How ${aLabel} and ${bLabel} compare`
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The legend label (qa-fixes RES-04 — the board's "Chance of failure" is the
+// pfs reading; the third outcome's tab must not read "failure")
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The heatmap legend's label per outcome tab (the board's pfs words verbatim). */
+export const LEGEND_LABEL: Record<TxrOutcomeKey, string> = {
+  pfs: 'Chance of failure',
+  os: 'Chance of death',
+  response: 'Chance of no response',
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // `formatTook` — the subtitle's "took 11 minutes 20 seconds" duration
 // ─────────────────────────────────────────────────────────────────────────────
@@ -326,4 +347,98 @@ export function formatDifferSentence(
   })
   if (parts.length === 0) return `${DIFFER_NONE}.`
   return `${DIFFER_LEAD} ${parts.join(' and ')}.`
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// qa-fixes ITEM-4 — the plain-voice notes (board-less states, RES-03/04)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** One hidden task in the mixed-outcome note (qa-fixes RES-04). */
+export interface TxrOutcomeNoteTask {
+  key: TxrOutcomeKey
+  /** The day the task's label spells (the response tab's label-day rule). */
+  day: number
+}
+
+/** The first letter lowercase — a task label embedded mid-sentence. */
+function lowerFirst(text: string): string {
+  return text.length === 0 ? text : text[0].toLowerCase() + text.slice(1)
+}
+
+/**
+ * The mixed-outcome note (qa-fixes RES-04): when the active outcome tab
+ * hides finished methods of another task, the screen says so plainly —
+ * "Showing the 5 of 6 finished methods on this tab; the other 1 predicts no
+ * response by day 30 and is shown on its own tab." Null when every finished
+ * method is on the tab. The sentence is the app's plain voice (the boards
+ * never show a mixed run); the labels are `formatTaskLabel`'s.
+ */
+export function formatMixedOutcomeNote(
+  visible: number,
+  total: number,
+  hidden: TxrOutcomeNoteTask[],
+): string | null {
+  if (hidden.length === 0) return null
+  const byKey = new Map<TxrOutcomeKey, TxrOutcomeNoteTask>()
+  for (const task of hidden) {
+    if (!byKey.has(task.key)) byKey.set(task.key, task)
+  }
+  const labels = [...byKey.values()]
+    .map(task => lowerFirst(formatTaskLabel(task.key, task.day)))
+    .sort()
+  const tail =
+    hidden.length === 1
+      ? 'and is shown on its own tab.'
+      : 'and are shown on their own tabs.'
+  const verb = hidden.length === 1 ? 'predicts' : 'predict'
+  return `Showing the ${visible} of ${total} finished methods on this tab; the other ${hidden.length} ${verb} ${labels.join(' or ')} ${tail}`
+}
+
+/**
+ * The constant-column note (qa-fixes RES-03): "N methods gave the same chance
+ * (0%) for every patient." — the screen never leaves a wall of identical
+ * percents unexplained. The values are the columns' common 0–1 values as the
+ * display's whole percents, distinct and ascending; null when nothing is
+ * constant.
+ */
+export function formatConstantNote(
+  columns: ReadonlyArray<{ constantValue: number | null }>,
+): string | null {
+  const constants = columns.filter(c => c.constantValue !== null)
+  if (constants.length === 0) return null
+  const values = [
+    ...new Set(constants.map(c => formatPct((c.constantValue as number) * 100) ?? '')),
+  ].sort()
+  const valueText = values.length === 1 ? values[0] : values.join(' and ')
+  const verb = constants.length === 1 ? 'method gave' : 'methods gave'
+  return `${constants.length} ${verb} the same chance (${valueText}) for every patient.`
+}
+
+/**
+ * The H method-facts card's coverage line (qa-fixes RES-11): "Scored for 68
+ * of 94 patients" — the coverage record counts null when the column carries
+ * none.
+ */
+export function formatCoverage(
+  scored: number | null,
+  eligible: number | null,
+): string | null {
+  if (scored === null || eligible === null || !Number.isFinite(scored) || !Number.isFinite(eligible)) {
+    return null
+  }
+  return `Scored for ${scored} of ${eligible} ${eligible === 1 ? 'patient' : 'patients'}`
+}
+
+/** The prob-source sentence of the method facts card (qa-fixes RES-11/05). */
+export function formatProbSourceLine(
+  source: 'native' | 'recalibrated' | null,
+): string {
+  switch (source) {
+    case 'native':
+      return "The chances are the method's own estimates, as it was trained."
+    case 'recalibrated':
+      return 'The chances were recalibrated on your patients before being shown.'
+    case null:
+      return 'No chances are shown: this predict-only reuse has no training data to convert the scores into chances.'
+  }
 }

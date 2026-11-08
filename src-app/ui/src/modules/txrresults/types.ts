@@ -29,10 +29,14 @@ export type TxrOutcomeKey = 'pfs' | 'os' | 'response'
 export type TxrSortKey = 'average-desc' | 'disagree' | 'patient'
 
 /**
- * One finished method's heatmap column. `label` is the method's catalogue id
- * (the mono column header); `group`/`groupLabel` feed the filter bar's group
- * options and the header sublabel. `coverage` is the engine's per-patient
- * coverage record, `null` when the method carried none.
+ * One finished method's heatmap column. `label` is the column's display name
+ * (the provider's per-method `label` — the catalogue id for a train run, the
+ * SAVED MODEL's name for a reuse run, qa-fixes RES-05); `group`/`groupLabel`
+ * feed the filter bar's group options and the header sublabel. `coverage` is
+ * the engine's per-patient coverage record, `null` when the method carried
+ * none. `constantValue` is the 0–1 value the column gives EVERY patient
+ * (null when the column varies or has no value at all — a "gave one chance
+ * for everyone" flag, qa-fixes RES-03).
  */
 export interface TxrHeatmapColumn {
   methodId: string
@@ -45,6 +49,7 @@ export interface TxrHeatmapColumn {
   /** Aligned to `values`: a null value is an abstain, its note is the aligned entry. */
   values: (number | null)[]
   notes: (string | null)[]
+  constantValue: number | null
 }
 
 /**

@@ -178,17 +178,23 @@ describe('txrrun module (TEST-RUN-01)', () => {
     expect(touched.filter(p => p.startsWith('scripts/'))).toEqual([])
     expect(touched.filter(p => p.startsWith('src-app/ui/scripts/'))).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/package.json')).toEqual([])
-    // ONE shell exception (the sanctioned `/models` route handoff): the
-    // `txrmodels` module takes over the shell's `/models` scaffold route —
-    // the route block is removed from `txrshell/module.tsx` with the
-    // handoff comment (that module's own test pins the diff). Nothing else
-    // in the shell moves.
+    // TWO shell exceptions. (i) The sanctioned `/models` route handoff of
+    // the `feat/ui-models` item: the `txrmodels` module takes over the
+    // shell's `/models` scaffold route — the route block is removed from
+    // `txrshell/module.tsx` with the handoff comment (that module's own
+    // test pins the diff). (ii) The qa-fixes ITEM-4 RES-09 fix: the
+    // layout's `<main>` around every module's page becomes a `<div>` (the
+    // routes inside each already render their own `<main>` — the nested
+    // landmark named no ASI for screen readers); the four `txrintake`
+    // pages carry the `role="main"` on their own container instead.
+    // Nothing else in the shell moves.
     expect(
       touched.filter(
         p =>
           p.startsWith('src-app/ui/src/modules/txrshell/') &&
           p !== 'src-app/ui/src/modules/txrshell/module.tsx' &&
-          p !== 'src-app/ui/src/modules/txrshell/pages/ShellPage.tsx',
+          p !== 'src-app/ui/src/modules/txrshell/pages/ShellPage.tsx' &&
+          p !== 'src-app/ui/src/modules/txrshell/TxrLayout.tsx',
       ),
     ).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/src/modules/loader.ts')).toEqual([])
@@ -213,6 +219,7 @@ describe('txrrun module (TEST-RUN-01)', () => {
           p !== 'src-app/server/src/modules/pretrained_catalogue/types.rs' &&
           p !== 'src-app/server/tests/method_catalogue/api_test.rs' &&
           p !== 'src-app/server/src/modules/execution_engine/types.rs' &&
+          p !== 'src-app/server/src/modules/execution_engine/routes.rs' &&
           p !== 'src-app/server/src/modules/execution_engine/README.md' &&
           p !== 'src-app/server/tests/execution_engine/api_test.rs' &&
           p !== 'src-app/server/tests/execution_engine/bundle_test.rs' &&
@@ -259,27 +266,11 @@ describe('txrrun module (TEST-RUN-01)', () => {
           !p.startsWith('src-app/ui/src/modules/txrmodels/') &&
           !p.startsWith('src-app/ui/src/modules/txrhistory/') &&
           !p.startsWith('src-app/ui/src/modules/txrhelp/') &&
-          p !== 'src-app/ui/src/modules/txrintake/module.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/components/TxrProblemList.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/components/TxrFileCard.test.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/pages/FilesPage.test.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/pages/PredictFilesPage.test.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/module.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrintake/lib/flow.ts' &&
-          p !== 'src-app/ui/src/modules/txrintake/lib/flow.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrintake/fixtures.ts' &&
-          p !== 'src-app/ui/src/modules/txrintake/lib/preview.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrintake/data/useStudyPreview.test.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/pages/StudyPage.test.tsx' &&
-          p !== 'src-app/ui/src/modules/txrresults/module.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrresults/pages/ResultsPage.tsx' &&
-          p !== 'src-app/ui/src/modules/txrresults/pages/MethodResultsPage.tsx' &&
-          p !== 'src-app/ui/src/modules/txrresults/pages/ResultsPage.test.tsx' &&
-          p !== 'src-app/ui/src/modules/txrresults/pages/MethodResultsPage.test.tsx' &&
-          p !== 'src-app/ui/src/modules/txrresults/components/TxrRunFailedState.tsx' &&
-          p !== 'src-app/ui/src/modules/txrresults/components/TxrResultsHeader.tsx' &&
+          !p.startsWith('src-app/ui/src/modules/txrintake/') &&
+          !p.startsWith('src-app/ui/src/modules/txrresults/') &&
           p !== 'src-app/ui/src/modules/txrshell/module.tsx' &&
-          p !== 'src-app/ui/src/modules/txrshell/pages/ShellPage.tsx',
+          p !== 'src-app/ui/src/modules/txrshell/pages/ShellPage.tsx' &&
+          p !== 'src-app/ui/src/modules/txrshell/TxrLayout.tsx',
       ),
     ).toEqual([])
   })

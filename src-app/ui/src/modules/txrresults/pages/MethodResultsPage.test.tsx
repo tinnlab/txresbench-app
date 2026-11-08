@@ -197,6 +197,7 @@ function methodColumn(
 ): TxrPredictionsResponse['methods'][number] {
   return {
     method_id: methodId,
+    label: methodId,
     group,
     group_label: group === 'response-risk' ? 'Response risk' : 'Survival',
     task,
@@ -332,7 +333,7 @@ describe('MethodResultsPage (TEST-UR-7 — the H screen)', () => {
     expect(document.querySelector('[data-testid="txr-results-open-folder"]')).toBeNull()
   })
 
-  it('selects the active method tab from the URL segment (compare / method / unknown fallback, no crash)', async () => {
+  it('selects the active method tab from the URL segment (compare / method / unknown method, no crash)', async () => {
     const view = await renderLoaded()
     expect(activeOf('txr-results-method-tab-compare')).toBe('active')
 
@@ -341,11 +342,29 @@ describe('MethodResultsPage (TEST-UR-7 — the H screen)', () => {
     expect(activeOf('txr-results-method-tab-lm-cox-a')).toBe('active')
     expect(activeOf('txr-results-method-tab-compare')).toBe('inactive')
     expect(one.queryByTestId('txr-compare-card')).toBeNull()
+    // a one-method tab is its own view: ONE column, no outcome tabs, the
+    // method's own heading + facts card (RES-11). The per-row value boxes
+    // repeat the column id (one per patient), so the count asserts the
+    // column's presence/absence.
+    expect(one.queryAllByTestId('txr-bars-lm-cox-a').length).toBeGreaterThan(0)
+    expect(one.queryAllByTestId('txr-bars-lm-cox-b')).toHaveLength(0)
+    expect(one.queryByTestId('txr-results-outcome')).toBeNull()
+    expect(one.getByTestId('txr-results-method-heading').textContent).toContain('lm-cox-a')
+    expect(one.getByTestId('txr-results-method-facts')).toBeTruthy()
 
     cleanup()
-    const fallback = await renderLoaded('/analysis/run-1/results/methods/no-such-method')
-    expect(activeOf('txr-results-method-tab-compare')).toBe('active')
-    expect(fallback.getByTestId('txr-results-method')).toBeTruthy()
+    // The not-found state carries no tablist (the method tabs belong to a
+    // finished method of this run) — `renderLoaded` waits on the tablist, so
+    // its poller would time out here; the missing route waits on its own
+    // state block instead.
+    const missing = renderPage('/analysis/run-1/results/methods/no-such-method')
+    await waitFor(() => {
+      expect(missing.getByTestId('txr-results-method-not-found')).toBeTruthy()
+    })
+    expect(missing.queryByTestId('txr-results-method')).toBeNull()
+    expect(missing.getByTestId('txr-results-method-not-found').textContent).toContain(
+      'This method could not be found in this run',
+    )
   })
 
   it('navigates through the path builders on a tab click (compare ↔ method)', async () => {

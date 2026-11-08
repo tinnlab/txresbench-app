@@ -25,16 +25,22 @@ import {
   DIFFER_NONE,
   DIVERGENCE_PP,
   DIVERGENT_TOGGLE,
+  LEGEND_LABEL,
   REASON_FALLBACK,
   SHARED_TOP_LEAD,
   SHARED_TOP_NONE,
   SHARED_TOP_TAIL,
+  compareCardTitle,
+  formatConstantNote,
   formatCounts,
+  formatCoverage,
   formatDecisionDay,
   formatDifferSentence,
   formatLearnedFrom,
+  formatMixedOutcomeNote,
   formatPatientList,
   formatPct,
+  formatProbSourceLine,
   formatReasonText,
   formatSavedIn,
   formatSharedTopSentence,
@@ -258,5 +264,67 @@ describe('the compare-card copy constants and sentence builders (DEC-7)', () => 
     )
     expect(formatSharedTopSentence([])).toBe(`${SHARED_TOP_NONE}.`)
     expect(formatDifferSentence([])).toBe(`${DIFFER_NONE}.`)
+  })
+})
+
+describe('qa-fixes ITEM-4 — the names, legend and plain-voice notes (RES-03/04/10)', () => {
+  it('names the two methods in the compare-card title (RES-10)', () => {
+    expect(compareCardTitle('landmark-cox-current', 'cox-cutpoint-risk')).toBe(
+      'How landmark-cox-current and cox-cutpoint-risk compare',
+    )
+  })
+
+  it('spells the legend per outcome tab (RES-04: the no-response tab never reads "failure")', () => {
+    expect(LEGEND_LABEL.pfs).toBe('Chance of failure')
+    expect(LEGEND_LABEL.os).toBe('Chance of death')
+    expect(LEGEND_LABEL.response).toBe('Chance of no response')
+  })
+
+  it('builds the mixed-outcome note (RES-04) with the hidden tasks named and counted', () => {
+    expect(
+      formatMixedOutcomeNote(5, 6, [{ key: 'response', day: 30 }]),
+    ).toBe(
+      'Showing the 5 of 6 finished methods on this tab; the other 1 predicts no response by day 30 and is shown on its own tab.',
+    )
+    expect(
+      formatMixedOutcomeNote(4, 6, [
+        { key: 'response', day: 30 },
+        { key: 'os', day: 238 },
+      ]),
+    ).toBe(
+      'Showing the 4 of 6 finished methods on this tab; the other 2 predict death by day 238 or no response by day 30 and are shown on their own tabs.',
+    )
+    expect(formatMixedOutcomeNote(6, 6, [])).toBeNull()
+  })
+
+  it('names a constant column plainly (RES-03), one value or a set, and nothing when none is constant', () => {
+    expect(
+      formatConstantNote([
+        { constantValue: 0 },
+        { constantValue: 0 },
+        { constantValue: 0.865 },
+        { constantValue: null },
+      ]),
+    ).toBe('3 methods gave the same chance (0% and 87%) for every patient.')
+    expect(formatConstantNote([{ constantValue: 0 }])).toBe(
+      '1 method gave the same chance (0%) for every patient.',
+    )
+    expect(formatConstantNote([{ constantValue: null }, { constantValue: null }])).toBeNull()
+    expect(formatConstantNote([])).toBeNull()
+  })
+
+  it('formats the coverage line (RES-11) and the prob-source sentence (RES-11/05)', () => {
+    expect(formatCoverage(68, 94)).toBe('Scored for 68 of 94 patients')
+    expect(formatCoverage(1, 1)).toBe('Scored for 1 of 1 patient')
+    expect(formatCoverage(null, 94)).toBeNull()
+    expect(formatProbSourceLine('native')).toBe(
+      "The chances are the method's own estimates, as it was trained.",
+    )
+    expect(formatProbSourceLine('recalibrated')).toBe(
+      'The chances were recalibrated on your patients before being shown.',
+    )
+    expect(formatProbSourceLine(null)).toBe(
+      'No chances are shown: this predict-only reuse has no training data to convert the scores into chances.',
+    )
   })
 })

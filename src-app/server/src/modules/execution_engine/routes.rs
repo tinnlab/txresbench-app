@@ -995,11 +995,19 @@ fn assemble_predictions(
             probabilities[slot] = p;
             notes[slot] = n;
         }
+        // The group label: the catalogue fact for the row's method id first
+        // (the train case), then for the row's LABEL — a reuse run's
+        // method_id is the model's UUID while its label is the model's name
+        // (an app-manifest id) — else the raw group id (a renamed model or a
+        // method removed from the catalogue after the run still renders —
+        // qa-fixes RES-05).
         let group_label = envmanifest::facts_for(&m.method_id)
+            .or_else(|| envmanifest::facts_for(&m.label))
             .map(|f| f.group_label.clone())
             .unwrap_or_else(|| m.group.clone());
         methods_out.push(TxrPredictionMethod {
             method_id: m.method_id.clone(),
+            label: m.label.clone(),
             group: m.group.clone(),
             group_label,
             task: match m.task.as_deref() {
@@ -1448,6 +1456,39 @@ mod tests {
         assert_eq!(methods.len(), 1);
         assert_eq!(methods[0].method_id, "m-first");
         assert_eq!(patients, vec!["P9"]);
+        let _ = std::fs::remove_dir_all(&run_dir);
+    }
+
+    /// qa-fixes RES-05: a reuse run's column is headed by the SAVED MODEL's
+    /// NAME (the row's `label`), never the model id's UUID, and its group
+    /// label is the catalogue's human label resolved through that name.
+    #[test]
+    fn predictions_assembly_labels_a_reuse_column_with_the_model_name() {
+        let run_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/txr-execution-engine-item10/reuse-label")
+            .join(uuid::Uuid::new_v4().simple().to_string());
+        super::super::predictions::write_chance_column(
+            &run_dir,
+            "57519b29-fc69-4797-b38f-5822ae9dea91",
+            &[super::super::predictions::PredictionRow {
+                patient_id: "INS-A-002".into(),
+                risk: Some(2.0),
+                probability: Some(0.0),
+                note: String::new(),
+            }],
+        )
+        .expect("writes");
+        let mut reuse_row =
+            method_row("57519b29-fc69-4797-b38f-5822ae9dea91", "pfs", "native", 1, 1);
+        // A reuse run's method row carries the model's name in `label`
+        // (repository.rs), while `method_id` is the resolved model's UUID.
+        reuse_row.label = "cfmedip-ctdna-clearance-three-group".to_string();
+        reuse_row.group = "response-call".to_string();
+        let (_, methods) = assemble_predictions(&run_dir, &[reuse_row]);
+        assert_eq!(methods.len(), 1);
+        assert_eq!(methods[0].method_id, "57519b29-fc69-4797-b38f-5822ae9dea91");
+        assert_eq!(methods[0].label, "cfmedip-ctdna-clearance-three-group");
+        assert_eq!(methods[0].group_label, "Response call");
         let _ = std::fs::remove_dir_all(&run_dir);
     }
 }

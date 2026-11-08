@@ -190,6 +190,7 @@ function predictionsFixture(): TxrPredictionsResponse {
     patients: [...PATIENTS],
     methods: FINISHED_IDS.map((id, index) => ({
       method_id: id,
+      label: id,
       group: groupOf(index).group,
       group_label: groupOf(index).group_label,
       task: groupOf(index).task,
@@ -487,6 +488,7 @@ describe('TxrMethodFilterBar (TEST-UR-4 — search, sort, methods picker, legend
         filter={null}
         search=""
         sort="average-desc"
+        outcome="pfs"
         onFilterChange={vi.fn()}
         onSearchChange={onSearchChange}
         onSortChange={vi.fn()}
@@ -510,6 +512,7 @@ describe('TxrMethodFilterBar (TEST-UR-4 — search, sort, methods picker, legend
         filter={null}
         search=""
         sort="average-desc"
+        outcome="pfs"
         onFilterChange={vi.fn()}
         onSearchChange={vi.fn()}
         onSortChange={onSortChange}
@@ -539,6 +542,7 @@ describe('TxrMethodFilterBar (TEST-UR-4 — search, sort, methods picker, legend
         filter={null}
         search=""
         sort="average-desc"
+        outcome="pfs"
         onFilterChange={vi.fn()}
         onSearchChange={vi.fn()}
         onSortChange={vi.fn()}
@@ -568,6 +572,7 @@ describe('TxrMethodFilterBar (TEST-UR-4 — search, sort, methods picker, legend
         filter={null}
         search=""
         sort="average-desc"
+        outcome="pfs"
         onFilterChange={onFilterChange}
         onSearchChange={vi.fn()}
         onSortChange={vi.fn()}
@@ -589,6 +594,7 @@ describe('TxrMethodFilterBar (TEST-UR-4 — search, sort, methods picker, legend
         filter={{ groups: ['dynamic-risk'], methodIds: [] }}
         search=""
         sort="average-desc"
+        outcome="pfs"
         onFilterChange={onFilterChange}
         onSearchChange={vi.fn()}
         onSortChange={vi.fn()}
@@ -606,6 +612,7 @@ describe('TxrMethodFilterBar (TEST-UR-4 — search, sort, methods picker, legend
         filter={{ groups: [], methodIds: [] }}
         search=""
         sort="average-desc"
+        outcome="pfs"
         onFilterChange={onFilterChange}
         onSearchChange={vi.fn()}
         onSortChange={vi.fn()}
@@ -650,6 +657,7 @@ describe('TxrMethodFilterBar (TEST-UR-4 — search, sort, methods picker, legend
         filter={{ groups: [], methodIds: [FINISHED_IDS[0]] }}
         search=""
         sort="average-desc"
+        outcome="pfs"
         onFilterChange={onFilterChange}
         onSearchChange={vi.fn()}
         onSortChange={vi.fn()}
@@ -667,6 +675,7 @@ describe('TxrMethodFilterBar (TEST-UR-4 — search, sort, methods picker, legend
         filter={{ groups: [], methodIds: [] }}
         search=""
         sort="average-desc"
+        outcome="pfs"
         onFilterChange={vi.fn()}
         onSearchChange={vi.fn()}
         onSortChange={vi.fn()}
@@ -697,6 +706,7 @@ describe('the 0–100% legend (TEST-UR-4 — board copy)', () => {
         filter={null}
         search=""
         sort="average-desc"
+        outcome="pfs"
         onFilterChange={vi.fn()}
         onSearchChange={vi.fn()}
         onSortChange={vi.fn()}
