@@ -712,6 +712,12 @@ pub fn task_compatibility(tasks: &[String], outcomes: &FileOutcomes) -> Option<R
     let has_survival = outcomes.has_event && outcomes.has_survival_day;
     let task_response = tasks.iter().any(|t| t.eq_ignore_ascii_case("response"));
     let task_survival = tasks.iter().any(|t| t.eq_ignore_ascii_case("survival"));
+    // No declared task = any outcome the file carries (the docstring above;
+    // the owner's 2026-10-20 rule — task/endpoint are not part of a run,
+    // every method runs on every outcome the table supports).
+    if tasks.is_empty() {
+        return None;
+    }
     if task_response && !has_response {
         Some(ReasonCode::ResponseLabelMissing)
     } else if task_survival && !has_survival {
@@ -2528,8 +2534,9 @@ mod tests {
             Some(ReasonCode::SurvivalOutcomeMissing)
         );
         // Tasks that name no outcome kind the file has are the mismatch — the
-        // provider's own odd-task case (and its task-less real-data verdict:
-        // a method with no declared task covers no file outcome).
+        // provider's own odd-task case. A task spelling that names no outcome
+        // kind ("none"-family words) on an outcome-carrying file IS the
+        // mismatch.
         let odd = vec!["none".to_string()];
         assert_eq!(
             task_compatibility(&odd, &resp_only),
@@ -2539,16 +2546,16 @@ mod tests {
         assert_eq!(task_compatibility(&response, &outcomes(true, true, true, true)), None);
         assert_eq!(task_compatibility(&survival, &outcomes(true, true, true, true)), None);
         assert_eq!(task_compatibility(&response, &resp_only), None);
-        // No declared task: the same verdict the eligibility engine gives on
-        // an outcome-carrying file (one truth table, one vocabulary).
-        assert_eq!(
-            task_compatibility(&none, &surv_only),
-            Some(ReasonCode::TaskIncompatible)
-        );
+        // No declared task = any outcome the file carries: both an
+        // outcome-carrying file and a partial one are compatible (the
+        // owner's task-less rule — the same verdict the eligibility engine
+        // gives; one truth table, one vocabulary).
+        assert_eq!(task_compatibility(&none, &surv_only), None);
         assert_eq!(
             task_compatibility(&none, &outcomes(true, true, true, true)),
-            Some(ReasonCode::TaskIncompatible)
+            None
         );
+        assert_eq!(task_compatibility(&none, &outcomes(false, false, false, false)), None);
     }
 
     #[test]

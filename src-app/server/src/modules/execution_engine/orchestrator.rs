@@ -4851,8 +4851,10 @@ mod tests {
         assert!(bayes.cannot_run);
         assert_eq!(
             bayes.reason.as_ref().map(|r| r.code.as_str()),
-            Some("TASK_INCOMPATIBLE"),
-            "the provider's code verbatim (task-less method on an outcome file)"
+            Some("ENV_UNKNOWN"),
+            "task-less method is compatible with the file's outcomes (owner rule 2026-10-20) \
+             but has no published environment — the cannot-run reason is the env entry, never \
+             a task mismatch"
         );
     }
 
