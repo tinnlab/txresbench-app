@@ -1,19 +1,21 @@
 // @vitest-environment jsdom
 /**
- * TEST-HELP-3 — the Help page render (ITEM-4, TEST-QA-4): every section and
- * every problem-code entry renders, the TOC links every anchor it names, the
- * deep link scrolls to its entry, and the page carries the code entries the
- * intake problems list links to.
+ * TEST-HELP-3 — the Help page render (qa-fixes2 ITEM-3, TEST-QF2-2): one h1,
+ * every section and every problem-code entry renders, the TOC links every
+ * anchor it names, the deep link scrolls to its entry AND expands it, the
+ * quick-start row + status vocabulary + file cards render, the search
+ * filters and restores, the no-results state clears, and the document title
+ * is "Help — TxResBench".
  *
  * The page is router-bound (`Link` + `useLocation`), so the tests render it
  * under a MemoryRouter; `scrollIntoView` does not exist in jsdom and is
- * stubbed (the scroll behavior itself is asserted only in the browser spec
- * — the gallery test drives the real element scroll).
+ * stubbed (the scroll behaviour itself is asserted in the browser spec — the
+ * gallery test drives the real element scroll and the measured layout).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { HELP_SECTIONS, PROBLEM_HELP } from '../content'
+import { HELP_SECTIONS, PROBLEM_HELP, QUICK_START } from '../content'
 import { helpPath } from '../routes'
 import { HelpPage } from './HelpPage'
 
@@ -27,6 +29,7 @@ function renderHelp(initialEntries: string[] = ['/help']) {
 
 beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn()
+  document.title = 'TxResBench'
 })
 
 afterEach(() => {
@@ -35,31 +38,38 @@ afterEach(() => {
 })
 
 describe('HelpPage render (TEST-HELP-3)', () => {
-  it('renders the page shell: eyebrow, title and every section heading', () => {
+  it('renders the page shell: one h1, the purpose, the quick-start row and every section heading', () => {
     renderHelp()
     expect(screen.getByTestId('txr-help')).toBeTruthy()
     expect(screen.getAllByRole('heading', { level: 1 }).map(h => h.textContent)).toEqual(['Help'])
+    expect(screen.getByTestId('txr-help-purpose').textContent).toContain('TxResBench')
+    for (const card of QUICK_START) {
+      expect(screen.getByTestId(`txr-help-quickstart-${card.id}`).textContent).toContain(card.title)
+      expect(screen.getByTestId(`txr-help-quickstart-cta-${card.id}`).textContent).toContain(card.cta)
+    }
     for (const section of HELP_SECTIONS) {
       const el = screen.getByTestId(`txr-help-section-${section.id}`)
       expect(within(el).getByRole('heading', { level: 2 }).textContent).toBe(section.title)
     }
   })
 
+  it('sets the document title to "Help — TxResBench"', () => {
+    renderHelp()
+    expect(document.title).toBe('Help — TxResBench')
+  })
+
   it('renders one entry per closed problem code, with its meaning and action', () => {
     renderHelp()
     for (const entry of PROBLEM_HELP) {
       const el = screen.getByTestId(`txr-help-problem-${entry.anchor}`)
-      expect(within(el).getByRole('heading', { level: 3 }).textContent).toContain(entry.code)
-      expect(within(el).getByText(entry.meaning)).toBeTruthy()
-      // The action line mixes a styled lead + the action text, so the
-      // matcher walks the paragraph's full text content (getByText's text
-      // node matcher would see the <strong> lead as a child element).
-      expect(
-        within(el).getByText(
-          (_content, element) =>
-            element?.tagName === 'P' && element.textContent === `What to do: ${entry.action}`,
-        ),
-      ).toBeTruthy()
+      expect(within(el).getByTestId(`txr-help-code-chip-${entry.code}`).textContent).toBe(entry.code)
+      expect(within(el).getByTestId(`txr-help-accordion-trigger-${entry.code}`).textContent).toContain(
+        entry.title,
+      )
+      // The meaning/action lines are inside the collapsed panel, still in
+      // the DOM (the accordion hides, never unmounts).
+      expect(el.textContent).toContain(entry.meaning)
+      expect(el.textContent).toContain(`What to do: ${entry.action}`)
     }
   })
 
@@ -76,13 +86,18 @@ describe('HelpPage render (TEST-HELP-3)', () => {
     }
   })
 
-  it('a deep link scrolls its entry into view (the intake problems link target)', () => {
+  it('a deep link scrolls its entry into view and expands it (the intake problems link target)', () => {
     renderHelp(['/help#problem-r03'])
     const target = document.getElementById('problem-r03')
     expect(target).not.toBeNull()
     expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
     // The scrolled element is the entry itself, not a stale node.
     expect(target!.getAttribute('data-testid')).toBe('txr-help-problem-problem-r03')
+    // The entry is OPEN (the trigger's aria-expanded reads true).
+    const trigger = document.querySelector<HTMLElement>(
+      '[data-testid="txr-help-accordion-trigger-R03"]',
+    )!
+    expect(trigger.getAttribute('aria-expanded')).toBe('true')
   })
 
   it('the intake link target equals the entry anchor for every closed code', () => {
@@ -90,5 +105,60 @@ describe('HelpPage render (TEST-HELP-3)', () => {
     for (const entry of PROBLEM_HELP) {
       expect(helpPath(`problem-${entry.code.toLowerCase()}`)).toBe(`/help#${entry.anchor}`)
     }
+  })
+
+  it('renders the status vocabulary: the three eligibility verdicts and the eight run states', () => {
+    renderHelp()
+    const statuses = screen.getByTestId('txr-help-statuses')
+    for (const key of ['can', 'some', 'cannot']) {
+      expect(within(statuses).getByTestId(`txr-help-status-eligibility-${key}`)).toBeTruthy()
+    }
+    for (const state of ['waiting', 'downloading', 'running', 'finished', 'failed', 'stopped', 'skipped', 'cannot_run']) {
+      expect(within(statuses).getByTestId(`txr-help-status-state-${state}`)).toBeTruthy()
+    }
+  })
+
+  it('renders the two file cards with their column tables and required/optional pills', () => {
+    renderHelp()
+    const patients = screen.getByTestId('txr-help-filecard-patients')
+    expect(within(patients).getByTestId('txr-help-column-patient-id-required')).toBeTruthy()
+    expect(within(patients).getByTestId('txr-help-column-responder-optional')).toBeTruthy()
+    expect(within(patients).getByTestId('txr-help-copy-example-patients')).toBeTruthy()
+    const measurements = screen.getByTestId('txr-help-filecard-measurements')
+    expect(within(measurements).getByTestId('txr-help-column-unit-optional')).toBeTruthy()
+    expect(within(measurements).getByTestId('txr-help-download-template-measurements')).toBeTruthy()
+  })
+
+  it('the search filters sections and troubleshooting entries, and the clear button restores', () => {
+    renderHelp()
+    const input = screen.getByTestId('txr-help-search-input') as HTMLInputElement
+    // A word in one section only: the search narrows to it.
+    const fireChange = (value: string): void => {
+      // fireEvent.change runs the native value-setter trick (a controlled
+      // React input ignores a direct `input.value =` write).
+      fireEvent.change(input, { target: { value } })
+    }
+    fireChange('duplicate')
+    // R07's entry survives, a clear section is hidden.
+    expect(screen.getByTestId('txr-help-section-troubleshooting')).toBeTruthy()
+    expect(screen.getByTestId('txr-help-problem-problem-r07')).toBeTruthy()
+    expect(screen.queryByTestId('txr-help-section-models')).toBeNull()
+    // No match at all → the no-results state, and the button restores.
+    fireChange('zzzzzz')
+    expect(screen.getByTestId('txr-help-no-results')).toBeTruthy()
+    const clear = screen.getByTestId('txr-help-clear-search')
+    expect(clear).toBeTruthy()
+    fireChange('')
+    expect(screen.queryByTestId('txr-help-no-results')).toBeNull()
+  })
+
+  it('carries the accessibility landmarks and the skip link', () => {
+    renderHelp()
+    expect(screen.getByRole('main')).toBeTruthy()
+    expect(screen.getByRole('navigation', { name: 'On this page' })).toBeTruthy()
+    expect(screen.getByRole('search')).toBeTruthy()
+    const skip = document.querySelector<HTMLAnchorElement>('.txr-help-skip-link')!
+    expect(skip.getAttribute('href')).toBe('#txr-help-content')
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
   })
 })

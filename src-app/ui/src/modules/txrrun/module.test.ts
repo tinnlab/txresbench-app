@@ -197,6 +197,7 @@ describe('txrrun module (TEST-RUN-01)', () => {
           p !== 'scripts/file-validator/gen_material.py' &&
           p !== 'scripts/file-validator/fixtures/expected/examples/patients.csv' &&
           p !== 'scripts/file-validator/fixtures/expected/examples/measurements.csv' &&
+          p !== 'scripts/file-validator/gen_help_catalog.sh' &&
           // qa-fixes2 ITEM-2 (location-neutral copy): the notice generator's
           // header reword — "the TxResBench application", not "desktop
           // application" (the generated THIRD-PARTY-NOTICES.md follows).
@@ -283,6 +284,10 @@ describe('txrrun module (TEST-RUN-01)', () => {
           p !== 'src-app/server/src/modules/file_validator/types.rs' &&
           p !== 'src-app/server/src/modules/file_validator/validate.rs' &&
           p !== 'src-app/server/src/modules/file_validator/units.rs' &&
+          p !== 'src-app/server/src/modules/file_validator/rules.rs' &&
+          p !== 'src-app/server/src/modules/file_validator/mod.rs' &&
+          p !== 'src-app/server/src/modules/file_validator/catalog.rs' &&
+          p !== 'src-app/server/tests/file_validator/rules_test.rs' &&
           p !== 'src-app/server/tests/model_store/api_test.rs',
       ),
     ).toEqual([])

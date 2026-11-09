@@ -57,16 +57,18 @@ describe('TxrShell header (TEST-QF-7, X2)', () => {
     }
   }
 
-  it('keeps the board header byte at desktop: brand + tagline left, nav + Help + theme switch right, the four destinations', () => {
+  it('keeps the board header byte at desktop: brand + tagline left, nav + theme switch right, the four destinations', () => {
     const { header, brandGroup, tagline, actions, nav, toggle, view } = headerOf()
     expect(header).not.toBeNull()
     expect(brandGroup.contains(tagline)).toBe(true)
     expect(actions.contains(nav)).toBe(true)
-    expect(nav.querySelectorAll('a.txr-nav-link')).toHaveLength(3)
+    // qa-fixes2 ITEM-3 (R2-H5): Help is now one of the four nav links — the
+    // NavLink paints the active pill on /help like the other destinations.
+    expect(nav.querySelectorAll('a.txr-nav-link')).toHaveLength(4)
     expect(nav.textContent).toContain('New analysis')
     expect(nav.textContent).toContain('Models')
     expect(nav.textContent).toContain('History')
-    expect(actions.textContent).toContain('Help')
+    expect(nav.textContent).toContain('Help')
     // The theme switch sits in the same actions cluster, to the right of Help
     // (qa-fixes2 ITEM-1), and shows the CURRENT state with an icon + label.
     expect(actions.contains(toggle)).toBe(true)

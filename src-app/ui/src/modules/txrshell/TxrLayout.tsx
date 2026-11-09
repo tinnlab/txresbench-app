@@ -127,13 +127,22 @@ export function TxrShell({ children }: { children: ReactNode }) {
             >
               History
             </NavLink>
+            <NavLink
+              to="/help"
+              className="txr-nav-link"
+              style={({ isActive }) => ({
+                padding: '6px 14px',
+                borderRadius: 6,
+                fontWeight: isActive ? 700 : 400,
+                textDecoration: 'none',
+                background: isActive ? 'var(--txr-accent-soft)' : 'transparent',
+                color: isActive ? 'var(--txr-brand-ink)' : 'var(--txr-text-2)',
+                whiteSpace: 'nowrap',
+              })}
+            >
+              Help
+            </NavLink>
           </nav>
-          <Link
-            to="/help"
-            style={{ fontSize: 14, color: 'var(--txr-text-2)', textDecoration: 'none', whiteSpace: 'nowrap' }}
-          >
-            Help
-          </Link>
           <TxrThemeToggle />
         </div>
       </header>

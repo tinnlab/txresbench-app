@@ -399,3 +399,105 @@ html.dark .os-theme-dark {
     min-height: 800px !important;
   }
 }
+
+/* qa-fixes2 ITEM-3: the Help page layout (the txrhelp redesign). The board's
+ * content screens are desktop-only; the measured cases are 1440x900,
+ * 1024x768, 768x1024 and 390x844. Desktop (>=1024 px): a two-column grid,
+ * left rail 240 px (sticky, scrolls independently, the current section
+ * highlighted, never overlapping the article) + a content column capped at
+ * 760 px (60-75 char lines), the grid centred in the window. Under 1024 px:
+ * no rail — a "Contents" disclosure at the top (collapsed, own state in the
+ * component) and a floating "Back to top"; nothing wider than the viewport.
+ * Print: the rail, the search and the back-to-top control hide, the content
+ * column takes the full page width. The component carries the static bytes
+ * inline; these rules are the responsive/print half (a media query cannot
+ * touch an inline style — the header's device repeated for this page). */
+.txr-help-grid {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  column-gap: 48px;
+  align-items: start;
+  max-width: 1048px;
+  margin: 0 auto;
+}
+.txr-help-rail {
+  position: sticky;
+  top: 20px;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.txr-help-column {
+  min-width: 0;
+  max-width: 760px;
+}
+/* The rail and the "Contents" disclosure are rendered CONDITIONALLY by the
+ * page (the rail from 1024 px up) — the media rule below only reflows the
+ * grid to one column under 1024 px; a CSS-hidden rail would still be
+ * focusable and in the accessibility tree. */
+@media (max-width: 1023px) {
+  .txr-help-grid {
+    display: block;
+  }
+  .txr-help-column {
+    max-width: none;
+  }
+}
+@media print {
+  .txr-help-rail,
+  .txr-help-search,
+  .txr-help-backtop,
+  .txr-help-contents-toggle {
+    display: none !important;
+  }
+  .txr-help-grid {
+    display: block;
+  }
+  .txr-help-column {
+    max-width: none;
+  }
+}
+
+/* qa-fixes2 ITEM-3: the Help page's accordion triggers (kit Collapsible
+ * triggers — Base UI buttons, so the focus ring is applied here, the same
+ * ring the kit Button paints: a 3 px `--ring` shadow at 50 %, no default
+ * outline). The trigger is a full-row button with the code chip + title;
+ * the chevron comes from the row order in the component. */
+.txr-help-accordion-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  box-sizing: border-box;
+}
+.txr-help-accordion-trigger:focus-visible {
+  outline: none;
+  border-radius: 6px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent);
+}
+/* The phone layout of the Help page: the stepper and the quick-start row
+ * stack under 640 px (the board's phone breakpoint; the grid's own
+ * two-column switch is at 1024 px in the layout block above). Nothing may
+ * be wider than the viewport — the file tables already scroll inside their
+ * own boxes. */
+@media (max-width: 640px) {
+  [data-testid='txr-help-stepper'] {
+    grid-template-columns: 1fr !important;
+  }
+  [data-testid='txr-help-quickstart'] {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* qa-fixes2 ITEM-3: the Help page's skip link — off-screen until it takes
+ * focus (the component parks it at left:-9999; focus brings it into view). */
+.txr-help-skip-link:focus {
+  left: 12px !important;
+  top: 12px !important;
+}

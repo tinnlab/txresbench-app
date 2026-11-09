@@ -23,6 +23,7 @@
 
 pub mod assets;
 pub mod bundle;
+pub mod catalog;
 pub mod inspect;
 pub mod routes;
 pub mod rules;
@@ -35,16 +36,17 @@ pub mod vocab;
 // names directly; `types` stays the full surface for the submodule layering.
 pub use assets::{AssetFacts, AssetsError, EmbeddedAssets, ASSETS};
 pub use bundle::canonical_bundle;
+pub use catalog::{catalog, catalog_json, CatalogApplicability, CatalogEntry, CatalogSeverity};
 pub use inspect::inspect;
 pub use rules::{
-    check_allowed_values, check_column_types, check_companion_features, check_day_range,
-    check_exclusive_minimum, check_foreign_keys, check_join_equality, check_no_recognizable_header,
-    check_null_iff, check_nullability, check_outcome_available, check_outcome_columns,
-    check_paired_null, check_ranges, check_required_columns, check_single_time_unit,
-    check_unique_keys, is_time_unit_column, normalize_header_name, required_roles,
-    resolve_column_role, rule_declarations, validate_model, CanonicalModel, DerivedSample,
-    FeatureRow, ModelCell, PatientRow, RuleApplicability, RuleDeclaration, RuleKind, TableShape,
-    ValueRow, R20_DAY_MAX, R20_DAY_MIN, RULES,
+    app_rule_declarations, check_allowed_values, check_column_types, check_companion_features,
+    check_day_range, check_exclusive_minimum, check_foreign_keys, check_join_equality,
+    check_no_recognizable_header, check_null_iff, check_nullability, check_outcome_available,
+    check_outcome_columns, check_paired_null, check_ranges, check_required_columns,
+    check_single_time_unit, check_unique_keys, is_time_unit_column, normalize_header_name,
+    required_roles, resolve_column_role, rule_declarations, validate_model, AppRuleDeclaration,
+    CanonicalModel, DerivedSample, FeatureRow, ModelCell, PatientRow, RuleApplicability,
+    RuleDeclaration, RuleKind, TableShape, ValueRow, R20_DAY_MAX, R20_DAY_MIN, APP_RULES, RULES,
 };
 pub use types::{
     AnalysisParameters, CanonCell, CanonicalBundle, CanonicalFeature, CanonicalPatient,

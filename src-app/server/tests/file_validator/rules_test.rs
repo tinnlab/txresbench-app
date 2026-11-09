@@ -371,8 +371,8 @@ fn test_fv18_every_kind_has_a_named_check_with_fixtures() {
 
 /// A kind is answered by construction only when EVERY rule it covers is a
 /// `HoldsByConstruction` property (join_equal: R11+R16; null_iff: R17). The
-/// mixed families (foreign_key covers the real R08/R10/R15 AND the
-/// by-construction R09) keep their real breaking fixtures.
+/// mixed family (foreign_key covers the real R08/R15 AND the
+/// by-construction R09/R10) keeps its real breaking fixtures.
 fn is_by_construction(kind: RuleKind) -> bool {
     let rules: Vec<_> = rule_declarations()
         .iter()
@@ -486,8 +486,8 @@ fn test_fv18_registry_verdicts_match_the_kind_checks() {
                 // The guard fixture: the adversarial shape — a value row whose
                 // day is not a number — must not fire the by-construction rule
                 // (the derivation answers it; R03 reports the row), and it must
-                // be silent for the whole family too (R09 shares the
-                // foreign_key family with the real R08/R10/R15 checks).
+                // be silent for the whole family too (R09/R10 share the
+                // foreign_key family with the real R08/R15 checks).
                 let guard = derivation_guard_model();
                 assert!(
                     k.check(&guard)
