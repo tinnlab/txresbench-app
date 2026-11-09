@@ -123,31 +123,57 @@ function asArrayOf<T>(value: T | null[]): (T | null)[] {
 }
 
 /**
+ * The provider's per-patient values as a constant flag (qa-fixes RES-03): the
+ * 0–1 value the column gives EVERY scored patient, or null when the column
+ * varies (or carries no value at all). Computed on the raw values (never the
+ * rounded display percents): a column whose every cell equals 0.0 (or 0.865,
+ * ...) within a 1e-9 tolerance is the flag — the screen's "N methods gave one
+ * chance for every patient" note and the header's constant marker.
+ */
+export function constantValueOf(values: ReadonlyArray<number | null>): number | null {
+  let first: number | null = null
+  for (const value of values) {
+    if (value === null || !Number.isFinite(value)) continue
+    if (first === null) {
+      first = value
+      continue
+    }
+    if (Math.abs(value - first) > 1e-9) return null
+  }
+  return first
+}
+
+/**
  * One view column per provider method row; nothing is filtered and nothing is
  * dropped (`'finished'` = every row the response carries; the engine serves
  * finished methods only — PROV-EE-7). Values, notes and coverage bind
  * verbatim (0–1 scale, see the file doc); `prob_source: 'none'` maps to null
  * (the column has no probability provenance — INV-3's "never mixed silently"
  * is a per-column discrimination, and the type pin in `types.test.ts`
- * asserts exactly this mapping); `label` is the method's catalogue id (the
- * mono column header, PROV-UR-3); `task` normalizes with the run endpoint as
- * the fallback.
+ * asserts exactly this mapping); `label` is the provider's display label (the
+ * catalogue id for a train run, the saved model's NAME for a reuse run —
+ * RES-05; the wire field is the same one the run detail's method rows carry);
+ * `task` normalizes with the run endpoint as the fallback.
  */
 export function buildColumns(
   p: TxrPredictionsResponse,
   endpoint: TxrOutcomeKey,
 ): TxrHeatmapColumn[] {
-  return p.methods.map(m => ({
-    methodId: m.method_id,
-    label: m.method_id,
-    group: m.group,
-    groupLabel: m.group_label,
-    task: normalizeTask(m.task, endpoint),
-    probSource: m.prob_source === 'none' ? null : m.prob_source,
-    coverage: m.coverage,
-    values: asArrayOf(m.probabilities),
-    notes: asArrayOf(m.notes),
-  }))
+  return p.methods.map(m => {
+    const values = asArrayOf(m.probabilities)
+    return {
+      methodId: m.method_id,
+      label: m.label || m.method_id,
+      group: m.group,
+      groupLabel: m.group_label,
+      task: normalizeTask(m.task, endpoint),
+      probSource: m.prob_source === 'none' ? null : m.prob_source,
+      coverage: m.coverage,
+      values,
+      notes: asArrayOf(m.notes),
+      constantValue: constantValueOf(values),
+    }
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -401,6 +427,10 @@ export function compareReport(
       b: Math.round(d.b * 100),
       diffPercent: Math.abs(Math.round(d.a * 100) - Math.round(d.b * 100)),
     }))
+    // A zero difference is not a divergence: "They differ most for …" must
+    // never name an (X% and X%) pair — a card whose methods agree on every
+    // patient reads the none-case sentence instead (qa-fixes RES-10).
+    .filter(d => d.diffPercent > 0)
     .sort((x, y) => {
       if (x.diffPercent !== y.diffPercent) return y.diffPercent - x.diffPercent
       return comparePatientIds(x.patientId, y.patientId)

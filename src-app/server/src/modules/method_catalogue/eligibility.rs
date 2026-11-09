@@ -25,19 +25,28 @@
 //!
 //! Pure functions over [`Catalogue`] + request; no I/O (the module is
 //! stateless, DEC-9, and the engine is replayed in-process by the execution
-//! engine — one code path with the HTTP surface, ITEM-5).
+//! engine — one code path with the HTTP surface, ITEM-5) plus ONE runtime
+//! stage: [`with_runtime_env`] rejoins the pure verdicts with the app's
+//! published environment set ([`runtime_env_available`] — the manifest's
+//! host-arch entry), because a method with no published environment can never
+//! start (CM-1) and the screens must not offer it. The production entry
+//! points ([`eligibility`], [`eligibility_for_runtime`]) apply the stage; the
+//! pure engines are the test seam and the provider bedrock.
 //!
 //! Status lattice per method:
 //! - `cannot_run` when a hard requirement fails: not runnable
-//!   ([`ReasonCode::NotRunnable`]), a required marker absent
-//!   ([`ReasonCode::RequiredMarkerMissing`]) or an unchecked board group
-//!   (preview only, [`ReasonCode::MarkerGroupMissing`]), the detection call
-//!   absent ([`ReasonCode::DetectionCallMissing`]), the required covariate
-//!   block absent ([`ReasonCode::CovariateRequiredUnmet`]), a present
-//!   marker's unit family differs from the vocabulary's
-//!   ([`ReasonCode::UnitMismatch`]), or the outcome availability checks fail
+//!   ([`ReasonCode::NotRunnable`]) or no published environment
+//!   ([`ReasonCode::EnvImageMissing`], the runtime stage), a required marker
+//!   absent ([`ReasonCode::RequiredMarkerMissing`]) or an unchecked board
+//!   group (preview only, [`ReasonCode::MarkerGroupMissing`]), the detection
+//!   call absent ([`ReasonCode::DetectionCallMissing`]), the required
+//!   covariate block absent ([`ReasonCode::CovariateRequiredUnmet`]), a
+//!   present marker's unit family differs from the vocabulary's
+//!   ([`ReasonCode::UnitMismatch`]), the outcome availability checks fail
 //!   ([`ReasonCode::ResponseLabelMissing`] /
-//!   [`ReasonCode::SurvivalOutcomeMissing`] / [`ReasonCode::TaskIncompatible`]).
+//!   [`ReasonCode::SurvivalOutcomeMissing`] / [`ReasonCode::TaskIncompatible`]),
+//!   or NO patient is eligible (the draw coverage leaves nobody — CM-6's
+//!   "0 of N" is a Cannot run, never a selectable Can run for some).
 //! - `can_run_some` when the markers are there but the draw coverage leaves
 //!   patients out ([`ReasonCode::MinDrawsUnmet`] /
 //!   [`ReasonCode::DecisionDayUnmet`]).
@@ -66,20 +75,22 @@
 //!   file posting an empty covariate block IS the required-covariate absence
 //!   case ([`ReasonCode::CovariateRequiredUnmet`]); the code stays in the
 //!   closed PROV-MC-5 vocabulary and its trigger lands with a covariate-name
-//!   fact. (The reason-code contract is fixed at 12; a consumer renderer can
+//!   fact. (The reason-code contract is fixed at 13; a consumer renderer can
 //!   still switch over all of them exhaustively.)
 //!
 //! `estimated_seconds`/`estimate_quality` on each method verdict use the
 //! DEC-7 estimate shape (`base_seconds_per_fold × patients/150 × 4/cpus`,
-//! with the eligibility path using the default 4 CPUs — the request carries
-//! no CPU count; the estimates endpoint's cpus parameter is ITEM-4's surface,
-//! built on the same [`estimate_seconds_for`] helper).
+//! with the eligibility path resolving the same effective CPU count the run
+//! will use — [`estimate::host_cpus`], the ONE source of CM-7; the estimate
+//! endpoint's cpus parameter is ITEM-4's surface, built on the same
+//! [`estimate_seconds_for`] helper).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::OnceLock;
 
 use regex::Regex;
 
+use crate::modules::method_catalogue::estimate::host_cpus;
 use crate::modules::method_catalogue::types::{
     Catalogue, CovariateMode, Coverage, EligibilityRequest, EligibilityResponse,
     EligibilityStatus, FileOutcomes, InventoryEligibilityRequest, InventoryMarker, MatchMode,
@@ -91,7 +102,11 @@ use crate::modules::method_catalogue::types::{
 /// The estimate reference cohort (DEC-7: the board's example cohort).
 pub const REFERENCE_PATIENTS: u32 = 150;
 
-/// The estimate reference CPU count (DEC-7: the standard per-job cap).
+/// The estimate reference CPU count (DEC-7: the standard per-job cap; the
+/// eligibility path's own rows now resolve the host count through
+/// [`estimate::host_cpus`] — the same ONE source the run uses — while this
+/// reference constant stays the estimate helper's zero/undefined guard and
+/// the model-list paths' documented reference).
 pub const REFERENCE_CPUS: u32 = 4;
 
 /// The data.py reason string for an unmatched required-marker set — kept
@@ -351,22 +366,105 @@ pub fn estimate_quality_for(method: &Method) -> TimingQuality {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// The eligibility engine (pure; no I/O)
+// The eligibility engine (pure; no I/O) + the runtime-env stage
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Run eligibility over the embedded catalogue (PROV-MC-7's in-process seam).
-pub fn eligibility(req: &EligibilityRequest) -> EligibilityResponse {
-    eligibility_for(crate::modules::method_catalogue::catalogue::catalogue(), req)
+/// Whether `method_id` has a published environment for THIS computer — the
+/// app's env manifest host-arch entry ([`execution_engine::envmanifest::env_for`]).
+/// This is the ONE runtime-env predicate: the eligibility stage below and the
+/// engine's run-start classification ([`execution_engine::orchestrator::classify`])
+/// look at the same manifest entry, so a method the screens mark cannot-run is
+/// exactly a method the engine will not start, and vice versa.
+///
+/// Module note: `method_catalogue` is a provider of the execution engine, and
+/// this accessor reads the engine module's embedded manifest (the same crate,
+/// no runtime init order dependency — the manifest is a compile-time embed).
+/// The alternative — a predicate parameter at every call site — would let a
+/// consumer forget the runtime check (the original CM-1 defect was exactly a
+/// consumer that only ever saw marker verdicts); the cycle is deliberate and
+/// documented here so the two classifiers cannot drift.
+pub fn runtime_env_available(method_id: &str) -> bool {
+    crate::modules::execution_engine::envmanifest::env_for(method_id).is_some()
 }
 
-/// Run eligibility over a given catalogue — the same engine as [`eligibility`]
-/// with the catalogue passed in (the test seam: handcrafted catalogues can
-/// exercise every rule, including the NOT_RUNNABLE case the shipped
-/// runnable-only set never triggers — DEC-2).
+/// Run eligibility over the embedded catalogue (PROV-MC-7's in-process seam):
+/// the pure verdicts + the runtime-env stage ([`with_runtime_env`]).
+pub fn eligibility(req: &EligibilityRequest) -> EligibilityResponse {
+    with_runtime_env(eligibility_for(
+        crate::modules::method_catalogue::catalogue::catalogue(),
+        req,
+    ))
+}
+
+/// Run eligibility over a given catalogue — the PURE engine (no runtime-env
+/// stage; the test seam: handcrafted catalogues can exercise every rule,
+/// including the NOT_RUNNABLE case the shipped runnable-only set never
+/// triggers — DEC-2). Production consumers call [`eligibility`] or
+/// [`eligibility_for_runtime`], never this directly.
 pub fn eligibility_for(cat: &Catalogue, req: &EligibilityRequest) -> EligibilityResponse {
     match req {
         EligibilityRequest::Preview { preview } => preview_eligibility(cat, preview),
         EligibilityRequest::Inventory { inventory } => inventory_eligibility(cat, inventory),
+    }
+}
+
+/// The pure verdicts plus the runtime-env stage — the HTTP surface's seat
+/// (the engine's in-process seam is [`eligibility`], the same two steps).
+pub fn eligibility_for_runtime(
+    cat: &Catalogue,
+    req: &EligibilityRequest,
+) -> EligibilityResponse {
+    with_runtime_env(eligibility_for(cat, req))
+}
+
+/// The RUNTIME-ENV stage (CM-1's fix): a catalogue method with no published
+/// environment on this computer can never start (the engine's run-start
+/// `ENV_UNKNOWN`), so every such verdict is reclassified to `cannot_run` with
+/// [`ReasonCode::EnvImageMissing`] pushed FIRST (the first reason is the row's
+/// one detail line + the engine's run-row reason), the totals are recomputed,
+/// and `total_no_env` counts them (the catalogue still lists them; the count
+/// is the "N are not installed" fact the list header needs).
+fn with_runtime_env(mut resp: EligibilityResponse) -> EligibilityResponse {
+    for m in &mut resp.methods {
+        if runtime_env_available(&m.id) {
+            continue;
+        }
+        m.status = EligibilityStatus::CannotRun;
+        m.reasons.insert(
+            0,
+            Reason {
+                code: ReasonCode::EnvImageMissing,
+                params: BTreeMap::new(),
+                group_id: None,
+            },
+        );
+    }
+    let total_fit = resp
+        .methods
+        .iter()
+        .filter(|m| m.status == EligibilityStatus::CanRun)
+        .count() as u32;
+    let total_some = resp
+        .methods
+        .iter()
+        .filter(|m| m.status == EligibilityStatus::CanRunSome)
+        .count() as u32;
+    let total_cannot = resp
+        .methods
+        .iter()
+        .filter(|m| m.status == EligibilityStatus::CannotRun)
+        .count() as u32;
+    let total_no_env = resp
+        .methods
+        .iter()
+        .filter(|m| m.reasons.iter().any(|r| r.code == ReasonCode::EnvImageMissing))
+        .count() as u32;
+    EligibilityResponse {
+        methods: resp.methods,
+        total_fit,
+        total_some,
+        total_cannot,
+        total_no_env,
     }
 }
 
@@ -485,6 +583,9 @@ fn finish(methods: Vec<MethodEligibility>) -> EligibilityResponse {
         total_fit,
         total_some,
         total_cannot,
+        // The pure core carries no env facts; the runtime-env stage
+        // (with_runtime_env) fills the count.
+        total_no_env: 0,
     }
 }
 
@@ -676,7 +777,10 @@ fn inventory_method(
         missing_groups: Vec::new(),
         coverage,
         min_draws,
-        estimated_seconds: estimate_seconds_for(m, inv.patients, DEFAULT_ESTIMATE_CPUS),
+        // The row's time is the run's time: the same effective CPU count the
+        // run will use (Auto = the host's detected CPUs — CM-7's one source;
+        // the estimate endpoint's omission path resolves the same count).
+        estimated_seconds: estimate_seconds_for(m, inv.patients, host_cpus()),
         estimate_quality: estimate_quality_for(m),
     }
 }
@@ -969,12 +1073,16 @@ fn round3(x: f64) -> f64 {
 }
 
 /// The status lattice: a hard reason is `cannot_run`; otherwise the draw
-/// coverage decides `can_run_some` vs `can_run`.
+/// coverage decides `can_run_some` vs `can_run`. A method with ZERO eligible
+/// patients is `cannot_run` (the board's "0 of 94 have them" — a method
+/// nobody can run for is not offered at all; the coverage reasons already on
+/// the verdict explain WHY), `can_run` only when every patient is eligible.
 fn verdict(reasons: &[Reason], eligible: u32, total: u32) -> EligibilityStatus {
     let hard = reasons.iter().any(|r| {
         matches!(
             r.code,
             ReasonCode::NotRunnable
+                | ReasonCode::EnvImageMissing
                 | ReasonCode::RequiredMarkerMissing
                 | ReasonCode::MarkerGroupMissing
                 | ReasonCode::DetectionCallMissing
@@ -986,7 +1094,7 @@ fn verdict(reasons: &[Reason], eligible: u32, total: u32) -> EligibilityStatus {
                 | ReasonCode::SurvivalOutcomeMissing
         )
     });
-    if hard {
+    if hard || (total > 0 && eligible == 0) {
         EligibilityStatus::CannotRun
     } else if eligible < total {
         EligibilityStatus::CanRunSome
@@ -1526,8 +1634,12 @@ mod tests {
         let codes: Vec<_> = v.reasons.iter().map(|r| r.code).collect();
         assert!(codes.contains(&ReasonCode::MinDrawsUnmet), "{codes:?}");
         assert!(!codes.contains(&ReasonCode::DecisionDayUnmet), "{codes:?}");
-        // The estimate is the DEC-7 shape on default CPUs: 60 s x 151/150 x 4/4.
-        assert_eq!(v.estimated_seconds, 60.0 * 151.0 / 150.0);
+        // The estimate is the DEC-7 shape on the run's own CPU count (CM-7:
+        // the row time and the run are one number — Auto resolves the host).
+        assert_eq!(
+            v.estimated_seconds,
+            60.0 * 151.0 / 150.0 * 4.0 / host_cpus() as f64
+        );
     }
 
     #[test]
@@ -1872,7 +1984,7 @@ mod tests {
     // ---- TEST-MC-27: the reason-code vocabulary + the outcome codes --------
 
     #[test]
-    fn reason_code_vocabulary_is_the_closed_twelve() {
+    fn reason_code_vocabulary_is_the_closed_thirteen() {
         assert_eq!(
             ReasonCode::ALL.map(|c| c.as_str()).to_vec(),
             vec![
@@ -1885,6 +1997,7 @@ mod tests {
                 "UNIT_MISMATCH",
                 "DECISION_DAY_UNMET",
                 "NOT_RUNNABLE",
+                "ENV_IMAGE_MISSING",
                 "TASK_INCOMPATIBLE",
                 "RESPONSE_LABEL_MISSING",
                 "SURVIVAL_OUTCOME_MISSING",
@@ -2008,5 +2121,71 @@ mod tests {
         assert_eq!(estimate_seconds_for(mm, 300, 0), 60.0 * 2.0 * 1.0); // 0 -> default
         assert_eq!(estimate_seconds_for(mm, 150, 4), 60.0);
         assert_eq!(estimate_quality_for(mm), TimingQuality::Measured);
+    }
+
+    // ---- QA-fixes ITEM-2: the runtime-env stage + the 0-eligible verdict ----
+
+    /// CM-6: a method NO patient is eligible for is `cannot_run` (its
+    /// coverage reasons already explain why) — never a selectable
+    /// "Can run for some patients" row with 0 coverage.
+    #[test]
+    fn lattice_zero_eligible_patients_is_cannot_run() {
+        let m = method_json("fx-nowhere", &[("min_draws", serde_json::json!(3))]);
+        let cat = one_method_catalogue(m);
+        // All 94 patients have 2 draws (baseline + one) < 3.
+        let entries: Vec<PatientDrawCounts> = (0..94).map(|i| pat(&format!("p{i}"), 1, 1)).collect();
+        let markers = vec![
+            inv_marker("M1", "percent", vec![sid("HGNC", "M1")], Some(entries.clone())),
+            inv_marker("M2", "percent", vec![sid("HGNC", "M2")], Some(entries)),
+        ];
+        let req = inventory_req(94, markers, vec![]);
+        let v = verdict_of(&cat, &req, "fx-nowhere");
+        assert_eq!(v.status, EligibilityStatus::CannotRun);
+        assert_eq!(v.coverage.eligible, 0);
+        assert!(v.reasons.iter().any(|r| r.code == ReasonCode::MinDrawsUnmet));
+        assert!(!v.reasons.is_empty(), "the why is on the verdict");
+    }
+
+    /// CM-1: the runtime-env stage reclassifies every catalogue method with no
+    /// published environment on this computer to `cannot_run`, pushes
+    /// `ENV_IMAGE_MISSING` FIRST (the row's one detail line + the engine's
+    /// run-row reason), and counts them in `total_no_env` — the pure engine
+    /// (the test seam) carries no env facts. The two ids are REAL manifest
+    /// membership facts: `asm-best-change-rule` is one of the 94 published
+    /// envs, `bjm` is not.
+    #[test]
+    fn runtime_env_stage_marks_and_counts_missing_published_envs() {
+        let methods = serde_json::json!([
+            method_json("asm-best-change-rule", &[]),
+            method_json("bjm", &[]),
+        ]);
+        let cat = catalogue_with(methods, serde_json::json!([]));
+        let entries = vec![pat("p0", 1, 1)];
+        let markers = vec![
+            inv_marker("M1", "percent", vec![sid("HGNC", "M1")], Some(entries.clone())),
+            inv_marker("M2", "percent", vec![sid("HGNC", "M2")], Some(entries)),
+        ];
+        let req = inventory_req(1, markers, vec![]);
+        let req = EligibilityRequest::Inventory { inventory: req };
+
+        let pure = eligibility_for(&cat, &req);
+        assert_eq!(pure.total_fit, 2, "the pure engine knows no env facts");
+        assert_eq!(pure.total_no_env, 0);
+
+        let staged = eligibility_for_runtime(&cat, &req);
+        assert_eq!(staged.total_fit, 1, "only the published-env method fits");
+        assert_eq!(staged.total_some, 0);
+        assert_eq!(staged.total_cannot, 1);
+        assert_eq!(staged.total_no_env, 1);
+
+        let ok = staged.methods.iter().find(|m| m.id == "asm-best-change-rule").unwrap();
+        assert_eq!(ok.status, EligibilityStatus::CanRun);
+        let noenv = staged.methods.iter().find(|m| m.id == "bjm").unwrap();
+        assert_eq!(noenv.status, EligibilityStatus::CannotRun);
+        assert_eq!(
+            noenv.reasons.first().map(|r| r.code),
+            Some(ReasonCode::EnvImageMissing),
+            "the env fact is the FIRST reason (the row's one detail line)"
+        );
     }
 }

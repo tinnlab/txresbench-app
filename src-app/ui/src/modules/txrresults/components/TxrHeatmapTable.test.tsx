@@ -83,6 +83,7 @@ function methodCol(index: number, groupLabel: string): TxrHeatmapColumn {
     coverage: null,
     values: [],
     notes: [],
+    constantValue: null,
   }
 }
 
@@ -220,12 +221,12 @@ describe('chance cell formula (TEST-UR-5 — the board alpha + text flip)', () =
     expect(chanceStyleOf(0).color).toBe(CHANCE_TEXT_DARK)
   })
 
-  it('composes the exact rgba background from the pinned rgb triplet', () => {
-    expect(chanceStyleOf(0.33).background).toBe(`rgba(${CHANCE_RGB.join(', ')}, 0.32)`)
-    expect(chanceStyleOf(0.52).background).toBe(`rgba(${CHANCE_RGB.join(', ')}, 0.49)`)
-    expect(chanceStyleOf(1).background).toBe(`rgba(${CHANCE_RGB.join(', ')}, 0.90)`)
+  it('composes the exact rgba background from the pinned ramp CSS variable', () => {
+    expect(chanceStyleOf(0.33).background).toBe(`rgba(${CHANCE_RGB}, 0.32)`)
+    expect(chanceStyleOf(0.52).background).toBe(`rgba(${CHANCE_RGB}, 0.49)`)
+    expect(chanceStyleOf(1).background).toBe(`rgba(${CHANCE_RGB}, 0.90)`)
     // A NaN cell degrades to the 0% tint, never a NaN alpha in the CSS.
-    expect(chanceStyleOf(Number.NaN).background).toBe(`rgba(${CHANCE_RGB.join(', ')}, 0.04)`)
+    expect(chanceStyleOf(Number.NaN).background).toBe(`rgba(${CHANCE_RGB}, 0.04)`)
   })
 })
 
@@ -278,7 +279,9 @@ describe('TxrHeatmapTable (TEST-UR-5 — pinned column + sticky header)', () => 
     render(<TxrHeatmapTable view={view} onShowAll={() => {}} />)
     const box = BOX()
     expect(box.style.overflow).toBe('auto')
-    expect(box.style.maxHeight).toBe('470px')
+    // RES-07: the box budget is the viewport-adaptive cap (never less than
+    // the board's 470 px floor) — the hard 470 px wasted the desktop screen.
+    expect(box.style.maxHeight).toBe('max(470px, calc(100dvh - 300px))')
     expect(box.getAttribute('style')).toContain('border-radius: 10px')
     expect(box.querySelector('table')).not.toBeNull()
   })
@@ -287,7 +290,9 @@ describe('TxrHeatmapTable (TEST-UR-5 — pinned column + sticky header)', () => 
     const { view } = smallView()
     render(<TxrHeatmapTable view={view} onShowAll={() => {}} />)
     const corner = screen.getByRole('columnheader', { name: 'Patient' })
-    const average = screen.getByRole('columnheader', { name: 'Average' })
+    // averageBy 'recomputed' names the scope (RES-04: the Average is over
+    // the methods shown — never a silent disagreement with the run's API line).
+    const average = screen.getByRole('columnheader', { name: 'Average (methods shown)' })
     const firstMethod = screen.getByTestId('txr-heatmap-header-method-1')
     const firstPatientRow = screen.getByTestId('txr-heatmap-row-S0000')
     const patientCell = within(firstPatientRow).getByRole('rowheader')
@@ -311,7 +316,11 @@ describe('TxrHeatmapTable (TEST-UR-5 — pinned column + sticky header)', () => 
       expect(patientStyle.position).toBe('sticky')
       expect(patientStyle.left).toBe('0px')
       expect(patientStyle.zIndex).toBe('1')
-      expect(patientStyle.backgroundColor).toBe('rgb(255, 255, 255)')
+      // The white is the app's surface token (ITEM-7). jsdom's cssstyle
+      // cannot parse a var() value even as an inline shorthand, so the
+      // colour string is pinned at the function tier (`chanceStyleOf`'s
+      // spec below) and the browser tier (`txr-theme-phone.spec.ts`'s dark
+      // pass) — the geometry pin here is the DOM value this tier owns.
     }
 
     assertPinned()
@@ -328,24 +337,21 @@ describe('TxrHeatmapTable (TEST-UR-5 — pinned column + sticky header)', () => 
     const row = screen.getByTestId('txr-heatmap-row-S0000')
     const cell = within(row).getByTestId('txr-heatmap-cell-method-1')
     expect(cell.textContent).toBe('33%')
-    const style = getComputedStyle(cell)
-    expect(style.backgroundColor).toBe(`rgba(${CHANCE_RGB.join(', ')}, 0.32)`)
-    expect(style.color).toBe('rgb(20, 20, 20)')
+    // The alpha formula's output is a CSS rgba() over the theme's ramp
+    // variable (ITEM-7: one chance colour for the legend and the cells) —
+    // the exact strings are pinned by the `chanceStyleOf`/`chanceAlphaOf`
+    // function-level specs below; jsdom's cssstyle drops an unparseable
+    // var() shorthand, so the DOM tier owns the label/text content and the
+    // browser tier the computed colours (`txr-theme-phone.spec.ts`).
+    expect(cell.style.color).toBe('var(--txr-text)')
     // Text flip at the 52% boundary, in the DOM.
     const flip = screen.getByTestId('txr-heatmap-row-S0001')
     const flipCell = within(flip).getByTestId('txr-heatmap-cell-method-1')
     expect(flipCell.textContent).toBe('52%')
-    expect(getComputedStyle(flipCell).color).toBe('rgb(255, 255, 255)')
-    // The 100% / 0% ends of the legend window. (jsdom serializes the 0.90
-    // alpha as "0.9" — the browser-equivalent value — so the expected string
-    // is compared through the same numeric collapse.)
-    const ends = screen.getByTestId('txr-heatmap-row-S0005')
-    expect(getComputedStyle(within(ends).getByTestId('txr-heatmap-cell-method-1')).backgroundColor).toBe(
-      `rgba(${CHANCE_RGB.join(', ')}, ${Number(chanceAlphaOf(100))})`,
-    )
-    expect(getComputedStyle(within(ends).getByTestId('txr-heatmap-cell-method-2')).backgroundColor).toBe(
-      `rgba(${CHANCE_RGB.join(', ')}, ${Number(chanceAlphaOf(0))})`,
-    )
+    expect(flipCell.style.color).toBe('var(--txr-on-chance)')
+    // The 100% / 0% ends of the legend window are the function-level
+    // `chanceAlphaOf` spec's own boundaries (the DOM tier above pins the
+    // labels and the flip point).
   })
 
   it('renders the average column bold, right-aligned, tabular; a null average renders empty', () => {
@@ -362,13 +368,15 @@ describe('TxrHeatmapTable (TEST-UR-5 — pinned column + sticky header)', () => 
     expect(within(NULL_ROW).getAllByRole('cell')[0].textContent).toBe('')
   })
 
-  it('renders an abstain cell empty with its note in a tooltip; a noteless abstain stays bare', async () => {
+  // RES-08 (qa-fixes ITEM-4) changed the noted abstain from a bare cell to
+  // the board's visible dash; the noteless abstain stays bare.
+  it('renders a dash for an abstain cell with its note in a tooltip; a noteless abstain stays bare', async () => {
     const { view } = smallView()
     render(<TxrHeatmapTable view={view} onShowAll={() => {}} />)
     const cell = within(screen.getByTestId('txr-heatmap-row-S0002')).getByTestId(
       'txr-heatmap-cell-method-1',
     )
-    expect(cell.textContent).toBe('')
+    expect(cell.textContent).toBe('\u2013')
     await hoverTooltip(cell)
     expect(tooltipShown()).toBe('the marker was not measured')
     // Exactly the four noted abstains are carried by a kit Tooltip (the
@@ -493,7 +501,7 @@ describe('TxrHeatmapTable footer (TEST-UR-5 — showing counts + show-all)', () 
     const { view } = largeView(24, 4)
     const capped = viewFixture(view.columns, view.rows, 100, 500)
     render(<TxrHeatmapTable view={capped} onShowAll={() => {}} />)
-    const footer = screen.getByText('Showing 100 of 500 patients. Scroll sideways for more methods, down for more patients; the first columns stay in view.')
+    const footer = screen.getByText('Showing 100 of 500 patients.')
     expect(footer).not.toBeNull()
     const link = screen.getByTestId('txr-heatmap-show-more')
     expect(link.textContent).toBe('Show all 500')
@@ -513,7 +521,7 @@ describe('TxrHeatmapTable footer (TEST-UR-5 — showing counts + show-all)', () 
     const { view } = largeView(24, 4)
     render(<TxrHeatmapTable view={view} onShowAll={() => {}} />)
     expect(screen.queryByTestId('txr-heatmap-show-more')).toBeNull()
-    expect(screen.getByText('Showing 24 of 24 patients. Scroll sideways for more methods, down for more patients; the first columns stay in view.')).not.toBeNull()
+    expect(screen.getByText('Showing 24 of 24 patients.')).not.toBeNull()
   })
 
   it('keeps the DOM bounded after Show all — the windowing still applies at 500 rows', () => {
@@ -525,5 +533,42 @@ describe('TxrHeatmapTable footer (TEST-UR-5 — showing counts + show-all)', () 
     scrollBoxTo(500 * HEATMAP_ROW_HEIGHT)
     expect(rowId('S0499')).not.toBeNull()
     expect(mountedRows().length).toBe(HEATMAP_WINDOW_ROWS)
+  })
+})
+
+// ── qa-fixes ITEM-4 — the measured footer, the no-match state, the abstain dash ──
+
+describe('TxrHeatmapTable qa-fixes ITEM-4 (RES-03/06/07/08)', () => {
+  it('names the average scope: "Average" only when the provider value is trusted (RES-04)', () => {
+    const { view } = smallView()
+    const trusted = viewFixture(view.columns, view.rows, view.shownCount, view.totalCount)
+    render(<TxrHeatmapTable view={{ ...trusted, averageBy: 'provider' }} onShowAll={() => {}} />)
+    expect(screen.getByRole('columnheader', { name: 'Average' })).not.toBeNull()
+  })
+
+  it('renders a no-match search as its own message, never a "Showing 0 of 0" table + scroll sentence (RES-06)', () => {
+    const { view } = smallView()
+    render(
+      <TxrHeatmapTable
+        view={{ ...view, rows: [], shownCount: 0, totalCount: 0 }}
+        onShowAll={() => {}}
+      />,
+    )
+    const box = BOX()
+    expect(box.querySelector('table')).toBeNull()
+    expect(screen.getByTestId('txr-heatmap-empty').textContent).toBe(
+      'No patient matches your search.',
+    )
+    expect(screen.getByTestId('txr-heatmap-footer').textContent).toBe('')
+    expect(screen.queryByTestId('txr-heatmap-show-more')).toBeNull()
+  })
+
+  it('renders a visible dash for an abstain cell that carries a note (RES-08)', () => {
+    const { view } = smallView()
+    render(<TxrHeatmapTable view={view} onShowAll={() => {}} />)
+    const cell = within(screen.getByTestId('txr-heatmap-row-S0002')).getByTestId(
+      'txr-heatmap-cell-method-1',
+    )
+    expect(cell.textContent).toBe('\u2013')
   })
 })

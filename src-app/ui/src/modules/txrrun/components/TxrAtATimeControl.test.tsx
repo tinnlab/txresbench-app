@@ -2,13 +2,15 @@
 /**
  * The F at-a-time control (`components/TxrAtATimeControl.tsx`, ITEM-10;
  * PROV-UI-RUN-5's frozen `TxrAtATimeControlProps`, DEC-5, CONS-UI-RUN-11):
- * the board's "Run at the same time" row — the run's current value plus
- * the presets (1/2/4), an out-of-preset value (the engine default 3)
- * rendering as its own chip (so the current pick is never a dead
- * control), a click reporting the picked number (the host calls the run
- * store's `setAtATime` — the engine's mid-run lane route), `busy`
- * disabling the row and the grown error line rendering the store's typed
- * failure (never a silent stale value).
+ * the board's "Run at the same time" row — the run's current value within
+ * the full 1–4 preset set (qa-fixes ITEM-3, RP-6: the old 1/2/4 set put
+ * the engine default 3 outside the presets, so 3 could not be re-chosen
+ * mid-run), an out-of-preset value (a restored unusual pick) rendering as
+ * its own chip (so the current pick is never a dead control), a click
+ * reporting the picked number (the host calls the run store's
+ * `setAtATime` — the engine's mid-run lane route), `busy` disabling the
+ * row and the grown error line rendering the store's typed failure (never
+ * a silent stale value).
  *
  * The presets' labels and the current value are the test's own synthetic
  * numbers (INV-6 — the board's example counts are design examples, never
@@ -40,7 +42,7 @@ function renderControl(overrides: Partial<TxrAtATimeControlProps> = {}) {
 }
 
 describe('TxrAtATimeControl (F at-a-time row)', () => {
-  it("renders the board row: the value's preset active + the 1/2/4 presets", () => {
+  it('renders the value\'s preset active within the full 1–4 preset set', () => {
     renderControl({ value: 2 })
     const control = screen.getByTestId('txr-run-at-a-time')
     expect(control.textContent).toContain('Run at the same time')
@@ -49,30 +51,32 @@ describe('TxrAtATimeControl (F at-a-time row)', () => {
     expect(within(segmented).getAllByRole('tab').map(b => b.textContent)).toEqual([
       '1',
       '2',
+      '3',
       '4',
     ])
     expect(within(segmented).getAllByRole('tab')[1].getAttribute('aria-selected')).toBe('true')
   })
 
-  it('renders an out-of-preset value (the engine default 3) as its own chip', () => {
+  it('the engine default 3 is a preset (RP-6): it can always be re-chosen, in order', () => {
     renderControl({ value: 3 })
     const segmented = screen.getByTestId('txr-run-at-a-time-control')
     expect(within(segmented).getAllByRole('tab').map(b => b.textContent)).toEqual([
       '1',
       '2',
-      '4',
       '3',
+      '4',
     ])
-    expect(within(segmented).getAllByRole('tab')[3].getAttribute('aria-selected')).toBe('true')
+    expect(within(segmented).getAllByRole('tab')[2].getAttribute('aria-selected')).toBe('true')
   })
 
   it('reports a picked preset as the number the host must call setAtATime with', () => {
-    const { onChange } = renderControl({ value: 3 })
+    const { onChange } = renderControl({ value: 2 })
     const buttons = within(screen.getByTestId('txr-run-at-a-time-control')).getAllByRole('tab')
-    fireEvent.click(buttons[0])
-    expect(onChange).toHaveBeenCalledWith(1)
-    fireEvent.click(buttons[2])
+    fireEvent.click(buttons[3])
     expect(onChange).toHaveBeenCalledWith(4)
+    // 3 is a reachable preset again (the RP-6 defect) — from a run at 2.
+    fireEvent.click(buttons[2])
+    expect(onChange).toHaveBeenCalledWith(3)
   })
 
   it('disables the row while busy (a run-level action in flight)', () => {
@@ -99,7 +103,12 @@ describe('TxrAtATimeControl (F at-a-time row)', () => {
   it('renders the presets only for a run that carries no value (nothing selected)', () => {
     renderControl({ value: null })
     const segmented = screen.getByTestId('txr-run-at-a-time-control')
-    expect(within(segmented).getAllByRole('tab').map(b => b.textContent)).toEqual(['1', '2', '4'])
+    expect(within(segmented).getAllByRole('tab').map(b => b.textContent)).toEqual([
+      '1',
+      '2',
+      '3',
+      '4',
+    ])
     for (const option of within(segmented).getAllByRole('tab')) {
       expect(option.getAttribute('aria-selected')).not.toBe('true')
     }

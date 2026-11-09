@@ -213,6 +213,7 @@ function fxColumn(
   }
   return {
     method_id: spec.methodId,
+    label: spec.methodId,
     group: spec.group,
     group_label: spec.groupLabel,
     task: spec.task,

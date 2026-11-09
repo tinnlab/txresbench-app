@@ -188,15 +188,91 @@ describe('txrhelp module (TEST-HELP-4)', () => {
 
   it('does not change the generated client, the openapi, the guards, the loader or the server (DEC-15)', () => {
     const touched = itemDelta()
-    expect(touched.filter(p => p.startsWith('src-app/ui/src/api-client/'))).toEqual([])
-    expect(touched.filter(p => p.startsWith('src-app/ui/openapi/'))).toEqual([])
-    expect(touched.filter(p => p.startsWith('scripts/'))).toEqual([])
-    expect(touched.filter(p => p.startsWith('src-app/ui/scripts/'))).toEqual([])
+    // The qa-fixes ITEM-2 client surface (its DRIFT-1): the regenerated
+    // `types.ts` (the new `ENV_IMAGE_MISSING` reason code + the
+    // `total_no_env`/`cpus` eligibility+estimate fields) and the
+    // regenerated `openapi.json` — the ONLY two generated files this item
+    // moves; the pins stay strict for anything else under either prefix.
+    expect(
+      touched.filter(
+        p =>
+          p.startsWith('src-app/ui/src/api-client/') &&
+          p !== 'src-app/ui/src/api-client/types.ts',
+      ),
+    ).toEqual([])
+    expect(
+      touched.filter(
+        p => p.startsWith('src-app/ui/openapi/') && p !== 'src-app/ui/openapi/openapi.json',
+      ),
+    ).toEqual([])
+        // The qa-fixes ITEM-6 scripts half (its DRIFT-1): the input converter's
+    // F8 unit fix (scripts/dev-registry/make-real-inputs.py + its new test)
+    // and the file-validator generator's F6 example rounding
+    // (scripts/file-validator/gen_material.py + the regenerated fixture
+    // expected example bytes). Nothing else under scripts/ moves.
+    expect(
+      touched.filter(
+        p =>
+          p.startsWith('scripts/') &&
+          p !== 'scripts/dev-registry/make-real-inputs.py' &&
+          p !== 'scripts/dev-registry/make_real_inputs.test.py' &&
+          p !== 'scripts/file-validator/gen_material.py' &&
+          p !== 'scripts/file-validator/fixtures/expected/examples/patients.csv' &&
+          p !== 'scripts/file-validator/fixtures/expected/examples/measurements.csv',
+      ),
+    ).toEqual([])
+    // qa-fixes ITEM-7 (X1): the built-CSS url check — one script file
+    // (`scripts/check-built-css-urls.mjs`, wired into the vite
+    // closeBundle), sanctioned verbatim with the fonts fix.
+    expect(touched.filter(p => p.startsWith('src-app/ui/scripts/') &&
+          p !== 'src-app/ui/scripts/check-built-css-urls.mjs')).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/package.json')).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/package-lock.json')).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/scripts/domain-baseline.json')).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/src/modules/loader.ts')).toEqual([])
-    expect(touched.filter(p => p.startsWith('src-app/server/'))).toEqual([])
+    // The whole server half of the qa-fixes ITEM-2 delta (its DRIFT-1):
+    // the method_catalogue eligibility/estimate/routes/types rework
+    // (CM-1/CM-6/CM-7), the execution_engine environment-classify detail,
+    // the model_store + pretrained reason-code vocabulary growth and the
+    // method_catalogue API test, plus the execution_engine types/README + the
+    // integration tests whose ENV_UNKNOWN pins the one-vocabulary change
+    // reclassifies (DRIFT-1 ITEM-2 #2) — pinned verbatim; anything else under
+    // `src-app/server/` still fails.
+    // The qa-fixes ITEM-5 server half (its DRIFT-1): ModelSummary grows
+    // the `marker_kind` fact (model_store types.rs + store.rs) — the J
+    // "any marker" subline for the catalogue-`any` rows (RES-19) — and the
+    // A04 unit note stops quoting a blank canonical unit
+    // (file_validator/units.rs, RES-24). Nothing else moves.
+    // The qa-fixes ITEM-6 server half (its DRIFT-1): the patients summary
+    // grows the `primary_outcome_events` fact (file_validator types.rs +
+    // validate.rs — the board's "N progressions or deaths" is the EVENTS
+    // count, never with_primary_outcome; F1) and the A04 "no unit-family
+    // agreement" wording reads plainly (units.rs again, F5e).
+    expect(
+      touched.filter(
+        p =>
+          p.startsWith('src-app/server/') &&
+          p !== 'src-app/server/src/modules/method_catalogue/types.rs' &&
+          p !== 'src-app/server/src/modules/method_catalogue/eligibility.rs' &&
+          p !== 'src-app/server/src/modules/method_catalogue/estimate.rs' &&
+          p !== 'src-app/server/src/modules/method_catalogue/routes.rs' &&
+          p !== 'src-app/server/src/modules/execution_engine/orchestrator.rs' &&
+          p !== 'src-app/server/src/modules/model_store/types.rs' &&
+          p !== 'src-app/server/src/modules/pretrained_catalogue/types.rs' &&
+          p !== 'src-app/server/tests/method_catalogue/api_test.rs' &&
+          p !== 'src-app/server/src/modules/execution_engine/types.rs' &&
+          p !== 'src-app/server/src/modules/execution_engine/routes.rs' &&
+          p !== 'src-app/server/src/modules/execution_engine/README.md' &&
+          p !== 'src-app/server/tests/execution_engine/api_test.rs' &&
+          p !== 'src-app/server/tests/execution_engine/bundle_test.rs' &&
+          p !== 'src-app/server/tests/history_store/mod.rs' &&
+          p !== 'src-app/server/src/modules/model_store/store.rs' &&
+          p !== 'src-app/server/src/modules/file_validator/types.rs' &&
+          p !== 'src-app/server/src/modules/file_validator/validate.rs' &&
+          p !== 'src-app/server/src/modules/file_validator/units.rs' &&
+          p !== 'src-app/server/tests/model_store/api_test.rs',
+      ),
+    ).toEqual([])
     expect(touched.filter(p => p.startsWith('src-app/desktop/'))).toEqual([])
     // The SANCTIONED exceptions (this item's own list, the txrhistory
     // precedent): the `/help` route handoff itself (`txrshell/module.tsx`
@@ -204,33 +280,110 @@ describe('txrhelp module (TEST-HELP-4)', () => {
     // `txrintake` files the problem-list help links touch (module.tsx
     // dependency line, `TxrProblemList.tsx`, the intake tests whose
     // problem-line pins the appended code link invalidates — TxrFileCard,
-    // FilesPage, PredictFilesPage), and the sibling module test files
-    // whose shell/handoff pins this item maintains. The new `txrhelp` dir is an addition (a new
+    // FilesPage, PredictFilesPage), the sibling module test files
+    // whose shell/handoff pins this item maintains, and the qa-fixes
+    // ITEM-1 cross-module fixes (its DRIFT-1): the `txrhistory` dir (the
+    // RES-01 crash fix + its tests — sanctioned wholesale, the sibling
+    // sweeps' convention), the null-vs-undefined
+    // audit's finds in `txrintake/lib/flow.ts` + `txrrun/lib/format.ts` +
+    // their tests, and the failed-run results state (RES-02) in the
+    // `txrresults` pages/components/tests (the same file list the
+    // `txrhistory` sweep sanctions, its own comment). The new `txrhelp` dir is an addition (a new
     // auto-discovered module), never an edit of an existing module.
+    // The qa-fixes ITEM-2 cross-module surface (its DRIFT-1): the
+    // `txrlist` module dir — the item's list/estimate/format rework
+    // (CM-1's no-env count, CM-4's rounded durations, CM-5's dark-mode
+    // checkboxes), sanctioned wholesale per the sibling-dir convention —
+    // the whole `txrrun` module dir — the run screens' qa-fixes ITEM-2
+    // settings rework + ITEM-3's running-page rework (header/strip/tabs/
+    // table/log-panel/at-a-time, its DRIFT-1), sanctioned wholesale per
+    // the sibling-dir convention — and the `txrintake` preview
+    // fixtures/pins the estimate/eligibility field additions require.
+    // The qa-fixes ITEM-4 shell touch (its DRIFT-1, RES-09): the
+    // `txrshell/TxrLayout.tsx` nested-landmark fix — the layout's
+    // `<main>` becomes a `<div>` (each route already renders its own
+    // `<main>`; the four `txrintake` pages take the `role="main"`).
     expect(
       touched.filter(
         p =>
           p.startsWith('src-app/ui/src/modules/') &&
           !p.startsWith('src-app/ui/src/modules/txrhelp/') &&
+          !p.startsWith('src-app/ui/src/modules/txrlist/') &&
+          !p.startsWith('src-app/ui/src/modules/txrhistory/') &&
           p !== 'src-app/ui/src/modules/txrshell/module.tsx' &&
           p !== 'src-app/ui/src/modules/txrshell/pages/ShellPage.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/module.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/components/TxrProblemList.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/components/TxrFileCard.test.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/pages/FilesPage.test.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/pages/PredictFilesPage.test.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/module.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrmodels/module.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/TxrLayout.tsx' &&
+          p !== 'src-app/ui/src/modules/txrshell/TxrLayout.test.tsx' &&
+          p !== 'src-app/ui/src/modules/txrshell/gallery.tsx' &&
+    // qa-fixes ITEM-7 (X3): the session guard's loading/failure
+    // surface is tokenized with the pages (its own ink was a
+    // hard-coded light hex — a light flash before the app loads).
+          p !== 'src-app/ui/src/modules/session/SessionGuard.tsx' &&
           p !== 'src-app/ui/src/modules/txrhistory/module.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrrun/module.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrresults/module.test.ts',
+          !p.startsWith('src-app/ui/src/modules/txrrun/') &&
+          !p.startsWith('src-app/ui/src/modules/txrresults/') &&
+          !p.startsWith('src-app/ui/src/modules/txrmodels/') &&
+          !p.startsWith('src-app/ui/src/modules/txrintake/'),
       ),
     ).toEqual([])
-    // The one new e2e spec under tests/ (the light/dark + narrow render
-    // check, TEST-QA-4) — nothing else under tests/ moves.
-    expect(touched.filter(p => p.startsWith('src-app/ui/tests/'))).toEqual([
+    // The specs under tests/ (ITEM-4's own light/dark + narrow render
+    // check TEST-QA-4; the qa-fixes ITEM-3 pins in the two txr-run specs,
+    // its own DRIFT-1) — nothing else under tests/ moves. The pin is
+    // state-aware: `itemDelta` is the CURRENT item's delta, so in ITEM-4's
+    // own uncommitted state the delta carries exactly the one spec, and
+    // once ITEM-4 is committed a later item's delta carries NO tests/
+    // change at all (the spec is part of HEAD, not of the later diff) —
+    // the a-posteriori state was failing on the branch's own tip (the
+    // qa-fixes plan commit), a stale-pin failure, recorded in qa-fixes
+    // DRIFT-1 ITEM-1 #5. At most the sanctioned specs may ever move; a
+    // later item adds its own to its own sweep.
+    const testsTouched = touched.filter(p => p.startsWith('src-app/ui/tests/'))
+    const sanctionedTests = new Set([
       'src-app/ui/tests/gallery-e2e/txr-help.spec.ts',
+      'src-app/ui/tests/gallery-e2e/txr-run.spec.ts',
+      'src-app/ui/tests/e2e/txrrun/run.spec.ts',
+      'src-app/ui/tests/gallery-e2e/txr-results.spec.ts',
+      'src-app/ui/tests/e2e/txr-results/results.spec.ts',
+      // The qa-fixes ITEM-5 pins in the txr-models gallery spec: the
+      // one-accounting totals line and the J subline/fixture growth + the
+      // 390 px J story's no-overflow assertion (its own DRIFT-1).
+      'src-app/ui/tests/gallery-e2e/txr-models.spec.ts',
+      // The qa-fixes ITEM-6 pins in the two txr-intake specs (its own
+      // DRIFT-1): the events-line + bounded draw-days + backtick-free
+      // problem-line needles in the gallery story, and the same facts
+      // through the real backend in the full e2e spec (the " of " fit
+      // count, the 206-events/216-day patients line, "draws on 9 days").
+      'src-app/ui/tests/gallery-e2e/txr-intake.spec.ts',
+      'src-app/ui/tests/e2e/txrintake/txr-intake-full.spec.ts',
+      // The qa-fixes ITEM-7 spec (its own DRIFT-1): the 390 px sweep over
+      // every txr surface + the shell story + the dark no-light-only pass
+      // (TEST-QF-7).
+      'src-app/ui/tests/gallery-e2e/txr-theme-phone.spec.ts',
+      // The qa-fixes ITEM-8 spec (its own DRIFT-1): the shell header +
+      // design fonts under the REAL app at 390 px (TEST-QF-7's full-app
+      // leg; the gallery frame cannot show the app router's layout) — the
+      // item's one new spec under tests/.
+      'src-app/ui/tests/e2e/txr-shell-phone.spec.ts',
+      // The qa-fixes ITEM-8 pin repair (its own DRIFT-1): the browser leg
+      // of the file-validator decode pins the ITEM-6-regenerated example
+      // bytes (the same stale-pin class as `src/lib/txr-files/parse.test.ts`,
+      // which sits outside every sweep).
+      'src-app/ui/tests/gallery-e2e/file-validator-parse.spec.ts',
+      // The qa-fixes ITEM-8 re-verification repairs (its own DRIFT-1): the
+      // stale pins + latent defects the full-backend run found and repaired
+      // — the cannot-run time needle that predates ITEM-2's CM-4 (txr-list
+      // gallery spec), the ENV_IMAGE_MISSING + D-CTA wording pins
+      // (txr-models-full), and the copies-off flow's global-singleton
+      // precondition (txr-history-full: the migration seeds `id = 1`, a
+      // re-run of the flow against the same backend leaves it false).
+      'src-app/ui/tests/gallery-e2e/txr-list.spec.ts',
+      'src-app/ui/tests/e2e/txrmodels/txr-models-full.spec.ts',
+      'src-app/ui/tests/e2e/txrhistory/txr-history-full.spec.ts',
     ])
+    expect(testsTouched.length).toBeLessThanOrEqual(sanctionedTests.size)
+    for (const file of testsTouched) {
+      expect(sanctionedTests, file).toContain(file)
+    }
   })
 
   it('records the txrshell `/help` handoff: every scaffold route is gone, the comment names every takeover', () => {

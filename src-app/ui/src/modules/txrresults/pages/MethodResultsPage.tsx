@@ -7,8 +7,10 @@ import type { TxrRunDetail } from '@/api-client/types'
 import { TxrResults, useTxrResultsStore } from '../stores/Results.store'
 import { buildColumns, compareReport, divergentPatients, sortByFirstMethod, viewOf } from '../lib/heatmap'
 import { compareResultsPath, methodResultsPath, downloadPredictionsCsv, revealRunDir } from '../index'
-import { TxrResultsHeader } from '../components/TxrResultsHeader'
+import { formatConstantNote, formatMixedOutcomeNote } from '../lib/format'
+import { TxrResultsHeader, subtitleFactsOf } from '../components/TxrResultsHeader'
 import { TxrCannotRunBanner } from '../components/TxrCannotRunBanner'
+import { TxrRunFailedState } from '../components/TxrRunFailedState'
 import { TxrMethodTabs } from '../components/TxrMethodTabs'
 import { TxrOutcomeTabs } from '../components/TxrOutcomeTabs'
 import { TxrBarsTable } from '../components/TxrBarsTable'
@@ -41,6 +43,14 @@ import type { TxrOutcomeKey } from '../types'
  * `divergentPatients`, and the compare card is `compareReport` over the
  * first two columns (ITEM-4 note (p): cols[0]/cols[1] are the compared
  * methods; a one-method tab carries no compare segment).
+ *
+ * The one-method tab (qa-fixes RES-11) is the board's one-method view
+ * (`SaveOne.dc.html`): the table shows the ACTIVE method's column only
+ * (never the compare table again with the method's own column off-screen),
+ * the outcome tabs yield to the method's own task (its heading spells the
+ * task's words), the aside gains the method's facts (coverage, prob source,
+ * the log link) and an unknown method id renders the not-found state
+ * (RES-12 — the old compare-tab fallback is gone).
  *
  * The store's search/sort/method-group controls are G's (the H board has no
  * search or filter bar): H derives with an unfiltered, patient-ordered
@@ -99,11 +109,34 @@ const DOWNLOAD_ERROR: CSSProperties = {
   padding: '10px 14px',
   borderWidth: 1,
   borderStyle: 'solid',
-  borderColor: '#f0c9c4',
+  borderColor: 'var(--txr-danger-border)',
   borderRadius: 8,
-  background: '#fdf3f2',
+  background: 'var(--txr-danger-soft)',
   fontSize: 14,
 }
+
+/** The method-not-found block of the one-method route (qa-fixes RES-12). */
+const METHOD_NOT_FOUND_BLOCK: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'flex-start',
+  gap: 10,
+  maxWidth: 460,
+}
+
+/** The method heading style (the SaveOne board's h1). */
+const METHOD_HEADING: CSSProperties = {
+  margin: 0,
+  fontFamily: "'Source Serif 4', Georgia, serif",
+  fontWeight: 600,
+  fontSize: 22,
+  lineHeight: 1.3,
+}
+
+const METHOD_HEADING_LABEL: CSSProperties = { fontSize: 13, color: 'var(--txr-muted)', margin: 0 }
+
+/** The page's plain-voice notes under the table (RES-03/04). */
+const NOTE_LINE: CSSProperties = { fontSize: 13.5, color: 'var(--txr-text-2)', margin: 0 }
 
 /** The one run endpoint key the normalize fallback needs (the generated `TxrEndpoint` is closed). */
 function endpointKeyOf(run: TxrRunDetail): TxrOutcomeKey {
@@ -127,7 +160,7 @@ function NotFoundResults({ onNewAnalysis }: { onNewAnalysis: () => void }) {
   return (
     <div data-testid="txr-results-not-found" style={NOT_FOUND_BLOCK}>
       <h2 style={NOT_FOUND_TITLE}>This analysis run could not be found</h2>
-      <p style={{ margin: 0, fontSize: 14, color: '#3a3a3a' }}>
+      <p style={{ margin: 0, fontSize: 14, color: 'var(--txr-text-2)' }}>
         It may have been removed, or the link is outdated.
       </p>
       <Button
@@ -176,29 +209,47 @@ export function MethodResultsPage() {
   const horizon = run?.outcome?.horizon ?? run?.config?.look_ahead_day ?? 0
   const labelDay = run?.config?.label_day ?? null
   const responseDay = labelDay ?? horizon
-  // The H base view: the active outcome tab's columns + rows, UNFILTERED
-  // (H has no search/method-group controls — those are G's), patient-ordered
-  // (the H sort is the first method's, DEC-6), unwindowed (the H window
-  // applies after the first-method sort AND the divergent filter).
+  // The active method column: the URL's method id when it names a finished
+  // method; `undefined` (the `/compare` route's absence of the segment) =
+  // the Compare tab; a method id that names no finished method is the
+  // method-not-found state (qa-fixes RES-12 — the old compare-tab fallback
+  // left the URL claiming a page it did not render).
+  const activeColumn = useMemo(
+    () => allColumns.find(c => c.methodId === methodId) ?? null,
+    [allColumns, methodId],
+  )
+  const isCompareTab = methodId === undefined || methodId === null
+  const methodNotFound = !isCompareTab && activeColumn === null
+  // The H base view: the one-method tab's OWN column (its task is the
+  // method's — the outcome tabs yield to it, RES-11), else the active
+  // outcome tab's columns. UNFILTERED (H has no search/method-group controls
+  // — those are G's), patient-ordered (the H sort is the first method's,
+  // DEC-6), unwindowed (the H window applies after the first-method sort
+  // AND the divergent filter).
   const baseView = useMemo(
     () =>
       predictions
-        ? viewOf(allColumns, predictions, {
-            outcome: outcomeTab,
-            groups: null,
-            methodIds: null,
-            search: '',
-            sort: 'patient',
-            limit: 0,
-          })
+        ? activeColumn
+          ? viewOf(allColumns, predictions, {
+              outcome: activeColumn.task,
+              groups: null,
+              methodIds: [activeColumn.methodId],
+              search: '',
+              sort: 'patient',
+              limit: 0,
+            })
+          : viewOf(allColumns, predictions, {
+              outcome: outcomeTab,
+              groups: null,
+              methodIds: null,
+              search: '',
+              sort: 'patient',
+              limit: 0,
+            })
         : null,
-    [allColumns, predictions, outcomeTab],
+    [allColumns, predictions, activeColumn, outcomeTab],
   )
-  // The active method tab: the URL's method id when it names a finished
-  // method; anything else (the `compare` segment, an unknown id) is the
-  // Compare tab — DEC-18's fallback, the URL stays as-is.
-  const activeMethodId = methodId && allColumns.some(c => c.methodId === methodId) ? methodId : null
-  const firstMethodId = activeMethodId ?? baseView?.columns[0]?.methodId ?? ''
+  const firstMethodId = activeColumn?.methodId ?? baseView?.columns[0]?.methodId ?? ''
   const orderedRows = useMemo(
     () => (baseView ? sortByFirstMethod(baseView.columns, baseView.rows, firstMethodId) : []),
     [baseView, firstMethodId],
@@ -223,17 +274,38 @@ export function MethodResultsPage() {
   // The compare tab only (a one-method tab is not a two-method comparison —
   // ITEM-4 note (p)); the narrowed variable carries the report to the card.
   const cardReport =
-    activeMethodId === null && compareReportData !== null ? compareReportData : null
+    isCompareTab && compareReportData !== null ? compareReportData : null
   // The one-method "Save this model" (SaveOne board): only a finished
   // method with a produced model — TEST-UR-10's gate.
   const saveOneMethodId =
-    activeMethodId && run?.methods.some(m => m.method_id === activeMethodId && m.state === 'finished') && run.models.some(m => m.method_id === activeMethodId)
-      ? activeMethodId
+    activeColumn &&
+    run?.methods.some(m => m.method_id === activeColumn.methodId && m.state === 'finished') &&
+    run.models.some(m => m.method_id === activeColumn.methodId)
+      ? activeColumn.methodId
       : null
+  // The plain-voice notes (RES-03/04): a constant column is named, and a
+  // mixed run's hidden tasks are counted.
+  const constantNote = useMemo(
+    () => (baseView ? formatConstantNote(baseView.columns) : null),
+    [baseView],
+  )
+  const mixedNote = useMemo(
+    () =>
+      isCompareTab && baseView
+        ? formatMixedOutcomeNote(
+            baseView.columns.length,
+            allColumns.length,
+            allColumns
+              .filter(c => c.task !== outcomeTab)
+              .map(c => ({ key: c.task, day: c.task === 'response' ? responseDay : horizon })),
+          )
+        : null,
+    [isCompareTab, baseView, allColumns, outcomeTab, responseDay, horizon],
+  )
 
   if (runError === 'not-found') {
     return (
-      <main data-testid="txr-results" style={PAGE_MAIN}>
+      <main data-testid="txr-results" className="txr-results-page" style={PAGE_MAIN}>
         <NotFoundResults onNewAnalysis={() => navigate('/')} />
       </main>
     )
@@ -245,7 +317,7 @@ export function MethodResultsPage() {
 
   if (runError === 'network' || (run !== null && predictions === null && predictionsError === 'network')) {
     return (
-      <main data-testid="txr-results" style={PAGE_MAIN}>
+      <main data-testid="txr-results" className="txr-results-page" style={PAGE_MAIN}>
         <ErrorState
           variant="page"
           resource="the run"
@@ -259,36 +331,72 @@ export function MethodResultsPage() {
 
   if (run === null || (predictions === null && predictionsLoading)) {
     return (
-      <main data-testid="txr-results" style={PAGE_MAIN}>
+      <main data-testid="txr-results" className="txr-results-page" style={PAGE_MAIN}>
         <LoadingResults />
       </main>
     )
   }
 
   const cannotRun = run.methods.filter(m => m.state === 'cannot_run')
+  const runFailed = run.status === 'failed' || run.status === 'stopped'
 
   // The 409 empty-heatmap state (DEC-18: banner + counts + disabled
-  // download, no spinner loop — the SSE fills it).
+  // download, no spinner loop — the SSE fills it). A terminal failed /
+  // stopped run renders the honest failure state instead (RES-02): the
+  // engine's per-method reasons, with the header's completed-run segments
+  // omitted.
   if (predictions === null) {
     return (
-      <main data-testid="txr-results" style={PAGE_MAIN}>
+      <main data-testid="txr-results" className="txr-results-page" style={PAGE_MAIN}>
         <TxrResultsHeader
           run={run}
           predictions={null}
           predictionsError={predictionsError}
           onDownload={undefined}
           downloadLabel="Download predictions (CSV)"
+          subtitleFacts={
+            runFailed ? { ...subtitleFactsOf(run), trainedOn: null, tookSeconds: null } : undefined
+          }
         />
+        {runFailed ? (
+          <TxrRunFailedState run={run} onShowLog={method => TxrResults.openLog(method)} />
+        ) : null}
         <TxrCannotRunBanner
           methods={cannotRun}
           total={run.methods.length}
           onShowLog={method => TxrResults.openLog(method)}
         />
+        <TxrLogDialog />
       </main>
     )
   }
 
   if (baseView === null) return null
+
+  // RES-12: a method id that names no finished method of this run is the
+  // method-not-found state, never the Compare page (the URL stays as-is —
+  // the state names the problem).
+  if (methodNotFound) {
+    return (
+      <main data-testid="txr-results" className="txr-results-page" style={PAGE_MAIN}>
+        <div data-testid="txr-results-method-not-found" style={METHOD_NOT_FOUND_BLOCK}>
+          <h2 style={NOT_FOUND_TITLE}>This method could not be found in this run</h2>
+          <p style={{ margin: 0, fontSize: 14, color: 'var(--txr-text-2)' }}>
+            It may have failed before producing predictions, or the link is outdated.
+          </p>
+          <Button
+            data-testid="txr-results-method-new-analysis"
+            variant="outline"
+            className="rounded-lg font-semibold"
+            style={{ padding: '9px 16px' }}
+            onClick={() => navigate(compareResultsPath(runId ?? ''))}
+          >
+            See all methods
+          </Button>
+        </div>
+      </main>
+    )
+  }
 
   const handleDownload = () => {
     if (!runId) return
@@ -296,8 +404,10 @@ export function MethodResultsPage() {
     void downloadPredictionsCsv(runId).catch(() => setDownloadFailed(true))
   }
 
+  const activeColumnMethod = activeColumn ? { ...activeColumn } : null
+  const tableColumns = activeColumnMethod ? [activeColumnMethod] : baseView.columns
   return (
-    <main data-testid="txr-results" style={PAGE_MAIN}>
+    <main data-testid="txr-results" className="txr-results-page" style={PAGE_MAIN}>
       <TxrResultsHeader
         run={run}
         predictions={predictions}
@@ -318,33 +428,60 @@ export function MethodResultsPage() {
       ) : null}
       <TxrMethodTabs
         columns={allColumns}
-        activeMethodId={activeMethodId}
+        activeMethodId={activeColumn?.methodId ?? null}
         onSelect={method =>
           navigate(method ? methodResultsPath(runId ?? '', method) : compareResultsPath(runId ?? ''))
         }
       />
-      <TxrOutcomeTabs
-        columns={allColumns}
-        active={outcomeTab}
-        horizon={horizon}
-        labelDay={labelDay}
-        onChange={tab => TxrResults.setOutcomeTab(tab)}
-      />
+      {activeColumn ? (
+        <div data-testid="txr-results-method-heading" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <h1 style={METHOD_HEADING}>{activeColumn.label}</h1>
+          <p style={METHOD_HEADING_LABEL}>
+            {activeColumn.groupLabel}
+            {activeColumn.probSource === null ? ' \u00b7 no chances shown' : ''}
+          </p>
+        </div>
+      ) : (
+        <TxrOutcomeTabs
+          columns={allColumns}
+          active={outcomeTab}
+          horizon={horizon}
+          labelDay={labelDay}
+          onChange={tab => TxrResults.setOutcomeTab(tab)}
+        />
+      )}
       <div style={CONTENT_ROW}>
         <section style={TABLE_SECTION}>
           <TxrBarsTable
-            columns={baseView.columns}
+            columns={tableColumns}
             rows={tableRows}
             totalCount={totalCount}
-            outcome={outcomeTab}
-            horizon={outcomeTab === 'response' ? responseDay : horizon}
+            outcome={activeColumn?.task ?? outcomeTab}
+            horizon={(activeColumn?.task ?? outcomeTab) === 'response' ? responseDay : horizon}
             onShowAll={() => TxrResults.setPatientLimit(-1)}
           />
+          {constantNote !== null ? (
+            <p data-testid="txr-results-constant-note" style={{ ...NOTE_LINE, marginTop: 8 }}>
+              {constantNote}
+            </p>
+          ) : null}
+          {mixedNote !== null ? (
+            <p data-testid="txr-results-mixed-note" style={{ ...NOTE_LINE, marginTop: 8 }}>
+              {mixedNote}
+            </p>
+          ) : null}
+          {divergentOnly && totalCount === 0 ? (
+            <p data-testid="txr-results-divergent-empty" style={{ ...NOTE_LINE, marginTop: 8 }}>
+              No patient differs between the two methods by 10 percentage points or more.
+            </p>
+          ) : null}
         </section>
         <aside style={ASIDE_COLUMN}>
           {cardReport ? (
             <TxrCompareCard
               report={cardReport}
+              aLabel={baseView.columns[0]?.label ?? ''}
+              bLabel={baseView.columns[1]?.label ?? ''}
               divergentOnly={divergentOnly}
               onToggleDivergent={on => TxrResults.setDivergentOnly(on)}
             />
@@ -352,6 +489,8 @@ export function MethodResultsPage() {
           <TxrMethodAside
             dir={run.dir ?? null}
             trainedOn={run.input_summary?.patients ?? null}
+            method={activeColumn}
+            onShowLog={activeColumn ? method => TxrResults.openLog(method) : undefined}
             onOpenChance={() => TxrResults.openChanceDialog(true)}
             onOpenFolder={dir => void revealRunDir(dir)}
           />
@@ -361,9 +500,9 @@ export function MethodResultsPage() {
       <TxrChanceDialog
         open={chanceDialogOpen}
         onOpenChange={open => TxrResults.openChanceDialog(open)}
-        endpoint={endpointKey}
-        horizon={outcomeTab === 'response' ? responseDay : horizon}
-        probSources={allColumns.map(c => c.probSource)}
+        endpoint={activeColumn?.task ?? endpointKey}
+        horizon={activeColumn?.task === 'response' ? responseDay : horizon}
+        probSources={activeColumn ? [activeColumn.probSource] : allColumns.map(c => c.probSource)}
       />
     </main>
   )

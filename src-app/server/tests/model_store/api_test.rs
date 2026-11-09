@@ -384,6 +384,17 @@ async fn inventory_lists_filters_renames_and_deletes() {
             .contains("models"),
         "models_dir is the live store path"
     );
+    // ITEM-5 (RES-19): the summary carries the row's marker KIND too — the
+    // J subline renders "any marker" for the catalogue-`any` mode (count 0),
+    // never "0 markers" (the METHOD_A fixture's kind is `single`).
+    assert_eq!(list["models"][0]["marker_kind"], "single");
+    for m in list["models"].as_array().expect("array") {
+        assert!(
+            m.get("marker_kind").is_some(),
+            "row {} lacks marker_kind",
+            m["id"]
+        );
+    }
 
     // set_id filter.
     let list: Value = server

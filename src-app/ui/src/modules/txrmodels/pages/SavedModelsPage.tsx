@@ -74,7 +74,7 @@ import type {
 import type { IntakeSnapshot } from '@/modules/txrintake'
 import { buildTxrRunInput, useTxrIntakeStore } from '@/modules/txrintake'
 import { countSelected, formatTotalTime, TxrSelectList } from '@/modules/txrlist'
-import { runningPath } from '@/modules/txrrun'
+import { predictFilesPath, runningPath } from '@/modules/txrrun'
 import { Alert, Button } from '@ziee/kit'
 import { useAnalysisOutcome } from '../data/useAnalysisOutcome'
 import { buildSavedRows, buildSavedSections } from '../lib/rows'
@@ -84,7 +84,7 @@ import {
   type TxrModelSortable,
 } from '../lib/filters'
 import { totalSecondsForSelection } from '../lib/total'
-import { RESEARCH_NOTICE } from '../lib/format'
+import { RESEARCH_NOTICE, formatCheckedAgainstLine, formatSavedTotals } from '../lib/format'
 import { useTxrModelsStore } from '../stores/TxrModels.store'
 import type { TxrModelDialogId, TxrModelSortId } from '../types'
 import { TxrModelDetailsDialog } from '../components/TxrModelDetailsDialog'
@@ -114,7 +114,7 @@ const STEP_LINE: CSSProperties = {
   fontWeight: 700,
   letterSpacing: '0.08em',
   textTransform: 'uppercase',
-  color: '#1d4e89',
+  color: 'var(--txr-brand)',
 }
 
 const TITLE: CSSProperties = {
@@ -126,10 +126,10 @@ const TITLE: CSSProperties = {
 }
 
 /** The header row's right-hand totals line (the board's muted span). */
-const TOTALS: CSSProperties = { fontSize: 14, color: '#3a3a3a' }
+const TOTALS: CSSProperties = { fontSize: 14, color: 'var(--txr-text-2)' }
 
 /** The header block's lead paragraph (the board's own). */
-const CHECK_LINE: CSSProperties = { margin: 0, color: '#3a3a3a', maxWidth: '62ch' }
+const CHECK_LINE: CSSProperties = { margin: 0, color: 'var(--txr-text-2)', maxWidth: '62ch' }
 
 /** The list area's frame (the bounded column the shared list fills). */
 const LIST_FRAME: CSSProperties = {
@@ -137,20 +137,22 @@ const LIST_FRAME: CSSProperties = {
   minHeight: 0,
   display: 'flex',
   flexDirection: 'column',
-  border: '1px solid #cfcdc7',
+  border: '1px solid var(--txr-border)',
   borderRadius: 10,
-  background: '#ffffff',
+  background: 'var(--txr-surface)',
   overflow: 'hidden',
 }
 
 /** The board's footnote under the list (verbatim — the I board's own). */
-const FOOTNOTE: CSSProperties = { fontSize: 13, color: '#5e5e5e' }
+const FOOTNOTE: CSSProperties = { fontSize: 13, color: 'var(--txr-muted)' }
 
 /** The not-ready state's line (no validated file — never a half list). */
 const EMPTY_LINE = 'Add the patients\u2019 measurements you want to predict first.'
 
-/** The not-ready state's CTA (back to the intake start). */
-const EMPTY_CTA = 'Go to the start'
+/** The not-ready state's CTA — the step that unlocks this one (RES-20: the
+ *  old "Go to the start" landed on the landing page, not the predict-files
+ *  step the flow needs next). */
+const EMPTY_CTA = 'Go to the measurements step'
 
 /** The empty-selection refusal line (the D page's own rule, stated here). */
 const RUN_EMPTY_LINE = 'Select at least one model to run.'
@@ -188,24 +190,18 @@ function errorText(error: unknown): string {
   return RUN_FAILED_LINE
 }
 
-/** The board's draw-days spelling: [0, 14, 28, 56] → "0, 14, 28 and 56". */
-function drawDaysText(days: ReadonlyArray<number>): string {
-  if (days.length === 0) return ''
-  if (days.length === 1) return `${days[0]}`
-  return `${days.slice(0, -1).join(', ')} and ${days[days.length - 1]}`
-}
-
 /** The "Checked against your file" line from the validation (CONS-UM-11) —
  *  the I board's own tail ("Models from one training run are grouped;
- *  pick any of them."; D's tail is "Pick as many as you like."). */
+ *  pick any of them."; the formatter lives in lib/format.ts — the D page
+ *  renders the same line with its own tail, one implementation). */
 function checkedLine(raw: {
   inventory: { patients: number; markers: ReadonlyArray<unknown> }
   measurements?: { distinct_draw_days?: ReadonlyArray<number> } | null
 }): string {
-  const days = raw.measurements?.distinct_draw_days ?? []
-  const draws = drawDaysText(days)
-  const drawSegment = draws.length === 0 ? '' : `, draws at day ${draws}`
-  return `Checked against your file: ${raw.inventory.patients} patients, ${raw.inventory.markers.length} markers${drawSegment}. Models from one training run are grouped; pick any of them.`
+  return formatCheckedAgainstLine(
+    raw,
+    'Models from one training run are grouped; pick any of them.',
+  )
 }
 
 /** The reuse-mode config: the FIRST SELECTED model's own endpoint/horizon
@@ -518,7 +514,10 @@ export function SavedModelsPage() {
           }}
         >
           <div>
-            <div style={STEP_LINE}>Step 4 of 4</div>
+            {/* The step is the flow's fourth; a page reached directly (no
+                validated predict file yet) is not ON step 4 — the step line
+                would claim a position the flow has not reached (RES-20). */}
+            {validation !== null ? <div style={STEP_LINE}>Step 4 of 4</div> : null}
             <h1 style={TITLE}>Choose the saved models to run</h1>
             {validation !== null ? (
               <p data-testid="txr-models-i-checked" style={CHECK_LINE}>
@@ -526,11 +525,18 @@ export function SavedModelsPage() {
               </p>
             ) : null}
           </div>
-          <span data-testid="txr-models-i-totals" style={TOTALS}>
-            {totals === null
-              ? '\u2026'
-              : `${saved.summaries.length} saved models shown \u00b7 ${totals.fit} can run, ${totals.cannot} cannot, ${totals.some} partly`}
-          </span>
+          {validation !== null ? (
+            <span data-testid="txr-models-i-totals" style={TOTALS}>
+              {totals === null
+                ? '\u2026'
+                : formatSavedTotals(
+                    saved.summaries.length,
+                    totals.fit,
+                    totals.some,
+                    totals.cannot,
+                  )}
+            </span>
+          ) : null}
         </div>
         {validation !== null ? (
           <div style={LIST_FRAME}>
@@ -584,7 +590,11 @@ export function SavedModelsPage() {
             }}
           >
             <p style={CHECK_LINE}>{EMPTY_LINE}</p>
-            <Button data-testid="txr-models-i-empty-cta" variant="outline" onClick={() => navigate('/')}>
+            <Button
+              data-testid="txr-models-i-empty-cta"
+              variant="outline"
+              onClick={() => navigate(predictFilesPath())}
+            >
               {EMPTY_CTA}
             </Button>
           </div>

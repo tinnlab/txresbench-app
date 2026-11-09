@@ -23,13 +23,15 @@
  *   navigation is observed by the story's own MemoryRouter (the harness
  *   frame mounts one route; a run-created navigation would unmount the
  *   page otherwise).
- * - `txr-models-i` / `txr-models-j`: the two model boards — the saved
+ * - `txr-models-i` / `txr-models-j` / `txr-models-j-narrow-390`: the two
+ *   model boards — the saved
  *   models grouped per run over the store's real load (the module
  *   cassette answers `Models.listModels` / `ModelSets.listSets` /
  *   `Models.checkEligibility`), and the Your-models table over the
  *   server-filtered inventory read (the J story's extension answers the
  *   J fixture rows; the I story's extension answers the engine's sticky
- *   analysis config — the same-outcome chip's fact source, read raw).
+ *   analysis config — the same-outcome chip's fact source, read raw) at
+ *   the container width and at 390 px (ITEM-5, RES-16).
  * - `txr-models-l` / `txr-models-l2` / `txr-models-l3`: the save dialogs
  *   over the results board (L and L2 through the real host + the real
  *   event; L3 the saved confirmation). Their extensions answer the
@@ -163,7 +165,7 @@ function RunResultLine() {
   return (
     <pre
       data-testid="txr-models-run-result"
-      style={{ margin: 8, fontSize: 11, color: '#5e5e5e', whiteSpace: 'pre-wrap' }}
+      style={{ margin: 8, fontSize: 11, color: 'var(--txr-muted)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
     >
       {record === null
         ? 'run not fired yet'
@@ -180,7 +182,7 @@ function RequestSeam() {
   return (
     <pre
       data-testid="txr-models-request-seam"
-      style={{ margin: 8, fontSize: 11, color: '#5e5e5e', whiteSpace: 'pre-wrap' }}
+      style={{ margin: 8, fontSize: 11, color: 'var(--txr-muted)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
     >
       {JSON.stringify(REQUEST_LOG)}
     </pre>
@@ -193,7 +195,7 @@ function LandedAt() {
   return (
     <pre
       data-testid="txr-models-landed"
-      style={{ margin: 24, fontSize: 12, color: '#5e5e5e' }}
+      style={{ margin: 24, fontSize: 12, color: 'var(--txr-muted)' }}
     >
       navigated to {location.pathname}
     </pre>
@@ -234,22 +236,22 @@ const HOST_BUTTON: CSSProperties = {
   zIndex: 10,
   fontSize: 12,
   padding: '4px 10px',
-  border: '1px solid #cfcdc7',
+  border: '1px solid var(--txr-border)',
   borderRadius: 8,
-  background: '#ffffff',
-  color: '#1d4e89',
+  background: 'var(--txr-surface)',
+  color: 'var(--txr-brand)',
 }
 
 /** The list-frame look (the gallery's bounded white pane). */
 const FRAME: CSSProperties = {
-  border: '1px solid #cfcdc7',
+  border: '1px solid var(--txr-border)',
   borderRadius: 10,
-  background: '#ffffff',
+  background: 'var(--txr-surface)',
 }
 
 /** The gallery's note under a story (host chrome, muted). */
 function BoardNote({ children }: { children: string }) {
-  return <p style={{ margin: '10px 2px 0', fontSize: 12.5, color: '#5e5e5e' }}>{children}</p>
+  return <p style={{ margin: '10px 2px 0', fontSize: 12.5, color: 'var(--txr-muted)' }}>{children}</p>
 }
 
 /** A seed-then-render gate (the txrrun SeedGate idiom: the store must be
@@ -425,7 +427,7 @@ function DStoryView({ narrow = false }: { narrow?: boolean }) {
 /** The run-landing seam (the D Run's in-frame navigation's destination). */
 function LandingLine({ path }: { path: string }) {
   return (
-    <p data-testid="txr-models-d-run-landed" style={{ margin: 12, fontSize: 12, color: '#5e5e5e' }}>
+    <p data-testid="txr-models-d-run-landed" style={{ margin: 12, fontSize: 12, color: 'var(--txr-muted)' }}>
       {path}
     </p>
   )
@@ -443,10 +445,13 @@ function IStoryView() {
 }
 
 /** The J story's frame: the real inventory page (web mode — the
- *  open-folder button is desktop-gated and absent here). */
-function JStoryView() {
+ *  open-folder button is desktop-gated and absent here). The narrow frame
+ *  is the 390 px page: the table stacks as labelled cards and the header
+ *  controls wrap (ITEM-5, RES-16 — the measured 1002 px page scrollWidth
+ *  is the defect this story guards). */
+function JStoryView({ narrow = false }: { narrow?: boolean }) {
   return (
-    <section style={{ width: '100%', minWidth: 0 }}>
+    <section style={{ width: narrow ? 390 : '100%', maxWidth: '100%', minWidth: 0 }}>
       <SeedGate seed={seedJStory}>
         <ModelsPage />
       </SeedGate>
@@ -649,10 +654,21 @@ export const gallery: ModuleGallery = {
     {
       slug: 'txr-models-j',
       title: 'Your models (screen J)',
-      note: 'The inventory table over the server-filtered read: the board columns, the run-trained / imported / unrecorded rows, the Open-a-model-file button, the footnotes with the real models root and no open-folder button (web mode).',
+      note: 'The inventory table over the server-filtered read: the board columns, the run-trained / imported / unrecorded rows, the any-marker + set sublines (ITEM-5), the Open-a-model-file button, the footnotes with the real models root and no open-folder button (web mode).',
       path: '/models',
       initialPath: '/models',
       component: lazy(() => Promise.resolve({ default: JStoryView })),
+      fullHeight: true,
+    },
+    {
+      slug: 'txr-models-j-narrow-390',
+      title: 'Your models at 390 px (screen J)',
+      note: 'The board\'s mobile width: the seven-column table stacks as labelled cards, the search box takes the row and the Open-a-model-file button stays inside the viewport — no horizontal page overflow (ITEM-5, RES-16).',
+      path: '/models',
+      initialPath: '/models',
+      component: lazy(() =>
+        Promise.resolve({ default: () => <JStoryView narrow /> }),
+      ),
       fullHeight: true,
     },
     {
@@ -685,7 +701,7 @@ export const gallery: ModuleGallery = {
     {
       slug: 'txr-models-empty',
       title: 'Choose the models to run — no file',
-      note: 'The not-ready state: no validated predict file — the honest line + the go-to-the-start CTA, never a half-built list.',
+      note: 'The not-ready state: no validated predict file — the honest line + the measurements-step CTA (ITEM-5, RES-20), never a half-built list.',
       path: '/pretrained-models',
       initialPath: '/pretrained-models',
       component: lazy(() => Promise.resolve({ default: EmptyStoryView })),

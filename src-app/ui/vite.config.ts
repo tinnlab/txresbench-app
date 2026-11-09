@@ -1,10 +1,35 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { gallerySentinelPlugin } from '@ziee/gallery/vite/vite-plugin-gallery-sentinel.js'
+import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 
 const srcDir = path.resolve(__dirname, './src')
+
+/**
+ * The X1 build check (qa-fixes ITEM-7): after the build closes, every `url()`
+ * in the built CSS must resolve inside dist. Runs through
+ * `scripts/check-built-css-urls.mjs` (its own file so the unit test can point
+ * it at fixture dists) — the same check the plan's X1 promise needs on the
+ * dev server, the built preview AND the Tauri desktop shell, all of which
+ * serve this dist. A broken font base fails the build instead of silently
+ * shipping system-font fallback (the `/assets/assets/assets/fonts` defect).
+ * Paths use `__dirname` (the config dir — Vite's inline-config shim) so the
+ * check survives Vite's `.vite-temp` re-bundle of this file.
+ */
+function builtCssUrlsCheck(): Plugin {
+  return {
+    name: 'txr-built-css-urls-check',
+    apply: 'build',
+    closeBundle() {
+      const dist = path.resolve(__dirname, 'dist')
+      execFileSync('node', [path.resolve(__dirname, 'scripts/check-built-css-urls.mjs'), dist], {
+        stdio: 'inherit',
+      })
+    },
+  }
+}
 
 // Minimal SDK-consumer Vite config (SDK_GAPS FE-6: app#1's config is heavily
 // ziee-entangled — root:'src', 5 custom plugins, Tauri env — a fresh app needs
@@ -20,7 +45,7 @@ export default defineConfig({
   // a clean, passing `origin/main`. Do not remove it: `scripts/preland-frontend-
   // health.mjs` FAILS CLOSED (exit 2) when the server it is about to audit does
   // not answer `/__worktree`.
-  plugins: [react(), tailwindcss(), gallerySentinelPlugin()],
+  plugins: [react(), tailwindcss(), gallerySentinelPlugin(), builtCssUrlsCheck()],
   clearScreen: false,
   root: 'src',
   // Pre-bundle deps that are only reached through lazily-imported modules

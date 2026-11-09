@@ -62,7 +62,7 @@ const PARAGRAPHS: CSSProperties = {
   flexDirection: 'column',
   gap: 8,
   fontSize: 14,
-  color: '#3a3a3a',
+  color: 'var(--txr-text-2)',
 }
 
 export interface TxrChanceDialogProps {

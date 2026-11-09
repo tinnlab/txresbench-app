@@ -33,9 +33,11 @@ import {
   UNRECORDED,
   WHAT_IS_SAVED_LABEL,
   formatBytes,
+  formatCheckedAgainstLine,
   formatMade,
   formatModelSublines,
   formatPredicts,
+  formatSavedTotals,
   formatTrainingDataWarning,
   formatTrainedOn,
 } from './format'
@@ -99,26 +101,50 @@ describe('formatTrainedOn — the J Trained-on column (TEST-MOD-03)', () => {
 
 describe('formatModelSublines — the J Model subline (TEST-MOD-03)', () => {
   it('joins the board facts in the board order with the board separator', () => {
-    expect(formatModelSublines(6, true, null)).toBe('6 markers \u00b7 uses age')
-    expect(formatModelSublines(4, false, null)).toBe('4 markers')
-    expect(formatModelSublines(5, false, 'breast-panel.txr')).toBe(
+    expect(formatModelSublines(6, true, null, null, 'single')).toBe(
+      '6 markers \u00b7 uses age',
+    )
+    expect(formatModelSublines(4, false, null, null, 'single')).toBe('4 markers')
+    expect(formatModelSublines(5, false, 'breast-panel.txr', null, 'single')).toBe(
       'opened from breast-panel.txr \u00b7 5 markers',
     )
-    expect(formatModelSublines(2, true, 'x.txr')).toBe('opened from x.txr \u00b7 2 markers \u00b7 uses age')
+    expect(formatModelSublines(2, true, 'x.txr', null, 'single')).toBe(
+      'opened from x.txr \u00b7 2 markers \u00b7 uses age',
+    )
   })
 
   it('spells the singular at one marker', () => {
-    expect(formatModelSublines(1, false, null)).toBe('1 marker')
+    expect(formatModelSublines(1, false, null, null, 'single')).toBe('1 marker')
   })
 
   it('renders the name alone when no fact applies (the board null-facts row)', () => {
-    expect(formatModelSublines(null, false, null)).toBe('')
-    expect(formatModelSublines(null, false, '')).toBe('')
+    expect(formatModelSublines(null, false, null, null, 'single')).toBe('')
+    expect(formatModelSublines(null, false, '', null, 'single')).toBe('')
   })
 
   it('stills spells a fact when only one is present', () => {
-    expect(formatModelSublines(null, true, null)).toBe('uses age')
-    expect(formatModelSublines(null, false, 'breast-panel.txr')).toBe('opened from breast-panel.txr')
+    expect(formatModelSublines(null, true, null, null, 'single')).toBe('uses age')
+    expect(formatModelSublines(null, false, 'breast-panel.txr', null, 'single')).toBe(
+      'opened from breast-panel.txr',
+    )
+  })
+
+  it('reads the marker KIND, never a bare count, for the catalogue any-mode rows (RES-19)', () => {
+    // 77 shipped methods record kind `any` with count 0 — "0 markers" would
+    // say a method that runs on ANY marker uses none.
+    expect(formatModelSublines(0, false, null, null, 'any')).toBe('any marker')
+    // The defensive no-kind read keeps the count wording (a grown response).
+    expect(formatModelSublines(0, false, null, null, undefined)).toBe('0 markers')
+  })
+
+  it('names the set the model was saved in when it differs from the display name (RES-17)', () => {
+    expect(formatModelSublines(6, true, null, 'Second run, day 60', 'single')).toBe(
+      '6 markers \u00b7 uses age \u00b7 from the set \'Second run, day 60\'',
+    )
+    // The caller already suppressed a set name equal to the model's own.
+    expect(formatModelSublines(6, true, null, null, 'single')).toBe(
+      '6 markers \u00b7 uses age',
+    )
   })
 })
 
@@ -163,6 +189,57 @@ describe('the training-data warning sentence (SaveModels.dc.html)', () => {
   it('renders no line for an empty list (the dialog omits the warning)', () => {
     expect(formatTrainingDataWarning([])).toBe('')
     expect(formatTrainingDataWarning(['  '])).toBe('')
+  })
+})
+
+describe('formatSavedTotals — screen I\'s totals line (ITEM-5, RES-22)', () => {
+  it('counts can-run as what can start — fit AND some — so the sentence agrees with the chip', () => {
+    // The old line read "6 can run, 0 cannot, 6 partly" next to the chip
+    // "Can run 12" — two accountings of one set. One definition: the 12
+    // non-disabled rows (6 for all patients, 6 for some) all START.
+    expect(formatSavedTotals(12, 6, 6, 0)).toBe(
+      '12 saved models shown \u00b7 12 can run, 0 cannot (6 of them for some patients)',
+    )
+  })
+
+  it('omits the some-split when no model is partial (never a zero sentence)', () => {
+    expect(formatSavedTotals(10, 8, 0, 2)).toBe('10 saved models shown \u00b7 8 can run, 2 cannot')
+    expect(formatSavedTotals(10, 0, 0, 10)).toBe('10 saved models shown \u00b7 0 can run, 10 cannot')
+  })
+
+  it('keeps the closed accounting: fit + some + cannot == shown', () => {
+    expect(formatSavedTotals(13, 6, 2, 5)).toBe(
+      '13 saved models shown \u00b7 8 can run, 5 cannot (2 of them for some patients)',
+    )
+  })
+})
+
+describe('formatCheckedAgainstLine — the D/I checked-against line (ITEM-5, RES-22)', () => {
+  const raw = (days: ReadonlyArray<number>) => ({
+    inventory: { patients: 94, markers: [{ id: 'ctdna_1' }, { id: 'ctdna_2' }] },
+    measurements: { distinct_draw_days: days },
+  })
+
+  it('keeps the board spelling for four or fewer draw days', () => {
+    expect(formatCheckedAgainstLine(raw([0, 14, 28, 56]), 'Pick as many as you like.')).toBe(
+      'Checked against your file: 94 patients, 2 markers, draws at day 0, 14, 28 and 56. Pick as many as you like.',
+    )
+    expect(formatCheckedAgainstLine(raw([35]), 'Pick as many as you like.')).toBe(
+      'Checked against your file: 94 patients, 2 markers, draws at day 35. Pick as many as you like.',
+    )
+  })
+
+  it('reads a count, never a 14-item list, for a file with many draw days', () => {
+    const days = [0, 35, 39, 40, 49, 63, 70, 84, 91, 105, 120, 180, 240, 799]
+    expect(formatCheckedAgainstLine(raw(days), 'Models from one training run are grouped; pick any of them.')).toBe(
+      'Checked against your file: 94 patients, 2 markers, draws on 14 days. Models from one training run are grouped; pick any of them.',
+    )
+  })
+
+  it('omits the draw segment when the file records no draw days', () => {
+    expect(formatCheckedAgainstLine(raw([]), 'Pick as many as you like.')).toBe(
+      'Checked against your file: 94 patients, 2 markers. Pick as many as you like.',
+    )
   })
 })
 

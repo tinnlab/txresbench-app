@@ -169,16 +169,16 @@ export function formatDate(iso: string, options: FormatDateOptions = {}): string
 export function statusLabel(bucket: TxrHistoryBucket): { text: string; tone: string } {
   switch (bucket) {
     case 'running':
-      return { text: 'Running', tone: '#143a68' }
+      return { text: 'Running', tone: 'var(--txr-brand-ink)' }
     case 'finished':
-      return { text: 'Done', tone: '#1f6b3a' }
+      return { text: 'Done', tone: 'var(--txr-success)' }
     case 'stopped':
-      return { text: 'Stopped', tone: '#5e5e5e' }
+      return { text: 'Stopped', tone: 'var(--txr-muted)' }
     case 'failed':
-      return { text: 'Failed', tone: '#b3261e' }
+      return { text: 'Failed', tone: 'var(--txr-danger)' }
   }
   const _unreachable: never = bucket
-  return { text: 'Failed', tone: '#b3261e' }
+  return { text: 'Failed', tone: 'var(--txr-danger)' }
 }
 
 /**
@@ -225,10 +225,20 @@ export function endpointLabel(endpoint: TxrEndpoint, lookAheadDay: number): stri
  * finished run has no reason (null — the segment omits). A stopped or
  * failed row whose run recorded no reason (or only blank detail) reads
  * the sibling run module's constant — a failure is never blank (INV-2).
+ *
+ * The `null`-vs-`undefined` rule (qa-fixes RES-01): the openapi generator
+ * renders a nullable-and-optional provider field as the TS optional-only
+ * shape (`TxrRunReason | undefined`), while the engine's `Option`
+ * serializes the ABSENT value as JSON `null` — so the wire can carry
+ * `reason: null` exactly where the type says "no property". The guard is
+ * `!= null` (both spellings absent), never `!== undefined` — a `null`
+ * reason reading `.detail` is the history-page crash RES-01 (the
+ * generator's shape is the documented collapse, the `txrrun` `toRunConfig`
+ * bridge class; the provider-side fix is the regen's recorded owner).
  */
-export function reasonLine(bucket: TxrHistoryBucket, reason: TxrRunReason | undefined): string | null {
+export function reasonLine(bucket: TxrHistoryBucket, reason: TxrRunReason | null | undefined): string | null {
   const detail =
-    reason !== undefined && reason.detail.trim().length > 0 ? reason.detail : NO_REASON_RECORDED
+    reason != null && reason.detail.trim().length > 0 ? reason.detail : NO_REASON_RECORDED
   switch (bucket) {
     case 'running':
     case 'finished':

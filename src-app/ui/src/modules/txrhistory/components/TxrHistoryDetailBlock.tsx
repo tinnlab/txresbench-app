@@ -49,12 +49,12 @@ import { TxrHistoryActions } from './TxrHistoryActions'
 
 /** The expanded block's wrap layout + tint (the board's 28 px gap). */
 const BLOCK: CSSProperties = {
-  borderTop: '1px solid #e7e5e0',
+  borderTop: '1px solid var(--txr-border-subtle)',
   padding: '14px 18px 16px',
   display: 'flex',
   flexWrap: 'wrap',
   gap: 28,
-  background: '#fbfaf8',
+  background: 'var(--txr-bg)',
   borderRadius: '0 0 8px 8px',
 }
 
@@ -69,7 +69,7 @@ const DL: CSSProperties = {
   alignContent: 'start',
 }
 
-const DT: CSSProperties = { color: '#5e5e5e' }
+const DT: CSSProperties = { color: 'var(--txr-muted)' }
 
 const DD: CSSProperties = { margin: 0, minWidth: 0 }
 
@@ -81,7 +81,7 @@ const MONO: CSSProperties = {
 }
 
 /** The copies note's quiet line. */
-const NOTE: CSSProperties = { fontSize: 12.5, color: '#5e5e5e', marginTop: 2 }
+const NOTE: CSSProperties = { fontSize: 12.5, color: 'var(--txr-muted)', marginTop: 2 }
 
 /** The in-line link look (the board's 14 px link inside the sentence). */
 const LINK_INLINE: CSSProperties = { fontSize: 14, fontWeight: 400, padding: 0, height: 'auto' }
@@ -118,7 +118,12 @@ export function formatGigabytes(bytes: number | undefined | null): string | null
 
 /**
  * The Settings line: the board's comma sentence, each segment omitted
- * when its fact is absent (optional facts never fabricated).
+ * when its fact is absent (optional facts never fabricated). The absent
+ * tests are `!= null` — the provider's `Option` fields serialize their
+ * absent value as JSON `null`, while the generated types render them
+ * optional-only (the RES-01 null-vs-undefined rule; an absent
+ * `seed`/`cpus`/`memory_total_bytes` must OMIT the segment, never print
+ * "seed null" / "null CPUs").
  */
 export function settingsLine(settings: TxrHistoryDetail['settings']): string {
   const segments: string[] = [
@@ -126,8 +131,8 @@ export function settingsLine(settings: TxrHistoryDetail['settings']): string {
     `horizon ${settings.look_ahead_day}`,
     `covariates ${settings.covariates ? 'on' : 'off'}`,
   ]
-  if (settings.seed !== undefined) segments.push(`seed ${settings.seed}`)
-  if (settings.cpus !== undefined) {
+  if (settings.seed != null) segments.push(`seed ${settings.seed}`)
+  if (settings.cpus != null) {
     segments.push(`${settings.cpus} ${settings.cpus === 1 ? 'CPU' : 'CPUs'}`)
   }
   const memory = formatGigabytes(settings.memory_total_bytes)
@@ -258,6 +263,7 @@ export function TxrHistoryDetailBlock({
                   <Button
                     data-testid={`txr-history-model-set-${link.setId}`}
                     variant="link"
+                    className="txr-history-model-set"
                     style={LINK_INLINE}
                     onClick={() => onOpenSet?.(link.setId)}
                   >

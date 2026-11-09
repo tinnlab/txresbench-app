@@ -23,17 +23,17 @@ import type { CSSProperties, ReactNode } from 'react'
 import { Button } from '@ziee/kit'
 import type { TxrCompareReport } from '../types'
 import {
-  COMPARE_CARD_TITLE,
   DIFFER_LEAD,
   DIFFER_NONE,
   DIVERGENT_TOGGLE,
   SHARED_TOP_LEAD,
   SHARED_TOP_NONE,
   SHARED_TOP_TAIL,
+  compareCardTitle,
 } from '../lib/format'
 
 const CARD: CSSProperties = {
-  border: '1px solid #cfcdc7',
+  border: '1px solid var(--txr-border)',
   borderRadius: 10,
   padding: '16px 18px',
   display: 'flex',
@@ -45,7 +45,7 @@ const TITLE: CSSProperties = { fontWeight: 600, margin: 0 }
 
 const SENTENCES: CSSProperties = {
   fontSize: 14,
-  color: '#3a3a3a',
+  color: 'var(--txr-text-2)',
   display: 'flex',
   flexDirection: 'column',
   gap: 8,
@@ -55,7 +55,7 @@ const TOGGLE: CSSProperties = {
   alignSelf: 'flex-start',
   fontSize: 14,
   padding: 0,
-  color: '#1d4e89',
+  color: 'var(--txr-brand)',
 }
 
 /** The board's named-id list: comma-joined, "and" before the last, ids bold. */
@@ -120,23 +120,36 @@ function DifferSentence({
 export interface TxrCompareCardProps {
   /** ITEM-4's report over the view's first two columns (never empty in compare mode). */
   report: TxrCompareReport
+  /** The first compared method's display label (the card's title, RES-10). */
+  aLabel: string
+  /** The second compared method's display label (the card's title, RES-10). */
+  bLabel: string
   /** The divergent-only filter state (the store's `divergentOnly`). */
   divergentOnly: boolean
   onToggleDivergent: (on: boolean) => void
 }
 
-export function TxrCompareCard({ report, divergentOnly, onToggleDivergent }: TxrCompareCardProps) {
+export function TxrCompareCard({
+  report,
+  aLabel,
+  bLabel,
+  divergentOnly,
+  onToggleDivergent,
+}: TxrCompareCardProps) {
   return (
     <div data-testid="txr-compare-card" style={CARD}>
-      <div style={TITLE}>{COMPARE_CARD_TITLE}</div>
+      <div style={TITLE} data-testid="txr-compare-card-title">
+        {compareCardTitle(aLabel, bLabel)}
+      </div>
       <div style={SENTENCES}>
         <SharedTopSentence shared={report.sharedTop} />
         <DifferSentence differing={report.mostDiffering} />
         <Button
           data-testid="txr-compare-divergent-toggle"
           variant="link"
-          className="p-0"
+          className="txr-compare-toggle p-0"
           aria-pressed={divergentOnly}
+          disabled={report.divergentCount === 0}
           style={TOGGLE}
           onClick={() => onToggleDivergent(!divergentOnly)}
         >

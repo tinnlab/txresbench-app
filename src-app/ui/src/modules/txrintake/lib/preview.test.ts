@@ -102,7 +102,7 @@ function response(methods: MethodEligibility[]): EligibilityResponse {
   const total_fit = methods.filter(m => m.status === 'can_run').length
   const total_some = methods.filter(m => m.status === 'can_run_some').length
   const total_cannot = methods.filter(m => m.status === 'cannot_run').length
-  return { methods, total_fit, total_some, total_cannot }
+  return { methods, total_fit, total_some, total_cannot, total_no_env: 0 }
 }
 
 describe('buildStudyPreviewRequest (TEST-INT-2)', () => {

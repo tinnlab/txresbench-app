@@ -60,12 +60,15 @@ const SIBLING_OWNED_KEYS = [
   'Txr.getRun',
 ]
 
-/** The plan's nine slate of slugs (PROV-UI-MODELS-6's enumeration). */
+/** The plan's nine slate of slugs (PROV-UI-MODELS-6's enumeration) plus
+ *  the ITEM-5 J phone-width story (RES-16 — the inventory's own 390 px
+ *  story, same frame as the D narrow one). */
 const STORY_SLUGS = [
   'txr-models-d',
   'txr-models-d-narrow-390',
   'txr-models-i',
   'txr-models-j',
+  'txr-models-j-narrow-390',
   'txr-models-l',
   'txr-models-l2',
   'txr-models-l3',
@@ -106,6 +109,10 @@ describe('txrmodels gallery seed (TEST-MOD-16)', () => {
     expect(bySlug.get('txr-models-i')?.initialPath).toBe('/saved-models')
     expect(bySlug.get('txr-models-j')?.path).toBe('/models')
     expect(bySlug.get('txr-models-j')?.initialPath).toBe('/models')
+    // The ITEM-5 phone-width story is the same J frame in a narrow wrapper
+    // (RES-16) — the same real route, the same board.
+    expect(bySlug.get('txr-models-j-narrow-390')?.path).toBe('/models')
+    expect(bySlug.get('txr-models-j-narrow-390')?.initialPath).toBe('/models')
     expect(bySlug.get('txr-models-empty')?.path).toBe('/pretrained-models')
     expect(bySlug.get('txr-models-error')?.path).toBe('/pretrained-models')
     for (const slug of ['txr-models-l', 'txr-models-l2', 'txr-models-l3']) {

@@ -157,9 +157,9 @@ function LocationProbe() {
   return <div data-testid="route-location">{location.pathname}</div>
 }
 
-function renderPredict() {
+function renderPredict(entry = '/predict-files') {
   return render(
-    <MemoryRouter initialEntries={['/predict-files']}>
+    <MemoryRouter initialEntries={[entry]}>
       <PredictFilesPage />
       <LocationProbe />
     </MemoryRouter>,
@@ -174,6 +174,14 @@ const store = () => useTxrIntakeStore.getState()
 function pickMeasurements(name: string, content: string) {
   const file = new File([content], name, { type: 'text/csv' })
   const card = screen.getByTestId('txr-intake-file-card-measurements')
+  const input = card.querySelector('input[type=file]') as HTMLInputElement
+  fireEvent.change(input, { target: { files: [file] } })
+}
+
+/** Pick an arbitrary file into an arbitrary card, by kit testid. */
+function pickFile(testId: string, name: string, content: string) {
+  const file = new File([content], name, { type: 'text/csv' })
+  const card = screen.getByTestId(testId)
   const input = card.querySelector('input[type=file]') as HTMLInputElement
   fireEvent.change(input, { target: { files: [file] } })
 }
@@ -223,6 +231,18 @@ describe('PredictFilesPage (screen N, ITEM-7)', () => {
     expect(screen.getByText('No outcomes are needed, and no patients file.')).toBeTruthy()
     expect(continueButton().disabled).toBe(true)
     expect(continueButton().textContent).toBe('Continue: choose models')
+  })
+
+  it('names the model the J "Use" handoff chose (RES-21) — and stays silent without one', () => {
+    renderPredict()
+    expect(screen.queryByTestId('txr-intake-pending-use')).toBeNull()
+    cleanup()
+    renderPredict(
+      '/predict-files?use=a0000000-0000-4000-8000-000000000004&name=landmark-cox-current',
+    )
+    expect(screen.getByTestId('txr-intake-pending-use').textContent).toBe(
+      'You chose the model \u201clandmark-cox-current\u201d. Add its patients\u2019 measurements to predict.',
+    )
   })
 
   it('a dropped file validates in predict mode with the patients key OMITTED', async () => {
@@ -304,7 +324,7 @@ describe('PredictFilesPage (screen N, ITEM-7)', () => {
     // The ITEM-4 code link is appended to the provider's line.
     expect(
       within(status).getAllByRole('listitem')[0].textContent,
-    ).toContain('Row 4: `week 4` is not a number in the day column')
+    ).toContain('Row 4: week 4 is not a number in the day column')
     expect(continueButton().disabled).toBe(true)
 
     fireEvent.click(within(status).getByText('Fix and choose the file again'))
@@ -354,5 +374,32 @@ describe('PredictFilesPage (screen N, ITEM-7)', () => {
     renderPredict()
     fireEvent.click(screen.getByTestId('txr-intake-aside-study'))
     expect(routeAt()).toBe('/study')
+  })
+})
+
+describe("ITEM-6 P1/F4 — the aside's bullets and two-line items, the pick guard", () => {
+  it('the aside list keeps the board dots and the bold lead-in on its own line (P1)', () => {
+    renderPredict()
+    const list = screen.getByText('Before treatment').closest('ul') as HTMLElement
+    expect(list.style.listStyle).toBe('disc')
+    const item = screen.getByText('(day 0): needed by almost all models')
+    // The board's bold lead-in is its own element on its own line (the
+    // <br/> follows it), then the fact.
+    expect(item.firstElementChild?.tagName).toBe('B')
+    expect(item.firstElementChild?.textContent).toBe('Before treatment')
+    expect(item.firstElementChild?.nextElementSibling?.tagName).toBe('BR')
+    expect(item.textContent).toContain('(day 0): needed by almost all models')
+  })
+
+  it('a wrong file type is refused with the plain sentence on the N card too (F4)', async () => {
+    renderPredict()
+    pickFile('txr-intake-file-drop-measurements', 'notes.txt', 'not a table')
+    await waitFor(() => {
+      expect(
+        screen.getByText('This is not a CSV or Excel file — choose a .csv or .xlsx file.'),
+      ).toBeTruthy()
+    })
+    expect(api.inspect).not.toHaveBeenCalled()
+    expect(store().predictMeasurements).toBeNull()
   })
 })

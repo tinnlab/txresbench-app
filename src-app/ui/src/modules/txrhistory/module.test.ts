@@ -59,9 +59,17 @@ const SHELL = 'src-app/ui/src/modules/txrshell/module.tsx'
  * tree against HEAD. Committed (the branch gate): the tip commit's diff.
  */
 function itemDelta(): string[] {
+  // The tests run from `src-app/ui`, and git prints STATUS/LS-FILES paths
+  // relative to the working directory while DIFF paths are repo-root
+  // relative — so the three sources must be read from the ROOT with `-C`,
+  // otherwise an untracked file (qa-fixes ITEM-7's new files) would be
+  // reported on the wrong base and the no-edit pins would misfire
+  // (`src-app/ui/scripts/…` arriving as `scripts/…`). The txrhelp sweep's
+  // convention.
+  const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim()
   const git = (args: string[]): string[] => {
     try {
-      return execFileSync('git', args, { encoding: 'utf8' })
+      return execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' })
         .split('\n')
         .filter(Boolean)
     } catch {
@@ -225,43 +233,138 @@ describe('txrhistory module (TEST-HIST-1)', () => {
 
   it('does not change the generated client, the openapi, the guards, the loader, the server or any other module (DEC-15)', () => {
     const touched = itemDelta()
-    expect(touched.filter(p => p.startsWith('src-app/ui/src/api-client/'))).toEqual([])
-    expect(touched.filter(p => p.startsWith('src-app/ui/openapi/'))).toEqual([])
-    expect(touched.filter(p => p.startsWith('scripts/'))).toEqual([])
-    expect(touched.filter(p => p.startsWith('src-app/ui/scripts/'))).toEqual([])
+    // The qa-fixes ITEM-2 client surface (its DRIFT-1): the regenerated
+    // `types.ts` (the new `ENV_IMAGE_MISSING` reason code + the
+    // `total_no_env`/`cpus` eligibility+estimate fields) and the
+    // regenerated `openapi.json` — the ONLY two generated files this item
+    // moves; the pins stay strict for anything else under either prefix.
+    expect(
+      touched.filter(
+        p =>
+          p.startsWith('src-app/ui/src/api-client/') &&
+          p !== 'src-app/ui/src/api-client/types.ts',
+      ),
+    ).toEqual([])
+    expect(
+      touched.filter(
+        p => p.startsWith('src-app/ui/openapi/') && p !== 'src-app/ui/openapi/openapi.json',
+      ),
+    ).toEqual([])
+        // The qa-fixes ITEM-6 scripts half (its DRIFT-1): the input converter's
+    // F8 unit fix (scripts/dev-registry/make-real-inputs.py + its new test)
+    // and the file-validator generator's F6 example rounding
+    // (scripts/file-validator/gen_material.py + the regenerated fixture
+    // expected example bytes). Nothing else under scripts/ moves.
+    expect(
+      touched.filter(
+        p =>
+          p.startsWith('scripts/') &&
+          p !== 'scripts/dev-registry/make-real-inputs.py' &&
+          p !== 'scripts/dev-registry/make_real_inputs.test.py' &&
+          p !== 'scripts/file-validator/gen_material.py' &&
+          p !== 'scripts/file-validator/fixtures/expected/examples/patients.csv' &&
+          p !== 'scripts/file-validator/fixtures/expected/examples/measurements.csv',
+      ),
+    ).toEqual([])
+    // qa-fixes ITEM-7 (X1): the built-CSS url check — one script file
+    // (`scripts/check-built-css-urls.mjs`, wired into the vite
+    // closeBundle), sanctioned verbatim with the fonts fix.
+    expect(touched.filter(p => p.startsWith('src-app/ui/scripts/') &&
+          p !== 'src-app/ui/scripts/check-built-css-urls.mjs')).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/package.json')).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/package-lock.json')).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/scripts/domain-baseline.json')).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/src/modules/loader.ts')).toEqual([])
-    expect(touched.filter(p => p.startsWith('src-app/server/'))).toEqual([])
+    // The whole server half of the qa-fixes ITEM-2 delta (its DRIFT-1):
+    // the method_catalogue eligibility/estimate/routes/types rework
+    // (CM-1/CM-6/CM-7), the execution_engine environment-classify detail,
+    // the model_store + pretrained reason-code vocabulary growth and the
+    // method_catalogue API test, plus the execution_engine types/README + the
+    // integration tests whose ENV_UNKNOWN pins the one-vocabulary change
+    // reclassifies (DRIFT-1 ITEM-2 #2) — pinned verbatim; anything else under
+    // `src-app/server/` still fails.
+    // The qa-fixes ITEM-5 server half (its DRIFT-1): ModelSummary grows
+    // the `marker_kind` fact (model_store types.rs + store.rs) — the J
+    // "any marker" subline for the catalogue-`any` rows (RES-19) — and the
+    // A04 unit note stops quoting a blank canonical unit
+    // (file_validator/units.rs, RES-24). Nothing else moves.
+    // The qa-fixes ITEM-6 server half (its DRIFT-1): the patients summary
+    // grows the `primary_outcome_events` fact (file_validator types.rs +
+    // validate.rs — the board's "N progressions or deaths" is the EVENTS
+    // count, never with_primary_outcome; F1) and the A04 "no unit-family
+    // agreement" wording reads plainly (units.rs again, F5e).
+    expect(
+      touched.filter(
+        p =>
+          p.startsWith('src-app/server/') &&
+          p !== 'src-app/server/src/modules/method_catalogue/types.rs' &&
+          p !== 'src-app/server/src/modules/method_catalogue/eligibility.rs' &&
+          p !== 'src-app/server/src/modules/method_catalogue/estimate.rs' &&
+          p !== 'src-app/server/src/modules/method_catalogue/routes.rs' &&
+          p !== 'src-app/server/src/modules/execution_engine/orchestrator.rs' &&
+          p !== 'src-app/server/src/modules/model_store/types.rs' &&
+          p !== 'src-app/server/src/modules/pretrained_catalogue/types.rs' &&
+          p !== 'src-app/server/tests/method_catalogue/api_test.rs' &&
+          p !== 'src-app/server/src/modules/execution_engine/types.rs' &&
+          p !== 'src-app/server/src/modules/execution_engine/routes.rs' &&
+          p !== 'src-app/server/src/modules/execution_engine/README.md' &&
+          p !== 'src-app/server/tests/execution_engine/api_test.rs' &&
+          p !== 'src-app/server/tests/execution_engine/bundle_test.rs' &&
+          p !== 'src-app/server/tests/history_store/mod.rs' &&
+          p !== 'src-app/server/src/modules/model_store/store.rs' &&
+          p !== 'src-app/server/src/modules/file_validator/types.rs' &&
+          p !== 'src-app/server/src/modules/file_validator/validate.rs' &&
+          p !== 'src-app/server/src/modules/file_validator/units.rs' &&
+          p !== 'src-app/server/tests/model_store/api_test.rs',
+      ),
+    ).toEqual([])
     expect(touched.filter(p => p.startsWith('src-app/desktop/'))).toEqual([])
-    // EIGHT sanctioned exceptions (the DRIFT-1 #8 class plus the ITEM-4
-    // help handoff): the `/history` route handoff itself
+    // The sanctioned exceptions: the `/history` route handoff itself
     // (`txrshell/module.tsx`, pinned separately below), the scaffold
-    // `ShellPage.tsx` the `/help` handoff removes, the three sibling
-    // module test files whose pins this item maintains, and the
-    // `txrintake` files the validation problems' help links touch
-    // (module.tsx dependency line, `TxrProblemList.tsx`, the
-    // TxrFileCard test's router wrapper) + the new `txrhelp` module dir
-    // (a new auto-discovered module is an addition, not a global edit).
+    // `ShellPage.tsx` the `/help` handoff removes, the sibling module
+    // test files whose pins this item maintains, the `txrintake` files the
+    // validation problems' help links touch (module.tsx dependency line,
+    // `TxrProblemList.tsx`, the TxrFileCard test's router wrapper) + the
+    // new `txrhelp` module dir (a new auto-discovered module is an
+    // addition, not a global edit), and the qa-fixes ITEM-1's own
+    // cross-module fixes: the failed-run results state (RES-02 —
+    // `txrresults` pages/components/tests), the null-vs-undefined audit
+    // across the txr family (`txrrun/lib/format.ts`, `txrintake/lib/flow.ts`
+    // + their tests — RES-01's audit half).
     // Nothing else outside this module moves.
+    // The qa-fixes ITEM-2 cross-module surface (its DRIFT-1): the
+    // `txrlist` module dir — the item's list/estimate/format rework
+    // (CM-1's no-env count, CM-4's rounded durations, CM-5's dark-mode
+    // checkboxes), sanctioned wholesale per the sibling-dir convention —
+    // the whole `txrrun` module dir — the run screens' qa-fixes ITEM-2
+    // settings rework + ITEM-3's running-page rework (header/strip/tabs/
+    // table/log-panel/at-a-time, its DRIFT-1), sanctioned wholesale per
+    // the sibling-dir convention — and the `txrintake` preview
+    // fixtures/pins the estimate/eligibility field additions require.
+    // The qa-fixes ITEM-4 shell touch (its DRIFT-1, RES-09): the
+    // `txrshell/TxrLayout.tsx` nested-landmark fix — the layout's
+    // `<main>` becomes a `<div>` (each route already renders its own
+    // `<main>`; the four `txrintake` pages take the `role="main"`).
     expect(
       touched.filter(
         p =>
           p.startsWith('src-app/ui/src/modules/') &&
           !p.startsWith('src-app/ui/src/modules/txrhistory/') &&
           !p.startsWith('src-app/ui/src/modules/txrhelp/') &&
+          !p.startsWith('src-app/ui/src/modules/txrlist/') &&
           p !== 'src-app/ui/src/modules/txrshell/module.tsx' &&
           p !== 'src-app/ui/src/modules/txrshell/pages/ShellPage.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/module.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/components/TxrProblemList.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/components/TxrFileCard.test.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/pages/FilesPage.test.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/pages/PredictFilesPage.test.tsx' &&
-          p !== 'src-app/ui/src/modules/txrintake/module.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrmodels/module.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrrun/module.test.ts' &&
-          p !== 'src-app/ui/src/modules/txrresults/module.test.ts',
+          p !== 'src-app/ui/src/modules/txrshell/TxrLayout.tsx' &&
+          p !== 'src-app/ui/src/modules/txrshell/TxrLayout.test.tsx' &&
+          p !== 'src-app/ui/src/modules/txrshell/gallery.tsx' &&
+    // qa-fixes ITEM-7 (X3): the session guard's loading/failure
+    // surface is tokenized with the pages (its own ink was a
+    // hard-coded light hex — a light flash before the app loads).
+          p !== 'src-app/ui/src/modules/session/SessionGuard.tsx' &&
+          !p.startsWith('src-app/ui/src/modules/txrrun/') &&
+          !p.startsWith('src-app/ui/src/modules/txrresults/') &&
+          !p.startsWith('src-app/ui/src/modules/txrmodels/') &&
+          !p.startsWith('src-app/ui/src/modules/txrintake/'),
       ),
     ).toEqual([])
   })

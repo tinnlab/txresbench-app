@@ -6,9 +6,10 @@
  *
  * - TEST-RUN-03: the engine's eight per-method states (PROV-EE-3, the
  *   generated `TxrMethodState`) map 1:1 onto `TxrRunBucket` — `bucketOf`
- *   is a total function over the whole vocabulary and
- *   `STATE_LABEL`/`STATE_TONE` give every state a constant label and tone,
- *   never blank;
+ *   is a total function over the whole vocabulary (one bucket per engine
+ *   state, the three doing states under the board's Working tab; qa-fixes
+ *   ITEM-3 RP-3) and `STATE_LABEL`/`STATE_TONE` give every state a
+ *   constant label and tone, never blank;
  * - TEST-RUN-04: the formatters produce the boards' strings (DEC-3, DEC-11
  *   — `BusyRunning.dc.html`'s time bytes and the run screens' shared
  *   download line), null-safe, clamped at zero and never blank;
@@ -26,7 +27,7 @@ import { readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import type { TxrMethodState, TxrRunMethod, TxrRunProgressFrame } from '@/api-client/types'
+import type { TxrMethodState, TxrRunLogLine, TxrRunMethod, TxrRunProgressFrame } from '@/api-client/types'
 import type { TxrRunBucket } from '../types'
 import {
   RESEARCH_NOTICE,
@@ -34,9 +35,12 @@ import {
   STATE_TONE,
   bucketOf,
   formatBytes,
+  formatLogLine,
   formatProgress,
+  formatRowTime,
   formatSecs,
   formatTimeLeft,
+  methodLabelOf,
 } from './format'
 
 const MB = 1024 * 1024
@@ -53,27 +57,41 @@ const STATES: TxrMethodState[] = [
   'cannot_run',
 ]
 
-/** The F-tab partition (DEC-2) — the complete function table. */
+/** The F-tab partition (qa-fixes ITEM-3, RP-3) — the complete function
+ *  table: one bucket per ENGINE STATE (the three doing states share the
+ *  board's Working tab), so a state is never counted under another state's
+ *  tab. */
 const BUCKET: Record<TxrMethodState, Exclude<TxrRunBucket, 'all'>> = {
   waiting: 'working',
   downloading: 'working',
   running: 'working',
   finished: 'finished',
-  stopped: 'finished',
-  skipped: 'finished',
+  stopped: 'stopped',
+  skipped: 'skipped',
   failed: 'failed',
-  cannot_run: 'failed',
+  cannot_run: 'cannot_run',
 }
 
 describe('bucketOf (TEST-RUN-03)', () => {
-  it('is a total function over the engine state vocabulary — the four-tab partition', () => {
+  it('is a total function over the engine state vocabulary — one bucket per engine state', () => {
     for (const state of STATES) {
       expect(bucketOf(state), state).toBe(BUCKET[state])
     }
-    // The three non-All buckets are all reachable (a complete partition:
-    // no state invisible to every tab, no bucket left empty by contract).
+    // Every non-All bucket is reachable (a complete partition: no state
+    // invisible to every tab, no bucket left empty by contract), and the
+    // buckets carry the engine's OWN state words — a skipped method is
+    // never counted as finished, a cannot-run method never as failed.
     const reached = new Set(STATES.map(s => bucketOf(s)))
-    expect(reached).toEqual(new Set<Exclude<TxrRunBucket, 'all'>>(['working', 'finished', 'failed']))
+    expect(reached).toEqual(
+      new Set<Exclude<TxrRunBucket, 'all'>>([
+        'working',
+        'finished',
+        'failed',
+        'stopped',
+        'skipped',
+        'cannot_run',
+      ]),
+    )
   })
 
   it('never returns the All bucket and never returns blank', () => {
@@ -109,14 +127,14 @@ describe('STATE_LABEL / STATE_TONE (TEST-RUN-03)', () => {
 
   it('gives every state the shared list palette tone, never blank', () => {
     const expected: Record<TxrMethodState, string> = {
-      waiting: '#5e5e5e',
-      downloading: '#8a5a00',
-      running: '#143a68',
-      finished: '#1f6b3a',
-      failed: '#b3261e',
-      stopped: '#5e5e5e',
-      skipped: '#5e5e5e',
-      cannot_run: '#b3261e',
+      waiting: 'var(--txr-muted)',
+      downloading: 'var(--txr-warning)',
+      running: 'var(--txr-brand-ink)',
+      finished: 'var(--txr-success)',
+      failed: 'var(--txr-danger)',
+      stopped: 'var(--txr-muted)',
+      skipped: 'var(--txr-muted)',
+      cannot_run: 'var(--txr-danger)',
     }
     for (const state of STATES) {
       expect(STATE_TONE[state], state).toBe(expected[state])
@@ -220,6 +238,51 @@ describe('formatProgress (TEST-RUN-04)', () => {
     expect(formatProgress(row('finished'), null)).toBe('')
     expect(formatProgress(row('stopped'), null)).toBe('')
     expect(formatProgress(row('skipped'), null)).toBe('')
+  })
+})
+
+describe('formatRowTime + methodLabelOf (qa-fixes RES-01 null-vs-undefined)', () => {
+  const row = (state: TxrMethodState, extra: Partial<TxrRunMethod> = {}): TxrRunMethod => ({
+    method_id: 'method-a',
+    label: 'method-a',
+    version: '1.0.0',
+    group: 'response-call',
+    group_label: 'Response call',
+    state,
+    bytes_downloaded: 0,
+    ...extra,
+  })
+
+  it('a null duration_ms reads an empty time cell — never "done in —" (the wire null IS absent)', () => {
+    expect(formatRowTime(row('finished', { duration_ms: 90_000 }))).toBe('done in 1 min 30 s')
+    expect(formatRowTime(row('finished', { duration_ms: null as unknown as number }))).toBe('')
+    expect(formatRowTime(row('finished'))).toBe('')
+    // The elapsed guard reads null the same way (no duration mark, not a dash).
+    expect(formatRowTime(row('running', { elapsed_secs: null as unknown as number }))).toBe('')
+  })
+
+  it('a skipped row never reads a done line (it never ran) and a stopped row reads its elapsed (RP-7)', () => {
+    expect(formatRowTime(row('skipped', { duration_ms: 90_000 }))).toBe('')
+    expect(formatRowTime(row('skipped', { elapsed_secs: 12 }))).toBe('')
+    expect(formatRowTime(row('stopped', { elapsed_secs: 47 }))).toBe('under a minute')
+    expect(formatRowTime(row('stopped', { elapsed_secs: null as unknown as number }))).toBe('')
+  })
+
+  it('a null log-line method id is an engine-level line — never a "[null]" bracket', () => {
+    const methods = [{ method_id: 'method-a', label: 'method-a' }]
+    const engineLine: TxrRunLogLine = {
+      seq: 1,
+      content: 'run started',
+      stream: 'stdout',
+      created_at: '2026-11-01T05:00:00Z',
+      method_id: null as unknown as string,
+    }
+    expect(methodLabelOf(engineLine, methods)).toBe('stdout')
+    expect(formatLogLine(engineLine, methods)).toContain('[stdout] run started')
+    expect(formatLogLine(engineLine, methods)).not.toContain('[null]')
+    expect(
+      methodLabelOf({ ...engineLine, method_id: 'method-a' }, methods),
+    ).toBe('method-a')
   })
 })
 

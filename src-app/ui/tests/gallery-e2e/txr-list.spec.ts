@@ -130,10 +130,13 @@ test.describe('txr-list-e — screen E, adapter-fed (TEST-UL-12)', () => {
     }
 
     // The `cannot` row: board line + disabled checkbox that never ticks.
+    // The row carries NO estimate (qa-fixes ITEM-2 CM-4: a method that
+    // cannot run has no time — the estimate never computed one).
     const cannotRow = await page.getByTestId('txr-list-row-cox-ctdna-status-rfs').textContent()
-    for (const needle of ['Cannot run', 'needs LDH, not in your file', 'under 1 min']) {
+    for (const needle of ['Cannot run', 'needs LDH, not in your file']) {
       expect(cannotRow, `row cox-ctdna-status-rfs must carry ${needle!}`).toContain(needle!)
     }
+    expect(cannotRow, 'a cannot-run row carries no estimate').not.toContain('min')
     await expect(page.getByTestId('txr-list-checkbox-cox-ctdna-status-rfs')).toHaveAttribute(
       'data-disabled',
       '',

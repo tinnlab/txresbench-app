@@ -253,3 +253,44 @@ describe('TxrSaveModelsDialog (TEST-MOD-13)', () => {
     expect(screen.getByTestId('txr-models-save-count').textContent).toBe('7 of 7 selected')
   })
 })
+
+describe('TxrSaveModelsDialog qa-fixes ITEM-4 (RES-13/14/15)', () => {
+  it('names the set: a field hint + the disabled Save explained (RES-13), the small cut-off in the button (RES-14)', async () => {
+    renderDialog()
+    await waitFor(() => expect(screen.getByTestId('txr-models-save-body')).toBeDefined())
+    const name = screen.getByTestId('txr-models-save-name')
+    expect(name.getAttribute('placeholder')).toBe('Name this set')
+    // The disabled Save carries the reason next to it, never a silent button.
+    expect(screen.getByTestId('txr-models-save-name-hint').textContent).toBe(
+      'Name the set to save the models.',
+    )
+    const confirm = screen.getByTestId('txr-models-save-confirm')
+    expect(confirm.hasAttribute('disabled')).toBe(true)
+    fireEvent.change(name, { target: { value: 'my set' } })
+    expect(screen.queryByTestId('txr-models-save-name-hint')).toBeNull()
+    expect(screen.getByTestId('txr-models-save-confirm').hasAttribute('disabled')).toBe(false)
+    // The small cut-off is spelled in the button (5 MB), never a bare preset.
+    expect(screen.getByTestId('txr-models-save-only-small').textContent).toBe(
+      'Only the small ones (under 5 MB)',
+    )
+  })
+
+  it('explains the file count vs the trained-on count (RES-15)', async () => {
+    const run = {
+      ...TXRMODELS_RUN,
+      models: TXRMODELS_RUN.models.map(model => ({ ...model, trained_on_patients: 30 })),
+    }
+    api.getRun.mockResolvedValue(run)
+    renderDialog()
+    await waitFor(() => expect(screen.getByTestId('txr-models-save-body')).toBeDefined())
+    expect(screen.getByTestId('txr-models-save-trained-on').textContent).toBe(
+      'The models are trained on the 30 of the 42 patients with the draws and outcomes this run needs.',
+    )
+  })
+
+  it('omits the trained-on line when the counts already agree or are unknown', async () => {
+    renderDialog()
+    await waitFor(() => expect(screen.getByTestId('txr-models-save-body')).toBeDefined())
+    expect(screen.queryByTestId('txr-models-save-trained-on')).toBeNull()
+  })
+})

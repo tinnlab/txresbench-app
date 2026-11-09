@@ -589,7 +589,7 @@ async fn the_engine_create_path_and_the_direct_seed_render_the_same_item() {
     // The primary path: a REAL create through the engine's own route with a
     // catalogue method that needs no layer (jm-mem-lq — the engine suite's
     // embedded-facts posture: the run classifies the method cannot_run +
-    // ENV_UNKNOWN and finishes; no network, no sandbox).
+    // ENV_IMAGE_MISSING and finishes; no network, no sandbox).
     let resp = server
         .client
         .post(server.api_url("/txr/runs"))

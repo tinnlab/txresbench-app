@@ -62,21 +62,21 @@ export const STATE_LABEL: Record<TxrMethodState, string> = {
 
 /**
  * The F screens' per-state chip tone — the shared list's status palette,
- * in the boards' own hex: neutral `#5e5e5e` (waiting, stopped, skipped —
+ * in the boards' own hex: neutral `var(--txr-muted)` (waiting, stopped, skipped —
  * nothing is happening and nothing went wrong), the work colours
- * `#8a5a00` (downloading) / `#143a68` (running), the done green `#1f6b3a`
- * and the `#b3261e` failure red (failed / cannot run — INV-2 keeps the
+ * `var(--txr-warning)` (downloading) / `var(--txr-brand-ink)` (running), the done green `var(--txr-success)`
+ * and the `var(--txr-danger)` failure red (failed / cannot run — INV-2 keeps the
  * failure visible).
  */
 export const STATE_TONE: Record<TxrMethodState, string> = {
-  waiting: '#5e5e5e',
-  downloading: '#8a5a00',
-  running: '#143a68',
-  finished: '#1f6b3a',
-  failed: '#b3261e',
-  stopped: '#5e5e5e',
-  skipped: '#5e5e5e',
-  cannot_run: '#b3261e',
+  waiting: 'var(--txr-muted)',
+  downloading: 'var(--txr-warning)',
+  running: 'var(--txr-brand-ink)',
+  finished: 'var(--txr-success)',
+  failed: 'var(--txr-danger)',
+  stopped: 'var(--txr-muted)',
+  skipped: 'var(--txr-muted)',
+  cannot_run: 'var(--txr-danger)',
 }
 
 /**
@@ -96,11 +96,14 @@ export const LEAVE_AND_CONTINUE_NOTE =
   'Finished methods keep their results. You can leave this screen: the run continues, and it stays in History.'
 
 /**
- * The F tabs' state partition (DEC-2): All = every row; Working =
- * waiting/downloading/running (a method is doing or will do something);
- * Finished = finished/stopped/skipped (a terminal, non-error row — a
- * user-stopped method is never called a failure); Failed = failed /
- * cannot run. A complete partition of the engine's eight states.
+ * The F tabs' state partition (qa-fixes ITEM-3, RP-3): All = every row;
+ * Working = waiting/downloading/running (a method is doing or will do
+ * something); Finished = finished; Failed = failed; Stopped = stopped;
+ * Skipped = skipped; Cannot run = cannot run — the terminal states keep
+ * their own state word, one bucket per state, so a skipped method is
+ * never counted as finished (and a cannot-run method never as failed) and
+ * every tab's count equals that state's own count in the strip. A
+ * complete partition of the engine's eight states.
  *
  * A state outside the vocabulary (a regen between regens) falls to
  * Working — the live bucket — never to a blank or a miscounted tab.
@@ -112,12 +115,15 @@ export function bucketOf(state: TxrMethodState): Exclude<TxrRunBucket, 'all'> {
     case 'running':
       return 'working'
     case 'finished':
-    case 'stopped':
-    case 'skipped':
       return 'finished'
     case 'failed':
-    case 'cannot_run':
       return 'failed'
+    case 'stopped':
+      return 'stopped'
+    case 'skipped':
+      return 'skipped'
+    case 'cannot_run':
+      return 'cannot_run'
   }
   // Exhaustive over TxrMethodState (a state added to the engine's union
   // fails THIS line at typecheck until this switch handles it — the
@@ -204,23 +210,32 @@ export function formatProgress(r: TxrRunMethod, progress: TxrRunProgressFrame | 
  * The F row's TIME column — the row's own timing sentence (the board's
  * per-row Time column): a running row reads its elapsed ("1 min 40 s"), a
  * completed row reads "done in M min S s" (the board's log line's words at
- * the row's own duration, `duration_ms`), and a failed / cannot-run row
- * reads its elapsed (the board's "5 s"). Waiting and downloading rows read
- * nothing: the engine contracts a per-row estimate nowhere — the header's
- * time-left line carries the schedule (DEC-3) and the board's per-row
- * "about 1 min" facts are design examples, never data (INV-6) — so an empty
- * empty column is the honest reading, never an invented duration.
+ * the row's own duration, `duration_ms`), a failed / cannot-run row reads
+ * its elapsed (the board's "5 s"), and a stopped row reads the elapsed it
+ * reached (it ran for a while before the user cleared it). A SKIPPED row
+ * reads nothing: it never ran (qa-fixes ITEM-3, RP-7 — its "done in …"
+ * was the engine's duration_ms of a row that never started). Waiting and
+ * downloading rows read nothing: the engine contracts a per-row estimate
+ * nowhere — the header's time-left line carries the schedule (DEC-3) and
+ * the board's per-row "about 1 min" facts are design examples, never data
+ * (INV-6) — so an empty column is the honest reading, never an invented
+ * duration.
+ *
+ * The absent tests are `== null` (NOT `=== undefined`): the engine's
+ * `Option` counters serialize their absent value as JSON `null` while the
+ * generated types render them optional-only (the qa-fixes RES-01
+ * null-vs-undefined rule) — a `duration_ms: null` wire value must read an
+ * empty cell, never "done in —".
  */
 export function formatRowTime(r: TxrRunMethod): string {
   switch (r.state) {
     case 'running':
     case 'failed':
     case 'cannot_run':
-      return r.elapsed_secs === undefined ? '' : formatSecs(r.elapsed_secs)
-    case 'finished':
     case 'stopped':
-    case 'skipped':
-      return r.duration_ms === undefined
+      return r.elapsed_secs == null ? '' : formatSecs(r.elapsed_secs)
+    case 'finished':
+      return r.duration_ms == null
         ? ''
         : `done in ${formatSecs(r.duration_ms / 1000)}`
     default:
@@ -278,10 +293,14 @@ export function formatLogTime(createdAt: string): string {
  * provider line for a dropped method — the id stays visible, never a blank
  * bracket), and the line's own STREAM for an engine-level line without a
  * method (`method_id` absent — the whole-run view's own facts, the
- * sibling G screen's log dialog treats them the same way).
+ * sibling G screen's log dialog treats them the same way). The absent
+ * test is `== null`: the engine's `Option` emits JSON `null` where the
+ * generated type claims a missing property (the RES-01 null-vs-undefined
+ * rule) — a `null` method id is an engine-level line, never a "[null]"
+ * bracket.
  */
 export function methodLabelOf(line: TxrRunLogLine, methods: ReadonlyArray<TxrLogMethodRef>): string {
-  if (line.method_id === undefined) return line.stream
+  if (line.method_id == null) return line.stream
   const method = methods.find(m => m.method_id === line.method_id)
   return method?.label ?? line.method_id
 }
@@ -305,6 +324,16 @@ export function formatLogText(
 ): string {
   return lines.map(line => formatLogLine(line, methods)).join('\n')
 }
+
+/**
+ * The F log panel's empty-state lines (qa-fixes ITEM-3, RP-4): the lines
+ * area is never a blank box — the All view reads "No log lines yet." and a
+ * method view reads "No log lines for this method." (the plain-voice rule;
+ * the board's log is a filled example, an empty log is this app's real
+ * state and its words are the report's own suggestion).
+ */
+export const LOG_EMPTY_ALL = 'No log lines yet.'
+export const LOG_EMPTY_METHOD = 'No log lines for this method.'
 
 /**
  * The F log panel's method filter: `null` = every line (the "All methods"

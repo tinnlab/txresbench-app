@@ -34,9 +34,9 @@ const ROW: CSSProperties = {
   fontSize: 13.5,
 }
 
-const LABEL: CSSProperties = { color: '#3a3a3a' }
+const LABEL: CSSProperties = { color: 'var(--txr-text-2)' }
 
-const ERROR_LINE: CSSProperties = { flexBasis: '100%', fontSize: 12, color: '#b3261e' }
+const ERROR_LINE: CSSProperties = { flexBasis: '100%', fontSize: 12, color: 'var(--txr-danger)' }
 
 /**
  * The control's option set: the board's presets, plus the CURRENT value as

@@ -67,9 +67,12 @@ export interface TxrEndpointOption {
  * days in the board's own order (Busy.dc.html's select reads Day 56 |
  * Day 28 | Day 42 | Day 84 — settled at ITEM-7's rows, where the order
  * question recorded by PLAN ITEM-3 note (c) was decided), the horizon
- * values, and the bar's at-a-time presets. A value OUTSIDE a list (the
- * engine default 3, or a restored sticky value) renders as the
- * current-value chip — the board's own framing — never as a
+ * values, and the lane presets. The lane presets are 1–4 — the SAME set
+ * the E bottom bar lists (qa-fixes ITEM-3, RP-6: the F control's old
+ * 1/2/4 set omitted the engine's default 3, so the app default could not
+ * be re-chosen mid-run; the board's "Run at the same time" options read
+ * 3, 1, 2, 4). A value OUTSIDE a list (a restored sticky value) renders
+ * as the current-value chip — the board's own framing — never as a
  * silently-added option.
  */
 export const SETTING_OPTIONS = {
@@ -79,7 +82,7 @@ export const SETTING_OPTIONS = {
   ],
   decision_day: [56, 28, 42, 84] as const,
   look_ahead_day: [238, 180, 365] as const,
-  at_a_time: [1, 2, 4] as const,
+  at_a_time: [1, 2, 3, 4] as const,
 }
 
 /**
@@ -89,7 +92,13 @@ export const SETTING_OPTIONS = {
  * analysis, so it beats any stored config), then the engine's sticky
  * config for every OTHER field (its decision day applies only when the
  * intake carries none — the entry path without a fresh answer), then the
- * engine's defaults. `baseline_max_day` rides on the intake parameters
+ * engine's defaults. `at_a_time` is the ONE exception: it is a RUN-option
+ * (the bottom bar's "run N at a time"), not an analysis setting, so it
+ * never restores across analyses — each screen starts at the engine's
+ * default 3 and only the bar's own value is used when the run is created
+ * (qa-fixes ITEM-2: "the '1 at a time' setting persisting across
+ * analyses" is the defect; the sticky store's stale value is ignored
+ * here). `baseline_max_day` rides on the intake parameters
  * (fix 0, the contract rule) for shape compatibility; it is not a
  * screen setting, so it stops here.
  */
@@ -104,7 +113,7 @@ export function mergeRunSettings(
       params?.decision_day ?? config?.decision_day ?? DEFAULT_RUN_SETTINGS.decision_day,
     look_ahead_day: config?.look_ahead_day ?? DEFAULT_RUN_SETTINGS.look_ahead_day,
     covariates: config?.covariates ?? DEFAULT_RUN_SETTINGS.covariates,
-    at_a_time: config?.at_a_time ?? DEFAULT_RUN_SETTINGS.at_a_time,
+    at_a_time: DEFAULT_RUN_SETTINGS.at_a_time,
     cpus: config?.cpus ?? DEFAULT_RUN_SETTINGS.cpus,
     save_models: config?.save_models ?? DEFAULT_RUN_SETTINGS.save_models,
   }

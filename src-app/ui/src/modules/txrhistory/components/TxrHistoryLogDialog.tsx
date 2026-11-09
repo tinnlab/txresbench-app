@@ -33,19 +33,19 @@ const PRE: CSSProperties = {
   maxHeight: 340,
   overflow: 'auto',
   padding: '10px 12px',
-  border: '1px solid #e7e5e0',
+  border: '1px solid var(--txr-border-subtle)',
   borderRadius: 8,
-  background: '#ffffff',
+  background: 'var(--txr-surface)',
   fontFamily: MONO_FONT,
   fontSize: 12,
   lineHeight: 1.55,
   whiteSpace: 'pre-wrap',
   overflowWrap: 'anywhere',
-  color: '#141414',
+  color: 'var(--txr-text)',
 }
 
 /** The count line's quiet look (the panel's own bytes). */
-const COUNT: CSSProperties = { fontSize: 12, color: '#5e5e5e' }
+const COUNT: CSSProperties = { fontSize: 12, color: 'var(--txr-muted)' }
 
 /** The dialog title of the whole-run view. */
 const RUN_TITLE = 'Run log'

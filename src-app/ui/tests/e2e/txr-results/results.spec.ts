@@ -21,10 +21,12 @@ import { authHeader, createRun, mintLocalSession, seedLocalSession, waitForTermi
  *     the engine's reason, the empty-heatmap state
  *     (`PREDICTIONS_UNAVAILABLE` → no columns, no spinner), the disabled
  *     download button, and "Show the log" showing the engine-authored
- *     cannot-run line; a wrong method id on the method route falls back
- *     without a crash (the compare-tab fallback on a run WITH finished
- *     columns is the unit tier's pin — the real-backend tier is scoped to
- *     the all-cannot-run run per DEC-14, so no sandbox is ever needed).
+ *     cannot-run line; a wrong method id on the method route stays on the
+ *     run's own state without a crash (this spec's run is all-cannot-run,
+ *     so no predictions ever resolve; the RES-12 method-not-found state for
+ *     a run WITH finished columns is the unit tier's pin — the
+ *     real-backend tier is scoped to the all-cannot-run run per DEC-14, so
+ *     no sandbox is ever needed).
  *
  * Run surface: this spec runs under the full-backend config
  * (`playwright.config.ts`; the config boots the backend + the preview on
@@ -63,7 +65,9 @@ test.describe('txr-results — the real backend (TEST-UR-17)', () => {
     expect(methods).toHaveLength(1)
     expect(methods[0].method_id).toBe(CANNOT_RUN_METHOD)
     expect(methods[0].state).toBe('cannot_run')
-    expect((methods[0].reason as Record<string, unknown>).code).toBe('ENV_UNKNOWN')
+    // qa-fixes ITEM-2 (one vocabulary, CONS-EE-10): the run-start
+    // classification names the SAME code the screens show.
+    expect((methods[0].reason as Record<string, unknown>).code).toBe('ENV_IMAGE_MISSING')
     expect((methods[0].reason as Record<string, unknown>).detail).toContain(
       'no published environment',
     )
@@ -130,11 +134,12 @@ test.describe('txr-results — the real backend (TEST-UR-17)', () => {
     await page.goto(`/analysis/${runId}/results/methods/not-a-method`)
 
     // The run exists (no not-found); the unknown method id is not a finished
-    // method, so the view stays on the run's state — the empty state with
-    // the banner (the compare-tab fallback for a run with columns is the
-    // rewritten active-tab resolution the unit tier + the gallery H stories
-    // pin).
+    // method — and this run has NO finished method at all, so the route
+    // stays on the run's own empty state with the banner. (A wrong method
+    // id on a run WITH finished columns is the RES-12 method-not-found
+    // state, pinned by the unit tier + the gallery H stories.)
     await expect(page.getByTestId('txr-results-not-found')).toHaveCount(0)
+    await expect(page.getByTestId('txr-results-method-not-found')).toHaveCount(0)
     await expect(page.getByTestId(`txr-results-cannot-${CANNOT_RUN_METHOD}`)).toBeVisible({
       timeout: 60_000,
     })

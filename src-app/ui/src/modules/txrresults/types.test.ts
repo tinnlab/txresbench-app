@@ -45,6 +45,7 @@ describe('txrresults view-model types (PROV-UR-3)', () => {
       coverage: { scored: number; eligible: number; fraction: number } | null
       values: (number | null)[]
       notes: (string | null)[]
+      constantValue: number | null
     }>()
   })
 

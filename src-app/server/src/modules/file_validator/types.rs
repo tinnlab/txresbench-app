@@ -631,6 +631,14 @@ pub struct PatientsSummary {
     /// Patients with a resolvable primary outcome (pfs or os event+time, or a
     /// responder+response_day pair) — the R14-availability fact.
     pub with_primary_outcome: u32,
+    /// Patients whose PRIMARY outcome indicator is 1 (pfs_event/os_event = 1,
+    /// responder = 1) on the same pfs → os → responder ladder
+    /// [`primary_outcome`](super::validate::primary_outcome) uses — the
+    /// board's "N progressions or deaths" fact: EVENTS, not patients with an
+    /// outcome (qa-fixes ITEM-6, F1; the old display read
+    /// `with_primary_outcome` and reported "94 progressions or deaths" for a
+    /// file with 82 events).
+    pub primary_outcome_events: u32,
     /// Median follow-up (the event time of the primary outcome, in days);
     /// `null` when no outcome is resolvable.
     pub median_followup_days: Option<f64>,

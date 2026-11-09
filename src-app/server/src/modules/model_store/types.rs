@@ -308,6 +308,10 @@ pub struct ModelSummary {
     /// Mirrors the row's `marker_facts.count` (TEST-MS-24 — the J "N markers"
     /// subline with no per-row detail fetch).
     pub marker_count: Option<u32>,
+    /// Mirrors the row's `marker_facts.kind` — the catalogue's marker mode
+    /// (qa-fixes ITEM-5, RES-19): a `count` of 0 with kind `any` IS "any
+    /// marker" — the J subline renders the kind's word, never a "0 markers".
+    pub marker_kind: Option<MarkerKind>,
     /// Mirrors the row's `covariates.used` (the J "uses age" subline).
     pub uses_covariates: bool,
     pub created_at: DateTime<Utc>,
@@ -628,6 +632,8 @@ pub enum ModelReasonCode {
     DecisionDayUnmet,
     #[serde(rename = "NOT_RUNNABLE")]
     NotRunnable,
+    #[serde(rename = "ENV_IMAGE_MISSING")]
+    EnvImageMissing,
     #[serde(rename = "TASK_INCOMPATIBLE")]
     TaskIncompatible,
     #[serde(rename = "RESPONSE_LABEL_MISSING")]
@@ -639,9 +645,9 @@ pub enum ModelReasonCode {
 }
 
 impl ModelReasonCode {
-    /// The closed code list, in documentation order (12 provider codes + the
+    /// The closed code list, in documentation order (13 provider codes + the
     /// store's own).
-    pub const ALL: [ModelReasonCode; 13] = [
+    pub const ALL: [ModelReasonCode; 14] = [
         ModelReasonCode::RequiredMarkerMissing,
         ModelReasonCode::MarkerGroupMissing,
         ModelReasonCode::DetectionCallMissing,
@@ -651,6 +657,7 @@ impl ModelReasonCode {
         ModelReasonCode::UnitMismatch,
         ModelReasonCode::DecisionDayUnmet,
         ModelReasonCode::NotRunnable,
+        ModelReasonCode::EnvImageMissing,
         ModelReasonCode::TaskIncompatible,
         ModelReasonCode::ResponseLabelMissing,
         ModelReasonCode::SurvivalOutcomeMissing,
@@ -669,6 +676,7 @@ impl ModelReasonCode {
             ModelReasonCode::UnitMismatch => "UNIT_MISMATCH",
             ModelReasonCode::DecisionDayUnmet => "DECISION_DAY_UNMET",
             ModelReasonCode::NotRunnable => "NOT_RUNNABLE",
+            ModelReasonCode::EnvImageMissing => "ENV_IMAGE_MISSING",
             ModelReasonCode::TaskIncompatible => "TASK_INCOMPATIBLE",
             ModelReasonCode::ResponseLabelMissing => "RESPONSE_LABEL_MISSING",
             ModelReasonCode::SurvivalOutcomeMissing => "SURVIVAL_OUTCOME_MISSING",
@@ -690,6 +698,7 @@ impl ModelReasonCode {
             ReasonCode::UnitMismatch => ModelReasonCode::UnitMismatch,
             ReasonCode::DecisionDayUnmet => ModelReasonCode::DecisionDayUnmet,
             ReasonCode::NotRunnable => ModelReasonCode::NotRunnable,
+            ReasonCode::EnvImageMissing => ModelReasonCode::EnvImageMissing,
             ReasonCode::TaskIncompatible => ModelReasonCode::TaskIncompatible,
             ReasonCode::ResponseLabelMissing => ModelReasonCode::ResponseLabelMissing,
             ReasonCode::SurvivalOutcomeMissing => ModelReasonCode::SurvivalOutcomeMissing,

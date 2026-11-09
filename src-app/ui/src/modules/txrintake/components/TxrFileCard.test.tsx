@@ -22,6 +22,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom'
 import type {
   FileInspection,
+  FileProblem,
   MarkerMatch,
   ValidationResponse,
 } from '@/api-client/types'
@@ -98,13 +99,16 @@ function loadedPatients(overrides: Partial<LoadedFile> = {}): LoadedFile {
     prepared: true,
     joinOffers: [],
     vocabOffers: [],
+
+    columnOffers: [],
     ...overrides,
   }
 }
 
 function patientsValidation(overrides: Partial<ValidationResponse> = {}): ValidationResponse {
   return {
-    patients: { rows: 151, with_primary_outcome: 62, median_followup_days: 231 },
+    patients: { rows: 151, with_primary_outcome: 62,
+    primary_outcome_events: 62, median_followup_days: 231 },
     measurements: { rows: 1102, patients: 38, distinct_draw_days: [0, 14, 28, 56] },
     markers: [],
     problems: [],
@@ -138,6 +142,8 @@ function renderCard(
     onRejectJoin: vi.fn(),
     onAcceptVocab: vi.fn(),
     onRejectVocab: vi.fn(),
+    onAcceptColumn: vi.fn(),
+    onRejectColumn: vi.fn(),
     onDownloadTemplate: vi.fn(),
     onDownloadExample: vi.fn(),
   }
@@ -216,6 +222,12 @@ describe('TxrFileCard (shared file card, ITEM-9)', () => {
     const input = inputs[0] as HTMLInputElement
     expect(input.type).toBe('file')
     expect(input.accept).toBe('.csv,.xlsx,.xls')
+    // ITEM-6 F11: the kit's pale dashed border is cleared so the board's red
+    // dashed zone is the ONE drop border (no double-border box).
+    const zone = screen
+      .getByTestId('txr-intake-file-drop-patients')
+      .querySelector('[role="button"]') as HTMLElement
+    expect(zone.className).toContain('border-none')
     const file = new File(['patient_id\nP0001\n'], 'patients.csv', { type: 'text/csv' })
     fireEvent.change(input, { target: { files: [file] } })
     expect(callbacks.onPick).toHaveBeenCalledTimes(1)
@@ -253,7 +265,8 @@ describe('TxrFileCard (shared file card, ITEM-9)', () => {
     })
     seedValidation(
       patientsValidation({
-        patients: { rows: 151, with_primary_outcome: 62, median_followup_days: 231 },
+        patients: { rows: 151, with_primary_outcome: 62,
+    primary_outcome_events: 62, median_followup_days: 231 },
         markers: [
           { key: 'ctDNA', spellings: ['ctDNA'], n_rows: 400, unit_status: 'matches', coverage: { patients_with_value: 38, patients_with_baseline: 38, patients_with_ontreatment: 38 }, vocabulary: [], unit: undefined },
           { key: 'LDH', spellings: ['LDH'], n_rows: 400, unit_status: 'matches', coverage: { patients_with_value: 38, patients_with_baseline: 38, patients_with_ontreatment: 38 }, vocabulary: [], unit: undefined },
@@ -298,32 +311,40 @@ describe('TxrFileCard (shared file card, ITEM-9)', () => {
     seedValidation(
       patientsValidation({
         problems: [row14Problem, row88Problem],
-        patients: { rows: 151, with_primary_outcome: 62, median_followup_days: 231 },
+        patients: { rows: 151, with_primary_outcome: 62,
+    primary_outcome_events: 62, median_followup_days: 231 },
       }),
     )
     const callbacks = renderCard({ file })
     const status = screen.getByTestId('txr-intake-file-status-patients')
-    expect(within(status).getByText('2 problems in 151 rows')).toBeTruthy()
-    const list = within(screen.getByTestId('txr-intake-file-problems-patients'))
-    const items = list.getAllByRole('listitem')
+    // ITEM-6 F5d: the red box counts ERROR problems only; a warning moves to
+    // the "notes" group (same row-numbered lines, its own severity color).
+    // Both groups share one problems testid, so scope by role within the
+    // status box: red-box items first, then the notes.
+    expect(within(status).getByText('1 problem in 151 rows')).toBeTruthy()
+    expect(within(status).getByText('1 note')).toBeTruthy()
+    const items = within(status).getAllByRole('listitem')
     expect(items).toHaveLength(2)
     // ITEM-4: each problem line carries its code as a link to the matching
     // Help entry (`row` + provider message bytes unchanged, the code
     // appended).
     expect(items[0].textContent).toBe(
-      'Row 14: `week 4` is not a number in the day columnR03',
+      'Row 14: week 4 is not a number in the day columnR03',
     )
     expect(within(items[0] as HTMLElement).getByRole('link', { name: 'Help for problem code R03' }).getAttribute('href')).toBe(
       '/help#problem-r03',
     )
-    // jsdom serializes the inline hex to its rgb form (the bytes are the
-    // component's, `#b3261e` per DEC-14 — RGB is the same color).
-    expect(items[0].style.color).toBe('rgb(179, 38, 30)')
-    expect(items[1].textContent).toBe('Row 88: `P0187` is not in the patients tableR08')
-    expect(within(items[1] as HTMLElement).getByRole('link', { name: 'Help for problem code R08' }).getAttribute('href')).toBe(
+    // The error tone is the board's red as the shared danger token (the
+    // component renders the theme variable; the LIGHT byte is #b3261e in
+    // `assets/txr-theme.css`, DEC-14).
+    expect(items[0].style.color).toBe('var(--txr-danger)')
+    // The warning is a card note (its color is the notes group's amber).
+    const note = items[1]
+    expect(note.textContent).toBe('Row 88: P0187 is not in the patients tableR08')
+    expect(within(note as HTMLElement).getByRole('link', { name: 'Help for problem code R08' }).getAttribute('href')).toBe(
       '/help#problem-r08',
     )
-    expect(items[1].style.color).toBe('rgb(138, 90, 0)')
+    expect(note.style.color).toBe('var(--txr-warning)')
     fireEvent.click(within(status).getByText('Fix and choose the file again'))
     expect(callbacks.onRemove).toHaveBeenCalledTimes(1)
   })
@@ -336,11 +357,12 @@ describe('TxrFileCard (shared file card, ITEM-9)', () => {
     const status = screen.getByTestId('txr-intake-file-status-patients')
     expect(within(status).getByText('✓ 151 patients read')).toBeTruthy()
     expect(within(status).getByText('1 note')).toBeTruthy()
-    const items = within(screen.getByTestId('txr-intake-file-problems-patients')).getAllByRole(
+    // The warning-only group is the NOTES list (ITEM-6 F5d's own testid).
+    const items = within(screen.getByTestId('txr-intake-file-notes-patients')).getAllByRole(
       'listitem',
     )
     expect(items).toHaveLength(1)
-    expect(items[0].style.color).toBe('rgb(138, 90, 0)')
+    expect(items[0].style.color).toBe('var(--txr-warning)')
   })
 
   it('an inspected-but-unvalidated file shows the neutral state', () => {
@@ -386,5 +408,111 @@ describe('TxrFileCard (shared file card, ITEM-9)', () => {
     })
     renderCard({ file })
     expect(screen.queryByTestId('txr-intake-vocab-offer-ldh')).toBeNull()
+  })
+})
+
+describe('ITEM-6 F2/F5/F11 - the mapping offer, the honest problem box, the aligned role table', () => {
+  const columnProblem: FileProblem = {
+    code: 'R02',
+    severity: 'error',
+    row: 1,
+    column: 'os_days',
+    message: 'required column `os_days` is missing from the patients table',
+  }
+
+  it('the column-rename offer row reports the OFFER OBJECT on accept and reject (F2)', () => {
+    const offer = { from: 'pid', to: 'patient_id' }
+    const file = loadedPatients({ columnOffers: [offer] })
+    const callbacks = renderCard({ kind: 'measurements', file })
+    expect(
+      screen.getByText('The column “pid” looks like patient_id — rename it?'),
+    ).toBeTruthy()
+    fireEvent.click(screen.getByTestId('txr-intake-column-accept-pid'))
+    expect(callbacks.onAcceptColumn).toHaveBeenCalledWith(offer)
+    fireEvent.click(screen.getByTestId('txr-intake-column-decline-pid'))
+    expect(callbacks.onRejectColumn).toHaveBeenCalledWith(offer)
+  })
+
+  it('column-level problems render WITHOUT a "Row 1:" prefix (F5b)', () => {
+    const file = loadedPatients({
+      problems: [columnProblem, row14Problem],
+      inspection: inspectionFixture({ problems: [columnProblem, row14Problem] }),
+    })
+    seedValidation(patientsValidation({ problems: [columnProblem, row14Problem] }))
+    renderCard({ file })
+    const items = within(screen.getByTestId('txr-intake-file-problems-patients')).getAllByRole(
+      'listitem',
+    )
+    expect(items[0].textContent).toBe(
+      'required column os_days is missing from the patients tableR02',
+    )
+    expect(items[1].textContent).toBe(
+      'Row 14: week 4 is not a number in the day columnR03',
+    )
+  })
+
+  it('the red box counts ERROR problems only and moves warnings to the notes group (F5d)', () => {
+    const file = loadedPatients({
+      problems: [row14Problem, row88Problem],
+      inspection: inspectionFixture({ problems: [row14Problem] }),
+    })
+    seedValidation(patientsValidation({ problems: [row14Problem, row88Problem] }))
+    renderCard({ file })
+    const status = screen.getByTestId('txr-intake-file-status-patients')
+    expect(within(status).getByText('1 problem in 151 rows')).toBeTruthy()
+    expect(within(status).getByText('1 note')).toBeTruthy()
+    const inStatus = within(status).getAllByRole('listitem')
+    expect(inStatus).toHaveLength(2)
+    expect(inStatus[0].style.color).toBe('var(--txr-danger)')
+    expect(inStatus[1].style.color).toBe('var(--txr-warning)')
+  })
+
+  it('the problem list clips at 20 lines with the "Show all N" disclosure (F2)', () => {
+    const many = Array.from({ length: 25 }, (_, i) => ({
+      ...row14Problem,
+      row: i + 2,
+      message: `row ${i + 2} is a problem`,
+    }))
+    const file = loadedPatients({ problems: many, inspection: inspectionFixture() })
+    seedValidation(patientsValidation({ problems: many }))
+    renderCard({ file })
+    const list = screen.getByTestId('txr-intake-file-problems-patients')
+    expect(list.querySelectorAll('li')).toHaveLength(21) // 20 lines + the disclosure
+    expect(screen.getByTestId('txr-intake-file-problems-show-all-patients').textContent).toBe(
+      'Show all 25 problems',
+    )
+    fireEvent.click(screen.getByTestId('txr-intake-file-problems-show-all-patients'))
+    expect(list.querySelectorAll('li')).toHaveLength(26) // 25 lines + the "Show fewer" row
+    expect(screen.getByTestId('txr-intake-file-problems-show-all-patients').textContent).toBe(
+      'Show fewer',
+    )
+  })
+
+  it('a header-only file is a red "This file has no data rows" box, not a green box (F3)', () => {
+    const file = loadedPatients({
+      inspection: inspectionFixture({ summary: { rows: 0, markers: [], draw_days: [] } }),
+      problems: [],
+    })
+    seedValidation(patientsValidation())
+    renderCard({ file })
+    const status = screen.getByTestId('txr-intake-file-status-patients')
+    expect(within(status).getByText('This file has no data rows')).toBeTruthy()
+    expect(within(status).queryByText(/Ready\./)).toBeNull()
+    expect(within(status).getByText('Fix and choose the file again')).toBeTruthy()
+  })
+
+  it('the role table declares os_days/os_event REQUIRED (D48, F5a) and aligns the tag column (F11)', () => {
+    renderCard()
+    const table = screen.getByText('the same for death alone').closest('table') as HTMLElement
+    const rows = Array.from(table.querySelectorAll('tr'))
+    const osRow = rows.find(row => row.textContent?.includes('os_days, os_event')) as HTMLElement
+    expect(osRow.textContent).toContain('required')
+    const nameCell = rows[0].cells[0] as HTMLElement
+    expect(nameCell.style.minWidth).toBe('168px')
+    // The measurements card's tag column starts at the SAME x (the fixed
+    // first-column width - the two cards' tables align).
+    renderCard({ kind: 'measurements' })
+    const mTable = screen.getByText('a number').closest('table') as HTMLElement
+    expect((mTable.querySelector('tr')?.cells[0] as HTMLElement).style.minWidth).toBe('168px')
   })
 })

@@ -366,6 +366,45 @@ describe('HistoryPage (TEST-HIST-8)', () => {
     expect(screen.getByTestId('txr-history-empty').textContent).toContain('Nothing here yet')
   })
 
+  it('renders a `reason: null` row without crashing — the wire null is the absent reason (TEST-QF-1, RES-01)', async () => {
+    // The blocker: the engine serializes `reason: null` for a finished run
+    // while the generated type renders it optional-only; the page must
+    // render the finished row, not "Cannot read properties of null".
+    api.listHistory.mockResolvedValue(
+      page(1, [item('run-1', { reason: null as unknown as TxrHistoryItem['reason'] })]),
+    )
+    renderPage()
+    await settle()
+    const row = screen.getByTestId('txr-history-row-run-1')
+    expect(row.textContent).toContain('Done')
+    expect(row.textContent).not.toContain('Failed:')
+    expect(row.textContent).not.toContain('no reason recorded')
+    expect(screen.queryByTestId('txr-history-error')).toBeNull()
+  })
+
+  it('renders a failed run with the engine reason line (TEST-QF-1, the board failed row)', async () => {
+    api.listHistory.mockResolvedValue(
+      page(1, [
+        item('run-1', {
+          bucket: 'failed',
+          can_reopen: false,
+          can_download: false,
+          reason: {
+            code: 'ENV_UNREADY',
+            detail: 'the method environment is not installed on this computer',
+          },
+        }),
+      ]),
+    )
+    renderPage()
+    await settle()
+    const row = screen.getByTestId('txr-history-row-run-1')
+    expect(row.querySelector(`[data-testid="txr-history-subtitle-run-1"]`)!.textContent).toBe(
+      'Failed: the method environment is not installed on this computer',
+    )
+    expect(row.textContent).toContain('Failed')
+  })
+
   it('renders the failure state and the Retry re-fires the first-page load', async () => {
     api.listHistory.mockRejectedValueOnce(new Error('HTTP error! status: 500'))
     renderPage()

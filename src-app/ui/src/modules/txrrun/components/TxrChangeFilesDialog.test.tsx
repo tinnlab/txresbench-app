@@ -65,6 +65,8 @@ function loaded(name: string, overrides: Partial<LoadedFile> = {}): LoadedFile {
     prepared: false,
     joinOffers: [],
     vocabOffers: [],
+
+    columnOffers: [],
     ...overrides,
   }
 }
@@ -72,7 +74,8 @@ function loaded(name: string, overrides: Partial<LoadedFile> = {}): LoadedFile {
 /** The ONE validated summary (the card's green box facts). */
 function validation(rows = 36): ValidationResponse {
   return {
-    patients: { rows: 18, with_primary_outcome: 7, median_followup_days: 84 },
+    patients: { rows: 18, with_primary_outcome: 7,
+    primary_outcome_events: 7, median_followup_days: 84 },
     measurements: { rows, patients: 4, distinct_draw_days: [0, 14, 28] },
     markers: [
       { key: 'ldh', spellings: ['ldh'], n_rows: 20, unit_status: 'matches', coverage: { patients_with_value: 4, patients_with_baseline: 4, patients_with_ontreatment: 4 }, vocabulary: [] },

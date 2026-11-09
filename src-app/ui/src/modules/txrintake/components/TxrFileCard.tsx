@@ -8,7 +8,8 @@
  * the drop zone (`TxrFileDrop`, kit `Upload`), the status box (green board
  * line / red "N problems in N rows" / the neutral "check as soon as you
  * choose it" state), the per-row problem list (`TxrProblemList`) and the
- * join / vocabulary offer rows (`TxrJoinOffer` / `TxrVocabOffer`).
+ * join / vocabulary / column-rename offer rows (`TxrJoinOffer` /
+ * `TxrVocabOffer` / `TxrColumnOffer`).
  *
  * The surface is CONTROLLED — the frozen props carry the card facts and the
  * host's store actions (onPick / onRemove / the four offer answers / the two
@@ -30,7 +31,7 @@
  * Copy rule (DEC-13): every label is the board's verbatim bytes and every
  * number is computed from the file + validate response (row counts, problem
  * counts, marker lists) — never a design-example count. Colors per DEC-14:
- * `#1f6b3a` ready, `#b3261e` error box, `#8a5a00` warning / notes.
+ * `var(--txr-success)` ready, `var(--txr-danger)` error box, `var(--txr-warning)` warning / notes.
  */
 
 import type { CSSProperties } from 'react'
@@ -38,6 +39,7 @@ import { Alert, Button } from '@ziee/kit'
 import { useStore } from 'zustand'
 import type { FileTableKind } from '@/api-client/types'
 import {
+  fileHasNoDataRows,
   hasErrorProblems,
   measurementsStatus,
   patientsStatus,
@@ -45,7 +47,8 @@ import {
 } from '../lib/flow'
 import type { CardStatus } from '../lib/flow'
 import { useTxrIntakeStore } from '../stores/TxrIntake.store'
-import type { JoinOffer, LoadedFile, VocabOffer } from '../types'
+import type { ColumnRenameOffer, JoinOffer, LoadedFile, VocabOffer } from '../types'
+import { TxrColumnOffer } from './TxrColumnOffer'
 import { TxrFileDrop } from './TxrFileDrop'
 import { TxrJoinOffer } from './TxrJoinOffer'
 import { TxrProblemList } from './TxrProblemList'
@@ -67,15 +70,17 @@ export interface TxrFileCardProps {
   onRejectJoin: (offer: JoinOffer) => void
   onAcceptVocab: (offer: VocabOffer) => void
   onRejectVocab: (offer: VocabOffer) => void
+  onAcceptColumn: (offer: ColumnRenameOffer) => void
+  onRejectColumn: (offer: ColumnRenameOffer) => void
   onDownloadTemplate: () => void
   onDownloadExample: () => void
 }
 
 /** The board's bordered card. */
 const CARD: CSSProperties = {
-  border: '1px solid #cfcdc7',
+  border: '1px solid var(--txr-border)',
   borderRadius: 12,
-  background: '#ffffff',
+  background: 'var(--txr-surface)',
   padding: '18px 20px',
   display: 'flex',
   flexWrap: 'wrap',
@@ -98,7 +103,7 @@ const CARD_TITLE: CSSProperties = {
   fontSize: 20,
 }
 
-const CARD_DESC: CSSProperties = { margin: '2px 0 10px', color: '#3a3a3a', fontSize: 14 }
+const CARD_DESC: CSSProperties = { margin: '2px 0 10px', color: 'var(--txr-text-2)', fontSize: 14 }
 
 /** The static per-role column table (board bytes: role, tag, copy). */
 const ROLE_TABLE: CSSProperties = { borderCollapse: 'collapse' }
@@ -108,15 +113,20 @@ const ROLE_NAME: CSSProperties = {
   fontSize: 12.5,
   verticalAlign: 'top',
   whiteSpace: 'nowrap',
+  // ITEM-6 F11: one fixed name-column width so the two cards' tag columns
+  // start at the SAME x (the Patients names are longer than the
+  // Measurements names — the unaligned tag column was the report's
+  // cosmetic complaint; the fixed width is the board's aligned look).
+  minWidth: 168,
 }
 const ROLE_TAG: CSSProperties = {
   padding: '3px 10px 3px 0',
   fontSize: 12.5,
-  color: '#5e5e5e',
+  color: 'var(--txr-muted)',
   whiteSpace: 'nowrap',
   verticalAlign: 'top',
 }
-const ROLE_COPY: CSSProperties = { padding: '3px 0', fontSize: 13, color: '#3a3a3a' }
+const ROLE_COPY: CSSProperties = { padding: '3px 0', fontSize: 13, color: 'var(--txr-text-2)' }
 
 /** The board's two column tables: grouped role rows, verbatim copy. */
 interface RoleRow {
@@ -143,7 +153,12 @@ const STUDY_PATIENTS: CardSpec = {
       tag: 'required',
       copy: '1 = progressed or died, 0 = still well at last follow-up',
     },
-    { roles: ['os_days', 'os_event'], tag: 'optional', copy: 'the same for death alone' },
+    // qa-fixes ITEM-6 F5a: the board's "optional" tag for os_days/os_event
+    // contradicts the validator's R02 set (D48 — the four board outcome
+    // columns are required; responder/response_day are the optional pair);
+    // the card now says what the check enforces, the "required column `os_days`
+    // is missing" line is no longer a surprise.
+    { roles: ['os_days', 'os_event'], tag: 'required', copy: 'the same for death alone' },
     { roles: ['age', 'sex', 'stage'], tag: 'optional', copy: 'used as extra inputs by some methods' },
   ],
 }
@@ -192,10 +207,10 @@ function statusFor(
   return mode === 'predict' ? predictMeasurementsStatus(validation) : measurementsStatus(validation)
 }
 
-const EXAMPLE_LABEL: CSSProperties = { fontSize: 13, color: '#5e5e5e' }
+const EXAMPLE_LABEL: CSSProperties = { fontSize: 13, color: 'var(--txr-muted)' }
 const EXAMPLE_TABLE: CSSProperties = {
   overflow: 'hidden',
-  border: '1px solid #cfcdc7',
+  border: '1px solid var(--txr-border)',
   borderRadius: 8,
   borderCollapse: 'collapse',
   width: '100%',
@@ -203,14 +218,14 @@ const EXAMPLE_TABLE: CSSProperties = {
 const EXAMPLE_HEAD: CSSProperties = {
   textAlign: 'left',
   padding: '4px 10px',
-  background: '#f7f6f3',
-  borderBottom: '1px solid #cfcdc7',
+  background: 'var(--txr-surface-dim)',
+  borderBottom: '1px solid var(--txr-border)',
   fontWeight: 600,
   fontSize: 12.5,
 }
 const EXAMPLE_ENTRY: CSSProperties = {
   padding: '4px 10px',
-  borderBottom: '1px solid #efede8',
+  borderBottom: '1px solid var(--txr-surface-raised)',
   fontSize: 12.5,
 }
 const EXAMPLE_CODE: CSSProperties = {
@@ -221,7 +236,7 @@ const EXAMPLE_CODE: CSSProperties = {
 const DOWNLOADS: CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center' }
 const DOWNLOAD_LINK: CSSProperties = {
   fontSize: 13.5,
-  color: '#1d4e89',
+  color: 'var(--txr-brand)',
   fontWeight: 600,
   background: 'none',
   border: 'none',
@@ -238,31 +253,31 @@ const STATUS: CSSProperties = {
   flexDirection: 'column',
   gap: 4,
 }
-const STATUS_GOOD: CSSProperties = { ...STATUS, border: '1px solid #b9dcc4', background: '#f1f9f3' }
-const STATUS_BAD: CSSProperties = { ...STATUS, border: '1px solid #f0c9c4', background: '#fdf3f2' }
+const STATUS_GOOD: CSSProperties = { ...STATUS, border: '1px solid var(--txr-success-border)', background: 'var(--txr-success-soft-2)' }
+const STATUS_BAD: CSSProperties = { ...STATUS, border: '1px solid var(--txr-danger-border)', background: 'var(--txr-danger-soft)' }
 const STATUS_NEUTRAL: CSSProperties = {
   ...STATUS,
-  border: '1px solid #e7e5e0',
-  background: '#fbfaf8',
+  border: '1px solid var(--txr-border-subtle)',
+  background: 'var(--txr-bg)',
 }
 
 const STATUS_HEADING: CSSProperties = { fontWeight: 700, margin: 0 }
-const STATUS_GOOD_HEADING: CSSProperties = { ...STATUS_HEADING, color: '#1f6b3a' }
-const STATUS_BAD_HEADING: CSSProperties = { ...STATUS_HEADING, color: '#b3261e' }
-const STATUS_LINE: CSSProperties = { fontSize: 13.5, color: '#3a3a3a', margin: 0 }
+const STATUS_GOOD_HEADING: CSSProperties = { ...STATUS_HEADING, color: 'var(--txr-success)' }
+const STATUS_BAD_HEADING: CSSProperties = { ...STATUS_HEADING, color: 'var(--txr-danger)' }
+const STATUS_LINE: CSSProperties = { fontSize: 13.5, color: 'var(--txr-text-2)', margin: 0 }
 
 /** A warning-only group under the ready box (warnings never block, DEC-10). */
 const WARNING_GROUP: CSSProperties = {
-  borderTop: '1px solid #efede8',
+  borderTop: '1px solid var(--txr-surface-raised)',
   marginTop: 8,
   paddingTop: 6,
 }
-const WARNING_TITLE: CSSProperties = { fontWeight: 700, color: '#8a5a00', fontSize: 13 }
+const WARNING_TITLE: CSSProperties = { fontWeight: 700, color: 'var(--txr-warning)', fontSize: 13 }
 
 const FIX_LINK: CSSProperties = {
   marginTop: 6,
   fontSize: 13,
-  color: '#1d4e89',
+  color: 'var(--txr-brand)',
   fontWeight: 600,
   background: 'none',
   border: 'none',
@@ -293,6 +308,8 @@ export function TxrFileCard(props: TxrFileCardProps) {
     onRejectJoin,
     onAcceptVocab,
     onRejectVocab,
+    onAcceptColumn,
+    onRejectColumn,
     onDownloadTemplate,
     onDownloadExample,
   } = props
@@ -304,12 +321,19 @@ export function TxrFileCard(props: TxrFileCardProps) {
   const exampleRows = (file?.table.rows ?? []).slice(0, EXAMPLE_ROW_LIMIT)
   const problems = file?.problems ?? []
   const errors = hasErrorProblems(problems)
+  const errorsOnly = problems.filter(problem => problem.severity === 'error')
   const rowCount = cardRowCount(file)
   const status = validation !== null ? statusFor(mode, kind, validation) : null
   const showStatusBox = file !== null && file.inspection !== null
   const warnings = problems.filter(problem => problem.severity === 'warning')
+  const hasNoDataRows = fileHasNoDataRows(file)
+  // ITEM-6 F5d: the red box counts and lists ERROR problems; warnings are
+  // notes ("N notes"), even under an error — one severity per box.
+  const errorCount = errorsOnly.length
   const hasOffers =
-    (file?.joinOffers.length ?? 0) > 0 || (file?.vocabOffers.length ?? 0) > 0
+    (file?.joinOffers.length ?? 0) > 0 ||
+    (file?.vocabOffers.length ?? 0) > 0 ||
+    (file?.columnOffers.length ?? 0) > 0
 
   return (
     <section style={CARD} data-testid={`txr-intake-file-card-${kind}`}>
@@ -361,15 +385,35 @@ export function TxrFileCard(props: TxrFileCardProps) {
         {showStatusBox ? (
           <div
             data-testid={`txr-intake-file-status-${kind}`}
-            style={errors ? STATUS_BAD : status !== null ? STATUS_GOOD : STATUS_NEUTRAL}
+            style={
+              errors || hasNoDataRows
+                ? STATUS_BAD
+                : status !== null
+                  ? STATUS_GOOD
+                  : STATUS_NEUTRAL
+            }
           >
-            {errors ? (
+            {errors || hasNoDataRows ? (
               <>
-                <div style={STATUS_BAD_HEADING}>
-                  {problems.length} problem{problems.length === 1 ? '' : 's'}{' '}
-                  {rowCount !== null ? `in ${rowCount} row${rowCount === 1 ? '' : 's'}` : ''}
-                </div>
-                <TxrProblemList kind={kind} problems={problems} />
+                {hasNoDataRows ? (
+                  <div style={STATUS_BAD_HEADING}>This file has no data rows</div>
+                ) : (
+                  <div style={STATUS_BAD_HEADING}>
+                    {errorCount} problem{errorCount === 1 ? '' : 's'}
+                    {rowCount !== null && rowCount > 0
+                      ? ` in ${rowCount} row${rowCount === 1 ? '' : 's'}`
+                      : ''}
+                  </div>
+                )}
+                <TxrProblemList kind={kind} problems={errorsOnly} />
+                {warnings.length > 0 ? (
+                  <div style={WARNING_GROUP}>
+                    <div style={WARNING_TITLE}>
+                      {warnings.length} note{warnings.length === 1 ? '' : 's'}
+                    </div>
+                    <TxrProblemList kind={kind} group="notes" problems={warnings} />
+                  </div>
+                ) : null}
                 <Button
                   variant="link"
                   data-testid={`txr-intake-file-fix-${kind}`}
@@ -388,7 +432,7 @@ export function TxrFileCard(props: TxrFileCardProps) {
                     <div style={WARNING_TITLE}>
                       {warnings.length} note{warnings.length === 1 ? '' : 's'}
                     </div>
-                    <TxrProblemList kind={kind} problems={warnings} />
+                    <TxrProblemList kind={kind} group="notes" problems={warnings} />
                   </div>
                 ) : null}
               </>
@@ -398,7 +442,7 @@ export function TxrFileCard(props: TxrFileCardProps) {
                   {rowCount !== null ? `${rowCount} rows read` : 'File read'}
                 </div>
                 <p style={STATUS_LINE}>We check each file as soon as you choose it.</p>
-                {warnings.length > 0 ? <TxrProblemList kind={kind} problems={warnings} /> : null}
+                {warnings.length > 0 ? <TxrProblemList kind={kind} group="notes" problems={warnings} /> : null}
                 <Button
                   variant="link"
                   data-testid={`txr-intake-file-choose-again-${kind}`}
@@ -430,6 +474,14 @@ export function TxrFileCard(props: TxrFileCardProps) {
                 onReject={onRejectVocab}
               />
             ))}
+            {(file?.columnOffers ?? []).map(offer => (
+              <TxrColumnOffer
+                key={offer.from}
+                offer={offer}
+                onAccept={onAcceptColumn}
+                onReject={onRejectColumn}
+              />
+            ))}
           </div>
         ) : null}
       </div>
@@ -440,7 +492,7 @@ export function TxrFileCard(props: TxrFileCardProps) {
 /** The board's static per-role table (role, tag, copy — verbatim bytes). */
 function RoleTable({ roles }: { roles: RoleRow[] }) {
   return (
-    <table style={ROLE_TABLE}>
+    <table className="txr-intake-role-table" style={ROLE_TABLE}>
       <tbody>
         {roles.map(row => (
           <tr key={row.roles.join(',')}>
@@ -457,7 +509,11 @@ function RoleTable({ roles }: { roles: RoleRow[] }) {
 /** The adopted file's first rows (the board's "Example (first rows)" box). */
 function FirstRows({ columns, rows }: { columns: string[]; rows: (string | null)[][] }) {
   return (
-    <div style={{ overflow: 'hidden', borderRadius: 8 }}>
+    // ITEM-6 F9: the table scrolls INSIDE its box (the last column of the
+    // patients preview used to clip at the card edge with no way to see it —
+    // "response_da" cut mid-word; the box's own overflow keeps the page
+    // fixed and the hint-comma inside cells no longer hides the tail).
+    <div className="txr-intake-first-rows" style={{ overflowX: 'auto', borderRadius: 8 }}>
       <table style={EXAMPLE_TABLE}>
         <thead>
           <tr>

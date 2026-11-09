@@ -73,7 +73,11 @@ export function TxrHistoryActions({
 }: TxrHistoryActionsProps) {
   const actions = actionsFor(item, { isDesktop })
   return (
-    <div data-testid={`txr-history-actions-${runId}`} style={ACTIONS_COLUMN}>
+    <div
+      data-testid={`txr-history-actions-${runId}`}
+      className="txr-history-actions"
+      style={ACTIONS_COLUMN}
+    >
       {actions.openResults ? (
         <Button
           data-testid={`txr-history-open-results-${runId}`}

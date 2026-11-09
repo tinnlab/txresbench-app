@@ -6,7 +6,7 @@
  * (screens D/I), and the Run button.
  *
  * Board-copy facts of this layout (DEC-8/DEC-12):
- * - the bar is the board's sticky line — `#f7f6f3`, `1px #cfcdc7` top
+ * - the bar is the board's sticky line — `var(--txr-surface-dim)`, `1px var(--txr-border)` top
  *   border, `14px 36px` padding, 18px gaps;
  * - "5 methods selected" is bold; the total line is the board's long form
  *   ("about 14 minutes in total on this computer") — `formatTotalTime`'s,
@@ -16,7 +16,7 @@
  * - "Save the trained models" is the E checkbox; the notice is the
  *   board's "For research. Not for deciding a patient's treatment."
  *   (rendered only when the host passes it — DEC-13);
- * - the Run button is the board's primary: `#1d4e89`, white bold text,
+ * - the Run button is the board's primary: `var(--txr-brand)`, white bold text,
  *   `10px 22px` padding, 8px radius; its label is `runLabel` ("Run 5
  *   methods" / "Run 3 models").
  *
@@ -67,15 +67,15 @@ const BAR: CSSProperties = {
   alignItems: 'center',
   gap: 18,
   padding: '14px 36px',
-  borderTop: '1px solid #cfcdc7',
-  background: '#f7f6f3',
+  borderTop: '1px solid var(--txr-border)',
+  background: 'var(--txr-surface-dim)',
 }
 
-/** The total line's look (the board's `#3a3a3a` 14px). */
-const TOTAL_LINE: CSSProperties = { color: '#3a3a3a', fontSize: 14 }
+/** The total line's look (the board's `var(--txr-text-2)` 14px). */
+const TOTAL_LINE: CSSProperties = { color: 'var(--txr-text-2)', fontSize: 14 }
 
-/** The notice's look (the board's `#5e5e5e` 12.5px). */
-const NOTICE: CSSProperties = { fontSize: 12.5, color: '#5e5e5e' }
+/** The notice's look (the board's `var(--txr-muted)` 12.5px). */
+const NOTICE: CSSProperties = { fontSize: 12.5, color: 'var(--txr-muted)' }
 
 /** The save toggle's look (the board's label line). */
 const SAVE_LABEL: CSSProperties = { fontSize: 13.5, display: 'flex', gap: 6, alignItems: 'center' }
@@ -84,8 +84,8 @@ const SAVE_LABEL: CSSProperties = { fontSize: 13.5, display: 'flex', gap: 6, ali
 const RUN_BUTTON: CSSProperties = {
   padding: '10px 22px',
   borderRadius: 8,
-  background: '#1d4e89',
-  color: '#ffffff',
+  background: 'var(--txr-brand)',
+  color: 'var(--txr-on-brand)',
   fontWeight: 700,
   height: 'auto',
   fontSize: 14,
@@ -130,6 +130,7 @@ export function TxrListBottomBar({
         <label style={SAVE_LABEL}>
           <Checkbox
             data-testid="txr-list-save-models"
+            className="txr-list-checkbox"
             aria-label="Save the trained models"
             checked={saveModels.checked}
             onCheckedChange={checked => saveModels.onChange(checked === true)}

@@ -80,7 +80,7 @@ const ROW_ACTIONS: Record<TxrRunMethod['state'], { label: string; kind: TxrRunRo
 const COLUMN_LOOK: CSSProperties = {
   padding: '8px 12px',
   textAlign: 'left',
-  borderBottom: '1px solid #e7e5e0',
+  borderBottom: '1px solid var(--txr-border-subtle)',
   verticalAlign: 'middle',
 }
 
@@ -90,7 +90,7 @@ const METHOD_LOOK: CSSProperties = {
   fontFamily: "'Source Code Pro', monospace",
   fontSize: 13,
   fontWeight: 500,
-  color: '#141414',
+  color: 'var(--txr-text)',
   whiteSpace: 'nowrap',
 }
 
@@ -101,14 +101,14 @@ const STATE_WORD: CSSProperties = { ...COLUMN_LOOK, fontWeight: 600, whiteSpace:
 const BAR_TRACK: CSSProperties = {
   height: 7,
   borderRadius: 999,
-  background: '#e7e5e0',
+  background: 'var(--txr-border-subtle)',
   overflow: 'hidden',
 }
 
 const BAR_FILL: CSSProperties = { height: '100%', borderRadius: 999 }
 
 /** The detail line under the bar (the board's 12 px grey). */
-const DETAIL: CSSProperties = { fontSize: 12, color: '#5e5e5e', marginTop: 2 }
+const DETAIL: CSSProperties = { fontSize: 12, color: 'var(--txr-muted)', marginTop: 2 }
 
 /** The time column look (the board's right-aligned tabular digits). */
 const TIME_LOOK: CSSProperties = {
@@ -125,7 +125,7 @@ const ACTION_LOOK: CSSProperties = { ...COLUMN_LOOK, textAlign: 'right', whiteSp
 const ROW_ERROR: CSSProperties = {
   display: 'block',
   fontSize: 12,
-  color: '#b3261e',
+  color: 'var(--txr-danger)',
   marginTop: 2,
 }
 
@@ -133,7 +133,7 @@ const ROW_ERROR: CSSProperties = {
 const ACTION_LINK: CSSProperties = { fontSize: 13, fontWeight: 600 }
 
 /** A failed / cannot-run row's light tint (the board's failure row). */
-const FAILURE_TINT = '#fdf3f2'
+const FAILURE_TINT = 'var(--txr-danger-soft)'
 
 export interface TxrRunRowProps {
   /** The row's method facts (the engine's own — PROV-EE-3). */
@@ -155,12 +155,13 @@ export function TxrRunRow({ row, progress, rowError, onAction }: TxrRunRowProps)
   return (
     <tr
       data-testid={`txr-run-row-${row.method_id}`}
-      style={{ background: failed ? FAILURE_TINT : '#ffffff' }}
+      className="txr-run-row"
+      style={{ background: failed ? FAILURE_TINT : 'var(--txr-surface)' }}
     >
       <th scope="row" style={METHOD_LOOK}>
         {row.label}
       </th>
-      <td style={STATE_WORD}>
+      <td data-label="State" style={STATE_WORD}>
         <span
           data-testid={`txr-run-state-${row.method_id}`}
           style={{ color: STATE_TONE[row.state] }}
@@ -168,7 +169,7 @@ export function TxrRunRow({ row, progress, rowError, onAction }: TxrRunRowProps)
           {STATE_LABEL[row.state]}
         </span>
       </td>
-      <td style={{ ...COLUMN_LOOK, width: '26%' }}>
+      <td data-label="Progress" style={{ ...COLUMN_LOOK, width: '26%' }}>
         <div style={BAR_TRACK}>
           <div
             data-testid={`txr-run-bar-${row.method_id}`}
@@ -181,7 +182,7 @@ export function TxrRunRow({ row, progress, rowError, onAction }: TxrRunRowProps)
           </div>
         ) : null}
       </td>
-      <td style={TIME_LOOK}>
+      <td data-label="Time" style={TIME_LOOK}>
         {time !== '' ? <span data-testid={`txr-run-time-${row.method_id}`}>{time}</span> : null}
       </td>
       <td style={ACTION_LOOK}>

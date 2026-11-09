@@ -65,8 +65,8 @@ const RESEARCH_NOTICE = "For research. Not for deciding a patient's treatment."
 /** The story hosts' list frame: a bounded, white list area (the board pane). */
 const LIST_FRAME: CSSProperties = {
   height: 560,
-  background: '#ffffff',
-  border: '1px solid #cfcdc7',
+  background: 'var(--txr-surface)',
+  border: '1px solid var(--txr-border)',
   borderRadius: 10,
 }
 
@@ -75,7 +75,7 @@ function RunResultLine({ result }: { result: RunResult | null }) {
   return (
     <pre
       data-testid="txr-list-run-result"
-      style={{ margin: 8, fontSize: 11, color: '#5e5e5e', whiteSpace: 'pre-wrap' }}
+      style={{ margin: 8, fontSize: 11, color: 'var(--txr-muted)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
     >
       {result === null
         ? 'run not fired yet'
@@ -87,7 +87,7 @@ function RunResultLine({ result }: { result: RunResult | null }) {
 /** The boards' explanatory line under the list (host chrome, muted). */
 function BoardNote({ children }: { children: string }) {
   return (
-    <p style={{ margin: '10px 2px 0', fontSize: 12.5, color: '#5e5e5e' }}>{children}</p>
+    <p style={{ margin: '10px 2px 0', fontSize: 12.5, color: 'var(--txr-muted)' }}>{children}</p>
   )
 }
 

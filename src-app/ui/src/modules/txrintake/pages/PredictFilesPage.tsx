@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Button } from '@ziee/kit'
 import { ApiClient } from '@/api-client'
 import type { FileTableKind } from '@/api-client/types'
-import { parseCsvFile } from '@/lib/txr-files/csv'
-import { parseWorkbookFile } from '@/lib/txr-files/workbook'
 import { useStore } from 'zustand'
 import { TxrIntake, useTxrIntakeStore } from '../stores/TxrIntake.store'
 import {
   cardProblems,
+  fileHasNoDataRows,
   hasErrorProblems,
   inspectRequest,
+  parsePickedFile,
+  resolveColumnRenames,
   resolveJoins,
   resolveMapping,
   validateRequest,
@@ -19,7 +20,7 @@ import {
 import { fetchTemplateCsv, downloadText, templateFilename } from '../lib/download'
 import { ROUTE_CONVENTIONS } from '../module'
 import { TxrFileCard } from '../components/TxrFileCard'
-import type { JoinOffer, LoadedFile, VocabOffer } from '../types'
+import type { ColumnRenameOffer, JoinOffer, LoadedFile, VocabOffer } from '../types'
 
 /**
  * Screen N — Add the patients to predict (board PredictFiles.dc.html,
@@ -74,6 +75,9 @@ const PAGE_CONTAINER: CSSProperties = {
   alignItems: 'flex-start',
 }
 
+/** The page container's phone class (the ITEM-6 narrow block in index.css). */
+const PAGE_CONTAINER_CLASS = 'txr-intake-page'
+
 /** The board's left main column (the card + the Continue footer). */
 const MAIN_COLUMN: CSSProperties = {
   flex: '3 1 620px',
@@ -91,8 +95,8 @@ const ASIDE: CSSProperties = {
   minWidth: 0,
   boxSizing: 'border-box',
   padding: '26px 28px',
-  background: '#fbfaf8',
-  borderLeft: '1px solid #e7e5e0',
+  background: 'var(--txr-bg)',
+  borderLeft: '1px solid var(--txr-border-subtle)',
   display: 'flex',
   flexDirection: 'column',
   gap: 12,
@@ -103,34 +107,45 @@ const ASIDE_EYEBROW: CSSProperties = {
   fontWeight: 700,
   letterSpacing: '0.08em',
   textTransform: 'uppercase',
-  color: '#5e5e5e',
+  color: 'var(--txr-muted)',
 }
 
-const ASIDE_PARA: CSSProperties = { margin: 0, fontSize: 14, color: '#3a3a3a' }
+const ASIDE_PARA: CSSProperties = { margin: 0, fontSize: 14, color: 'var(--txr-text-2)' }
 
-const ASIDE_LIST: CSSProperties = { margin: 0, paddingLeft: 18, fontSize: 14.5, color: '#3a3a3a' }
+const ASIDE_LIST: CSSProperties = {
+  margin: 0,
+  paddingLeft: 20,
+  // qa-fixes ITEM-6 P1: the board's list has bullet markers — the kit's
+  // global reset removed them and the items read as one grey block.
+  listStyle: 'disc',
+  fontSize: 14.5,
+  color: 'var(--txr-text-2)',
+}
+
+/** One aside item: the board's bold lead-in on its own line, then the fact. */
+const ASIDE_ITEM: CSSProperties = { margin: '2px 0' }
 
 /** The board's "Not sure what you have?" note (the study clause is a link). */
 const ASIDE_NOTE: CSSProperties = {
   padding: '10px 12px',
-  border: '1px solid #e7e5e0',
+  border: '1px solid var(--txr-border-subtle)',
   borderRadius: 8,
-  background: '#ffffff',
+  background: 'var(--txr-surface)',
   fontSize: 13.5,
-  color: '#3a3a3a',
+  color: 'var(--txr-text-2)',
 }
 
-const ASIDE_LINK: CSSProperties = { color: '#1d4e89', fontWeight: 600 }
+const ASIDE_LINK: CSSProperties = { color: 'var(--txr-brand)', fontWeight: 600 }
 
 /** The board's bottom line — the predict-mode promise, static. */
-const ASIDE_FOOTER: CSSProperties = { marginTop: 'auto', fontSize: 13.5, color: '#5e5e5e' }
+const ASIDE_FOOTER: CSSProperties = { marginTop: 'auto', fontSize: 13.5, color: 'var(--txr-muted)' }
 
 const STEP_LINE: CSSProperties = {
   fontSize: 12,
   fontWeight: 700,
   letterSpacing: '0.08em',
   textTransform: 'uppercase',
-  color: '#1d4e89',
+  color: 'var(--txr-brand)',
 }
 
 const TITLE: CSSProperties = {
@@ -143,7 +158,7 @@ const TITLE: CSSProperties = {
 
 const INTRO: CSSProperties = {
   margin: 0,
-  color: '#3a3a3a',
+  color: 'var(--txr-text-2)',
   maxWidth: '62ch',
 }
 
@@ -156,34 +171,25 @@ const FOOTER: CSSProperties = {
 const FOOTER_LABEL: CSSProperties = {
   flex: '1 1 auto',
   fontSize: 13.5,
-  color: '#5e5e5e',
+  color: 'var(--txr-muted)',
 }
 const PRIMARY_BUTTON: CSSProperties = {
   borderRadius: 8,
-  background: '#1d4e89',
-  color: '#ffffff',
+  background: 'var(--txr-brand)',
+  color: 'var(--txr-on-brand)',
   fontWeight: 700,
 }
-const PAGE_ERROR: CSSProperties = { margin: 0, color: '#b3261e', fontSize: 13.5 }
+const PAGE_ERROR: CSSProperties = { margin: 0, color: 'var(--txr-danger)', fontSize: 13.5 }
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : 'The file could not be read.'
 }
 
-/** Decode a File as CSV or Excel through PROV-FV-7 (one shared decode library). */
-async function parseIntakeFile(
-  file: File,
-  kind: FileTableKind,
-): Promise<Awaited<ReturnType<typeof parseCsvFile>>> {
-  const lower = file.name.toLowerCase()
-  if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) {
-    return parseWorkbookFile(file, { kind })
-  }
-  return parseCsvFile(file, { kind })
-}
-
 /** The adopted-file shell (decode only; the flows fill the card facts). */
-function loadedFrom(table: Awaited<ReturnType<typeof parseIntakeFile>>): LoadedFile {
+function loadedFrom(
+  table: Awaited<ReturnType<typeof parsePickedFile>>,
+  kind: FileTableKind,
+): LoadedFile {
   return {
     source: table.source,
     table,
@@ -192,17 +198,25 @@ function loadedFrom(table: Awaited<ReturnType<typeof parseIntakeFile>>): LoadedF
     prepared: false,
     joinOffers: [],
     vocabOffers: [],
+    columnOffers: resolveColumnRenames(table.columns, kind),
   }
 }
 
 export function PredictFilesPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const file = useStore(useTxrIntakeStore, s => s.predictMeasurements)
   const intent = useStore(useTxrIntakeStore, s => s.intent)
   const joins = useStore(useTxrIntakeStore, s => s.joins)
   const mapping = useStore(useTxrIntakeStore, s => s.mapping)
   const parameters = useStore(useTxrIntakeStore, s => s.parameters)
   const validation = useStore(useTxrIntakeStore, s => s.validation)
+  // The J "Use" handoff (RES-21): the id + display label ride the URL (the
+  // J "?set=" view precedent) so this screen can name the chosen model —
+  // the reuse flow said nothing about WHICH model was picked between the
+  // Use click and the choice screen's preselection.
+  const pendingUseId = searchParams.get('use')
+  const pendingUseName = searchParams.get('name')
 
   const [busy, setBusy] = useState(false)
   const [cardError, setCardError] = useState<string | null>(null)
@@ -222,9 +236,9 @@ export function PredictFilesPage() {
     setBusy(true)
     flowBusy.current = true
     try {
-      const table = await parseIntakeFile(picked, kind)
+      const table = await parsePickedFile(picked, kind)
       dismissed.current.clear()
-      TxrIntake.adoptFile('predictMeasurements', loadedFrom(table))
+      TxrIntake.adoptFile('predictMeasurements', loadedFrom(table, kind))
       // Same rule as the C screen's measurements drop: a join/mapping key is
       // a raw spelling the server must find in the CURRENT file — the
       // confirmed offers describe the PREVIOUS file's columns, so a new
@@ -265,6 +279,15 @@ export function PredictFilesPage() {
   const rejectVocab = useCallback((offer: VocabOffer) => {
     dismissed.current.add(offer.key)
     TxrIntake.rejectVocab(offer)
+  }, [])
+
+  const acceptColumn = useCallback((offer: ColumnRenameOffer) => {
+    TxrIntake.renameColumn('predictMeasurements', offer)
+  }, [])
+
+  const rejectColumn = useCallback((offer: ColumnRenameOffer) => {
+    dismissed.current.add(offer.from)
+    TxrIntake.rejectColumnOffer('predictMeasurements', offer.from)
   }, [])
 
   /** The download links (CONS-UI-INTAKE-6, DEC-11) — one card error line. */
@@ -328,6 +351,11 @@ export function PredictFilesPage() {
       prepared: !hasErrorProblems(problems),
       joinOffers,
       vocabOffers: resolution.offers,
+      columnOffers: resolveColumnRenames(
+        settled.predictMeasurements?.table.columns ?? [],
+        'measurements',
+        dismissed.current,
+      ),
     })
   }, [])
 
@@ -353,7 +381,10 @@ export function PredictFilesPage() {
     // inputs the validation reads (a change = a new validation).
   }, [file, joins, mapping, parameters, validation, retryTick, runFlow])
 
-  const canContinue = validation !== null && !hasErrorProblems(validation.problems)
+  const canContinue =
+    validation !== null &&
+    !hasErrorProblems(validation.problems) &&
+    !fileHasNoDataRows(file)
   /**
    * The board's Continue — into the model choice screens: pretrained (D)
    * for intent `pretrained`, saved (I) for `reuse` (DEC-3's declared
@@ -366,7 +397,12 @@ export function PredictFilesPage() {
   }, [navigate, intent])
 
   return (
-    <div style={PAGE_CONTAINER} data-testid="txr-intake-predict-files">
+    <div
+      role="main"
+      style={PAGE_CONTAINER}
+      className={PAGE_CONTAINER_CLASS}
+      data-testid="txr-intake-predict-files"
+    >
       <div style={MAIN_COLUMN}>
         <div>
           <div style={STEP_LINE}>Step 3 of 4</div>
@@ -376,6 +412,13 @@ export function PredictFilesPage() {
             example; we check the file as soon as you choose it.
           </p>
         </div>
+
+        {pendingUseId !== null ? (
+          <p data-testid="txr-intake-pending-use" style={INTRO}>
+            You chose the model &ldquo;{pendingUseName ?? 'this model'}&rdquo;. Add its
+            patients&rsquo; measurements to predict.
+          </p>
+        ) : null}
 
         <TxrFileCard
           kind="measurements"
@@ -389,11 +432,13 @@ export function PredictFilesPage() {
           onRejectJoin={rejectJoin}
           onAcceptVocab={acceptVocab}
           onRejectVocab={rejectVocab}
+          onAcceptColumn={acceptColumn}
+          onRejectColumn={rejectColumn}
           onDownloadTemplate={() => void downloadCsv('template')}
           onDownloadExample={() => void downloadCsv('example')}
         />
 
-        <div style={FOOTER}>
+        <div style={FOOTER} className="txr-intake-footer">
           <span style={FOOTER_LABEL}>
             {file === null
               ? 'Add the measurements file to check which models can run on it.'
@@ -426,19 +471,26 @@ export function PredictFilesPage() {
           draws most models use:
         </p>
         <ul style={ASIDE_LIST}>
-          <li>
-            <b>Before treatment</b> (day 0): needed by almost all models
+          <li style={ASIDE_ITEM}>
+            <b>Before treatment</b>
+            <br />
+            (day 0): needed by almost all models
           </li>
-          <li>
-            <b>Early on treatment</b> (about day 14 to 28): needed by the models that look at
-            change
+          <li style={ASIDE_ITEM}>
+            <b>Early on treatment</b>
+            <br />
+            (about day 14 to 28): needed by the models that look at change
           </li>
-          <li>
-            <b>Markers</b>: ctDNA, LDH, blood counts and tumour markers are the most used. The
-            more you measured, the more models can run
+          <li style={ASIDE_ITEM}>
+            <b>Markers</b>
+            <br />
+            : ctDNA, LDH, blood counts and tumour markers are the most used. The more you measured,
+            the more models can run
           </li>
-          <li>
-            <b>Units</b>: add the unit column so we can check that the scale matches the model
+          <li style={ASIDE_ITEM}>
+            <b>Units</b>
+            <br />
+            : add the unit column so we can check that the scale matches the model
           </li>
         </ul>
         <div style={ASIDE_NOTE}>

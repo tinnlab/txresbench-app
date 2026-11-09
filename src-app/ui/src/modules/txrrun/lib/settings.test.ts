@@ -114,25 +114,29 @@ describe('SETTING_OPTIONS (TEST-RUN-06)', () => {
     ])
   })
 
-  it('carries the boards\' option sets in the boards\' order (day 56 first, then 28/42/84 as Busy.dc.html reads; the lane presets)', () => {
+  it('carries the boards\' option sets in the boards\' order (day 56 first, then 28/42/84 as Busy.dc.html reads; the lane presets 1–4)', () => {
     // The board's select markup is the screen spec: Day 56 | Day 28 |
     // Day 42 | Day 84. ITEM-3's pin was the plan's "board order" and the
     // plan's ITEM-3 note (c) deferred the order question to ITEM-7's rows —
     // the board's own order wins (DRIFT-1 ITEM-7).
     expect(SETTING_OPTIONS.decision_day).toEqual([56, 28, 42, 84])
     expect(SETTING_OPTIONS.look_ahead_day).toEqual([238, 180, 365])
-    expect(SETTING_OPTIONS.at_a_time).toEqual([1, 2, 4])
+    // The lane presets are 1–4 (qa-fixes ITEM-3, RP-6): the old 1/2/4 set
+    // put the engine's default 3 into the out-of-preset extra chip, so the
+    // app default could not be re-chosen mid-run — the presets now match
+    // the E bottom bar's own set (1, 2, 3, 4).
+    expect(SETTING_OPTIONS.at_a_time).toEqual([1, 2, 3, 4])
   })
 
-  it('keeps the default 3 outside the lane presets — the current-value chip case', () => {
-    expect(SETTING_OPTIONS.at_a_time).not.toContain(DEFAULT_RUN_SETTINGS.at_a_time)
+  it('keeps every engine lane default inside the presets (no current-value extra chip for 3)', () => {
+    expect(SETTING_OPTIONS.at_a_time).toContain(DEFAULT_RUN_SETTINGS.at_a_time)
   })
 })
 
 describe('mergeRunSettings (TEST-RUN-06)', () => {
   it('uses the intake decision day over any stored config, every other field from the engine', () => {
     const merged = mergeRunSettings(engine(), params(42))
-    expect(merged).toEqual({ ...engineConfig, decision_day: 42 })
+    expect(merged).toEqual({ ...engineConfig, decision_day: 42, at_a_time: 3 })
   })
 
   it('lets the intake null fall through to the engine config decision day', () => {
@@ -141,7 +145,17 @@ describe('mergeRunSettings (TEST-RUN-06)', () => {
   })
 
   it('applies the engine config fields when the intake is absent (the restored path)', () => {
-    expect(mergeRunSettings(engine(), null)).toEqual(engineConfig)
+    // The ONE exception: at_a_time is a RUN option, not an analysis setting —
+    // the sticky "1 at a time" must not persist across analyses (qa-fixes
+    // ITEM-2), so the restore always lands at the engine's default 3 while
+    // every other stored field comes back.
+    expect(mergeRunSettings(engine(), null)).toEqual({ ...engineConfig, at_a_time: 3 })
+  })
+
+  it('never restores a stored run-N-at-a-time value across analyses', () => {
+    const merged = mergeRunSettings(engine(), null)
+    expect(merged.at_a_time).toBe(DEFAULT_RUN_SETTINGS.at_a_time)
+    expect(merged.at_a_time).toBe(3)
   })
 
   it('falls back to the engine defaults with no engine config and no intake', () => {

@@ -110,6 +110,10 @@ export interface TxrSelectListProps {
   onSelectionChange(next: ReadonlySet<string>): void
   /** The host-controlled chips (group / model-kind / outcome). */
   filterChips?: TxrFilterChip[]
+  /** The built-in "All N" pill's wiring (see TxrListFilterBar). */
+  allFilter?: { active: boolean; onClick(): void }
+  /** The built-in "Can run N" pill's wiring. */
+  canRunFilter?: { active: boolean; onClick(): void }
   /** The find-a-model box (screen I), or null for no search. */
   search?: TxrSearchControl | null
   /** The sort control (D/I), or null for no sort. */
@@ -187,6 +191,8 @@ export function TxrSelectList({
   selected,
   onSelectionChange,
   filterChips,
+  allFilter,
+  canRunFilter,
   search,
   sort,
   bottomBar,
@@ -246,6 +252,8 @@ export function TxrSelectList({
         rows={rows}
         selected={selected}
         filterChips={filterChips}
+        allFilter={allFilter}
+        canRunFilter={canRunFilter}
         search={search}
         sort={sort}
         onToggleAllCanRun={() => onSelectionChange(toggleAllCanRun(selected, rows))}
@@ -263,7 +271,7 @@ export function TxrSelectList({
           </div>
         ) : error !== null && rows.length === 0 ? (
           <div data-testid="txr-list-error" style={STATE_BODY}>
-            <span style={{ fontSize: 13.5, color: '#b3261e' }}>{error}</span>
+            <span style={{ fontSize: 13.5, color: 'var(--txr-danger)' }}>{error}</span>
             {onRetry ? (
               <Button data-testid="txr-list-retry" variant="outline" onClick={onRetry}>
                 Retry
@@ -272,7 +280,7 @@ export function TxrSelectList({
           </div>
         ) : items.length === 0 ? (
           <div data-testid="txr-list-empty" style={STATE_BODY}>
-            <span style={{ fontSize: 13.5, color: '#5e5e5e' }}>
+            <span style={{ fontSize: 13.5, color: 'var(--txr-muted)' }}>
               {emptyText ?? `No ${pluralize(itemLabel, 2)} to show`}
             </span>
           </div>

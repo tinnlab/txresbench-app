@@ -121,10 +121,10 @@ describe('formatDate (TEST-HIST-5 — injected locale/now, no hardcoded month ta
 
 describe('statusLabel (TEST-HIST-5)', () => {
   it('maps the four provider buckets to the board words and the sibling status tones (DEC-9)', () => {
-    expect(statusLabel('running')).toEqual({ text: 'Running', tone: '#143a68' })
-    expect(statusLabel('finished')).toEqual({ text: 'Done', tone: '#1f6b3a' })
-    expect(statusLabel('stopped')).toEqual({ text: 'Stopped', tone: '#5e5e5e' })
-    expect(statusLabel('failed')).toEqual({ text: 'Failed', tone: '#b3261e' })
+    expect(statusLabel('running')).toEqual({ text: 'Running', tone: 'var(--txr-brand-ink)' })
+    expect(statusLabel('finished')).toEqual({ text: 'Done', tone: 'var(--txr-success)' })
+    expect(statusLabel('stopped')).toEqual({ text: 'Stopped', tone: 'var(--txr-muted)' })
+    expect(statusLabel('failed')).toEqual({ text: 'Failed', tone: 'var(--txr-danger)' })
   })
 
   it('is total over the provider bucket vocabulary — every bucket yields a word', () => {
@@ -175,6 +175,20 @@ describe('reasonLine (TEST-HIST-5 — the provider detail is VERBATIM)', () => {
   it('never renders a blank failure — an unrecorded/blank detail reads the sibling constant (INV-2)', () => {
     expect(reasonLine('stopped', undefined)).toBe(`Stopped: ${NO_REASON_RECORDED}`)
     expect(reasonLine('failed', reason('   '))).toBe(`Failed: ${NO_REASON_RECORDED}`)
+  })
+
+  it('treats a `null` reason like an absent one — the wire null IS the generator’s "no property" (RES-01)', () => {
+    // The blocker: the engine's `Option` serializes the absent reason as
+    // JSON `null` while the generated type renders it optional-only; the
+    // old `!== undefined` guard read `null.detail` and crashed the page.
+    expect(reasonLine('finished', null as unknown as TxrRunReason)).toBeNull()
+    expect(reasonLine('running', null as unknown as TxrRunReason)).toBeNull()
+    expect(reasonLine('failed', null as unknown as TxrRunReason)).toBe(
+      `Failed: ${NO_REASON_RECORDED}`,
+    )
+    expect(reasonLine('stopped', null as unknown as TxrRunReason)).toBe(
+      `Stopped: ${NO_REASON_RECORDED}`,
+    )
   })
 })
 

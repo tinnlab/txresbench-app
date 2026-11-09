@@ -305,9 +305,11 @@ impl TxrLogStream {
 /// The engine-owned failure / terminal codes (PROV-EE-3). The delivery-time
 /// codes (`ENV_UNREADY` … `INTERRUPTED`) are the ones the engine's own
 /// machinery can raise; the eligibility codes come from the provider's
-/// [`ReasonCode`] (one vocabulary, CONS-EE-10). `ENV_UNKNOWN` covers the
-/// runnable-method-without-manifest-entry case (TEST-EE-06) and `ABORTED` is a
-/// user stop (not a failure).
+/// [`ReasonCode`] (one vocabulary, CONS-EE-10). ITEM-2 moved the
+/// runnable-method-without-manifest-entry case to the provider's own
+/// `ENV_IMAGE_MISSING` (the eligibility verdict's first reason is the run
+/// row's reason, TEST-EE-06) — `ENV_UNKNOWN` stays the env-resolution
+/// layer's defensive backstop, and `ABORTED` is a user stop (not a failure).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum EngineReasonCode {
@@ -805,6 +807,10 @@ pub struct TxrPredictionsResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct TxrPredictionMethod {
     pub method_id: String,
+    /// The column's display name (qa-fixes RES-05): the same `label` the run
+    /// detail's method rows carry — for a reuse run that is the SAVED MODEL's
+    /// name, never the model id's UUID.
+    pub label: String,
     pub group: String,
     pub group_label: String,
     pub task: TxrTask,

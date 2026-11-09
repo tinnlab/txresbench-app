@@ -96,18 +96,23 @@ const TITLE: CSSProperties = {
 }
 
 const SUBTITLE: CSSProperties = {
-  color: '#3a3a3a',
+  color: 'var(--txr-text-2)',
   fontSize: 14,
 }
 
-const HEADER_CONTROLS: CSSProperties = { display: 'flex', gap: 10, alignItems: 'center' }
+const HEADER_CONTROLS: CSSProperties = {
+  display: 'flex',
+  gap: 10,
+  alignItems: 'center',
+  flexWrap: 'wrap',
+}
 
 /** The table's rounded card (the board's frame; horizontal scroll on a narrow screen). */
 const TABLE_BOX: CSSProperties = {
-  border: '1px solid #cfcdc7',
+  border: '1px solid var(--txr-border)',
   borderRadius: 10,
   overflowX: 'auto',
-  background: '#ffffff',
+  background: 'var(--txr-surface)',
 }
 
 const TABLE: CSSProperties = {
@@ -121,8 +126,8 @@ const HEAD_LOOK: CSSProperties = {
   textAlign: 'left',
   padding: '10px 14px',
   fontWeight: 600,
-  borderBottom: '1px solid #cfcdc7',
-  background: '#f7f6f3',
+  borderBottom: '1px solid var(--txr-border)',
+  background: 'var(--txr-surface-dim)',
   whiteSpace: 'nowrap',
 }
 
@@ -139,7 +144,7 @@ const VISUALLY_HIDDEN: CSSProperties = {
 
 const TD_LOOK: CSSProperties = {
   padding: '12px 14px',
-  borderBottom: '1px solid #e7e5e0',
+  borderBottom: '1px solid var(--txr-border-subtle)',
   verticalAlign: 'top',
 }
 
@@ -149,11 +154,11 @@ const ROW_HEADER: CSSProperties = {
   ...TD_LOOK,
   textAlign: 'left',
   fontWeight: 700,
-  color: '#141414',
+  color: 'var(--txr-text)',
 }
 
 /** The model subline (12.5 px muted — the board's `div` under the name). */
-const SUBLINE: CSSProperties = { fontWeight: 400, fontSize: 12.5, color: '#5e5e5e' }
+const SUBLINE: CSSProperties = { fontWeight: 400, fontSize: 12.5, color: 'var(--txr-muted)' }
 
 /** The mono method entry (the board's 'Source Code Pro' column). */
 const MONO: CSSProperties = {
@@ -162,7 +167,7 @@ const MONO: CSSProperties = {
 }
 
 /** The muted fallback word ("not recorded" — the board's grey span). */
-const MUTED: CSSProperties = { color: '#5e5e5e' }
+const MUTED: CSSProperties = { color: 'var(--txr-muted)' }
 
 /** The mono path span of the stored-in footnote. */
 const PATH_SPAN: CSSProperties = {
@@ -178,7 +183,7 @@ const FOOTNOTES: CSSProperties = {
   gap: 28,
   alignItems: 'flex-start',
   fontSize: 13.5,
-  color: '#5e5e5e',
+  color: 'var(--txr-muted)',
 }
 
 /** The stored-in caption + path + open-folder (one flowing line). */
@@ -196,15 +201,15 @@ const SET_FOCUS: CSSProperties = {
   alignItems: 'center',
   gap: 10,
   padding: '10px 14px',
-  border: '1px solid #e7e5e0',
+  border: '1px solid var(--txr-border-subtle)',
   borderRadius: 10,
-  background: '#fbfaf8',
+  background: 'var(--txr-bg)',
   fontSize: 13.5,
-  color: '#3a3a3a',
+  color: 'var(--txr-text-2)',
 }
 
 /** The empty/loading/muted line inside the table box. */
-const BOX_LINE: CSSProperties = { padding: '14px', fontSize: 13.5, color: '#5e5e5e' }
+const BOX_LINE: CSSProperties = { padding: '14px', fontSize: 13.5, color: 'var(--txr-muted)' }
 
 /** The empty state's lead sentence. */
 const EMPTY_LINE = 'No models yet.'
@@ -225,8 +230,8 @@ const ACTION_FAILED_LINE = 'The model could not be updated.'
 /** The import failure's fallback (never blank). */
 const IMPORT_FAILED_LINE = 'The model file could not be opened.'
 
-const ROW_ACTION_LINK: CSSProperties = { fontSize: 13.5, color: '#1d4e89' }
-const ROW_ACTION_DANGER: CSSProperties = { fontSize: 13.5, color: '#b3261e' }
+const ROW_ACTION_LINK: CSSProperties = { fontSize: 13.5, color: 'var(--txr-brand)' }
+const ROW_ACTION_DANGER: CSSProperties = { fontSize: 13.5, color: 'var(--txr-danger)' }
 
 function errorText(error: unknown): string {
   if (error instanceof Error) return error.message
@@ -274,7 +279,10 @@ export function ModelsPage() {
     (model: ModelSummary): void => {
       useTxrIntakeStore.getState().setIntent('reuse')
       useTxrModelsStore.getState().setPendingUse(model.id)
-      navigate(predictFilesPath())
+      // The URL announces the choice (the J "?set=" view precedent, DEC-19):
+      // the N screen names the chosen model while the handoff is live
+      // (RES-21 — "which model did I pick?" was left unspoken by the flow).
+      navigate(`${predictFilesPath()}?use=${encodeURIComponent(model.id)}&name=${encodeURIComponent(model.name)}`)
     },
     [navigate],
   )
@@ -335,8 +343,12 @@ export function ModelsPage() {
   const firstLoading = inventory.loading && inventory.response === null
 
   return (
-    <main data-testid="txr-models-j" style={PAGE_MAIN}>
-      <div style={HEADER}>
+    <main
+      data-testid="txr-models-j"
+      className="txr-models-j-main"
+      style={PAGE_MAIN}
+    >
+      <div className="txr-models-j-header" style={HEADER}>
         <div>
           <h1 style={TITLE}>Your models</h1>
           <div style={SUBTITLE}>
@@ -347,7 +359,9 @@ export function ModelsPage() {
         <div style={HEADER_CONTROLS}>
           <Input
             data-testid="txr-models-j-search"
+            className="txr-models-j-search"
             type="search"
+            placeholder="Search models"
             aria-label="Search models"
             value={search}
             onChange={event => setSearch(event.target.value)}
@@ -417,12 +431,12 @@ export function ModelsPage() {
             data-testid={search.trim().length > 0 || setId !== null ? 'txr-models-j-no-match' : 'txr-models-j-empty'}
             style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 20, alignItems: 'flex-start' }}
           >
-            <p style={{ margin: 0, fontSize: 14, color: '#3a3a3a' }}>
+            <p style={{ margin: 0, fontSize: 14, color: 'var(--txr-text-2)' }}>
               {search.trim().length > 0 || setId !== null ? NO_MATCH_LINE : EMPTY_LINE}
             </p>
             {search.trim().length === 0 && setId === null ? (
               <>
-                <p style={{ margin: 0, fontSize: 13.5, color: '#5e5e5e' }}>{EMPTY_NOTE}</p>
+                <p style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-muted)' }}>{EMPTY_NOTE}</p>
                 <Button data-testid="txr-models-empty-import" onClick={() => fileRef.current?.click()}>
                   {IMPORT_LABEL}
                 </Button>
@@ -430,7 +444,11 @@ export function ModelsPage() {
             ) : null}
           </div>
         ) : (
-          <table data-testid="txr-models-j-table" style={TABLE}>
+          <table
+            data-testid="txr-models-j-table"
+            className="txr-models-j-table"
+            style={TABLE}
+          >
             <thead>
               <tr>
                 <th scope="col" style={HEAD_LOOK}>Model</th>
@@ -446,33 +464,49 @@ export function ModelsPage() {
             </thead>
             <tbody>
               {models.map(model => {
+                const setName =
+                  model.set_name !== null &&
+                  model.set_name !== undefined &&
+                  model.set_name.trim().length > 0 &&
+                  model.set_name !== model.name
+                    ? model.set_name
+                    : null
                 const subline = formatModelSublines(
                   model.marker_count ?? null,
                   model.uses_covariates,
                   model.imported_from,
+                  setName,
+                  model.marker_kind ?? null,
                 )
                 const trainedOn = formatTrainedOn(model.trained_on_patients ?? null)
                 const lastTd = { ...TD_LOOK, borderBottom: 'none' }
                 return (
                   <tr key={model.id} data-testid={`txr-models-row-${model.id}`}>
-                    <th scope="row" style={{ ...ROW_HEADER, borderBottom: 'none' }}>
+                    <th
+                      scope="row"
+                      data-label="Model"
+                      style={{ ...ROW_HEADER, borderBottom: 'none' }}
+                    >
                       {model.name}
                       {subline.length > 0 ? <div style={SUBLINE}>{subline}</div> : null}
                     </th>
-                    <td style={lastTd}>
+                    <td data-label="Method" style={lastTd}>
                       <span style={MONO}>{model.method_id}</span>
                     </td>
-                    <td style={lastTd}>
+                    <td data-label="Predicts" style={lastTd}>
                       {formatPredicts(model.task ?? null, model.endpoint, model.horizon)}
                     </td>
-                    <td style={{ ...lastTd, textAlign: 'right' }}>{model.decision_day}</td>
-                    <td style={{ ...lastTd, textAlign: 'right' }}>
+                    <td data-label="Decision day" style={{ ...lastTd, textAlign: 'right' }}>
+                      {model.decision_day}
+                    </td>
+                    <td data-label="Trained on" style={{ ...lastTd, textAlign: 'right' }}>
                       <span style={model.trained_on_patients == null ? MUTED : undefined}>
                         {trainedOn}
                       </span>
                     </td>
-                    <td style={lastTd}>{formatMade(model.created_at, model.provenance)}</td>
+                    <td data-label="Made" style={lastTd}>{formatMade(model.created_at, model.provenance)}</td>
                     <td
+                      data-label="Actions"
                       style={{
                         ...lastTd,
                         textAlign: 'right',
@@ -528,7 +562,7 @@ export function ModelsPage() {
             <Button
               data-testid="txr-models-open-folder"
               variant="link"
-              style={{ fontSize: 13.5, color: '#1d4e89' }}
+              style={{ fontSize: 13.5, color: 'var(--txr-brand)' }}
               onClick={() => void revealRunDir(modelsDir)}
             >
               Open the folder

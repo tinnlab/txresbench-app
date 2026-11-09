@@ -67,7 +67,8 @@ import {
   formatTotalTime,
   TxrSelectList,
 } from '@/modules/txrlist'
-import { runningPath } from '@/modules/txrrun'
+import { predictFilesPath, runningPath } from '@/modules/txrrun'
+import { modelsPath } from '../routes'
 import { Alert, Button } from '@ziee/kit'
 import { usePretrained } from '../data/usePretrained'
 import { usePretrainedEligibility } from '../data/usePretrainedEligibility'
@@ -75,7 +76,7 @@ import { useDownloadState } from '../data/useDownloadState'
 import { buildPretrainedRows } from '../lib/rows'
 import { filterRows, pretrainedChipPredicate, type TxrModelSortable } from '../lib/filters'
 import { totalSecondsForSelection } from '../lib/total'
-import { RESEARCH_NOTICE } from '../lib/format'
+import { formatCheckedAgainstLine, RESEARCH_NOTICE } from '../lib/format'
 import { DOWNLOAD_POLL_MS, useTxrModelsStore } from '../stores/TxrModels.store'
 import type { TxrModelDialogId, TxrModelFilterId, TxrModelSortId } from '../types'
 import { TxrDownloadState } from '../components/TxrDownloadState'
@@ -104,7 +105,7 @@ const STEP_LINE: CSSProperties = {
   fontWeight: 700,
   letterSpacing: '0.08em',
   textTransform: 'uppercase',
-  color: '#1d4e89',
+  color: 'var(--txr-brand)',
 }
 
 const TITLE: CSSProperties = {
@@ -116,10 +117,10 @@ const TITLE: CSSProperties = {
 }
 
 /** The header row's right-hand totals line (the board's muted span). */
-const TOTALS: CSSProperties = { fontSize: 14, color: '#3a3a3a' }
+const TOTALS: CSSProperties = { fontSize: 14, color: 'var(--txr-text-2)' }
 
 /** The header block's lead paragraph (the board's own). */
-const CHECK_LINE: CSSProperties = { margin: 0, color: '#3a3a3a', maxWidth: '62ch' }
+const CHECK_LINE: CSSProperties = { margin: 0, color: 'var(--txr-text-2)', maxWidth: '62ch' }
 
 /** The list area's frame (the bounded column the shared list fills). */
 const LIST_FRAME: CSSProperties = {
@@ -127,9 +128,9 @@ const LIST_FRAME: CSSProperties = {
   minHeight: 0,
   display: 'flex',
   flexDirection: 'column',
-  border: '1px solid #cfcdc7',
+  border: '1px solid var(--txr-border)',
   borderRadius: 10,
-  background: '#ffffff',
+  background: 'var(--txr-surface)',
   overflow: 'hidden',
 }
 
@@ -140,22 +141,24 @@ const DOWNLOAD_STRIP: CSSProperties = {
   gap: '8px 18px',
   alignItems: 'center',
   padding: '10px 14px',
-  border: '1px solid #e7e5e0',
+  border: '1px solid var(--txr-border-subtle)',
   borderRadius: 10,
-  background: '#fbfaf8',
+  background: 'var(--txr-bg)',
 }
 
 /** The strip's "Downloads" caption (the board's muted small line). */
-const STRIP_CAPTION: CSSProperties = { fontSize: 12.5, color: '#5e5e5e', fontWeight: 700 }
+const STRIP_CAPTION: CSSProperties = { fontSize: 12.5, color: 'var(--txr-muted)', fontWeight: 700 }
 
 /** The board's footnote under the list. */
-const FOOTNOTE: CSSProperties = { fontSize: 13, color: '#5e5e5e' }
+const FOOTNOTE: CSSProperties = { fontSize: 13, color: 'var(--txr-muted)' }
 
 /** The not-ready state's line (no validated file — never a half list). */
 const EMPTY_LINE = 'Add the patients\u2019 measurements you want to predict first.'
 
-/** The not-ready state's CTA (back to the intake start). */
-const EMPTY_CTA = 'Go to the start'
+/** The not-ready state's CTA — the step that unlocks this one (RES-20: the
+ *  old "Go to the start" landed on the landing page, not the predict-files
+ *  step the flow needs next). */
+const EMPTY_CTA = 'Go to the measurements step'
 
 /** The gate line for a still-downloading selected card. */
 const GATE_DOWNLOADING_LINE =
@@ -202,22 +205,15 @@ function errorText(error: unknown): string {
   return RUN_FAILED_LINE
 }
 
-/** The board's draw-days spelling: [0, 14, 28, 56] → "0, 14, 28 and 56". */
-function drawDaysText(days: ReadonlyArray<number>): string {
-  if (days.length === 0) return ''
-  if (days.length === 1) return `${days[0]}`
-  return `${days.slice(0, -1).join(', ')} and ${days[days.length - 1]}`
-}
-
-/** The "Checked against your file" line from the validation (CONS-UM-11). */
+/** The "Checked against your file" line from the validation (CONS-UM-11) —
+ *  the D board's own tail ("Pick as many as you like."; the formatter
+ *  lives in lib/format.ts — the I page renders the same line with its own
+ *  tail, one implementation). */
 function checkedLine(raw: {
   inventory: { patients: number; markers: ReadonlyArray<unknown> }
   measurements?: { distinct_draw_days?: ReadonlyArray<number> } | null
 }): string {
-  const days = raw.measurements?.distinct_draw_days ?? []
-  const draws = drawDaysText(days)
-  const drawSegment = draws.length === 0 ? '' : `, draws at day ${draws}`
-  return `Checked against your file: ${raw.inventory.patients} patients, ${raw.inventory.markers.length} markers${drawSegment}. Pick as many as you like.`
+  return formatCheckedAgainstLine(raw, 'Pick as many as you like.')
 }
 
 /** Can the card be run WITHOUT a live download? An entry commits a
@@ -546,7 +542,11 @@ export function PretrainedModelsPage() {
           }}
         >
           <div>
-            <div style={STEP_LINE}>Step 4 of 4</div>
+            {/* The step is the flow's fourth; a page reached directly (no
+                validated predict file yet) is not ON step 4 — the step line
+                would claim a position the flow has not reached (RES-20); the
+                counters stay hidden too (nothing has been checked). */}
+            {validation !== null ? <div style={STEP_LINE}>Step 4 of 4</div> : null}
             <h1 style={TITLE}>Choose the models to run</h1>
             {validation !== null ? (
               <p data-testid="txr-models-d-checked" style={CHECK_LINE}>
@@ -554,46 +554,77 @@ export function PretrainedModelsPage() {
               </p>
             ) : null}
           </div>
-          <span data-testid="txr-models-d-totals" style={TOTALS}>
-            {totals === null || (cardsLoading && cards.length === 0)
-              ? '\u2026'
-              : `${totals.total_fit + totals.total_some} can run, ${totals.total_cannot} cannot`}
-          </span>
+          {validation !== null && cards.length > 0 ? (
+            <span data-testid="txr-models-d-totals" style={TOTALS}>
+              {totals === null || (cardsLoading && cards.length === 0)
+                ? '\u2026'
+                : `${totals.total_fit + totals.total_some} can run, ${totals.total_cannot} cannot`}
+            </span>
+          ) : null}
         </div>
         {validation !== null ? (
-          <div style={LIST_FRAME}>
-            <TxrSelectList
-              rows={shown}
-              itemLabel="model"
-              selected={selection}
-              onSelectionChange={onSelectionChange}
-              filterChips={chips}
-              sort={{
-                value: sort,
-                options: D_SORT_OPTIONS as { value: string; label: string }[],
-                onChange: value => useTxrModelsStore.getState().setSort(value as TxrModelSortId),
+          cards.length === 0 && !cardsLoading && cardsError === null ? (
+            <div
+              data-testid="txr-models-d-no-catalogue"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+                alignItems: 'flex-start',
+                padding: '24px 0',
               }}
-              loading={cardsLoading || eligLoading}
-              error={cardsError ?? eligError}
-              onRetry={() => {
-                refetch()
-                refetchElig()
-              }}
-              bottomBar={{
-                selectedCount: countSelected(selection, rows),
-                totalTimeText: formatTotalTime(
-                  totalSecondsForSelection(selection, verdictByKey),
-                ),
-                notice: RESEARCH_NOTICE,
-                onRun: keys => {
-                  void createRun(keys)
-                },
-              }}
-              onRowAction={row => {
-                useTxrModelsStore.getState().openDialog(`card:${row.key.slice(ROW_KEY_PREFIX.length)}` as TxrModelDialogId)
-              }}
-            />
-          </div>
+            >
+              <p style={{ margin: 0, fontSize: 15.5, color: 'var(--txr-text-2)', fontWeight: 600 }}>
+                No published models are available yet.
+              </p>
+              <p style={CHECK_LINE}>
+                The benchmark&rsquo;s published models arrive with its releases and appear here.
+                Until then, models you trained yourself are in Your models &mdash; from your own
+                analyses, or opened from another computer.
+              </p>
+              <Button
+                data-testid="txr-models-d-no-catalogue-cta"
+                variant="outline"
+                onClick={() => navigate(modelsPath())}
+              >
+                Go to Your models
+              </Button>
+            </div>
+          ) : (
+            <div style={LIST_FRAME}>
+              <TxrSelectList
+                rows={shown}
+                itemLabel="model"
+                selected={selection}
+                onSelectionChange={onSelectionChange}
+                filterChips={chips}
+                sort={{
+                  value: sort,
+                  options: D_SORT_OPTIONS as { value: string; label: string }[],
+                  onChange: value => useTxrModelsStore.getState().setSort(value as TxrModelSortId),
+                }}
+                loading={cardsLoading || eligLoading}
+                error={cardsError ?? eligError}
+                onRetry={() => {
+                  refetch()
+                  refetchElig()
+                }}
+                bottomBar={{
+                  selectedCount: countSelected(selection, rows),
+                  totalTimeText: formatTotalTime(
+                    totalSecondsForSelection(selection, verdictByKey),
+                  ),
+                  notice: RESEARCH_NOTICE,
+                  onRun: keys => {
+                    void createRun(keys)
+                  },
+                }}
+                onRowAction={row => {
+                  useTxrModelsStore.getState().openDialog(`card:${row.key.slice(ROW_KEY_PREFIX.length)}` as TxrModelDialogId)
+                }}
+              />
+            </div>
+          )
         ) : (
           <div
             data-testid="txr-models-d-empty"
@@ -606,7 +637,11 @@ export function PretrainedModelsPage() {
             }}
           >
             <p style={CHECK_LINE}>{EMPTY_LINE}</p>
-            <Button data-testid="txr-models-d-empty-cta" variant="outline" onClick={() => navigate('/')}>
+            <Button
+              data-testid="txr-models-d-empty-cta"
+              variant="outline"
+              onClick={() => navigate(predictFilesPath())}
+            >
               {EMPTY_CTA}
             </Button>
           </div>

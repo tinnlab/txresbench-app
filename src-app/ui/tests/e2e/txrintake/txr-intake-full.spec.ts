@@ -116,11 +116,12 @@ test.describe('txr-intake-full — the real backend (TEST-INT-17)', () => {
 
     // The panel's first verdict (default answers: no marker group checked,
     // draw schedule always / 1 draw / day 56) — the real catalogue's 359
-    // methods, 173 of which fit.
+    // methods, 41 of which fit (qa-fixes ITEM-2 CM-1: only the methods with
+    // a published environment can start — the panel's honest count).
     const fitCount = page.getByTestId('txr-intake-panel-fit-count')
-    await expect(fitCount).toHaveText('173of 359 methods fit', { timeout: 60_000 })
+    await expect(fitCount).toHaveText('41 of 359 methods fit', { timeout: 60_000 })
     await expect(page.getByTestId('txr-intake-panel-excluded')).toContainText(
-      '186 methods are left out',
+      '318 methods are left out',
     )
     // No can-run-for-some row: the real response reports zero.
     await expect(page.getByTestId('txr-intake-panel-some')).toHaveCount(0)
@@ -130,17 +131,17 @@ test.describe('txr-intake-full — the real backend (TEST-INT-17)', () => {
     await expect(page.getByTestId('txr-intake-study-group-counts')).toBeVisible()
 
     // "This updates as you answer": ticking ctDNA re-runs the eligibility and
-    // the count moves (173 → 176 — the real catalogue's verdicts).
+    // the count moves (41 → 42 — the real catalogue's verdicts).
     await expect(page.getByTestId('txr-intake-panel-sentence')).toHaveText(
       'This updates as you answer.',
     )
     await page.getByTestId('txr-intake-study-group-ctdna').click()
-    await expect(fitCount).toHaveText('176of 359 methods fit', { timeout: 60_000 })
+    await expect(fitCount).toHaveText('42 of 359 methods fit', { timeout: 60_000 })
     await expect(page.getByTestId('txr-intake-panel-sentence')).toHaveText(
       'with ctDNA. This updates as you answer.',
     )
     await expect(page.getByTestId('txr-intake-panel-excluded')).toContainText(
-      '183 methods are left out',
+      '317 methods are left out',
     )
   })
 
@@ -183,7 +184,7 @@ test.describe('txr-intake-full — the real backend (TEST-INT-17)', () => {
     const patientsStatus = page.getByTestId('txr-intake-file-status-patients')
     await expect(patientsStatus).toContainText('✓ 300 patients read')
     await expect(patientsStatus).toContainText(
-      'Found 300 rows, 300 progressions or deaths, median follow-up 215.72024826342715 days. Ready.',
+      'Found 300 rows, 206 progressions or deaths, median follow-up 216 days. Ready.',
     )
 
     // The measurements card: the board-N line with the C "Ready." terminator
@@ -191,15 +192,17 @@ test.describe('txr-intake-full — the real backend (TEST-INT-17)', () => {
     const measurementsStatus = page.getByTestId('txr-intake-file-status-measurements')
     await expect(measurementsStatus).toContainText('✓ 300 patients read')
     await expect(measurementsStatus).toContainText(
-      'Found 3,848 rows: markers M1 and M2; draws at day 0, 21, 42, 63, 84, 126, 168, 252 and 336. Ready.',
+      'Found 3,848 rows: markers M1 and M2; draws on 9 days (0 to 336). Ready.',
     )
 
     // The example files carry the provider's own two A04 notes (the a.u.
-    // unit is not a recognizable family — warning severity, never a gate).
-    const problems = page.getByTestId('txr-intake-file-problems-measurements')
+    // unit is not a recognizable family — warning severity, never a gate;
+    // the notes live in their own group, qa-fixes ITEM-6 F5d).
+    const problems = page.getByTestId('txr-intake-file-notes-measurements')
     await expect(measurementsStatus).toContainText('2 notes')
+    // The provider's markdown backticks are stripped for display (ITEM-6 F5e).
     await expect(problems).toContainText(
-      "column `M1` unit 'a.u.' is not a recognizable unit family — no scale assumption is made",
+      "column M1 unit 'a.u.' is not a recognizable unit family — no scale assumption is made",
     )
     await expect(problems.getByRole('listitem')).toHaveCount(2)
 
@@ -272,7 +275,7 @@ test.describe('txr-intake-full — the real backend (TEST-INT-17)', () => {
     const status = page.getByTestId('txr-intake-file-status-measurements')
     await expect(status).toContainText('✓ 300 patients read')
     await expect(status).toContainText(
-      'Found 3,848 rows: markers M1 and M2; draws at day 0, 21, 42, 63, 84, 126, 168, 252 and 336. Next you choose the models that can run on it.',
+      'Found 3,848 rows: markers M1 and M2; draws on 9 days (0 to 336). Next you choose the models that can run on it.',
     )
     await expect(page.getByTestId('txr-intake-continue')).toBeEnabled()
 

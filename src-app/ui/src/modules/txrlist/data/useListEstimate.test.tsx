@@ -7,7 +7,8 @@
  *
  * - the selection change is debounced 250 ms — a burst of selection changes
  *   issues ONE `MethodCatalogue.estimate` call, with the last selection's
- *   ids, `patients`, `cpus` (4 default) and `at_a_time`;
+ *   ids, `patients`, `cpus` (absent = the run's own resolution — the
+ *   server resolves the host count, CM-7) and `at_a_time`;
  * - the response's `total_seconds` / `schedule_seconds` become the totals;
  * - loading is true while a request is in flight and the previous totals are
  *   kept (the bottom bar's "…" slot);
@@ -45,7 +46,7 @@ vi.mock('@/api-client', () => ({
 
 /** An estimate response fixture with the two totals the bar renders. */
 function estimateResponse(totalSeconds: number, scheduleSeconds: number): EstimateResponse {
-  return { methods: [], at_a_time: 3, total_seconds: totalSeconds, schedule_seconds: scheduleSeconds }
+  return { methods: [], at_a_time: 3, cpus: 4, total_seconds: totalSeconds, schedule_seconds: scheduleSeconds }
 }
 
 /** A manually resolvable promise (the request stays in flight until told). */
@@ -90,7 +91,9 @@ describe('useListEstimate (TEST-UL-7)', () => {
     expect(api.estimate).toHaveBeenCalledWith({
       method_ids: ['direct-on', 'dynforest', 'shallow'],
       patients: 151,
-      cpus: 4,
+      // Absent host cpus: the field is omitted so the SERVER resolves the
+      // run's own count (CM-7 — no client-side 4-CPU default).
+      cpus: undefined,
       at_a_time: 3,
     })
     expect(result.current.totalSeconds).toBe(120)

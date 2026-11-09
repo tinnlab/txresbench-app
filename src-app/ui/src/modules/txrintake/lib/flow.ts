@@ -39,6 +39,15 @@
  *   per ITEM-6); `predictMeasurementsStatus` is the N screen's OWN box —
  *   the same line with the board-N continuation ("Next you choose the
  *   models that can run on it.", ITEM-7).
+ * - qa-fixes ITEM-6's own additions: `parsePickedFile` (F4 — the pick
+ *   guard: spreadsheet extensions only, empty files refused, then the ONE
+ *   PROV-FV-7 decode), `resolveColumnRenames` / `renamedTable` (F2 — the
+ *   column-mapping step: obvious-name suggestions, DEC-9-confirmed, never
+ *   auto-applied), `fileHasNoDataRows` (F3 — a header-only file is an
+ *   error, not a green "Found 0 rows" box), `formatFollowUpDays` (F6 —
+ *   whole-day medians for display), the bounded `drawDaysSegment` (F7 —
+ *   four days or a count) and the A01-noise suppression in `cardProblems`
+ *   (F5a).
  */
 
 import type {
@@ -54,7 +63,9 @@ import type {
   ValidationResponse,
 } from '@/api-client/types'
 import type { ParsedTable } from '@/lib/txr-files/types'
-import type { IntakeSnapshot, JoinOffer, VocabOffer } from '../types'
+import { normalizeHeaderName, parseCsvFile } from '@/lib/txr-files/csv'
+import { parseWorkbookFile } from '@/lib/txr-files/workbook'
+import type { ColumnRenameOffer, IntakeSnapshot, JoinOffer, VocabOffer } from '../types'
 import { pluralize, rowLabel } from './format'
 
 /**
@@ -110,6 +121,155 @@ export function validateRequest(
 /** DEC-10: any error-severity problem disables Continue; warnings never do. */
 export function hasErrorProblems(problems: readonly FileProblem[]): boolean {
   return problems.some(p => p.severity === 'error')
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ITEM-6 F4 — the pick guard (wrong file types and empty files reported
+// plainly, before the decode pretends a binary file is a table)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A file the intake refuses at the door (qa-fixes ITEM-6, F4). The kit
+ * `Upload`'s `accept` attribute only filters the OS picker — a drop or a
+ * programmatic pick can hand over anything, and the old code parsed every
+ * non-`.xlsx`/`.xls` file as CSV: a `.png` gave "7 problems in 0 rows" and
+ * binary junk produced per-cell noise. The card's error line is the plain
+ * sentence: "This is not a CSV or Excel file — choose a .csv or .xlsx file."
+ * / "This file is empty — choose the file with its data."
+ */
+export class IntakeFileError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'IntakeFileError'
+  }
+}
+
+/** The spreadsheet glove (the same spellings the kit `Upload` accepts). */
+const SPREADSHEET_EXTENSION = /\.(csv|xlsx|xls)$/i
+
+/**
+ * The ONE decode door of the intake (ITEM-6 F4): extension-guard the pick,
+ * refuse the empty file, then decode through PROV-FV-7 (CSV or Excel — the
+ * shared decode library, never re-implemented). The previous per-page
+ * `parseIntakeFile` copies are gone; the guard and the decode live on the
+ * flow so screen C, screen N and any future mount refuse the same files with
+ * the same words.
+ */
+export async function parsePickedFile(
+  file: File,
+  kind: FileTableKind,
+): Promise<Awaited<ReturnType<typeof parseCsvFile>>> {
+  if (file.size === 0) {
+    throw new IntakeFileError('This file is empty — choose the file with its data.')
+  }
+  if (!SPREADSHEET_EXTENSION.test(file.name)) {
+    throw new IntakeFileError('This is not a CSV or Excel file — choose a .csv or .xlsx file.')
+  }
+  if (/\.xlsx$/i.test(file.name) || /\.xls$/i.test(file.name)) {
+    return parseWorkbookFile(file, { kind })
+  }
+  return parseCsvFile(file, { kind })
+}
+
+/**
+ * ITEM-6 F3 — a header with zero data rows is an ERROR, not a green "Found 0
+ * rows. Ready." card. The fact is the file's own summary (`rows` counts the
+ * value rows — the header is never a row); the card renders the honest red
+ * state and Continue is gated on it (the validator has no word for an empty
+ * table — the inspect/validate problem set is a shape contract over rows).
+ */
+export function fileHasNoDataRows(file: LoadedFileView | null): boolean {
+  return file !== null && file.inspection !== null && file.inspection.summary.rows === 0
+}
+
+/** The minimal file facts the empty-table check reads (the card's file prop). */
+export interface LoadedFileView {
+  inspection: FileInspection | null
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ITEM-6 F2 — the column-mapping step (renamed columns get a suggestion)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The column-renaming suggestion: the file's raw spelling (`from`) looks
+ * like the app's canonical column (`to`), e.g. `pid` → `patient_id`. The
+ * offer is a SUGGESTION — DEC-9's discipline, the same rule as the join and
+ * vocabulary offers: the match is found automatically, the user confirms
+ * (the mapping step). Accepted renames rewrite the table's columns before
+ * the next inspect/validate, so the file is read exactly as if its header
+ * carried the canonical spelling (the "matching names are found for you"
+ * promise of the drop zone, which was unfulfilled for renamed columns).
+ * (The shape itself lives in `types.ts` with the rest of the offer types.)
+ */
+
+/**
+ * The closed "looks like" table (ITEM-6 F2). Keyed by the FOLDED spelling
+ * (the browser twin of the server's `normalize_header_name`), one entry per
+ * obvious name — deliberately the names the server's own alias table does
+ * NOT resolve (there is no overlap, so the app never re-offers a spelling
+ * the validator already reads): `pid` / `subject id` / `subjectid` for the
+ * patient key, `study day` / `visit day` for the draw day, `analyte` /
+ * `marker name` for the marker, `result` / `reading` / `measurement` for the
+ * value and `uom` / `unit of measure` for the unit. Nothing here is
+ * auto-applied: the offer row carries the confirmation.
+ */
+export const COLUMN_RENAMES: Readonly<Record<FileTableKind, Readonly<Record<string, string>>>> = {
+  patients: {
+    pid: 'patient_id',
+    'subject id': 'patient_id',
+    subjectid: 'patient_id',
+  },
+  measurements: {
+    pid: 'patient_id',
+    'subject id': 'patient_id',
+    subjectid: 'patient_id',
+    'study day': 'day',
+    studyday: 'day',
+    'visit day': 'day',
+    visitday: 'day',
+    analyte: 'marker',
+    'marker name': 'marker',
+    result: 'value',
+    reading: 'value',
+    measurement: 'value',
+    uom: 'unit',
+    'unit of measure': 'unit',
+  },
+}
+
+/**
+ * The column-renaming suggestions of one table (ITEM-6 F2): for each column
+ * whose FOLDED spelling has an obvious canonical match, an offer. A column
+ * already read by the validator (or already canonical) never offers — the
+ * server's alias resolution is the validator's, this map is the suggestions
+ * for everything it cannot read. The optional `dismissed` set is the page's
+ * "not now" record (the same convention as the join/vocab resolvers).
+ */
+export function resolveColumnRenames(
+  columns: readonly string[],
+  kind: FileTableKind,
+  dismissed?: ReadonlySet<string>,
+): ColumnRenameOffer[] {
+  const remap = COLUMN_RENAMES[kind]
+  const offers: ColumnRenameOffer[] = []
+  for (const column of columns) {
+    if (dismissed?.has(column) === true) continue
+    const to = remap[normalizeHeaderName(column)]
+    if (to !== undefined && to !== column) {
+      offers.push({ from: column, to })
+    }
+  }
+  return offers
+}
+
+/** Apply one accepted rename to a decoded table (columns only — the rows
+ *  carry the same cells; the source and header-row facts are unchanged). */
+export function renamedTable(table: ParsedTable, offer: ColumnRenameOffer): ParsedTable {
+  return {
+    ...table,
+    columns: table.columns.map(column => (column === offer.from ? offer.to : column)),
+  }
 }
 
 /** The spelling-variant join offers the validate response implies. */
@@ -251,7 +411,10 @@ function sideOf(problem: FileProblem): FileTableKind {
  * is the other card's; an A03 spelling-variant row is NOT listed here at
  * all — the join OFFER row is its representation (the A03 message would
  * duplicate the offer's own question, and the offer carries the answer
- * affordance).
+ * affordance). A header-less table's per-role storm is suppressed: when the
+ * card already shows A01 ("no recognizable header"), the R02/A02 rows are
+ * the same one cause re-told once per role (ITEM-6 F5a — seven lines for
+ * one cause); the A01 is the cause, the rest is noise.
  */
 export function cardProblems(
   kind: FileTableKind,
@@ -262,8 +425,10 @@ export function cardProblems(
   const own = new Set((inspection?.problems ?? []).map(problemKey))
   const other = new Set((otherInspection?.problems ?? []).map(problemKey))
   const out: FileProblem[] = [...(inspection?.problems ?? [])]
+  const hasNoHeader = (inspection?.problems ?? []).some(p => p.code === 'A01')
   for (const problem of validation?.problems ?? []) {
     if (problem.code === 'A03') continue
+    if (hasNoHeader && (problem.code === 'R02' || problem.code === 'A02')) continue
     if (own.has(problemKey(problem))) continue
     if (other.has(problemKey(problem))) continue
     if (sideOf(problem) === kind) out.push(problem)
@@ -277,21 +442,43 @@ export interface CardStatus {
   line: string
 }
 
-/** "✓ N patients read | Found N rows, N progressions or deaths, median follow-up N days. Ready." */
+/**
+ * "✓ N patients read | Found N rows, N progressions or deaths, median
+ * follow-up N days. Ready." — the patients box line, the board's words with
+ * the HONEST counts (qa-fixes ITEM-6, F1): "N progressions or deaths" is the
+ * validator's `primary_outcome_events` (the primary pair's indicator is 1 —
+ * 82 events for a file whose 94 patients all carry an outcome), never
+ * `with_primary_outcome` (patients with an outcome recorded — the old line
+ * read it and reported "94 progressions or deaths").
+ */
 export function patientsStatus(response: ValidationResponse): CardStatus {
   const patients = response.patients
-  if (patients === undefined) {
+  // `== null` (NOT `=== undefined`): the provider's `Option` emits JSON
+  // `null` for the absent shape while the generated type renders it
+  // optional-only (the qa-fixes RES-01 null-vs-undefined rule) — a table
+  // with no patient-row summary is the honest "patients read" card, never
+  // a "reading 'rows'" crash.
+  if (patients == null) {
     return { heading: '✓ patients read', line: 'Ready.' }
   }
   const detail: string[] = [`Found ${rowLabel(patients.rows)}`]
-  detail.push(`${patients.with_primary_outcome} progressions or deaths`)
+  detail.push(`${patients.primary_outcome_events} progressions or deaths`)
   if (patients.median_followup_days !== undefined) {
-    detail.push(`median follow-up ${patients.median_followup_days} days`)
+    detail.push(`median follow-up ${formatFollowUpDays(patients.median_followup_days)} days`)
   }
   return {
     heading: `✓ ${pluralize(patients.rows, 'patient')} read`,
     line: `${detail.join(', ')}. Ready.`,
   }
+}
+
+/**
+ * A follow-up median for display (qa-fixes ITEM-6, F6): whole days when the
+ * value is whole, one decimal otherwise — the board's "231 days", never
+ * "215.72024826342715 days" (the median of the example file's raw floats).
+ */
+export function formatFollowUpDays(days: number): number {
+  return Math.round(days * 10) / 10
 }
 
 /** "a, b and c" — the status line's list join (no Oxford comma, board style). */
@@ -302,6 +489,11 @@ function joinNames(names: readonly string[]): string {
 
 /** The maximum marker names on one status line (the board box's own clip). */
 const STATUS_MARKER_CLIP = 6
+
+/** The maximum draw days spelled out on one status line (ITEM-6 F7 — the
+ *  board's "draws at day 0, 14, 28 and 56" ceiling; a longer schedule reads
+ *  as a count: the old line dumped all 93 days of the real file). */
+const STATUS_DRAW_DAY_CLIP = 4
 
 /**
  * "✓ 38 patients read | Found 1,102 rows: markers ctDNA, LDH, …; draws at
@@ -338,6 +530,27 @@ export function predictMeasurementsStatus(response: ValidationResponse): CardSta
 }
 
 /**
+ * The draw-days segment of the status line (ITEM-6 F7): four or fewer days
+ * keep the board's spelling ("draws at day 0, 14, 28 and 56"); more read as
+ * a count with the schedule's span ("draws on 93 days (0 to 799)") — the
+ * fact the box never stated (the 14-line paragraph of the real file was
+ * unusable). Days render whole when whole, one decimal otherwise.
+ */
+function drawDaysSegment(days: readonly number[]): string {
+  if (days.length <= STATUS_DRAW_DAY_CLIP) {
+    return `draws at day ${joinNames(days.map(formatDrawDay))}`
+  }
+  const span = `(${formatDrawDay(Math.min(...days))} to ${formatDrawDay(Math.max(...days))})`
+  return `draws on ${days.length} days ${span}`
+}
+
+/** A draw day for display — whole days as integers, one decimal otherwise. */
+function formatDrawDay(day: number): string {
+  const rounded = Math.round(day * 10) / 10
+  return String(rounded)
+}
+
+/**
  * The measurements detail line's body — "Found 1,102 rows: markers ctDNA,
  * LDH, …; draws at day 0, 14, 28 and 56" — the shared part of the two
  * status lines (C's "Ready." terminator, N's board continuation).
@@ -350,7 +563,7 @@ function measurementsDetail(response: ValidationResponse): string {
   let line = `Found ${rowLabel(measurements.rows)}`
   if (shown.length > 0) line += `: markers ${joinNames(shown)}${clipped}`
   if (measurements.distinct_draw_days.length > 0) {
-    line += `; draws at day ${joinNames(measurements.distinct_draw_days.map(String))}`
+    line += `; ${drawDaysSegment(measurements.distinct_draw_days)}`
   }
   return line
 }

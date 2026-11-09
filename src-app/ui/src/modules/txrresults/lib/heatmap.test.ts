@@ -51,6 +51,7 @@ function uniformPredictions(): TxrPredictionsResponse {
     methods: [
       {
         method_id: 'landmark-cox-current',
+        label: 'landmark-cox-current',
         group: 'dynamic_risk',
         group_label: 'Dynamic risk',
         task: 'pfs',
@@ -61,6 +62,7 @@ function uniformPredictions(): TxrPredictionsResponse {
       },
       {
         method_id: 'cox-cutpoint-risk',
+        label: 'cox-cutpoint-risk',
         group: 'static_risk',
         group_label: 'Static risk',
         task: 'pfs',
@@ -87,6 +89,7 @@ function mixedPredictions(): TxrPredictionsResponse {
       ...base.methods,
       {
         method_id: 'responder-rule',
+        label: 'responder-rule',
         group: 'response_risk',
         group_label: 'Response risk',
         task: 'response',
@@ -112,6 +115,7 @@ function columnOf(methodId: string): TxrHeatmapColumn {
     coverage: { scored: 7, eligible: 7, fraction: 1 },
     values: [],
     notes: [],
+    constantValue: null,
   }
 }
 
@@ -169,7 +173,7 @@ describe('buildColumns (the one wire bridge, PROV-UR-4)', () => {
     expect(cols.length).toBe(2)
   })
 
-  it('binds the header facts verbatim (label = catalogue id, group, task)', () => {
+  it('binds the header facts verbatim (label = the wire label, group, task)', () => {
     const [a, b] = buildColumns(uniformPredictions(), 'pfs')
     expect(a).toMatchObject({
       methodId: 'landmark-cox-current',
@@ -181,6 +185,53 @@ describe('buildColumns (the one wire bridge, PROV-UR-4)', () => {
       coverage: { scored: 7, eligible: 7, fraction: 1 },
     })
     expect(b.probSource).toBe('recalibrated')
+  })
+
+  it('heads a column with the provider label — a reuse run\u2019s saved-model name (RES-05)', () => {
+    const p = uniformPredictions()
+    const cols = buildColumns(
+      {
+        ...p,
+        methods: [
+          { ...p.methods[0], method_id: '57519b29-fc69-4797-b38f-5822ae9dea91', label: 'cfmedip-ctdna-clearance-three-group' },
+          p.methods[1],
+        ],
+      },
+      'pfs',
+    )
+    expect(cols[0].methodId).toBe('57519b29-fc69-4797-b38f-5822ae9dea91')
+    expect(cols[0].label).toBe('cfmedip-ctdna-clearance-three-group')
+    // The uuid-shaped method id never leaks into a column header.
+    expect(cols[0].label).not.toContain('57519b29')
+  })
+
+  it('flags a column that gives every patient the same value (RES-03)', () => {
+    const cols = buildColumns(mixedPredictions(), 'pfs')
+    // responder-rule is constant 0.5; the two varied columns are not.
+    expect(cols[2].constantValue).toBe(0.5)
+    expect(cols[0].constantValue).toBeNull()
+    expect(cols[1].constantValue).toBeNull()
+  })
+
+  it('flags an all-zero column as the 0 constant for every scored patient', () => {
+    const p = uniformPredictions()
+    const cols = buildColumns(
+      {
+        ...p,
+        methods: [
+          { ...p.methods[0], probabilities: wireArray([0, 0, 0, null, 0, 0, 0]) },
+          p.methods[1],
+        ],
+      },
+      'pfs',
+    )
+    expect(cols[0].constantValue).toBe(0)
+    // A column with NO value at all is not a constant (nothing was scored).
+    const empty = buildColumns(
+      { ...p, methods: [{ ...p.methods[0], probabilities: wireArray<number>([null, null]) }] },
+      'pfs',
+    )
+    expect(empty[0].constantValue).toBeNull()
   })
 
   it('binds probabilities and notes verbatim (0–1 fractions, abstain + aligned note)', () => {
@@ -435,6 +486,36 @@ describe('compareReport (the card numbers, DEC-7)', () => {
   it('excludes an abstain pair from the divergences (no numeric %-point difference)', () => {
     const report = compareReport(cols, rows)
     expect(report.mostDiffering.some(d => d.patientId === 'S0005' || d.patientId === 'S0006')).toBe(false)
+  })
+
+  it('never names a zero difference: an everywhere-equal pair reads the none-case sentence (RES-10)', () => {
+    const same = [
+      rowOf('P1', [0.5, 0.5], 50),
+      rowOf('P2', [0.5, 0.5], 50),
+      rowOf('P3', [0.4, 0.4], 40),
+    ]
+    const report = compareReport([columnOf('m-a'), columnOf('m-b')], same)
+    expect(report.mostDiffering).toEqual([])
+    expect(report.divergentCount).toBe(0)
+    // The shared-top intersection is NOT empty — with every value equal the
+    // two top-5 sets are the same three patients (that sentence stays true);
+    // only the "differ most" sentence must never show (X% and X%).
+    expect(report.sharedTop).toEqual([
+      { patientId: 'P1', value: 50 },
+      { patientId: 'P2', value: 50 },
+      { patientId: 'P3', value: 40 },
+    ])
+  })
+
+  it('keeps a real divergence ahead of an everywhere-zero wall (0% vs 0% is never an example)', () => {
+    // The report's actual wall: both methods 0 for every patient — the
+    // "differ most" list must stay empty, not name (0% and 0%) rows.
+    const zeros = Array.from({ length: 6 }, (_, i) =>
+      rowOf(`S00${i + 1}`, [0, 0], 0),
+    )
+    const report = compareReport([columnOf('m-a'), columnOf('m-b')], zeros)
+    expect(report.mostDiffering).toEqual([])
+    expect(report.divergentCount).toBe(0)
   })
 
   it('caps a larger intersection at the named constant (deterministic order)', () => {

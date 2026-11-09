@@ -83,18 +83,18 @@ const NO_MODEL_LINE = 'This method has no model to save.'
 const MONO: CSSProperties = {
   fontFamily: "'JetBrains Mono', 'SFMono-Regular', Consolas, monospace",
   fontSize: 12.5,
-  color: '#3a3a3a',
+  color: 'var(--txr-text-2)',
 }
 
 /** The muted lines' look. */
-const SUBLINE: CSSProperties = { fontSize: 12.5, color: '#5e5e5e' }
+const SUBLINE: CSSProperties = { fontSize: 12.5, color: 'var(--txr-muted)' }
 
 /** The ruled-copy label + body looks. */
 const SAVED_LABEL: CSSProperties = { fontWeight: 600, margin: '0 0 2px' }
-const RULED_TEXT: CSSProperties = { margin: '0 0 8px', fontSize: 12.5, color: '#3a3a3a' }
+const RULED_TEXT: CSSProperties = { margin: '0 0 8px', fontSize: 12.5, color: 'var(--txr-text-2)' }
 
 /** The error line's look (the dialog's own muted red). */
-const ERROR: CSSProperties = { fontSize: 13.5, color: '#b3261e' }
+const ERROR: CSSProperties = { fontSize: 13.5, color: 'var(--txr-danger)' }
 
 /** The skeleton rows of the loading state. */
 const SKELETON_ROWS = 3

@@ -86,6 +86,49 @@ describe('TxrListFilterBar (TEST-UL-9 — filter/search/sort bar)', () => {
     expect(getByTestId('txr-list-filter-can-run').textContent).toBe('Can run 33')
   })
 
+  it('the wired built-in chips are real filters: All clears, Can run toggles (CM-3)', () => {
+    const onAll = vi.fn()
+    const onCanRun = vi.fn()
+    const { rerender, getByTestId } = render(
+      <TxrListFilterBar
+        rows={rows(38, 5)}
+        selected={new Set()}
+        allFilter={{ active: false, onClick: onAll }}
+        canRunFilter={{ active: false, onClick: onCanRun }}
+      />,
+    )
+    const all = getByTestId('txr-list-filter-all')
+    const canRun = getByTestId('txr-list-filter-can-run')
+    expect(all.getAttribute('aria-pressed')).toBe('false')
+    expect(canRun.getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(all)
+    expect(onAll).toHaveBeenCalledTimes(1)
+    fireEvent.click(canRun)
+    expect(onCanRun).toHaveBeenCalledTimes(1)
+    // The host's active state drives the pressed look (the host's "All = no
+    // filter" rule: pressed exactly when no filter is on).
+    rerender(
+      <TxrListFilterBar
+        rows={rows(38, 5)}
+        selected={new Set()}
+        allFilter={{ active: true, onClick: onAll }}
+        canRunFilter={{ active: false, onClick: onCanRun }}
+      />,
+    )
+    expect(getByTestId('txr-list-filter-all').getAttribute('aria-pressed')).toBe('true')
+    expect(getByTestId('txr-list-filter-all').style.background).toBe('var(--txr-accent-soft)')
+    rerender(
+      <TxrListFilterBar
+        rows={rows(38, 5)}
+        selected={new Set()}
+        allFilter={{ active: false, onClick: onAll }}
+        canRunFilter={{ active: true, onClick: onCanRun }}
+      />,
+    )
+    expect(getByTestId('txr-list-filter-can-run').getAttribute('aria-pressed')).toBe('true')
+    expect(getByTestId('txr-list-filter-all').getAttribute('aria-pressed')).toBe('false')
+  })
+
   it('host chips render with their counts, fire onToggle, and carry pressed/unpressed looks', () => {
     const onToggleA = vi.fn()
     const onToggleB = vi.fn()
@@ -105,12 +148,12 @@ describe('TxrListFilterBar (TEST-UL-9 — filter/search/sort bar)', () => {
     expect(inactive.textContent).toBe('Response probability 9')
     expect(active.getAttribute('aria-pressed')).toBe('true')
     expect(inactive.getAttribute('aria-pressed')).toBe('false')
-    // The active chip is the board's pressed pill (blue border on #e8eef6);
+    // The active chip is the board's pressed pill (blue border on var(--txr-accent-soft));
     // the inactive one the neutral pill.
-    expect(colorHex(active.style.borderColor)).toBe('#1d4e89')
-    expect(colorHex(active.style.background)).toBe('#e8eef6')
-    expect(colorHex(inactive.style.borderColor)).toBe('#cfcdc7')
-    expect(colorHex(inactive.style.background)).toBe('#ffffff')
+    expect(colorHex(active.style.borderColor)).toBe('var(--txr-brand)')
+    expect(colorHex(active.style.background)).toBe('var(--txr-accent-soft)')
+    expect(colorHex(inactive.style.borderColor)).toBe('var(--txr-border)')
+    expect(colorHex(inactive.style.background)).toBe('var(--txr-surface)')
     fireEvent.click(active)
     expect(onToggleA).toHaveBeenCalledTimes(1)
     fireEvent.click(inactive)
@@ -143,6 +186,23 @@ describe('TxrListFilterBar (TEST-UL-9 — filter/search/sort bar)', () => {
       />,
     )
     fireEvent.click(document.querySelector<HTMLElement>('[data-testid="txr-list-select-all-can-run"]')!)
+    expect(onToggleAllCanRun).toHaveBeenCalledTimes(1)
+  })
+
+  it('the "Select all that can run" TEXT is part of the toggle: a label click reports once (RES-22)', () => {
+    const onToggleAllCanRun = vi.fn()
+    render(
+      <TxrListFilterBar
+        rows={rows(38, 5)}
+        selected={new Set()}
+        onToggleAllCanRun={onToggleAllCanRun}
+      />,
+    )
+    // The text click must not fall through to the box's own handler (no double
+    // report), so the label click reports exactly once.
+    fireEvent.click(
+      document.querySelector<HTMLElement>('[data-testid="txr-list-select-all-label"]')!,
+    )
     expect(onToggleAllCanRun).toHaveBeenCalledTimes(1)
   })
 

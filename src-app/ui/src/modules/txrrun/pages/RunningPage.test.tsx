@@ -5,7 +5,8 @@
  * `load` once per id (a changed id re-loads — the store resets first, no
  * cross-run bleed), renders the header facts composed from the run's own
  * rows (INV-4 — the title count, the time-left/elapsed line, the
- * concurrency line, DEC-12's See-results readiness), the five-count strip
+ * concurrency line, DEC-12's See-results readiness), the per-state counter
+ * strip
  * from `TxrRunDetail.counts`, the tab chips (the page-owned filter state
  * through the run store, counts from the module's bucket partition, DEC-2)
  * and the not-found / network states (kit `Result` + the History link,
@@ -20,7 +21,7 @@
  * synthetic (non-board counts, small figures) — INV-6.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import type { TxrRunDetail, TxrRunMethod } from '@/api-client/types'
 import { methodResultsPath, resultsPath } from '@/modules/txrresults/routes'
@@ -50,6 +51,32 @@ vi.mock('@/api-client', () => ({
 const { useTxrRun } = await import('../stores/TxrRun.store')
 const { RunningPage } = await import('./RunningPage')
 const state = () => useTxrRun.getState()
+
+// jsdom has no working PointerEvent constructor; base-ui controls (the kit
+// Select that the log panel's filter uses) construct one on pointer
+// interaction (the settings-block test's shim, copied).
+{
+  const w = window as unknown as {
+    PointerEvent?: new (type: string, init?: MouseEventInit) => MouseEvent
+  }
+  try {
+    void new (w.PointerEvent as new (type: string, init?: MouseEventInit) => MouseEvent)('probe')
+  } catch {
+    w.PointerEvent = class extends MouseEvent {}
+  }
+}
+
+/** The stream call's SSE handlers, captured by the mock for frame emission
+ *  (the store's own contract — the page test drives the frames the real
+ *  stream would replay). */
+let sseHandlers: Record<string, (data: unknown) => void> | undefined
+
+/** Emit one stream frame into the store (the store test's emit idiom). */
+function emit(event: string, data: unknown): void {
+  const handler = sseHandlers?.[event]
+  if (handler === undefined) throw new Error(`no stream handler for ${event}`)
+  handler(data)
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Fixtures (synthetic — INV-6)
@@ -155,18 +182,27 @@ beforeEach(() => {
   stopMethod.mockReset()
   skipMethod.mockReset()
   setAtATime.mockReset()
+  sseHandlers = undefined
+  // The F page's one-second elapsed tick (RP-2): fake timers make the clock
+  // deterministic; `shouldAdvanceTime` keeps the real-async helpers
+  // (`findByTestId`, waitFor) progressing.
+  vi.useFakeTimers({ shouldAdvanceTime: true })
   listRunLogs.mockResolvedValue({ lines: [], next_seq: 0, total: 0 })
   stopRun.mockResolvedValue(undefined)
   stopMethod.mockResolvedValue(undefined)
   skipMethod.mockResolvedValue(undefined)
   setAtATime.mockResolvedValue({ id: 'run-1', status: 'running' })
   getRun.mockResolvedValue(runDetail())
-  streamRun.mockImplementation(() => new Promise<void>(() => {}))
+  streamRun.mockImplementation((_request: unknown, cfg: { SSE?: Record<string, (data: unknown) => void> }) => {
+    sseHandlers = cfg.SSE
+    return new Promise<void>(() => {})
+  })
   state().reset()
 })
 
 afterEach(() => {
   cleanup()
+  vi.useRealTimers()
   vi.restoreAllMocks()
 })
 
@@ -207,10 +243,12 @@ describe('RunningPage — the run id and the header facts (TEST-RUN-23)', () => 
 
   it('renders the time-left/elapsed line, the concurrency line and the See-results link from the run\'s facts', async () => {
     renderAt('run-1')
-    // schedule 240 s − elapsed 100 s → 140 s → about 2 minutes left.
-    expect((await screen.findByTestId('txr-run-time-line')).textContent).toBe(
-      'about 2 minutes left · 1 min 40 s elapsed',
-    )
+    // schedule 240 s − elapsed 100 s → 140 s → about 2 minutes left. The
+    // live clock ticks every real second, so the elapsed can drift by a
+    // second or two on a slow host — the assertion reads the run's own
+    // snapshot figures within the live tick's tolerance.
+    const line = (await screen.findByTestId('txr-run-time-line')).textContent ?? ''
+    expect(line).toMatch(/^about 2 minutes left · 1 min 4\d s elapsed$/)
     expect(screen.getByTestId('txr-run-concurrency').textContent).toBe(
       '3 run at a time on 4 CPUs',
     )
@@ -220,12 +258,31 @@ describe('RunningPage — the run id and the header facts (TEST-RUN-23)', () => 
     expect(screen.getByTestId('txr-run-notice').textContent).toContain('For research.')
   })
 
-  it('renders the five-count strip from the run\'s own counts', async () => {
+  it('ticks the elapsed from the run\'s own snapshot and counts the time-left down (RP-2)', async () => {
+    renderAt('run-1')
+    await screen.findByTestId('txr-run-time-line')
+    // Live: 100 s snapshot + 5 s of page time → ≥ 1 min 45 s elapsed, and
+    // the time-left is the estimate minus that live elapsed (it moved off
+    // the frozen "1 min 40 s").
+    act(() => {
+      vi.advanceTimersByTime(5000)
+    })
+    await vi.waitFor(() => {
+      const text = screen.getByTestId('txr-run-time-line').textContent ?? ''
+      const match = text.match(/^about 2 minutes left · (\d+) min (\d+) s elapsed$/)
+      expect(match).not.toBeNull()
+      expect(Number(match![1]) * 60 + Number(match![2])).toBeGreaterThanOrEqual(105)
+    })
+  })
+
+  it('renders the per-state counter strip — every engine state counted (RP-3)', async () => {
     renderAt('run-1')
     await screen.findByTestId('txr-run-counts')
     expect(screen.getByTestId('txr-run-counts').textContent).toBe(
-      '1 finished1 running1 downloading1 waiting1 failed',
+      '1 finished1 running1 downloading1 waiting1 failed0 stopped0 skipped1 cannot run',
     )
+    expect(screen.getByTestId('txr-run-counts-stopped').textContent).toBe('0 stopped')
+    expect(screen.getByTestId('txr-run-counts-cannot_run').textContent).toBe('1 cannot run')
   })
 
   it('hides the See-results link when no method finished and no predictions are ready', async () => {
@@ -245,14 +302,56 @@ describe('RunningPage — the run id and the header facts (TEST-RUN-23)', () => 
 // Tab state (the page-owned filter state — DEC-2)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('RunningPage — the F tabs (ITEM-9)', () => {
-  it('renders the four chips with the bucket counts over the run\'s rows', async () => {
+describe('RunningPage — the F tabs (ITEM-9, RP-3)', () => {
+  it('renders one chip per bucket with the bucket counts over the run\'s rows', async () => {
     renderAt('run-1')
     await screen.findByTestId('txr-run-tabs')
     expect(screen.getByTestId('txr-run-tab-all').textContent).toBe('All 6')
     expect(screen.getByTestId('txr-run-tab-working').textContent).toBe('Working 3')
     expect(screen.getByTestId('txr-run-tab-finished').textContent).toBe('Finished 1')
-    expect(screen.getByTestId('txr-run-tab-failed').textContent).toBe('Failed 2')
+    expect(screen.getByTestId('txr-run-tab-failed').textContent).toBe('Failed 1')
+    expect(screen.getByTestId('txr-run-tab-stopped').textContent).toBe('Stopped 0')
+    expect(screen.getByTestId('txr-run-tab-skipped').textContent).toBe('Skipped 0')
+    expect(screen.getByTestId('txr-run-tab-cannot_run').textContent).toBe('Cannot run 1')
+  })
+
+  it("a state is never counted under another state's tab: failed and cannot run are separate chips", async () => {
+    const detail = runDetail('run-1')
+    detail.methods = [
+      methodRow('method-f', 'failed', { reason: { code: 'JOB_TIMEOUT', detail: 'x' } }),
+      methodRow('method-c', 'cannot_run', { reason: { code: 'ENV_UNKNOWN', detail: 'y' } }),
+      methodRow('method-s', 'skipped'),
+      methodRow('method-t', 'stopped'),
+    ]
+    detail.counts = {
+      finished: 0,
+      failed: 1,
+      stopped: 1,
+      skipped: 1,
+      cannot_run: 1,
+      running: 0,
+      downloading: 0,
+      waiting: 0,
+    }
+    getRun.mockResolvedValue(detail)
+    renderAt('run-1')
+    await screen.findByTestId('txr-run-tabs')
+    expect(screen.getByTestId('txr-run-tab-finished').textContent).toBe('Finished 0')
+    expect(screen.getByTestId('txr-run-tab-failed').textContent).toBe('Failed 1')
+    expect(screen.getByTestId('txr-run-tab-cannot_run').textContent).toBe('Cannot run 1')
+    expect(screen.getByTestId('txr-run-tab-skipped').textContent).toBe('Skipped 1')
+    expect(screen.getByTestId('txr-run-tab-stopped').textContent).toBe('Stopped 1')
+    expect(screen.getByTestId('txr-run-tab-all').textContent).toBe('All 4')
+    // The rows land on their own buckets' tabs.
+    fireEvent.click(screen.getByTestId('txr-run-tab-failed'))
+    expect(screen.getByTestId('txr-run-row-method-f')).toBeTruthy()
+    expect(screen.queryByTestId('txr-run-row-method-c')).toBeNull()
+    fireEvent.click(screen.getByTestId('txr-run-tab-cannot_run'))
+    expect(screen.getByTestId('txr-run-row-method-c')).toBeTruthy()
+    expect(screen.queryByTestId('txr-run-row-method-f')).toBeNull()
+    fireEvent.click(screen.getByTestId('txr-run-tab-skipped'))
+    expect(screen.getByTestId('txr-run-row-method-s')).toBeTruthy()
+    expect(screen.queryByTestId('txr-run-row-method-t')).toBeNull()
   })
 
   it('starts at All and moves the active chip with the store\'s tab (one toggle per click)', async () => {
@@ -299,6 +398,51 @@ describe('RunningPage — the run states (TEST-RUN-23)', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
+// RP-1 — the terminal run: land on results (live transition), terminal title
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('RunningPage — the terminal run (qa-fixes ITEM-3 RP-1)', () => {
+  it('lands on the results screen when the run turns terminal while the page watches it', async () => {
+    renderAt('run-1')
+    await screen.findByTestId('txr-run-title')
+    expect(router.state.location.pathname).toBe('/analysis/run-1/running')
+
+    // The engine's terminal status frame arrives on the stream.
+    act(() => emit('status', { status: 'finished' }))
+    await vi.waitFor(() =>
+      expect(router.state.location.pathname).toBe(resultsPath('run-1')),
+    )
+  })
+
+  it('a page opened directly at a terminal run renders the terminal snapshot — no redirect, the run\'s own title (RP-1)', async () => {
+    const detail = runDetail('run-1')
+    detail.status = 'finished'
+    detail.predictions_ready = true
+    getRun.mockResolvedValue(detail)
+    renderAt('run-1')
+    const title = await screen.findByTestId('txr-run-title')
+    expect(title.textContent).toBe('Finished 6 methods')
+    expect(state().run?.status).toBe('finished')
+    // The page did NOT navigate away (a direct load of a terminal run is
+    // the terminal snapshot's own surface; the leave-and-continue note is a
+    // live-run statement and is dropped).
+    expect(router.state.location.pathname).toBe('/analysis/run-1/running')
+    expect(screen.queryByTestId('txr-run-leave-note')).toBeNull()
+    // Stop all and the lane pick are disabled (a finished run has no controls).
+    expect(screen.getByTestId('txr-run-stop-all').hasAttribute('disabled')).toBe(true)
+    for (const option of within(
+      screen.getByTestId('txr-run-at-a-time-control'),
+    ).getAllByRole('tab')) {
+      expect(option.getAttribute('aria-disabled')).toBe('true')
+    }
+    // The final elapsed is the engine's own snapshot (no client ticking).
+    expect(screen.getByTestId('txr-run-time-line').textContent).toBe(
+      'about 2 minutes left · 1 min 40 s elapsed',
+    )
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
 // ITEM-10 — the per-method table, the row actions, Stop all, the lane pick
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -315,10 +459,15 @@ describe('RunningPage — the method table and its actions (ITEM-10)', () => {
     expect(screen.queryByTestId('txr-run-row-method-4')).toBeNull()
     expect(screen.queryByTestId('txr-run-row-method-6')).toBeNull()
 
+    // The partition keeps each state's own tab (RP-3): Failed holds the
+    // failed row only, the cannot-run row is the Cannot run tab's.
     fireEvent.click(screen.getByTestId('txr-run-tab-failed'))
     expect(screen.getByTestId('txr-run-row-method-5')).toBeTruthy()
+    expect(screen.queryByTestId('txr-run-row-method-6')).toBeNull()
+
+    fireEvent.click(screen.getByTestId('txr-run-tab-cannot_run'))
     expect(screen.getByTestId('txr-run-row-method-6')).toBeTruthy()
-    expect(screen.queryByTestId('txr-run-row-method-1')).toBeNull()
+    expect(screen.queryByTestId('txr-run-row-method-5')).toBeNull()
   })
 
   it('wires the row actions: Stop and Skip post the engine controls, Show log opens the panel at the method', async () => {
@@ -363,12 +512,13 @@ describe('RunningPage — the method table and its actions (ITEM-10)', () => {
     renderAt('run-1')
     await screen.findByTestId('txr-run-table')
     const control = screen.getByTestId('txr-run-at-a-time-control')
-    // The run's value 3 sits outside the presets — its own chip next to 1/2/4.
+    // The run's value 3 sits inside the 1–4 presets (RP-6) — the engine
+    // default is always re-selectable.
     expect(within(control).getAllByRole('tab').map(b => b.textContent)).toEqual([
       '1',
       '2',
-      '4',
       '3',
+      '4',
     ])
     fireEvent.click(within(control).getAllByRole('tab')[1])
     await vi.waitFor(() =>
@@ -383,12 +533,26 @@ describe('RunningPage — the method table and its actions (ITEM-10)', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('RunningPage — the log panel and leave-and-continue (ITEM-11)', () => {
-  it('always renders the leave-and-continue note under the method table', async () => {
+  it('always renders the leave-and-continue note under the method table (a live run)', async () => {
     renderAt('run-1')
     await screen.findByTestId('txr-run-table')
     expect(screen.getByTestId('txr-run-leave-note').textContent).toBe(
       'Finished methods keep their results. You can leave this screen: the run continues, and it stays in History.',
     )
+  })
+
+  it('"Show the log" on the page opens the panel at All methods (RP-4d — a running row had no log affordance)', async () => {
+    renderAt('run-1')
+    await screen.findByTestId('txr-run-table')
+    expect(screen.queryByTestId('txr-run-log')).toBeNull()
+
+    fireEvent.click(screen.getByTestId('txr-run-log-open'))
+    await screen.findByTestId('txr-run-log')
+    expect(state().logOpen).toBe(true)
+    expect(state().logFilter).toBeNull()
+    expect(screen.getByTestId('txr-run-log-filter').textContent).toContain('All methods')
+    // The button yields to the panel's Hide control while the panel is open.
+    expect(screen.queryByTestId('txr-run-log-open')).toBeNull()
   })
 
   it('"Show log" opens the panel at that method and backfills its history', async () => {
@@ -400,9 +564,8 @@ describe('RunningPage — the log panel and leave-and-continue (ITEM-11)', () =>
     await screen.findByTestId('txr-run-log')
     expect(state().logOpen).toBe(true)
     expect(state().logFilter).toBe('method-5')
-    expect(
-      screen.getByTestId('txr-run-log-filter-method-5').getAttribute('aria-pressed'),
-    ).toBe('true')
+    // The board's select reads the method (its option is the selection).
+    expect(screen.getByTestId('txr-run-log-filter').textContent).toContain('method-5')
     await vi.waitFor(() =>
       expect(listRunLogs).toHaveBeenCalledWith(
         expect.objectContaining({ id: 'run-1', method_id: 'method-5' }),
@@ -410,13 +573,27 @@ describe('RunningPage — the log panel and leave-and-continue (ITEM-11)', () =>
     )
   })
 
-  it('the panel\'s chips and Hide report through the store', async () => {
+  it('the panel\'s filter pick and Hide report through the store', async () => {
     renderAt('run-1')
     await screen.findByTestId('txr-run-table')
     fireEvent.click(screen.getByTestId('txr-run-action-method-5'))
     await screen.findByTestId('txr-run-log')
 
-    fireEvent.click(screen.getByTestId('txr-run-log-filter-all'))
+    // Pick "All methods" through the select (the board's filter control;
+    // the kit select's pointer/click sequence, the panel test's idiom).
+    const trigger = screen.getByTestId('txr-run-log-filter')
+    await act(async () => {
+      fireEvent.pointerDown(trigger, { button: 0, pointerType: 'mouse' })
+      fireEvent.click(trigger)
+      await Promise.resolve()
+    })
+    const optionAll = await screen.findByTestId('txr-run-log-filter-opt-all')
+    await act(async () => {
+      fireEvent.pointerDown(optionAll, { button: 0, pointerType: 'mouse' })
+      fireEvent.mouseDown(optionAll, { button: 0 })
+      fireEvent.click(optionAll)
+      await Promise.resolve()
+    })
     expect(state().logFilter).toBeNull()
 
     fireEvent.click(screen.getByTestId('txr-run-log-close'))

@@ -83,7 +83,7 @@ function FixtureSeam() {
 function NavigationResultLine() {
   const location = useLocation()
   return (
-    <pre data-testid="txr-intake-nav-result" style={{ margin: 8, fontSize: 11, color: '#5e5e5e' }}>
+    <pre data-testid="txr-intake-nav-result" style={{ margin: 8, fontSize: 11, color: 'var(--txr-muted)', overflowWrap: 'anywhere' }}>
       {location.pathname}
     </pre>
   )
@@ -139,6 +139,8 @@ function loadedFrom(table: ReturnType<typeof parseCsvText>): LoadedFile {
     prepared: false,
     joinOffers: [],
     vocabOffers: [],
+
+    columnOffers: [],
   }
 }
 
@@ -260,10 +262,10 @@ function NarrowFrame({
       data-testid={`txr-intake-narrow-${label}`}
       style={{ width: 390, maxWidth: '100%', minWidth: 0 }}
     >
-      <div style={{ fontSize: 12, fontWeight: 700, color: '#5e5e5e', marginBottom: 4 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--txr-muted)', marginBottom: 4 }}>
         {title} — 390 px
       </div>
-      <div style={{ border: '1px solid #e7e5e0', borderRadius: 10 }}>{children}</div>
+      <div style={{ border: '1px solid var(--txr-border)', borderRadius: 10 }}>{children}</div>
     </section>
   )
 }

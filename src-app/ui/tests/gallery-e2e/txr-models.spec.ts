@@ -243,8 +243,11 @@ test.describe('txr-models-i — choose the saved models (TEST-MOD-18)', () => {
 
     // ── the header (the fixture's 10-model family) ──
     await expect(page.getByTestId('txr-models-i-checked')).toHaveText(I_CHECKED_LINE)
+    // ITEM-5 (RES-22): ONE accounting — "can run" is what can START (the
+    // 5 fit + 3 some verdicts), so the sentence agrees with the "Can run
+    // 8" chip; the old line read "5 can run … 3 partly" next to the chip.
     await expect(page.getByTestId('txr-models-i-totals')).toHaveText(
-      '10 saved models shown · 5 can run, 2 cannot, 3 partly',
+      '10 saved models shown · 8 can run, 2 cannot (3 of them for some patients)',
     )
 
     // ── the two run sections with their facts lines + actions ──
@@ -369,6 +372,27 @@ test.describe('txr-models-j — your models (TEST-MOD-18)', () => {
       'Deleting a model removes its file. Results already made with it are kept in History.',
     )
     await expect(page.getByTestId('txr-models-open-folder')).toHaveCount(0)
+
+    // ── ITEM-5 growth (RES-19/RES-17): the kind's word, never "0 markers",
+    //    and the set segment distinguishing same-named rows ──
+    const anyRow = await page.getByTestId(`txr-models-row-${FM(16)}`).textContent()
+    expect(anyRow).toContain('any marker')
+    const sameNameRow = await page.getByTestId(`txr-models-row-${FM(15)}`).textContent()
+    expect(sameNameRow).toContain("6 markers · uses age · from the set 'Second run, day 60'")
+  })
+
+  test('the 390 px story has no horizontal page overflow and the import affordance stays inside', async ({
+    page,
+  }) => {
+    await page.goto(`${GALLERY}txr-models-j-narrow-390`)
+    await expect(page.getByTestId('txr-models-j')).toBeVisible()
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    )
+    expect(overflow).toBeLessThanOrEqual(0)
+    const importButton = await page.getByTestId('txr-models-import').boundingBox()
+    expect(importButton).not.toBeNull()
+    expect(importButton!.x + importButton!.width).toBeLessThanOrEqual(390)
   })
 })
 

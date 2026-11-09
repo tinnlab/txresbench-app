@@ -1,0 +1,109 @@
+/* TxResBench theme tokens — the app's own palette layer.
+   ─────────────────────────────────────────────────────
+   The design boards (dev/app-design/project/*.dc.html) are the LIGHT byte: cream
+   page, white cards, the navy brand, the olive success and red danger tones.
+   The boards ship no dark palette (they are desktop-only, light-only), so the
+   DARK values here are the app's own deliberate inversion, built to sit beside
+   the @ziee/kit token layer (kit `styles/tokens.css`): the dark surfaces match
+   the kit's dark card/secondary values and the brand blue is the kit's own
+   dark primary (hsl 216 56% 64%), so kit inputs/buttons/selects and the app's
+   panels read as ONE theme.
+
+   Every txr* module renders through `var(--txr-*)` — never a literal hex —
+   which is what makes dark mode complete instead of half-applied (RM-1, the
+   RES-25/CM-5/X3 class). The module no-edit sweeps' byte pins and the
+   `theme.test.ts` scan (no hex literal in a txr* source file) keep it that
+   way; this file is the ONE place the board bytes live.
+
+   Roles (light value → what it paints):
+   - --txr-bg            the cream panel (cards' inset surfaces, empty boxes)
+   - --txr-surface       cards, tables, the shell body
+   - --txr-surface-dim   the header bar, table headers, the sticky list bar
+   - --txr-surface-raised hairlines inside an inset panel (box separators)
+   - --txr-border        the board's border grey (boxes, inputs, table rules)
+   - --txr-border-subtle the softer hairline (row separators, box borders)
+   - --txr-text          the near-black body text
+   - --txr-text-2        the secondary text (sub-titles, row headings)
+   - --txr-muted         the muted grey (captions, dates, names lines)
+   - --txr-brand         the navy blue: solid buttons, links, focus ring
+   - --txr-on-brand      text/icon on a solid --txr-brand button
+   - --txr-brand-ink     the darker navy: active nav, running state, links-on-tint
+   - --txr-accent-soft   the pale blue tint (active nav pill, selected row,
+                         the accent chip)
+   - --txr-accent-softer the fainter tint (a checked row's fill)
+   - --txr-danger        the red text/outline tone (errors, cannot-run dots)
+   - --txr-danger-strong the solid red button (confirm/delete/stop)
+   - --txr-on-danger     text on a solid --txr-danger-strong button
+   - --txr-danger-soft   the red warning box fill
+   - --txr-danger-border the red warning box border
+   - --txr-success       the success green (can-run, finished)
+   - --txr-success-ink   the olive text on a success-green tint chip
+   - --txr-success-soft  the olive/success tint (neutral chip, success box)
+   - --txr-success-soft-2 the fainter success tint (ready status box)
+   - --txr-success-border the success status box border
+   - --txr-warning       the amber (some/partly, notes, warning dots)
+   - --txr-chance-rgb    the heatmap ramp's R,G,B triplet (rgba() component)
+   - --txr-on-chance     the text on a saturated chance cell (both themes)
+   - --txr-chance-gridline the chance cell separators (white checkerized in light) */
+
+:root {
+  --txr-bg: #fbfaf8;
+  --txr-surface: #ffffff;
+  --txr-surface-dim: #f7f6f3;
+  --txr-surface-raised: #efede8;
+  --txr-border: #cfcdc7;
+  --txr-border-subtle: #e7e5e0;
+  --txr-text: #141414;
+  --txr-text-2: #3a3a3a;
+  --txr-muted: #5e5e5e;
+  --txr-brand: #1d4e89;
+  --txr-on-brand: #ffffff;
+  --txr-brand-ink: #143a68;
+  --txr-accent-soft: #e8eef6;
+  --txr-accent-softer: #f4f8fc;
+  --txr-danger: #b3261e;
+  --txr-danger-strong: #b3261e;
+  --txr-on-danger: #ffffff;
+  --txr-danger-soft: #fdf3f2;
+  --txr-danger-border: #f0c9c4;
+  --txr-success: #1f6b3a;
+  --txr-success-ink: #3d4a14;
+  --txr-success-soft: #eef0e6;
+  --txr-success-soft-2: #f1f9f3;
+  --txr-success-border: #b9dcc4;
+  --txr-warning: #8a5a00;
+  --txr-chance-rgb: 29, 78, 137;
+  --txr-on-chance: #ffffff;
+  --txr-chance-gridline: #ffffff;
+}
+
+.dark {
+  --txr-bg: #151515;
+  --txr-surface: #1c1c1c;
+  --txr-surface-dim: #242424;
+  --txr-surface-raised: #2b2b2b;
+  --txr-border: rgba(255, 255, 255, 0.16);
+  --txr-border-subtle: rgba(255, 255, 255, 0.09);
+  --txr-text: #f2f2f2;
+  --txr-text-2: #cfcfcf;
+  --txr-muted: #9c9c9c;
+  --txr-brand: #7099d7;
+  --txr-on-brand: #0e1a2b;
+  --txr-brand-ink: #a9c7ee;
+  --txr-accent-soft: rgba(112, 153, 215, 0.18);
+  --txr-accent-softer: rgba(112, 153, 215, 0.10);
+  --txr-danger: #f2968c;
+  --txr-danger-strong: #c9473e;
+  --txr-on-danger: #ffffff;
+  --txr-danger-soft: rgba(242, 150, 140, 0.13);
+  --txr-danger-border: rgba(242, 150, 140, 0.38);
+  --txr-success: #64c98b;
+  --txr-success-ink: #b9e2c3;
+  --txr-success-soft: rgba(100, 201, 139, 0.14);
+  --txr-success-soft-2: rgba(100, 201, 139, 0.08);
+  --txr-success-border: rgba(100, 201, 139, 0.35);
+  --txr-warning: #f2c94c;
+  --txr-chance-rgb: 112, 153, 215;
+  --txr-on-chance: #ffffff;
+  --txr-chance-gridline: rgba(255, 255, 255, 0.25);
+}

@@ -158,7 +158,10 @@ export function buildMethodRows(
             : formatCoverage(verdict.coverage),
         disabled: status === 'cannot',
       },
-      timeText: formatDurationShort(verdict.estimated_seconds),
+      // A `cannot` row carries NO time (the board's cannot-run rows show no
+      // time entry — CM-4: the provider still posts seconds for them, but a
+      // method that will not run has no "how long" fact on the row).
+      timeText: status === 'cannot' ? null : formatDurationShort(verdict.estimated_seconds),
       action: { label: 'About' },
     }
   })

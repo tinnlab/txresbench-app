@@ -146,7 +146,9 @@ describe('useRunConfig (TEST-RUN-07)', () => {
     api.get.mockResolvedValue({ config: engineConfig })
     const { result } = renderHook(() => useRunConfig())
     await settle()
-    expect(result.current.settings).toEqual(engineConfig)
+    // The ONE exception to the sticky restore: at_a_time is a RUN option,
+    // never sticky (qa-fixes ITEM-2) — the merge lands at the default 3.
+    expect(result.current.settings).toEqual({ ...engineConfig, at_a_time: 3 })
     expect(result.current.engine).toEqual({ config: engineConfig })
   })
 
@@ -274,13 +276,17 @@ describe('useRunConfig (TEST-RUN-07)', () => {
       newer.resolve({ config: engineConfig })
       await vi.advanceTimersByTimeAsync(0)
     })
-    expect(result.current.settings).toEqual(engineConfig)
+    // The ONE exception to the sticky restore: at_a_time is a RUN option,
+    // never sticky (qa-fixes ITEM-2) — the merge lands at the default 3.
+    expect(result.current.settings).toEqual({ ...engineConfig, at_a_time: 3 })
 
     await act(async () => {
       older.resolve({ config: { endpoint: 'os' } })
       await vi.advanceTimersByTimeAsync(0)
     })
-    expect(result.current.settings).toEqual(engineConfig)
+    // The ONE exception to the sticky restore: at_a_time is a RUN option,
+    // never sticky (qa-fixes ITEM-2) — the merge lands at the default 3.
+    expect(result.current.settings).toEqual({ ...engineConfig, at_a_time: 3 })
     expect(result.current.engine).toEqual({ config: engineConfig })
     expect(result.current.error).toBeNull()
   })

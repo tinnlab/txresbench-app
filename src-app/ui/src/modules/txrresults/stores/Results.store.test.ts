@@ -115,6 +115,7 @@ function column(
 ): TxrPredictionsResponse['methods'][number] {
   return {
     method_id: methodId,
+    label: methodId,
     group: 'dynamic_risk',
     group_label: 'Dynamic risk',
     task: 'pfs',

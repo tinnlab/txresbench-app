@@ -49,7 +49,7 @@ const TITLE: CSSProperties = {
   lineHeight: 1.2,
 }
 
-const SUBTITLE: CSSProperties = { color: '#3a3a3a', fontSize: 14 }
+const SUBTITLE: CSSProperties = { color: 'var(--txr-text-2)', fontSize: 14 }
 
 const ACTIONS: CSSProperties = { display: 'flex', gap: 10, flexWrap: 'wrap' }
 
@@ -167,6 +167,15 @@ export interface TxrResultsHeaderProps {
   /** The H board's label differs by one word ("Download predictions (CSV)"). */
   downloadLabel?: string
   /**
+   * The subtitle facts, when the page overrides them (qa-fixes RES-02):
+   * a terminal failed/stopped run with no predictions omits the
+   * "learned from" and "took" segments — nothing was learned and the
+   * elapsed reads like a completed-run fact next to a failed one;
+   * the counts ("0 of 6 methods finished") and the decision day stay,
+   * they are the run's own recorded facts.
+   */
+  subtitleFacts?: TxrSubtitleFacts
+  /**
    * The H one-method view (`SaveOne.dc.html`): the method id whose
    * "Save this model" button REPLACES the run's "Save the models (N)" one
    * (the L2 dialog's entry point is this button). The page passes it only
@@ -183,11 +192,12 @@ export function TxrResultsHeader({
   predictionsError,
   onDownload,
   downloadLabel = 'Download all predictions (CSV)',
+  subtitleFacts,
   saveOne,
 }: TxrResultsHeaderProps) {
   const navigate = useNavigate()
   const patientCount = predictions?.patients.length ?? 0
-  const subtitle = run ? formatSubtitle(subtitleFactsOf(run)) : ''
+  const subtitle = run ? formatSubtitle(subtitleFacts ?? subtitleFactsOf(run)) : ''
   const modelCount = run?.models.length ?? 0
   const onSaveModels = () => {
     if (run) void emitSaveModels(run.id, finishedMethodIdsOf(run))

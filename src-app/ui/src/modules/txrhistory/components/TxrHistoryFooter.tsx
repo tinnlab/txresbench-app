@@ -36,7 +36,7 @@ const FOOTER: CSSProperties = {
   marginTop: 'auto',
   paddingTop: 8,
   fontSize: 13.5,
-  color: '#5e5e5e',
+  color: 'var(--txr-muted)',
 }
 
 /** The mono data-dir segment (the board's path bytes). */
@@ -49,10 +49,10 @@ const MONO: CSSProperties = {
 const LINKS: CSSProperties = { display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'center' }
 
 /** The link look (the board's 13.5 px quiet links). */
-const LINK: CSSProperties = { fontSize: 13.5, fontWeight: 400, padding: 0, height: 'auto', color: '#1d4e89' }
+const LINK: CSSProperties = { fontSize: 13.5, fontWeight: 400, padding: 0, height: 'auto', color: 'var(--txr-brand)' }
 
 /** The clear-all's danger look (the board's red). */
-const DANGER_LINK: CSSProperties = { ...LINK, color: '#b3261e' }
+const DANGER_LINK: CSSProperties = { ...LINK, color: 'var(--txr-danger)' }
 
 /** The board's separator between the count and the usage segments. */
 const SEP = ' \u00b7 '

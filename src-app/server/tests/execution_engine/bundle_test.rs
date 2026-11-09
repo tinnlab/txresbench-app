@@ -270,10 +270,10 @@ fn the_embedded_facts_answer_for_the_fixture_methods() {
     assert!(entry.size_bytes > 0, "the F screen's bytes_total fact");
     let base = envmanifest::base_for("cox-cutpoint-risk").expect("base pair");
     assert!(base.name.contains("txresbench-base"), "{base:?}");
-    // A runnable method without an entry — the typed ENV_UNKNOWN case.
+    // A runnable method without an entry — the runtime-env missing case.
     assert!(
         envmanifest::env_for("jm-mem-lq").is_none(),
-        "A runnable catalogue method with no published layer → ENV_UNKNOWN"
+        "A runnable catalogue method with no published layer → the ITEM-2 ENV_IMAGE_MISSING classification"
     );
     let _ = entry;
     let _ = facts;

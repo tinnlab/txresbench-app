@@ -60,7 +60,7 @@ const CARD: CSSProperties = {
   flexDirection: 'column',
   gap: 8,
   padding: '12px 16px',
-  border: '1px solid #cfcdc7',
+  border: '1px solid var(--txr-border)',
   borderRadius: 10,
 }
 
@@ -92,11 +92,11 @@ const INPUTS_LINE: CSSProperties = {
   minHeight: 32,
 }
 
-/** The names line's muted color (the board's `#5e5e5e`). */
-const NAMES_LINE: CSSProperties = { color: '#5e5e5e' }
+/** The names line's muted color (the board's `var(--txr-muted)`). */
+const NAMES_LINE: CSSProperties = { color: 'var(--txr-muted)' }
 
 /** The absent/pending line's muted color. */
-const FACTS_LINE: CSSProperties = { color: '#5e5e5e', fontSize: 13.5 }
+const FACTS_LINE: CSSProperties = { color: 'var(--txr-muted)', fontSize: 13.5 }
 
 /** The card's "More settings" spot (right end, the board's link role). */
 const MORE: CSSProperties = { flexGrow: 1, alignSelf: 'flex-end', fontSize: 13.5 }
@@ -190,6 +190,7 @@ export function TxrSettingsBlock({
           <div style={INPUTS_LINE}>
             <Switch
               data-testid="txr-run-settings-covariates"
+              className="txr-settings-switch"
               aria-label="Extra inputs"
               checked={value.covariates}
               onCheckedChange={checked => onChange({ ...value, covariates: checked })}

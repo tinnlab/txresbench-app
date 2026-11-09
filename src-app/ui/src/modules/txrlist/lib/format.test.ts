@@ -61,6 +61,16 @@ describe('formatDurationShort', () => {
     expect(formatDurationShort(89)).toBe('about 1 min')
     expect(formatDurationShort(150)).toBe('about 3 min')
   })
+
+  it('rounds raw wire floats to whole seconds (CM-4: no "5.577333333333334 s")', () => {
+    expect(formatDurationShort(5.577333333333334)).toBe('6 s')
+    expect(formatDurationShort(22.497333333333334)).toBe('22 s')
+    expect(formatDurationShort(14.726666666666668)).toBe('15 s')
+    expect(formatDurationShort(19.740000000000002)).toBe('20 s')
+    // A float that rounds past the half-minute boundary takes the next bucket.
+    expect(formatDurationShort(29.7)).toBe('under 1 min')
+    expect(formatDurationShort(12.4)).toBe('12 s')
+  })
 })
 
 describe('formatCoverage', () => {
@@ -133,6 +143,9 @@ describe('formatReasonLine', () => {
     ).toBe('needs extra inputs your file lacks')
     expect(formatReasonLine('cannot', SOME('NOT_RUNNABLE'), COVERAGE(38, 38), minDraws, [])).toBe(
       'not available with this build',
+    )
+    expect(formatReasonLine('cannot', SOME('ENV_IMAGE_MISSING'), COVERAGE(38, 38), minDraws, [])).toBe(
+      'no published environment for this computer',
     )
     expect(formatReasonLine('cannot', SOME('TASK_INCOMPATIBLE'), COVERAGE(38, 38), minDraws, [])).toBe(
       'needs an outcome column your file lacks',
@@ -209,6 +222,7 @@ describe('formatReasonLine', () => {
       'UNIT_MISMATCH',
       'DECISION_DAY_UNMET',
       'NOT_RUNNABLE',
+      'ENV_IMAGE_MISSING',
       'TASK_INCOMPATIBLE',
       'RESPONSE_LABEL_MISSING',
       'SURVIVAL_OUTCOME_MISSING',

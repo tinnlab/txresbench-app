@@ -27,12 +27,15 @@
  * still renders a bounded DOM).
  *
  * Color formula (the board's own, computed live): a cell's background is
- * `rgba(29, 78, 137, <alpha>)` with `alpha = 0.04 + (pct / 100) * 0.86`
- * (pct = the 0–100 display value, clamped), and its text is `#ffffff`
- * at pct ≥ 52, else `#141414` (`CHANCE_*` constants below are the single
+ * `rgba(var(--txr-chance-rgb), <alpha>)` with `alpha = 0.04 + (pct / 100) * 0.86`
+ * (pct = the 0–100 display value, clamped), and its text is `var(--txr-on-chance)`
+ * at pct ≥ 52, else `var(--txr-text)` (`CHANCE_*` constants below are the single
  * source of the formula's numbers; the legend's gradient
  * (`TxrMethodFilterBar`) is the same 0.04 → 0.9 range). The checkerized
- * white cell borders are the board's (they separate the alpha cells).
+ * chance-cell borders are the board's (they separate the alpha cells);
+ * `--txr-chance-rgb` is light the board's brand blue, dark the kit's light
+ * brand blue, and the gridline token softens the white byte for the dark
+ * theme. `--txr-chance-rgb` is the ONE ramp source shared with the legend.
  *
  * An abstain cell renders EMPTY with the engine's note in a kit `Tooltip`
  * (the board's blank cells; the note is the cell's only content — a null
@@ -50,7 +53,7 @@
  * example numbers are never data (INV-5) — every count here is the view's.
  */
 import type { CSSProperties } from 'react'
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { Button, Tooltip } from '@ziee/kit'
 import type { TxrHeatmapRow, TxrHeatmapView } from '../types'
 import { formatPct } from '../lib/format'
@@ -64,6 +67,16 @@ export const HEATMAP_ROW_HEIGHT = 36
 
 /** The board's scroll box height (`max-height: 470px`, `BusyResults.dc.html`). */
 export const HEATMAP_MAX_HEIGHT = 470
+
+/**
+ * The viewport budget the scroll box's max-height uses (qa-fixes RES-07):
+ * a hard 470 px wasted most of a 1440x900 desktop screen (12 of 94 rows) —
+ * the box now takes the room the viewport has (the shell's 56 px header
+ * plus the page's own chrome ≈ 300 px), never less than the board's 470 px
+ * cap. At 1440x900 the box is 600 px (16 rows of 36 px), on a phone the
+ * 470 px floor keeps the board's shape.
+ */
+export const HEATMAP_BOX_BUDGET_CSS = 'max(470px, calc(100dvh - 300px))'
 
 /**
  * The rows the board's box shows at once: the 470 px box minus the sticky
@@ -101,8 +114,14 @@ export function heatmapWindowOf(scrollTop: number, totalRows: number): { start: 
 // The chance-cell color formula (the board's, computed live — DEC-11)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** The board's alpha cell base color. */
-export const CHANCE_RGB = [29, 78, 137] as const
+/**
+ * The chance ramp's R,G,B triplet as the CSS variable the rgba() color
+ * uses (the board's brand blue in light; the kit's light brand blue in
+ * dark — see `assets/txr-theme.css`). The same variable drives the legend
+ * gradient in `TxrMethodFilterBar`, so the legend and the cells can never
+ * drift apart.
+ */
+export const CHANCE_RGB = 'var(--txr-chance-rgb)' as const
 
 /** The alpha at 0 % (the legend's gradient start). */
 export const CHANCE_ALPHA_MIN = 0.04
@@ -114,10 +133,10 @@ export const CHANCE_ALPHA_SPAN = 0.86
 export const CHANCE_TEXT_FROM = 52
 
 /** The dark cell text (the board's near-black under a pale cell). */
-export const CHANCE_TEXT_DARK = '#141414'
+export const CHANCE_TEXT_DARK = 'var(--txr-text)'
 
 /** The light cell text (the board's white under a saturated cell). */
-export const CHANCE_TEXT_LIGHT = '#ffffff'
+export const CHANCE_TEXT_LIGHT = 'var(--txr-on-chance)'
 
 /**
  * The cell's chance as a whole 0–100 percent (the value the label prints AND
@@ -137,12 +156,17 @@ export function chanceAlphaOf(valuePct: number): string {
   return (CHANCE_ALPHA_MIN + (valuePct / 100) * CHANCE_ALPHA_SPAN).toFixed(2)
 }
 
-/** The cell's `background` + `color` for a provider fraction (0–1); the caller spreads it onto the cell. */
+/**
+ * The cell's `background` + `color` for a provider fraction (0–1); the caller
+ * spreads it onto the cell. The background strings the CSS variable (the
+ * theme resolves it — light: the board's brand blue rgb(29,78,137); dark:
+ * the kit's light brand blue rgb(112,153,215), legible on the dark card).
+ */
 export function chanceStyleOf(value01: number): { background: string; color: string } {
   const pct = chancePercentOf(value01)
   const alpha = chanceAlphaOf(pct)
   return {
-    background: `rgba(${CHANCE_RGB.join(', ')}, ${alpha})`,
+    background: `rgba(${CHANCE_RGB}, ${alpha})`,
     color: pct >= CHANCE_TEXT_FROM ? CHANCE_TEXT_LIGHT : CHANCE_TEXT_DARK,
   }
 }
@@ -155,9 +179,9 @@ const MONO_FONT = "'Source Code Pro', ui-monospace, monospace"
 
 const SCROLL_BOX: CSSProperties = {
   overflow: 'auto',
-  border: '1px solid #cfcdc7',
+  border: '1px solid var(--txr-border)',
   borderRadius: 10,
-  maxHeight: HEATMAP_MAX_HEIGHT,
+  maxHeight: HEATMAP_BOX_BUDGET_CSS,
 }
 
 const TABLE: CSSProperties = {
@@ -173,11 +197,11 @@ const CORNER_HEADER: CSSProperties = {
   top: 0,
   left: 0,
   zIndex: 3,
-  background: '#f7f6f3',
+  background: 'var(--txr-surface-dim)',
   textAlign: 'left',
   padding: '8px 12px',
-  borderBottom: '1px solid #cfcdc7',
-  borderRight: '1px solid #cfcdc7',
+  borderBottom: '1px solid var(--txr-border)',
+  borderRight: '1px solid var(--txr-border)',
 }
 
 /** The Average header: pinned top only, one layer under the corner. */
@@ -185,11 +209,11 @@ const AVERAGE_HEADER: CSSProperties = {
   position: 'sticky',
   top: 0,
   zIndex: 2,
-  background: '#f7f6f3',
+  background: 'var(--txr-surface-dim)',
   textAlign: 'right',
   padding: '8px 10px',
-  borderBottom: '1px solid #cfcdc7',
-  borderRight: '1px solid #cfcdc7',
+  borderBottom: '1px solid var(--txr-border)',
+  borderRight: '1px solid var(--txr-border)',
   fontWeight: 700,
 }
 
@@ -197,9 +221,9 @@ const METHOD_HEADER: CSSProperties = {
   position: 'sticky',
   top: 0,
   zIndex: 2,
-  background: '#f7f6f3',
+  background: 'var(--txr-surface-dim)',
   padding: '6px 8px',
-  borderBottom: '1px solid #cfcdc7',
+  borderBottom: '1px solid var(--txr-border)',
   textAlign: 'center',
   verticalAlign: 'bottom',
   minWidth: 78,
@@ -214,7 +238,7 @@ const METHOD_HEADER_LABEL: CSSProperties = {
   display: 'block',
   fontFamily: "'Source Sans 3', 'Segoe UI', sans-serif",
   fontSize: 10.5,
-  color: '#5e5e5e',
+  color: 'var(--txr-muted)',
   fontWeight: 400,
 }
 
@@ -223,22 +247,23 @@ const PATIENT_COLUMN_STYLE: CSSProperties = {
   position: 'sticky',
   left: 0,
   zIndex: 1,
-  background: '#ffffff',
+  background: 'var(--txr-surface)',
   textAlign: 'left',
   padding: '6px 12px',
-  borderBottom: '1px solid #e7e5e0',
-  borderRight: '1px solid #cfcdc7',
+  borderBottom: '1px solid var(--txr-border-subtle)',
+  borderRight: '1px solid var(--txr-border)',
   fontFamily: MONO_FONT,
   fontSize: 12.5,
   fontWeight: 400,
+  whiteSpace: 'nowrap',
 }
 
 const AVERAGE_COLUMN_STYLE: CSSProperties = {
-  background: '#ffffff',
+  background: 'var(--txr-surface)',
   textAlign: 'right',
   padding: '6px 10px',
-  borderBottom: '1px solid #e7e5e0',
-  borderRight: '1px solid #cfcdc7',
+  borderBottom: '1px solid var(--txr-border-subtle)',
+  borderRight: '1px solid var(--txr-border)',
   fontWeight: 700,
   fontVariantNumeric: 'tabular-nums',
 }
@@ -247,8 +272,8 @@ const AVERAGE_COLUMN_STYLE: CSSProperties = {
 const CHANCE_STYLE: CSSProperties = {
   textAlign: 'center',
   padding: '6px 4px',
-  borderBottom: '1px solid #ffffff',
-  borderRight: '1px solid #ffffff',
+  borderBottom: '1px solid var(--txr-chance-gridline)',
+  borderRight: '1px solid var(--txr-chance-gridline)',
   fontVariantNumeric: 'tabular-nums',
 }
 
@@ -262,7 +287,7 @@ const FOOTER: CSSProperties = {
   justifyContent: 'space-between',
   gap: 10,
   fontSize: 13,
-  color: '#5e5e5e',
+  color: 'var(--txr-muted)',
   marginTop: 8,
 }
 
@@ -290,9 +315,14 @@ function HeatmapRow({ row, columns }: { row: TxrHeatmapRow; columns: TxrHeatmapV
         const note = row.notes[i] ?? null
         const testId = `txr-heatmap-cell-${col.methodId}`
         if (value === null) {
+          // RES-08: an abstain cell is never a silent blank — the note in the
+          // tooltip AND a visible dash mark (the note is the cell's only
+          // content; a null note renders a plain empty cell).
           return note !== null ? (
             <Tooltip key={col.methodId} content={note}>
-              <td data-testid={testId} style={CHANCE_STYLE} />
+              <td data-testid={testId} style={CHANCE_STYLE}>
+                {'\u2013'}
+              </td>
             </Tooltip>
           ) : (
             <td key={col.methodId} data-testid={testId} style={CHANCE_STYLE} />
@@ -320,56 +350,98 @@ export interface TxrHeatmapTableProps {
 }
 
 export function TxrHeatmapTable({ view, onShowAll }: TxrHeatmapTableProps) {
-  const { columns, rows, shownCount, totalCount } = view
+  const { columns, rows, shownCount, totalCount, averageBy } = view
   const [scrollTop, setScrollTop] = useState(0)
+  const [columnsOverflow, setColumnsOverflow] = useState(false)
+  const [rowsOverflow, setRowsOverflow] = useState(false)
+  const boxRef = useRef<HTMLDivElement | null>(null)
+  // The footer's "Scroll sideways for more methods" / "down for more
+  // patients" claims are measured (RES-07): the board's sentence renders only
+  // when the method columns really do overflow, and the down-scroll sentence
+  // only when the rows do — a view that fits its box is never told to scroll.
+  // One ResizeObserver (re-laid-out boxes change the fit).
+  useLayoutEffect(() => {
+    const box = boxRef.current
+    if (box === null) return
+    const measure = () => {
+      setColumnsOverflow(box.scrollWidth > box.clientWidth)
+      setRowsOverflow(box.scrollHeight > box.clientHeight)
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(box)
+    return () => observer.disconnect()
+  }, [])
   const windowed = heatmapWindowOf(scrollTop, rows.length)
   const visibleRows = rows.slice(windowed.start, windowed.end)
   const colCount = columns.length + 2
   const topSpacer = windowed.start * HEATMAP_ROW_HEIGHT
   const bottomSpacer = (rows.length - windowed.end) * HEATMAP_ROW_HEIGHT
+  const averageHeader =
+    averageBy === 'recomputed' ? 'Average (methods shown)' : 'Average'
   return (
     <div>
       <div
+        ref={boxRef}
         data-testid="txr-heatmap"
         style={SCROLL_BOX}
         onScroll={event => setScrollTop(event.currentTarget.scrollTop)}
       >
-        <table style={TABLE}>
-          <thead>
-            <tr>
-              <th scope="col" style={CORNER_HEADER}>
-                Patient
-              </th>
-              <th scope="col" style={AVERAGE_HEADER}>
-                Average
-              </th>
-              {columns.map(col => (
-                <th
-                  key={col.methodId}
-                  scope="col"
-                  title={col.methodId}
-                  style={METHOD_HEADER}
-                  data-testid={`txr-heatmap-header-${col.methodId}`}
-                >
-                  <span>{col.label}</span>
-                  <span style={METHOD_HEADER_LABEL}>{col.groupLabel}</span>
+        {totalCount === 0 ? (
+          // RES-06: a search with no match is its own message, never a bare
+          // empty table plus the "Showing 0 of 0 patients" scroll sentence.
+          <div
+            data-testid="txr-heatmap-empty"
+            style={{ padding: '18px 16px', fontSize: 13.5, color: 'var(--txr-text-2)' }}
+          >
+            No patient matches your search.
+          </div>
+        ) : (
+          <table style={TABLE}>
+            <thead>
+              <tr>
+                <th scope="col" style={CORNER_HEADER}>
+                  Patient
                 </th>
+                <th scope="col" style={AVERAGE_HEADER}>
+                  {averageHeader}
+                </th>
+                {columns.map(col => (
+                  <th
+                    key={col.methodId}
+                    scope="col"
+                    title={col.methodId}
+                    style={METHOD_HEADER}
+                    data-testid={`txr-heatmap-header-${col.methodId}`}
+                  >
+                    <span>{col.label}</span>
+                    <span style={METHOD_HEADER_LABEL}>{col.groupLabel}</span>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {topSpacer > 0 ? <SpacerRow key="top-spacer" height={topSpacer} colCount={colCount} /> : null}
+              {visibleRows.map(row => (
+                <HeatmapRow key={row.patientId} row={row} columns={columns} />
               ))}
-            </tr>
-          </thead>
-          <tbody>
-            {topSpacer > 0 ? <SpacerRow key="top-spacer" height={topSpacer} colCount={colCount} /> : null}
-            {visibleRows.map(row => (
-              <HeatmapRow key={row.patientId} row={row} columns={columns} />
-            ))}
-            {bottomSpacer > 0 ? <SpacerRow key="bottom-spacer" height={bottomSpacer} colCount={colCount} /> : null}
-          </tbody>
-        </table>
+              {bottomSpacer > 0 ? <SpacerRow key="bottom-spacer" height={bottomSpacer} colCount={colCount} /> : null}
+            </tbody>
+          </table>
+        )}
       </div>
       <div style={FOOTER}>
-        <span>
-          Showing {shownCount} of {totalCount} patients. Scroll sideways for more methods, down
-          for more patients; the first columns stay in view.
+        <span data-testid="txr-heatmap-footer">
+          {totalCount === 0
+            ? ''
+            : `Showing ${shownCount} of ${totalCount} patients.`}
+          {totalCount > 0
+            ? columnsOverflow
+              ? ' Scroll sideways for more methods, down for more patients; the first columns stay in view.'
+              : rowsOverflow
+                ? ' Scroll down for more patients.'
+                : ''
+            : ''}
         </span>
         {shownCount < totalCount ? (
           <Button

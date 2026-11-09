@@ -268,6 +268,7 @@ function fixtureModel(k: number, over: Partial<ModelSummary> = {}): ModelSummary
     size_bytes: 4_600_000,
     embeds_training_data: false,
     uses_covariates: false,
+    marker_kind: 'single',
     set_id: 'set-a',
     set_name: 'CRC cohort, day 60',
     ...over,
@@ -462,19 +463,22 @@ export const TXRMODELS_SAVED_ELIGIBILITY: ModelEligibilityResponse = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * The J inventory (PROV-MS-2 `GET /api/txr/models`): four rows covering the
- * board's three fact families — a run-trained row with the full subline
- * ("6 markers · uses age" — the grown `marker_count` + `uses_covariates`
- * fields), an imported row ("opened from colleague-panel.txr · 5 markers" +
- * the `UNRECORDED` trained-on + the "opened <date>" Made entry), and a row
- * with NO marker/covariate/import fact (the name-alone subline case). The
- * `models_dir` is the provider's one-shot path (CONS-UM-4 — "Open the
- * folder"); the values are the module's own synthetic ones (42 patients in
- * the fixture family, days 60/35, horizons 240/165), never the boards'
- * example numbers (INV-4).
+ * The J inventory (PROV-MS-2 `GET /api/txr/models`): six rows covering the
+ * board's three fact families + the ITEM-5 growth — a run-trained row with
+ * the full subline ("6 markers · uses age" — the grown `marker_count` +
+ * `uses_covariates` fields), an imported row ("opened from
+ * colleague-panel.txr · 5 markers" + the `UNRECORDED` trained-on + the
+ * "opened <date>" Made entry), a row with NO marker/covariate/import fact
+ * (the name-alone subline case), a same-name-row from ANOTHER set (RES-17:
+ * the set segment is the distinguisher), and a catalogue-`any` row with
+ * count 0 (RES-19: the subline reads the kind's "any marker", never "0
+ * markers"). The `models_dir` is the provider's one-shot path (CONS-UM-4 —
+ * "Open the folder"); the values are the module's own synthetic ones (42
+ * patients in the fixture family, days 60/35, horizons 240/165), never the
+ * boards' example numbers (INV-4).
  */
 export const TXRMODELS_J_RESPONSE: ModelListResponse = {
-  total: 4,
+  total: 6,
   models_dir: '/home/txr-fixture/models',
   models: [
     fixtureModel(11, {
@@ -502,19 +506,40 @@ export const TXRMODELS_J_RESPONSE: ModelListResponse = {
       provenance: 'imported',
       imported_from: 'colleague-panel.txr',
       marker_count: 5,
+      marker_kind: 'panel',
       uses_covariates: false,
       trained_on_patients: undefined,
       created_at: '2026-12-04T09:00:00Z',
       trained_at: undefined,
+      set_id: undefined,
+      set_name: undefined,
     }),
     fixtureModel(14, {
       name: 'fm-14',
       method_id: 'relchange-threshold',
       marker_count: undefined,
+      marker_kind: undefined,
       uses_covariates: false,
       trained_on_patients: undefined,
       created_at: '2026-12-04T10:00:00Z',
       trained_at: undefined,
+    }),
+    fixtureModel(15, {
+      name: 'landmark-cox-current',
+      method_id: 'landmark-cox-current',
+      set_id: 'set-b',
+      set_name: 'Second run, day 60',
+      marker_count: 6,
+      uses_covariates: true,
+    }),
+    fixtureModel(16, {
+      name: 'ctdna steady rise',
+      method_id: 'ctdna-week4-rise-or-emergence',
+      marker_count: 0,
+      marker_kind: 'any',
+      uses_covariates: false,
+      set_id: 'set-b',
+      set_name: 'Second run, day 60',
     }),
   ],
 }
@@ -654,13 +679,13 @@ export const TXRMODELS_PREDICTIONS: TxrPredictionsResponse = {
   patients: Array.from({ length: 42 }, (_, i) => `fp-${i + 1}`),
   average: Array.from({ length: 42 }, () => null),
   methods: [
-    { method_id: 'rm-1', group: 'g-response-prob', group_label: 'Response probability', coverage: { eligible: 42, scored: 42, fraction: 1 }, prob_source: 'native', task: 'pfs', probabilities: Array.from({ length: 42 }, () => null), notes: Array.from({ length: 42 }, () => null) },
-    { method_id: 'rm-2', group: 'g-response-prob', group_label: 'Response probability', coverage: { eligible: 42, scored: 42, fraction: 1 }, prob_source: 'native', task: 'pfs', probabilities: Array.from({ length: 42 }, () => null), notes: Array.from({ length: 42 }, () => null) },
-    { method_id: 'rm-3', group: 'g-response-prob', group_label: 'Response probability', coverage: { eligible: 42, scored: 42, fraction: 1 }, prob_source: 'native', task: 'pfs', probabilities: Array.from({ length: 42 }, () => null), notes: Array.from({ length: 42 }, () => null) },
-    { method_id: 'rm-4', group: 'g-dynamic-risk', group_label: 'Dynamic risk', coverage: { eligible: 42, scored: 42, fraction: 1 }, prob_source: 'native', task: 'pfs', probabilities: Array.from({ length: 42 }, () => null), notes: Array.from({ length: 42 }, () => null) },
-    { method_id: 'rm-5', group: 'g-dynamic-risk', group_label: 'Dynamic risk', coverage: { eligible: 42, scored: 42, fraction: 1 }, prob_source: 'native', task: 'pfs', probabilities: Array.from({ length: 42 }, () => null), notes: Array.from({ length: 42 }, () => null) },
-    { method_id: 'rm-6', group: 'g-static-risk', group_label: 'Static risk', coverage: { eligible: 42, scored: 42, fraction: 1 }, prob_source: 'native', task: 'pfs', probabilities: Array.from({ length: 42 }, () => null), notes: Array.from({ length: 42 }, () => null) },
-    { method_id: 'rm-7', group: 'g-static-risk', group_label: 'Static risk', coverage: { eligible: 42, scored: 42, fraction: 1 }, prob_source: 'native', task: 'pfs', probabilities: Array.from({ length: 42 }, () => null), notes: Array.from({ length: 42 }, () => null) },
+    { method_id: 'rm-1', label: 'rm-1', group: 'g-response-prob', group_label: 'Response probability', coverage: { eligible: 42, scored: 42, fraction: 1 }, prob_source: 'native', task: 'pfs', probabilities: Array.from({ length: 42 }, () => null), notes: Array.from({ length: 42 }, () => null) },
+    { method_id: 'rm-2', label: 'rm-2', group: 'g-response-prob', group_label: 'Response probability', coverage: { eligible: 42, scored: 42, fraction: 1 }, prob_source: 'native', task: 'pfs', probabilities: Array.from({ length: 42 }, () => null), notes: Array.from({ length: 42 }, () => null) },
+    { method_id: 'rm-3', label: 'rm-3', group: 'g-response-prob', group_label: 'Response probability', coverage: { eligible: 42, scored: 42, fraction: 1 }, prob_source: 'native', task: 'pfs', probabilities: Array.from({ length: 42 }, () => null), notes: Array.from({ length: 42 }, () => null) },
+    { method_id: 'rm-4', label: 'rm-4', group: 'g-dynamic-risk', group_label: 'Dynamic risk', coverage: { eligible: 42, scored: 42, fraction: 1 }, prob_source: 'native', task: 'pfs', probabilities: Array.from({ length: 42 }, () => null), notes: Array.from({ length: 42 }, () => null) },
+    { method_id: 'rm-5', label: 'rm-5', group: 'g-dynamic-risk', group_label: 'Dynamic risk', coverage: { eligible: 42, scored: 42, fraction: 1 }, prob_source: 'native', task: 'pfs', probabilities: Array.from({ length: 42 }, () => null), notes: Array.from({ length: 42 }, () => null) },
+    { method_id: 'rm-6', label: 'rm-6', group: 'g-static-risk', group_label: 'Static risk', coverage: { eligible: 42, scored: 42, fraction: 1 }, prob_source: 'native', task: 'pfs', probabilities: Array.from({ length: 42 }, () => null), notes: Array.from({ length: 42 }, () => null) },
+    { method_id: 'rm-7', label: 'rm-7', group: 'g-static-risk', group_label: 'Static risk', coverage: { eligible: 42, scored: 42, fraction: 1 }, prob_source: 'native', task: 'pfs', probabilities: Array.from({ length: 42 }, () => null), notes: Array.from({ length: 42 }, () => null) },
   ],
 }
 
@@ -775,7 +800,7 @@ export const TXRMODELS_VALIDATION: ValidationResponse = {
   inventory: TXRMODELS_INVENTORY,
   markers: [],
   measurements: { rows: 168, patients: 42, distinct_draw_days: [0, 14, 28, 56] },
-  patients: { rows: 42, with_primary_outcome: 40 },
+  patients: { rows: 42, with_primary_outcome: 40, primary_outcome_events: 40 },
   problems: [],
 }
 
@@ -795,6 +820,8 @@ export const TXRMODELS_PREDICT_FILE: LoadedFile = {
   prepared: true,
   joinOffers: [],
   vocabOffers: [],
+
+  columnOffers: [],
 }
 
 /**

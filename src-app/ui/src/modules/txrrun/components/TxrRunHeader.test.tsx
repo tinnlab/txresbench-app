@@ -56,6 +56,18 @@ describe('TxrRunHeader (F header, TEST-RUN-18)', () => {
     expect(screen.getByTestId('txr-run-title').textContent).toBe('Running 2 methods')
   })
 
+  it('titles with the run\'s status word (RP-1): a finished run never reads "Running"', () => {
+    expect(formatRunTitle(6, 'finished')).toBe('Finished 6 methods')
+    expect(formatRunTitle(1, 'finished')).toBe('Finished 1 method')
+    expect(formatRunTitle(6, 'failed')).toBe('Failed 6 methods')
+    expect(formatRunTitle(6, 'stopped')).toBe('Stopped 6 methods')
+    expect(formatRunTitle(6, 'finishing')).toBe('Finishing 6 methods')
+    expect(formatRunTitle(6, 'running')).toBe('Running 6 methods')
+    expect(formatRunTitle(6, 'preparing')).toBe('Running 6 methods')
+    renderHeader({ title: formatRunTitle(6, 'finished') })
+    expect(screen.getByTestId('txr-run-title').textContent).toBe('Finished 6 methods')
+  })
+
   it('renders the time line with both segments when both facts are known', () => {
     renderHeader()
     expect(screen.getByTestId('txr-run-time-line').textContent).toBe(
@@ -106,6 +118,13 @@ describe('TxrRunHeader (F header, TEST-RUN-18)', () => {
     cleanup()
     renderHeader({ predictionsReady: false })
     expect(screen.queryByTestId('txr-run-see-results')).toBeNull()
+  })
+
+  it('the See-results link reads in the board\'s link tone — a link, not a bold caption (RP-8)', () => {
+    renderHeader({ predictionsReady: true })
+    const link = screen.getByTestId('txr-run-see-results')
+    expect(link.style.color).toBe('var(--txr-brand)')
+    expect(link.style.fontWeight).toBe('400')
   })
 
   it('renders the research-use caption on the F header (DEC-11: one constant with E)', () => {

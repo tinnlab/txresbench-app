@@ -166,8 +166,8 @@ describe('TxrListSectionHeader (TEST-UL-5 — run group header, INV-2)', () => {
     )
     const rename = getByTestId('txr-list-section-action-crc-day-56-rename')
     const danger = getByTestId('txr-list-section-action-crc-day-56-delete')
-    expect(colorHex(rename.style.color)).toBe('#1d4e89')
-    expect(colorHex(danger.style.color)).toBe('#b3261e')
+    expect(colorHex(rename.style.color)).toBe('var(--txr-brand)')
+    expect(colorHex(danger.style.color)).toBe('var(--txr-danger)')
   })
 
   it('the select-all toggles exactly the section\'s eligible rows (9 of 11, the 2 disabled stay)', () => {

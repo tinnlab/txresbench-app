@@ -18,7 +18,7 @@
  *
  * The board's slot copy ("Patients", "Measurements", "Predict") is the
  * component's label map; the facts here are the wire's own words (the
- * board's "62 events" is the validator's `with_primary_outcome`, its "5
+ * board's "62 events" is the validator's `primary_outcome_events`, its "5
  * markers" the resolved markers of the validated file, its "38 patients"
  * the predict-mode cohort's distinct patients). The builder is pure: the
  * page reads the store, the component renders.
@@ -49,11 +49,18 @@ function plural(count: number, word: string): string {
   return `${count} ${word}${count === 1 ? '' : 's'}`
 }
 
-/** The patients line (rows + primary outcomes, the board chip's data-filled tail). */
+/** The patients line (rows + primary events, the board chip's data-filled tail). */
 function patientsSummary(validation: ValidationResponse | null): string | null {
   const patients = validation?.patients
   if (patients === undefined) return null
-  return `${plural(patients.rows, 'patient')} · ${plural(patients.with_primary_outcome, 'event')}`
+  // qa-fixes ITEM-6 F1: the event count is the validator's
+  // `primary_outcome_events` (the primary pair's indicator = 1) — the old
+  // line read `with_primary_outcome` (patients WITH an outcome) and
+  // overcounted the events (the same defect F1 fixed on the intake card).
+  return `${plural(patients.rows, 'patient')} · ${plural(
+    patients.primary_outcome_events,
+    'event',
+  )}`
 }
 
 /** The measurements line: "5 markers · draws at day 0, 14, 28, 56". */

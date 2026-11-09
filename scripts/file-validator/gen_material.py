@@ -16,8 +16,14 @@ The templates are constants (DEC-5/board spec: `patient_id,pfs_days,pfs_event,os
 age,sex,stage` and `patient_id,day,marker,value,unit`); the examples are TRANSFORMED from the
 open synthetic jm_s1 tidy table (DEC-11: `pfs_time` -> `pfs_days`, `os_time` -> `os_days`,
 `cov_age` -> `age`, `cov_sex` -> `sex`, `cov_stage` -> `stage`, `day_from_start` -> `day`,
-`feature` -> `marker`, units from `features.csv`). Cell text passes through verbatim — the only
-transformation is the column mapping, never a value retype/round (determinism and fidelity).
+`feature` -> `marker`, units from `features.csv`). The only transformation is the column mapping
+plus the qa-fixes ITEM-6 F6 DISPLAY rounding: the synthetic world's floats carry meaningless
+precision (pfs_days `203.22473899509717`, values to 15 decimals) that a clinician's example
+should not show — whole days (`pfs_days`, `os_days`, `age`, `day_from_start`) render as
+integers and marker values at 1 decimal (the source cell is still the validated fact; the
+rounded byte is the shipped display). Values are never retyped beyond that rounding (determinism
+and fidelity — the source text of every NUMBER-CLASS cell is the arithmetic input; the raw
+strings are still validated before rounding).
 Nothing is read from `restricted/`, `datasets/`, `results/` or `analysis-catalog/`; the real-mode
 source paths are hard-anchored to `dev/code/benchmark/data-synth` so a registry root outside the
 benchmark tree is refused (INV-4).
@@ -183,12 +189,29 @@ def _float_cell(text, row, column, path, minimum=None):
 
 
 # ---- material builders ----
-def build_patients(registry):
-    """app patients rows from the tidy patients table (R06/R05 checks); cells verbatim.
+def display_int(text, row, column, path):
+    """A whole-number display cell (ITEM-6 F6): the synthetic world's float
+    carries no meaning at its 15th decimal; the shipped example shows whole
+    days/ages. The source text is still the validated fact (parsed above)."""
+    return str(int(round(float(text))))
 
-    Each output row keeps the SOURCE text of every cell (the only transformation is the
-    column rename in PATIENT_MAP + id trimming), so a regenerated file is byte-identical
-    to the source text and --check pins the source itself.
+
+def display_1dp(text, row, column, path):
+    """A 1-decimal display cell (ITEM-6 F6): marker values like
+    12.417026714414604 ship as `12.4` (a trailing `.0` is dropped - `20` not
+    `20.0`)."""
+    rendered = "%.1f" % float(text)
+    return rendered.rstrip("0").rstrip(".") if "." in rendered else rendered
+
+
+def build_patients(registry):
+    """app patients rows from the tidy patients table (R06/R05 checks); the
+    source cells are validated verbatim and the DISPLAY cells are rounded
+    (ITEM-6 F6: whole days/ages - the only value transformation).
+
+    Each output row keeps the SOURCE text of every non-numeric cell (ids,
+    sex, stage - the only transformation is the column rename in PATIENT_MAP
+    + id trimming); the numeric cells are rounded for display.
     """
     path = registry.synth_dir / "patients.csv"
     _header, idx, rows = read_csv(path, list(PATIENT_MAP))
@@ -211,8 +234,18 @@ def build_patients(registry):
         if not sex or not stage:
             raise ValueError(f"{path}: row {n} has an empty cov_sex or cov_stage")
         seen.add(pid)
-        out.append([pid, r[idx["pfs_time"]], r[idx["pfs_event"]], r[idx["os_time"]],
-                    r[idx["os_event"]], r[idx["cov_age"]], sex, stage])
+        out.append(
+            [
+                pid,
+                display_int(r[idx["pfs_time"]], n, "pfs_time", path),
+                r[idx["pfs_event"]],
+                display_int(r[idx["os_time"]], n, "os_time", path),
+                r[idx["os_event"]],
+                display_int(r[idx["cov_age"]], n, "cov_age", path),
+                sex,
+                stage,
+            ]
+        )
     out.sort(key=lambda row: row[0])  # deterministic: patient_id (code point) — ties impossible
     return out
 
@@ -276,7 +309,12 @@ def generate(registry):
     w = csv.writer(buf, lineterminator="\n")
     w.writerow(MEASUREMENTS_HEADER)
     for row in values:
-        w.writerow(row[:5])
+        # ITEM-6 F6 display rounding: whole draw days, 1-decimal values (the
+        # source cell text is the validated fact; the shipped byte is the
+        # example's readable form).
+        display_row = [row[0], display_int(row[1], 0, "day_from_start", "values"), row[2],
+                       display_1dp(row[3], 0, "value", "values"), row[4]]
+        w.writerow(display_row[:5])
     values_bytes = buf.getvalue().encode("utf-8")
 
     return {

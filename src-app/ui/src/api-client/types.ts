@@ -2143,6 +2143,14 @@ export interface EligibilityResponse {
   methods: MethodEligibility[]
   total_cannot: number
   total_fit: number
+  /**
+   * The `cannot_run` methods whose reason is
+   *  [`ReasonCode::EnvImageMissing`] — the count of catalogue methods the
+   *  app cannot actually start (no published environment on this
+   *  computer), so the list header can say how many exist while still
+   *  listing them.
+   */
+  total_no_env: number
   total_some: number
 }
 
@@ -2193,13 +2201,19 @@ export interface EnvRef {
 }
 
 /**
- * The estimate request: which methods, on how many patients, on how many CPUs,
- *  running `at_a_time` lanes.
+ * The estimate request: which methods, on how many patients, on how many
+ *  CPUs, running `at_a_time` lanes.
  */
 export interface EstimateRequest {
   /** Defaults to [`DEFAULT_ESTIMATE_AT_A_TIME`] when omitted. */
   at_a_time?: number
-  /** Defaults to [`DEFAULT_ESTIMATE_CPUS`] when omitted. */
+  /**
+   * The CPU count an estimate is scaled to. Absent (or `null`) means the
+   *  run's own resolution — the host's detected CPUs ([`estimate::host_cpus`],
+   *  the ONE implementation the execution engine's run-start detection also
+   *  calls), so the bar and the running header always employ the same count.
+   *  A present value is used as posted (0 is rejected).
+   */
   cpus?: number
   method_ids: string[]
   patients: number
@@ -2208,10 +2222,14 @@ export interface EstimateRequest {
 /**
  * The estimate response: per-method seconds, the plain sum, and the
  *  longest-processing-time schedule total over the `at_a_time` lanes (the
- *  bottom-bar "about X minutes in total on this computer").
+ *  bottom-bar "about X minutes in total on this computer"). `cpus` is the
+ *  count actually used (the posted value, or the run's own resolution —
+ *  [`estimate::host_cpus`] — when omitted), so the consumer can show the
+ *  number the estimate was scaled to.
  */
 export interface EstimateResponse {
   at_a_time: number
+  cpus: number
   methods: MethodEstimate[]
   schedule_seconds: number
   total_seconds: number
@@ -3566,7 +3584,9 @@ export interface MethodMarkers {
 
 /**
  * What one stacked run does (DEC-5). Maps to the container contract's
- *  `SIGBENCH_MODE` (X1): unset = one fit+predict call, `fit` / `predict`.
+ *  mode field (X1): unset = one fit+predict call, `fit` / `predict`. The
+ *  sandbox emits it under BOTH spellings, `SIGBENCH_MODE` (X1-era name) and
+ *  `TXRESBENCH_MODE` (the 2.0 SDK's name — see TEST-05 / DRIFT-1 ITEM-3).
  */
 export type MethodRunMode = 'fit_predict' | 'fit_only' | 'reuse_model'
 
@@ -3908,6 +3928,12 @@ export interface ModelDetail {
    */
   marker_count?: number
   marker_facts: MarkerFacts
+  /**
+   * Mirrors the row's `marker_facts.kind` — the catalogue's marker mode
+   *  (qa-fixes ITEM-5, RES-19): a `count` of 0 with kind `any` IS "any
+   *  marker" — the J subline renders the kind's word, never a "0 markers".
+   */
+  marker_kind?: MarkerKind
   method_id: string
   method_version: string
   /** The display label (default = the catalogue label at save). */
@@ -4059,7 +4085,7 @@ export interface ModelReason {
  *  is exhaustive: a new provider code fails to compile here instead of
  *  silently passing through.
  */
-export type ModelReasonCode = 'REQUIRED_MARKER_MISSING' | 'MARKER_GROUP_MISSING' | 'DETECTION_CALL_MISSING' | 'MIN_DRAWS_UNMET' | 'COVARIATE_MISSING' | 'COVARIATE_REQUIRED_UNMET' | 'UNIT_MISMATCH' | 'DECISION_DAY_UNMET' | 'NOT_RUNNABLE' | 'TASK_INCOMPATIBLE' | 'RESPONSE_LABEL_MISSING' | 'SURVIVAL_OUTCOME_MISSING' | 'MODEL_REQUIREMENTS_UNRECORDED'
+export type ModelReasonCode = 'REQUIRED_MARKER_MISSING' | 'MARKER_GROUP_MISSING' | 'DETECTION_CALL_MISSING' | 'MIN_DRAWS_UNMET' | 'COVARIATE_MISSING' | 'COVARIATE_REQUIRED_UNMET' | 'UNIT_MISMATCH' | 'DECISION_DAY_UNMET' | 'NOT_RUNNABLE' | 'ENV_IMAGE_MISSING' | 'TASK_INCOMPATIBLE' | 'RESPONSE_LABEL_MISSING' | 'SURVIVAL_OUTCOME_MISSING' | 'MODEL_REQUIREMENTS_UNRECORDED'
 
 /**
  * The save response (201): the set (created or grown), the saved rows and the
@@ -4112,6 +4138,12 @@ export interface ModelSummary {
    *  subline with no per-row detail fetch).
    */
   marker_count?: number
+  /**
+   * Mirrors the row's `marker_facts.kind` — the catalogue's marker mode
+   *  (qa-fixes ITEM-5, RES-19): a `count` of 0 with kind `any` IS "any
+   *  marker" — the J subline renders the kind's word, never a "0 markers".
+   */
+  marker_kind?: MarkerKind
   method_id: string
   method_version: string
   /** The display label (default = the catalogue label at save). */
@@ -4380,6 +4412,16 @@ export interface PatientsSummary {
    *  `null` when no outcome is resolvable.
    */
   median_followup_days?: number
+  /**
+   * Patients whose PRIMARY outcome indicator is 1 (pfs_event/os_event = 1,
+   *  responder = 1) on the same pfs → os → responder ladder
+   *  [`primary_outcome`](super::validate::primary_outcome) uses — the
+   *  board's "N progressions or deaths" fact: EVENTS, not patients with an
+   *  outcome (qa-fixes ITEM-6, F1; the old display read
+   *  `with_primary_outcome` and reported "94 progressions or deaths" for a
+   *  file with 82 events).
+   */
+  primary_outcome_events: number
   rows: number
   /**
    * Patients with a resolvable primary outcome (pfs or os event+time, or a
@@ -4734,7 +4776,7 @@ export interface PretrainedReason {
  *  verdict). The `from_catalogue` mapper is exhaustive: a new provider code
  *  fails to compile here instead of silently passing through.
  */
-export type PretrainedReasonCode = 'REQUIRED_MARKER_MISSING' | 'MARKER_GROUP_MISSING' | 'DETECTION_CALL_MISSING' | 'MIN_DRAWS_UNMET' | 'COVARIATE_MISSING' | 'COVARIATE_REQUIRED_UNMET' | 'UNIT_MISMATCH' | 'DECISION_DAY_UNMET' | 'NOT_RUNNABLE' | 'TASK_INCOMPATIBLE' | 'RESPONSE_LABEL_MISSING' | 'SURVIVAL_OUTCOME_MISSING' | 'ASSET_NOT_AVAILABLE'
+export type PretrainedReasonCode = 'REQUIRED_MARKER_MISSING' | 'MARKER_GROUP_MISSING' | 'DETECTION_CALL_MISSING' | 'MIN_DRAWS_UNMET' | 'COVARIATE_MISSING' | 'COVARIATE_REQUIRED_UNMET' | 'UNIT_MISMATCH' | 'DECISION_DAY_UNMET' | 'NOT_RUNNABLE' | 'ENV_IMAGE_MISSING' | 'TASK_INCOMPATIBLE' | 'RESPONSE_LABEL_MISSING' | 'SURVIVAL_OUTCOME_MISSING' | 'ASSET_NOT_AVAILABLE'
 
 /**
  * The refresh response: the origin actually in use + the catalogue facts of
@@ -5213,7 +5255,7 @@ export interface Reason {
  *  acceptance: every emitted code is one of these — consumers can never meet an
  *  undocumented code).
  */
-export type ReasonCode = 'REQUIRED_MARKER_MISSING' | 'MARKER_GROUP_MISSING' | 'DETECTION_CALL_MISSING' | 'MIN_DRAWS_UNMET' | 'COVARIATE_MISSING' | 'COVARIATE_REQUIRED_UNMET' | 'UNIT_MISMATCH' | 'DECISION_DAY_UNMET' | 'NOT_RUNNABLE' | 'TASK_INCOMPATIBLE' | 'RESPONSE_LABEL_MISSING' | 'SURVIVAL_OUTCOME_MISSING'
+export type ReasonCode = 'REQUIRED_MARKER_MISSING' | 'MARKER_GROUP_MISSING' | 'DETECTION_CALL_MISSING' | 'MIN_DRAWS_UNMET' | 'COVARIATE_MISSING' | 'COVARIATE_REQUIRED_UNMET' | 'UNIT_MISMATCH' | 'DECISION_DAY_UNMET' | 'NOT_RUNNABLE' | 'ENV_IMAGE_MISSING' | 'TASK_INCOMPATIBLE' | 'RESPONSE_LABEL_MISSING' | 'SURVIVAL_OUTCOME_MISSING'
 
 /**
  * `POST /provenance/actions` — the generic interaction chokepoint, and the
@@ -6376,6 +6418,12 @@ export interface TxrPredictionMethod {
   coverage: TxrCoverage
   group: string
   group_label: string
+  /**
+   * The column's display name (qa-fixes RES-05): the same `label` the run
+   *  detail's method rows carry — for a reuse run that is the SAVED MODEL's
+   *  name, never the model id's UUID.
+   */
+  label: string
   method_id: string
   notes: string | null[]
   prob_source: TxrProbSource

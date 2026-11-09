@@ -37,7 +37,7 @@ import type { TxrRunStatus } from '../types'
 /**
  * The reason-code vocabulary the formatter renders.
  *
- * The provider's own 12 codes (PROV-MC-5, `ReasonCode` from the generated
+ * The provider's own 13 codes (PROV-MC-5, `ReasonCode` from the generated
  * api-client — the closed set `method-catalogue` may emit) plus the two
  * model-list codes the grown branches render (PROV-MS-9
  * `MODEL_REQUIREMENTS_UNRECORDED`, PROV-PC-8 `ASSET_NOT_AVAILABLE` — the
@@ -70,7 +70,9 @@ export interface TxrMinDrawsFacts {
 /**
  * The row's short duration string (boards' row time cells):
  *
- * - below 30 s → `"N s"` (the board's "12 s");
+ * - whole seconds below 30 → `"N s"` (the board's "12 s"; the raw
+ *   `f64` seconds from the wire are ROUNDED — "5.577333333333334 s" is
+ *   never rendered, CM-4);
  * - 30–59 s → `"under 1 min"` (the board's shortest rows);
  * - 60 s and up → `"about N min"` with N = the nearest minute (the
  *   board's "about 1 min"/"about 2 min"/"about 5 min" — 120 s → "about
@@ -81,9 +83,10 @@ export interface TxrMinDrawsFacts {
  * half-minute boundary. The long form lives in `formatTotalTime`.
  */
 export function formatDurationShort(seconds: number): string {
-  if (seconds < 30) return `${seconds} s`
-  if (seconds < 60) return 'under 1 min'
-  return `about ${Math.round(seconds / 60)} min`
+  const whole = Math.round(seconds)
+  if (whole < 30) return `${whole} s`
+  if (whole < 60) return 'under 1 min'
+  return `about ${Math.round(whole / 60)} min`
 }
 
 /**
@@ -149,6 +152,8 @@ export function formatMissingItem(missing: ReadonlyArray<{ display_name?: string
  * - `COVARIATE_MISSING` / `COVARIATE_REQUIRED_UNMET` → "needs extra
  *   inputs your file lacks";
  * - `NOT_RUNNABLE` → "not available with this build";
+ * - `ENV_IMAGE_MISSING` → "no published environment for this computer"
+ *   (CM-1's plain reason — the method can never start on this machine);
  * - `TASK_INCOMPATIBLE` → "needs an outcome column your file lacks";
  * - `RESPONSE_LABEL_MISSING` → "needs a response label in your file";
  * - `SURVIVAL_OUTCOME_MISSING` → "needs survival times in your file";
@@ -191,6 +196,8 @@ export function formatReasonLine(
       return 'needs extra inputs your file lacks'
     case 'NOT_RUNNABLE':
       return 'not available with this build'
+    case 'ENV_IMAGE_MISSING':
+      return 'no published environment for this computer'
     case 'TASK_INCOMPATIBLE':
       return 'needs an outcome column your file lacks'
     case 'RESPONSE_LABEL_MISSING':

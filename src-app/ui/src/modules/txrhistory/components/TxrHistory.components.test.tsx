@@ -375,8 +375,8 @@ describe('TxrHistoryCard (TEST-HIST-7 — the collapsed row and the expanded blo
     )
     const chip = within(row).getByTestId('txr-history-chip-run-1')
     expect(chip.textContent).toBe('Learned and predicted')
-    expect(colorHex(chip.style.background)).toBe('#e8eef6')
-    expect(colorHex(chip.style.color)).toBe('#143a68')
+    expect(colorHex(chip.style.background)).toBe('var(--txr-accent-soft)')
+    expect(colorHex(chip.style.color)).toBe('var(--txr-brand-ink)')
     expect(within(row).getByTestId('txr-history-status-run-1').textContent).toBe('Done')
     expect(within(row).getByTestId('txr-history-status-run-1').style.color).not.toBe('')
     const toggle = within(row).getByTestId('txr-history-toggle-run-1')
@@ -414,9 +414,9 @@ describe('TxrHistoryCard (TEST-HIST-7 — the collapsed row and the expanded blo
     )
     const line = view.getByTestId('txr-history-subtitle-run-1')
     expect(line.textContent).toBe('Stopped: marker LDH is missing from the measurements')
-    expect(colorHex(line.style.color)).toBe('#b3261e')
+    expect(colorHex(line.style.color)).toBe('var(--txr-danger)')
     expect(view.getByTestId('txr-history-status-run-1').textContent).toBe('Stopped')
-    expect(view.getByTestId('txr-history-status-run-1').style.color).toBe('rgb(94, 94, 94)')
+    expect(view.getByTestId('txr-history-status-run-1').style.color).toBe('var(--txr-muted)')
   })
 
   it('a reuse run reads the neutral chip + the Predicted line', () => {
@@ -437,8 +437,8 @@ describe('TxrHistoryCard (TEST-HIST-7 — the collapsed row and the expanded blo
     )
     const chip = view.getByTestId('txr-history-chip-run-1')
     expect(chip.textContent).toBe('Saved model')
-    expect(colorHex(chip.style.background)).toBe('#eef0e6')
-    expect(colorHex(chip.style.color)).toBe('#3d4a14')
+    expect(colorHex(chip.style.background)).toBe('var(--txr-success-soft)')
+    expect(colorHex(chip.style.color)).toBe('var(--txr-success-ink)')
     // The reuse subtitle: no method segment (the title names the model),
     // the capital-P Predicted line + the endpoint line.
     expect(view.getByTestId('txr-history-subtitle-run-1').textContent).toBe(
@@ -632,6 +632,48 @@ describe('TxrHistoryDetailBlock + the composition helpers (TEST-HIST-7 — the f
       methods: [{ id: 'method-a', version: '1.0.0', elapsed_secs: 60 }],
     })
     expect(subtitleFor(sparse)).toBe('decision day 42 · progression, death by day 180')
+    // The wire's `null` IS the generator's "no property" (RES-01): a null
+    // learned/predicted fact omits its segment — never "learned from null
+    // patients" / "predicted null".
+    const nullFacts = item('run-1', {
+      learned_from: null as unknown as number,
+      predicted: null as unknown as number,
+      methods: [{ id: 'method-a', version: '1.0.0', elapsed_secs: 60 }],
+    })
+    expect(subtitleFor(nullFacts)).toBe('decision day 42 · progression, death by day 180')
+    const nullReuse = item('run-1', {
+      mode: 'reuse',
+      predicted: null as unknown as number,
+      methods: [{ id: 'method-a', version: '1.0.0', elapsed_secs: 60 }],
+    })
+    expect(subtitleFor(nullReuse)).toBe('progression, death by day 180')
+  })
+
+  it('the settings line: a null optional fact omits its segment — never "seed null" or "null CPUs" (RES-01)', () => {
+    const settings = detail('run-1', {
+      settings: {
+        endpoint: 'pfs',
+        decision_day: 42,
+        look_ahead_day: 180,
+        covariates: true,
+        at_a_time: 2,
+        cpus: 4,
+        save_models: false,
+        mode: 'train',
+        seed: 7,
+        memory_total_bytes: 16 * 1024 * 1024 * 1024,
+      },
+    }).settings
+    expect(settingsLine(settings)).toBe(
+      'landmark 42, horizon 180, covariates on, seed 7, 4 CPUs, 16 GB',
+    )
+    const nullOptionals: TxrHistoryDetail['settings'] = {
+      ...settings,
+      seed: null as unknown as number,
+      cpus: null as unknown as number,
+      memory_total_bytes: null as unknown as number,
+    }
+    expect(settingsLine(nullOptionals)).toBe('landmark 42, horizon 180, covariates on')
   })
 })
 
@@ -685,7 +727,7 @@ describe('TxrHistoryFooter (TEST-HIST-7 — usage line + the two retention links
       'Do not keep copies of my files',
     )
     expect(view.queryByTestId('txr-history-copies-on')).toBeNull()
-    expect(colorHex(view.getByTestId('txr-history-clear-all').style.color)).toBe('#b3261e')
+    expect(colorHex(view.getByTestId('txr-history-clear-all').style.color)).toBe('var(--txr-danger)')
     cleanup()
     const view2 = render(
       <TxrHistoryFooter

@@ -54,6 +54,8 @@ function loadedFile(name = 'm.csv'): LoadedFile {
     prepared: false,
     joinOffers: [],
     vocabOffers: [],
+
+    columnOffers: [],
   }
 }
 
@@ -103,7 +105,8 @@ const validationOf = (overrides?: Partial<ValidationResponse>): ValidationRespon
     },
   ],
   measurements: { rows: 2, patients: 2, distinct_draw_days: [0, 14] },
-  patients: { rows: 1, with_primary_outcome: 1, median_followup_days: 90 },
+  patients: { rows: 1, with_primary_outcome: 1,
+    primary_outcome_events: 1, median_followup_days: 90 },
   problems: [],
   ...overrides,
 })
@@ -384,5 +387,74 @@ describe('TEST-INT-26 — the ONE validation response lifecycle (acceptance)', (
     TxrIntake.acceptJoin(joinOffer)
     TxrIntake.applyValidation(validationOf(), staleKey)
     expect(state().validation).toBeNull()
+  })
+})
+
+
+describe('ITEM-6 F2/F6 — the rename action, the "not now", the example fact', () => {
+  function tableWith(columns: string[]) {
+    return {
+      source: { name: 'm.csv', format: 'csv' as const },
+      header_row: 1,
+      columns,
+      rows: [['P0001', '0', 'ldh', '210', 'U/L']],
+    }
+  }
+  function fileWith(columns: string[]) {
+    return {
+      source: { name: 'm.csv', format: 'csv' as const },
+      table: tableWith(columns),
+      inspection: null,
+      problems: [],
+      prepared: false,
+      joinOffers: [],
+      vocabOffers: [],
+      columnOffers: [],
+    }
+  }
+  // adoptFile resets the offers ("a fresh drop has none") — the VALIDATE
+  // settle derives them, exactly as FilesPage.patchFile does, so the tests
+  // drive them in through the same public writer.
+  const offerFor = (from: string) => [{ from, to: 'patient_id' }] as const
+
+  it('renameColumn rewrites the table columns, drops the offer and nulls the validation', () => {
+    TxrIntake.reset()
+    TxrIntake.adoptFile('predictMeasurements', fileWith(['pid', 'day', 'marker', 'value', 'unit']))
+    TxrIntake.patchFile('predictMeasurements', { columnOffers: [...offerFor('pid')] })
+    TxrIntake.applyValidation(validationOf(), TxrIntake.currentValidationKey())
+    expect(state().validation).not.toBeNull()
+
+    TxrIntake.renameColumn('predictMeasurements', {
+      from: 'pid',
+      to: 'patient_id',
+    })
+    expect(state().predictMeasurements?.table.columns[0]).toBe('patient_id')
+    expect(state().predictMeasurements?.columnOffers).toEqual([])
+    expect(state().validation).toBeNull()
+  })
+
+  it('rejectColumnOffer drops the suggestion only (no rename, validation stays)', () => {
+    TxrIntake.reset()
+    TxrIntake.adoptFile('measurements', fileWith(['pid', 'day', 'marker', 'value', 'unit']))
+    TxrIntake.patchFile('measurements', { columnOffers: [...offerFor('pid')] })
+    TxrIntake.applyValidation(validationOf(), TxrIntake.currentValidationKey())
+    TxrIntake.rejectColumnOffer('measurements', 'pid')
+    expect(state().measurements?.table.columns[0]).toBe('pid')
+    expect(state().measurements?.columnOffers).toEqual([])
+    expect(state().validation).not.toBeNull()
+  })
+
+  it('the example fact is set by the start path and cleared by any adoption (F6)', () => {
+    TxrIntake.reset()
+    expect(state().exampleLoaded).toBe(false)
+    TxrIntake.setExampleLoaded(true)
+    expect(state().exampleLoaded).toBe(true)
+    TxrIntake.adoptFile('measurements', fileWith(['patient_id', 'day']))
+    expect(state().exampleLoaded).toBe(false)
+    TxrIntake.setExampleLoaded(true)
+    TxrIntake.removeFile('measurements')
+    expect(state().exampleLoaded).toBe(false)
+    TxrIntake.reset()
+    expect(state().exampleLoaded).toBe(false)
   })
 })

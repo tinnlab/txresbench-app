@@ -59,11 +59,11 @@ const LEAD: CSSProperties = {
   margin: '0 0 10px',
   fontSize: 13.5,
   lineHeight: 1.5,
-  color: '#3a3a3a',
+  color: 'var(--txr-text-2)',
 }
 
 /** The single-line values' look. */
-const VALUE: CSSProperties = { fontSize: 12.5, color: '#3a3a3a' }
+const VALUE: CSSProperties = { fontSize: 12.5, color: 'var(--txr-text-2)' }
 
 /** The multi-line value blocks (the warning list). */
 const BLOCK: CSSProperties = {
@@ -71,17 +71,17 @@ const BLOCK: CSSProperties = {
   fontSize: 12.5,
   whiteSpace: 'pre-wrap',
   overflowWrap: 'anywhere',
-  color: '#3a3a3a',
+  color: 'var(--txr-text-2)',
 }
 
 /** The error line's look (the dialog's own muted red). */
-const ERROR: CSSProperties = { fontSize: 13.5, color: '#b3261e' }
+const ERROR: CSSProperties = { fontSize: 13.5, color: 'var(--txr-danger)' }
 
 /** The board's mono look for the method id. */
 const MONO: CSSProperties = {
   fontFamily: "'JetBrains Mono', 'SFMono-Regular', Consolas, monospace",
   fontSize: 12.5,
-  color: '#3a3a3a',
+  color: 'var(--txr-text-2)',
 }
 
 /** The board's "Made" verb for a run row (the J column's own words). */
@@ -166,6 +166,10 @@ function factsOf(detail: ModelDetail): DescriptionsItem[] {
             detail.marker_count ?? null,
             detail.uses_covariates === true,
             detail.imported_from ?? null,
+            null,
+            // The detail carries the block's kind directly; the summary's
+            // flattened `marker_kind` is the same fact (ITEM-5, RES-19).
+            detail.marker_facts?.kind ?? detail.marker_kind ?? null,
           ) || UNRECORDED}
         </span>
       ),

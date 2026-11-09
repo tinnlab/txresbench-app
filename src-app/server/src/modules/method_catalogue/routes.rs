@@ -60,8 +60,8 @@ use crate::modules::permissions::{with_permission, RequirePermissions};
 use crate::modules::project::ProjectsUse;
 
 use super::catalogue;
-use super::eligibility::eligibility_for;
-use super::estimate::estimate_for;
+use super::eligibility::eligibility_for_runtime;
+use super::estimate::estimate_for_runtime;
 use super::types::{
     Catalogue, EligibilityRequest, EligibilityResponse, EstimateRequest, EstimateResponse,
     MarkerVocabularyResponse, Method, MethodDetail, MethodGroup, MethodListResponse,
@@ -217,13 +217,16 @@ fn get_marker_vocabulary_docs(op: TransformOperation) -> TransformOperation {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// `POST /api/methods/eligibility` — the per-method verdicts against a file
-/// inventory (screens C/N/E) or an early schedule preview (screen B).
+/// inventory (screens C/N/E) or an early schedule preview (screen B), plus
+/// the runtime-env stage: a catalogue method with no published environment on
+/// this computer is `cannot_run` + `ENV_IMAGE_MISSING` (the count of them is
+/// `total_no_env` — the catalogue still lists them).
 async fn post_eligibility(
     _auth: RequirePermissions<(ProjectsUse,)>,
     Json(body): Json<EligibilityRequest>,
 ) -> ApiResult<Json<EligibilityResponse>> {
     let response = tokio::task::spawn_blocking(move || {
-        eligibility_for(catalogue::catalogue(), &body)
+        eligibility_for_runtime(catalogue::catalogue(), &body)
     })
     .await
     .map_err(|e| {
@@ -234,7 +237,7 @@ async fn post_eligibility(
 
 fn post_eligibility_docs(op: TransformOperation) -> TransformOperation {
     with_permission::<(ProjectsUse,)>(op)
-        .description("Per-method eligibility verdicts (can_run / can_run_some / cannot_run) with structured reason codes, missing markers/groups and per-patient coverage aggregates. The body is a tagged union: `preview` (screen-B schedule answers) or `inventory` (the file validator's inventory).")
+        .description("Per-method eligibility verdicts (can_run / can_run_some / cannot_run) with structured reason codes, missing markers/groups and per-patient coverage aggregates. A method with no published environment on this computer is cannot_run + ENV_IMAGE_MISSING (total_no_env counts them). The body is a tagged union: `preview` (screen-B schedule answers) or `inventory` (the file validator's inventory).")
         .id("MethodCatalogue.eligibility")
         .tag("method-catalogue")
         .response::<200, Json<EligibilityResponse>>()
@@ -248,12 +251,14 @@ fn post_eligibility_docs(op: TransformOperation) -> TransformOperation {
 
 /// `POST /api/methods/estimate` — per-method seconds (the DEC-7 shape) plus
 /// the plain sum and the run-N-at-a-time LPT schedule total (the bottom bar).
+/// Absent `cpus` resolves the run's own count ([`estimate::host_cpus`]); a
+/// method with no published environment is refused (`METHOD_NOT_RUNNABLE`).
 async fn post_estimate(
     _auth: RequirePermissions<(ProjectsUse,)>,
     Json(body): Json<EstimateRequest>,
 ) -> ApiResult<Json<EstimateResponse>> {
     let response = tokio::task::spawn_blocking(move || {
-        estimate_for(catalogue::catalogue(), &body)
+        estimate_for_runtime(catalogue::catalogue(), &body)
     })
     .await
     .map_err(|e| {
@@ -265,7 +270,7 @@ async fn post_estimate(
 
 fn post_estimate_docs(op: TransformOperation) -> TransformOperation {
     with_permission::<(ProjectsUse,)>(op)
-        .description("Per-method estimated seconds (base per-fold seconds scaled by patients and CPUs — 150 reference patients, 4 reference CPUs), the plain sum, and the greedy longest-processing-time schedule total over `at_a_time` lanes (the run-N-at-a-time bar). Validation order: cpus/at_a_time (0 rejected) first, then method resolution — the first failure wins.")
+        .description("Per-method estimated seconds (base per-fold seconds scaled by patients and CPUs — 150 reference patients; an absent `cpus` uses the run's own detected count), the plain sum, and the greedy longest-processing-time schedule total over `at_a_time` lanes (the run-N-at-a-time bar). Validation order: cpus/at_a_time (a posted 0 rejected) first, then method resolution — the first failure wins; a method with no published environment is METHOD_NOT_RUNNABLE.")
         .id("MethodCatalogue.estimate")
         .tag("method-catalogue")
         .response::<200, Json<EstimateResponse>>()

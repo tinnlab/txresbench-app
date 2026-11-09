@@ -1,20 +1,29 @@
 /**
- * TxrCountsStrip — the five per-state counters of screen F (ITEM-9, the
+ * TxrCountsStrip — the per-state counters of screen F (ITEM-9, the
  * board `BusyRunning.dc.html`): the finished / running / downloading /
  * waiting / failed row under the header. The numbers are the engine's own
  * `TxrRunDetail.counts` (PROV-EE-3, TEST-RUN-19's "render the engine
- * `counts` values"); the store's frame handlers recompute those very counts
- * from the rows, so the strip always shows the run's current truth.
+ * `counts` values"); the store's frame handlers recompute those very
+ * counts from the rows, so the strip always shows the run's current truth.
+ *
+ * The strip renders ALL EIGHT engine states (qa-fixes ITEM-3, RP-3): the
+ * board's five in the board's order, then the three states the board's
+ * example run never had — stopped, skipped, cannot run — each with its own
+ * state word. Every state is thereby counted somewhere on the screen, the
+ * strip's numbers add up to the run's row count (the All tab's count), and
+ * each counter's number equals that state's own tab count — a skipped
+ * method shows as "skipped", never hidden inside the finished count.
  *
  * Board facts kept:
  *
- * - the five counters and their order are the board's (finished first, the
- *   failure last — a failure is never hidden, INV-2), each as
- *   "N <label>" with the count in the state's tone, from the module's own
- *   per-state palette (`lib/format.ts`'s `STATE_TONE` — the same palette
- *   the rows' state chips use, one colour source for a state's fact);
+ * - the counters and their order are the board's for the board's five
+ *   (finished first, the failure last — a failure is never hidden, INV-2),
+ *   each as "N <label>" with the count in the state's tone, from the
+ *   module's own per-state palette (`lib/format.ts`'s `STATE_TONE` — the
+ *   same palette the rows' state chips use, one colour source for a
+ *   state's fact);
  * - a zero counter is greyed but still rendered (a zero is a real fact on
- *   this screen, never a gap — an empty run shows five greyed zeros);
+ *   this screen, never a gap — an empty run shows greyed zeros);
  * - the concurrency text ("3 run at a time …") is NOT here — the plan puts
  *   it on the header (DEC-4), and the memory segment is omitted by owner
  *   decision (OWNER-1/D39). The board's overall two-segment bar is also
@@ -27,13 +36,17 @@ import type { CSSProperties } from 'react'
 import type { TxrMethodState, TxrRunCounts } from '@/api-client/types'
 import { STATE_TONE } from '../lib/format'
 
-/** The five counters' board order (the counts' own key names). */
+/** The counters' order: the board's five, then the three the board's
+ *  example run never had (each engine state, its own word). */
 const COUNTERS: ReadonlyArray<{ state: TxrMethodState; label: string }> = [
   { state: 'finished', label: 'finished' },
   { state: 'running', label: 'running' },
   { state: 'downloading', label: 'downloading' },
   { state: 'waiting', label: 'waiting' },
   { state: 'failed', label: 'failed' },
+  { state: 'stopped', label: 'stopped' },
+  { state: 'skipped', label: 'skipped' },
+  { state: 'cannot_run', label: 'cannot run' },
 ]
 
 const STRIP: CSSProperties = {
@@ -46,7 +59,7 @@ const STRIP: CSSProperties = {
 const COUNT: CSSProperties = { fontWeight: 700 }
 
 /** A zero counter's grey (the neutral of the module's palette). */
-const ZERO_TONE = '#5e5e5e'
+const ZERO_TONE = 'var(--txr-muted)'
 
 export interface TxrCountsStripProps {
   /** The run's per-state counts (the engine's own — PROV-EE-3). */

@@ -106,6 +106,7 @@ function eligibilityResponse(): EligibilityResponse {
     total_cannot: 0,
     total_fit: 1,
     total_some: 0,
+    total_no_env: 0,
   }
 }
 

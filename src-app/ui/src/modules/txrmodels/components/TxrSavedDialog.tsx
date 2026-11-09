@@ -45,16 +45,16 @@ const LEAD_TEXT =
   "They are listed under Models. To use them, add new patients' measurements and pick the models you want."
 
 /** The summary line's look (the board's quiet line). */
-const SUMMARY: CSSProperties = { margin: 0, fontSize: 13, color: '#3a3a3a' }
+const SUMMARY: CSSProperties = { margin: 0, fontSize: 13, color: 'var(--txr-text-2)' }
 
 /** The lead paragraph's look. */
-const LEAD: CSSProperties = { margin: '6px 0 0', fontSize: 13, color: '#5e5e5e' }
+const LEAD: CSSProperties = { margin: '6px 0 0', fontSize: 13, color: 'var(--txr-muted)' }
 
 /** The models root's mono look (the folder the models live in). */
 const PATH: CSSProperties = {
   fontFamily: "'JetBrains Mono', 'SFMono-Regular', Consolas, monospace",
   fontSize: 12.5,
-  color: '#3a3a3a',
+  color: 'var(--txr-text-2)',
 }
 
 /** The separator between the summary's segments (the board's " · "). */
