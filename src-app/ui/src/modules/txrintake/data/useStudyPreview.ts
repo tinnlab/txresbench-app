@@ -24,6 +24,11 @@
  * - No `groups` yet (the marker-list fetch is still in flight, or failed):
  *   no request and `fit: null` — the panel's count slot renders the
  *   loading ellipsis; the B screen's checkboxes carry their own state.
+ * - No answer AT ALL (R2-1): no request either — the "N of M methods fit"
+ *   count before any answer was reported as a defect (the old body was the
+ *   all-groups-false + default schedule the user never composed); the page
+ *   renders the invite line until the first answer exists (the panel
+ *   answers only what it was asked about).
  * - An API error surfaces `error` with the panel's data untouched (the
  *   honest "updating failed" state, never a stale green).
  */
@@ -35,6 +40,7 @@ import {
   buildStudyPreviewRequest,
   excludedMethods,
   fitCounts,
+  hasStudyAnswers,
   type ExcludedMethod,
   type FitCounts,
   type TxrPreviewFormatters,
@@ -123,10 +129,10 @@ export function useStudyPreview(
   const cache = useRef(new Map<string, StudyPreviewState>())
 
   useEffect(() => {
-    // No marker vocabulary (still loading, or failed): nothing to ask —
-    // the panel keeps its current state and the checkboxes tell their own
-    // story. The page's "markers" fetch is a separate concern (ITEM-10).
-    if (groups === null) return
+    // No answer yet (or no marker vocabulary — still loading, or failed):
+    // nothing to ask — the panel holds the invite line / the checkboxes
+    // tell their own story (R2-1).
+    if (groups === null || !hasStudyAnswers(answers)) return
 
     const cached = cache.current.get(key)
     if (cached !== undefined) {

@@ -133,7 +133,7 @@ describe('useStudyPreview (TEST-INT-4, ITEM-5)', () => {
     const { result } = renderHook(() => useStudyPreview(ANSWERED, GROUPS))
     expect(result.current.loading).toBe(true)
     await settle()
-    expect(result.current.fit).toEqual({ total: 2, canRun: 1, some: 0, cannot: 1 })
+    expect(result.current.fit).toEqual({ total: 2, fit: 1, some: 0, leftOut: 1, noEnv: 0 })
     expect(result.current.excluded).toEqual([{ id: 'm-b', reasonText: 'needs 4 or more draws' }])
     expect(result.current.methods.get('m-b')?.status).toBe('cannot_run')
     expect(result.current.error).toBeNull()
@@ -147,7 +147,7 @@ describe('useStudyPreview (TEST-INT-4, ITEM-5)', () => {
       )
       .mockResolvedValueOnce(response({ total_fit: 0, total_cannot: 2 }))
 
-    const initialProps = { answers: EMPTY_ANSWERS as StudyAnswers, groups: GROUPS }
+    const initialProps = { answers: { ...EMPTY_ANSWERS, disease: 'lung' } as StudyAnswers, groups: GROUPS }
     const { rerender, result } = renderHook(
       ({ answers, groups }) => useStudyPreview(answers, groups),
       { initialProps },
@@ -165,14 +165,14 @@ describe('useStudyPreview (TEST-INT-4, ITEM-5)', () => {
       resolveFirst(response({ total_fit: 9, total_cannot: 9 }))
       await Promise.resolve()
     })
-    expect(result.current.fit?.canRun).not.toBe(9)
+    expect(result.current.fit?.fit).not.toBe(9)
 
     // The NEWEST response lands and wins.
     await act(async () => {
       await Promise.resolve()
     })
-    expect(result.current.fit?.canRun).toBe(0)
-    expect(result.current.fit?.cannot).toBe(2)
+    expect(result.current.fit?.fit).toBe(0)
+    expect(result.current.fit?.leftOut).toBe(2)
   })
 
   it('surfaces an API error with no panel data', async () => {
@@ -185,9 +185,24 @@ describe('useStudyPreview (TEST-INT-4, ITEM-5)', () => {
     expect(result.current.loading).toBe(false)
   })
 
-  it('fires the defaults preview for empty answers (the board default schedule)', async () => {
-    const { result } = renderHook(() => useStudyPreview(EMPTY_ANSWERS, GROUPS))
+  it('fires NOTHING before the first answer, then the defaults for the unanswered parts (R2-1)', async () => {
+    // (c): the old page reported "N of M methods fit" from an all-false /
+    // default-schedule body the user never composed; now the empty-answers
+    // state issues no request at all.
+    const { result, rerender } = renderHook(
+      ({ answers }) => useStudyPreview(answers, GROUPS),
+      { initialProps: { answers: EMPTY_ANSWERS } },
+    )
     await settle()
+    expect(api.eligibility).not.toHaveBeenCalled()
+    expect(result.current.fit).toBeNull()
+
+    // The first answer flips the gate; the unanswered fields keep the
+    // board's first options (DEC-5's preview contract), and the panel is
+    // answering a REAL question now.
+    rerender({ answers: { ...EMPTY_ANSWERS, disease: 'lung' } })
+    await settle()
+    expect(api.eligibility).toHaveBeenCalledTimes(1)
     expect(api.eligibility).toHaveBeenCalledWith({
       preview: {
         marker_groups: { ctdna: false, counts: false, ldh: false },

@@ -182,6 +182,13 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+/** Answer the page's first question (the group checkbox) so the panel
+ *  renders its counts (R2-1: no answer → the invite line, no request). */
+async function answerFirst(selector: string) {
+  await screen.findByRole('checkbox', { name: 'Tumour DNA in blood (ctDNA)' })
+  fireEvent.click(screen.getByTestId(selector))
+}
+
 describe('StudyPage (screen B, ITEM-5)', () => {
   it('renders the question groups with the board copy, then the panel from live data', async () => {
     renderStudy()
@@ -205,10 +212,25 @@ describe('StudyPage (screen B, ITEM-5)', () => {
     expect(screen.getByLabelText('Last draw you will use')).toBeTruthy()
   })
 
+  it('before ANY answer the panel says what to do, never a count (R2-1)', async () => {
+    renderStudy()
+    await screen.findByRole('checkbox', { name: 'Tumour DNA in blood (ctDNA)' })
+    const panel = screen.getByTestId('txr-intake-panel')
+    expect(within(panel).queryByTestId('txr-intake-panel-fit-count')).toBeNull()
+    expect(screen.getByTestId('txr-intake-panel-sentence').textContent).toBe(
+      'Answer the questions above to see which methods fit your study.',
+    )
+    expect(within(panel).getByText('Methods are left out')).toBeTruthy()
+    expect(within(panel).queryByTestId('txr-intake-panel-no-env')).toBeNull()
+    expect(api.eligibility).not.toHaveBeenCalled()
+  })
+
   it('renders the live panel: fit count, descriptive sentence, excluded reasons', async () => {
     renderStudy()
+    await screen.findByRole('checkbox', { name: 'Tumour DNA in blood (ctDNA)' })
+    fireEvent.click(screen.getByTestId('txr-intake-study-group-ctdna'))
     await waitFor(() => {
-      expect(screen.getByText(`${CAN_RUN}`)).toBeTruthy()
+      expect(screen.getByText(`${CAN_RUN + SOME}`)).toBeTruthy()
     })
     expect(screen.getByText(`of ${TOTAL} methods fit`)).toBeTruthy()
     expect(screen.getByText(`${CANNOT} methods are left out`)).toBeTruthy()
@@ -285,6 +307,7 @@ describe('StudyPage (screen B, ITEM-5)', () => {
 
   it('clips the excluded list at the board limit with the truthful Show all N', async () => {
     renderStudy()
+    await answerFirst('txr-intake-study-group-ctdna')
     await waitFor(() => {
       expect(screen.getByText(`${CANNOT} methods are left out`)).toBeTruthy()
     })
@@ -328,15 +351,17 @@ describe('StudyPage (screen B, ITEM-5)', () => {
 describe('ITEM-6 S1/S2/S4 — the panel spacing, the id wrapping, the flush Show all link', () => {
   it('the panel headline keeps a space between the number and "of" (S1)', async () => {
     renderStudy()
+    await answerFirst('txr-intake-study-group-ctdna')
     await waitFor(() => {
       expect(screen.getByTestId('txr-intake-panel-fit-count').textContent).toBe(
-        `${CAN_RUN} of ${TOTAL} methods fit`,
+        `${CAN_RUN + SOME} of ${TOTAL} methods fit`,
       )
     })
   })
 
   it('excluded ids break at hyphens, never mid-word (S2)', async () => {
     renderStudy()
+    await answerFirst('txr-intake-study-group-ctdna')
     await waitFor(() => {
       expect(screen.getByText(`${CANNOT} methods are left out`)).toBeTruthy()
     })
@@ -348,10 +373,105 @@ describe('ITEM-6 S1/S2/S4 — the panel spacing, the id wrapping, the flush Show
 
   it('the Show all link renders flush (no kit padding — S4)', async () => {
     renderStudy()
+    await answerFirst('txr-intake-study-group-ctdna')
     await waitFor(() => {
       expect(screen.getByText(`Show all ${CANNOT}`)).toBeTruthy()
     })
     const showAll = screen.getByTestId('txr-intake-excluded-show-all') as HTMLElement
     expect(showAll.style.padding).toBe('0px')
+  })
+})
+
+describe('R2-1 — the environment fact separated from the answer causes', () => {
+  const ENV = 2
+  function eligibilityWithEnv(): EligibilityResponse {
+    const base = eligibilityResponse()
+    base.total_no_env = ENV
+    const envMethods = [
+      {
+        id: 'asm-best-change-rule',
+        status: 'cannot_run' as const,
+        reasons: [
+          { code: 'ENV_IMAGE_MISSING' as const },
+          { code: 'MARKER_GROUP_MISSING' as const },
+        ],
+        coverage: { eligible: 0, total: 1, fraction: 0 },
+        min_draws: { required: 1, met: 0, unmet_patients: 0 },
+        missing_markers: [],
+        missing_groups: [{ group_id: 'methylation-sequencing', display_name: 'Methylation' }],
+        estimated_seconds: 0,
+        estimate_quality: 'estimate' as const,
+      },
+      {
+        id: 'env-only-method',
+        status: 'cannot_run' as const,
+        reasons: [{ code: 'ENV_IMAGE_MISSING' as const }],
+        coverage: { eligible: 1, total: 1, fraction: 1 },
+        min_draws: { required: 1, met: 1, unmet_patients: 0 },
+        missing_markers: [],
+        missing_groups: [],
+        estimated_seconds: 0,
+        estimate_quality: 'estimate' as const,
+      },
+    ]
+    base.methods = [...envMethods, ...base.methods]
+    base.total_cannot = CANNOT + ENV
+    return base
+  }
+
+  it('the count reacts to the answers with the env fact stripped, and the env line counts it', async () => {
+    api.eligibility.mockResolvedValue(eligibilityWithEnv())
+    renderStudy()
+    await answerFirst('txr-intake-study-group-ctdna')
+    await waitFor(() => {
+      // Env methods answer-fit: 39 base + 2 env methods = 41; the headline
+      // is the board's inclusive count (runnable 26 + the 1 env-only answer
+      // fitter — the 13 answer left-outs and the 2 env methods are their
+      // own lines).
+      expect(screen.getByTestId('txr-intake-panel-fit-count').textContent).toBe(
+        `${TOTAL - CANNOT + 1} of ${TOTAL + ENV} methods fit`,
+      )
+    })
+    // The env sentence is the list's own line (one vocabulary, R2-1's
+    // "can't run yet" separation).
+    expect(screen.getByTestId('txr-intake-panel-no-env').textContent).toBe(
+      `${ENV} of ${TOTAL + ENV} methods have no published environment and can't start.`,
+    )
+    // "Left out" counts the ANSWER causes only; the env rows are not in the
+    // list (their cause is the env line).
+    expect(screen.getByText(`${CANNOT} methods are left out`)).toBeTruthy()
+    const excluded = within(screen.getByTestId('txr-intake-panel-excluded'))
+    expect(excluded.queryByText('asm-best-change-rule')).toBeNull()
+    expect(excluded.queryByText('env-only-method')).toBeNull()
+    expect(excluded.getAllByText('needs 3 or more draws').length).toBeGreaterThan(0)
+  })
+
+  it('ticking a marker group that excludes runnable methods moves the count', async () => {
+    // The fixture's answer-caused left-outs drop the count as the answers
+    // change (the count reacts to answers, not to the env overlay).
+    const first = eligibilityResponse()
+    const answered = eligibilityResponse()
+    answered.total_fit = CAN_RUN - 2
+    answered.total_cannot = CANNOT + 2
+    api.eligibility
+      .mockResolvedValueOnce(first)
+      .mockResolvedValueOnce(answered)
+    renderStudy()
+    await answerFirst('txr-intake-study-group-ctdna')
+    await waitFor(() => {
+      expect(screen.getByTestId('txr-intake-panel-fit-count').textContent).toContain(
+        `of ${TOTAL} methods fit`,
+      )
+    })
+    expect(screen.getByTestId('txr-intake-panel-fit-count').textContent).toBe(
+      `${TOTAL - CANNOT} of ${TOTAL} methods fit`,
+    )
+    fireEvent.click(screen.getByTestId('txr-intake-study-outcome-progression-by-day'))
+    await waitFor(() => {
+      expect(screen.getByTestId('txr-intake-panel-fit-count').textContent).toBe(
+        `${TOTAL - CANNOT - 2} of ${TOTAL} methods fit`,
+      )
+    })
+    expect(screen.getByText(`${CANNOT + 2} methods are left out`)).toBeTruthy()
   })
 })

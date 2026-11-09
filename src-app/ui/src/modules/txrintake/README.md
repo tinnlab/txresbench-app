@@ -15,7 +15,7 @@ this module's barrel instead of a second implementation.
 | screen | board | route | what the user does |
 |---|---|---|---|
 | A Start | `Start.dc.html` | `/` | picks one of the three paths (pretrained / learn from my data / saved models) |
-| B Your study | `Criteria.dc.html` | `/study` | answers the six question groups; the live "N of M methods fit" panel updates as they answer |
+| B Your study | `Criteria.dc.html` | `/study` | answers the six question groups; the live "N of M methods fit" panel updates as they answer (before the first answer it invites; the no-published-environment count is its own line) |
 | C Your files | `Files.dc.html` | `/files` | drops the patients + measurements files; per-row problem reports, join and vocabulary offers |
 | N Add the patients to predict | `PredictFiles.dc.html` | `/predict-files` | drops the measurements file the pretrained/saved models run on |
 

@@ -319,6 +319,13 @@ html.dark .os-theme-dark {
     white-space: normal !important;
     word-break: break-word;
   }
+  /* R2-2: the required/optional cell must never break MID-WORD ("requi /
+     red") — the F10 fix let every cell wrap and split the one word the
+     column holds; the tag keeps its nowrap while the names and the
+     description columns wrap. */
+  .txr-intake-page .txr-intake-role-table td:nth-child(2) {
+    white-space: nowrap !important;
+  }
   .txr-intake-page .txr-intake-role-table td:first-child {
     min-width: 96px !important;
   }

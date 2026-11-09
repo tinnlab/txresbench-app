@@ -213,6 +213,13 @@ export interface LoadedFileView {
  * `marker name` for the marker, `result` / `reading` / `measurement` for the
  * value and `uom` / `unit of measure` for the unit. Nothing here is
  * auto-applied: the offer row carries the confirmation.
+ *
+ * R2-4 note (evidence, no entry): a `units` header needs NO suggestion — the
+ * validator's alias table already reads it (`rules.rs` `UNIT_ALIASES =
+ * ["unit", "units"]`; pinned by its alias-resolution test and by the
+ * fixture resolver below), so the unit is used, never "silently dropped".
+ * Adding `units → unit` here would offer a rename for a column the provider
+ * already reads.
  */
 export const COLUMN_RENAMES: Readonly<Record<FileTableKind, Readonly<Record<string, string>>>> = {
   patients: {

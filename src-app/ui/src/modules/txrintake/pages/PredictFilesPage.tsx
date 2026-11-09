@@ -123,7 +123,9 @@ const ASIDE_LIST: CSSProperties = {
   color: 'var(--txr-text-2)',
 }
 
-/** One aside item: the board's bold lead-in on its own line, then the fact. */
+/** One aside item: the board's bold lead-in runs INLINE with its fact (P1:
+ *  the old `<br/>` made the lead-in a block, so "Markers" ended its line
+ *  and ": ctDNA, LDH, …" started the next — the report's broken colon). */
 const ASIDE_ITEM: CSSProperties = { margin: '2px 0' }
 
 /** The board's "Not sure what you have?" note (the study clause is a link). */
@@ -475,25 +477,18 @@ export function PredictFilesPage() {
         </p>
         <ul style={ASIDE_LIST}>
           <li style={ASIDE_ITEM}>
-            <b>Before treatment</b>
-            <br />
-            (day 0): needed by almost all models
+            <b>Before treatment</b> (day 0): needed by almost all models
           </li>
           <li style={ASIDE_ITEM}>
-            <b>Early on treatment</b>
-            <br />
-            (about day 14 to 28): needed by the models that look at change
+            <b>Early on treatment</b> (about day 14 to 28): needed by the models that look at
+            change
           </li>
           <li style={ASIDE_ITEM}>
-            <b>Markers</b>
-            <br />
-            : ctDNA, LDH, blood counts and tumour markers are the most used. The more you measured,
-            the more models can run
+            <b>Markers</b>: ctDNA, LDH, blood counts and tumour markers are the most used. The
+            more you measured, the more models can run
           </li>
           <li style={ASIDE_ITEM}>
-            <b>Units</b>
-            <br />
-            : add the unit column so we can check that the scale matches the model
+            <b>Units</b>: add the unit column so we can check that the scale matches the model
           </li>
         </ul>
         <div style={ASIDE_NOTE}>

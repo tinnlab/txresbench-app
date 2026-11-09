@@ -36,7 +36,10 @@ import {
   buildStudyPreviewRequest,
   descriptiveSentence,
   excludedMethods,
+  excludedReasonLine,
   fitCounts,
+  hasStudyAnswers,
+  PREVIEW_ANSWER_INVITE,
   type FitCounts,
   type TxrPreviewFormatters,
 } from './preview'
@@ -98,11 +101,21 @@ function method(
   }
 }
 
-function response(methods: MethodEligibility[]): EligibilityResponse {
+function response(
+  methods: MethodEligibility[],
+  overrides: Partial<EligibilityResponse> = {},
+): EligibilityResponse {
   const total_fit = methods.filter(m => m.status === 'can_run').length
   const total_some = methods.filter(m => m.status === 'can_run_some').length
   const total_cannot = methods.filter(m => m.status === 'cannot_run').length
-  return { methods, total_fit, total_some, total_cannot, total_no_env: 0 }
+  return {
+    methods,
+    total_fit,
+    total_some,
+    total_cannot,
+    total_no_env: 0,
+    ...overrides,
+  }
 }
 
 describe('buildStudyPreviewRequest (TEST-INT-2)', () => {
@@ -144,21 +157,84 @@ describe('buildStudyPreviewRequest (TEST-INT-2)', () => {
   })
 })
 
-describe('fitCounts + panel copy (TEST-INT-2/13)', () => {
+describe('fitCounts + panel copy (TEST-INT-2/13, R2-1)', () => {
   it('derives the count split from the response totals', () => {
     const r = response([
       method('m-a', 'can_run', []),
       method('m-b', 'can_run_some', [{ code: 'MIN_DRAWS_UNMET' }]),
       method('m-c', 'cannot_run', [{ code: 'MARKER_GROUP_MISSING' }]),
     ])
-    expect(fitCounts(r)).toEqual({ total: 3, canRun: 1, some: 1, cannot: 1 })
+    expect(fitCounts(r)).toEqual({ total: 3, fit: 2, some: 1, leftOut: 1, noEnv: 0 })
+  })
+
+  it('separates the environment fact from the answer causes (R2-1)', () => {
+    // 359 methods: 41 can run, 4 env-absent with NO other reasons (they fit
+    // the study — the env line says they cannot start), 53 answer-caused
+    // left-outs, 261 env-absent with an answer cause too — the runtime
+    // stage reclassifies every env-absent method to cannot_run with
+    // ENV_IMAGE_MISSING pushed first, so `total_no_env` counts exactly
+    // those 265; the left-out count is the answer-only remainder.
+    const r = response(
+      [
+        ...Array.from({ length: 41 }, (_, i) => method(`fit-${i}`, 'can_run', [])),
+        ...Array.from({ length: 4 }, (_, i) =>
+          method(`env-only-${i}`, 'cannot_run', [{ code: 'ENV_IMAGE_MISSING' }]),
+        ),
+        ...Array.from({ length: 53 }, (_, i) =>
+          method(`ans-${i}`, 'cannot_run', [{ code: 'MARKER_GROUP_MISSING' }]),
+        ),
+        ...Array.from({ length: 261 }, (_, i) =>
+          method(`env-ans-${i}`, 'cannot_run', [
+            { code: 'ENV_IMAGE_MISSING' },
+            { code: 'MARKER_GROUP_MISSING' },
+          ]),
+        ),
+      ],
+      {
+        total_fit: 41,
+        total_some: 0,
+        total_cannot: 318,
+        total_no_env: 265,
+      },
+    )
+    const counts = fitCounts(r)
+    // fit = 41 runnable + 4 env-only (their answers fit; the env line is the
+    // separate fact); leftOut = 53 answer causes; noEnv = 265.
+    expect(counts).toEqual({ total: 359, fit: 45, some: 0, leftOut: 53, noEnv: 265 })
+    // The two independently-true sentences: the fit headline and the env
+    // line overlap only on the env-only answer fitters (45 − (359 − 53 − 265)).
+    expect(counts.fit - (counts.total - counts.leftOut - counts.noEnv)).toBe(4)
   })
 
   it('renders the board headline + left-out copy from the split, never a literal count', () => {
-    const fit: FitCounts = { total: 39, canRun: 22, some: 4, cannot: 13 }
-    expect(fitHeading(fit)).toBe('22 of 39 methods fit')
+    const fit: FitCounts = { total: 39, fit: 26, some: 4, leftOut: 13, noEnv: 0 }
+    expect(fitHeading(fit)).toBe('26 of 39 methods fit')
     expect(leftOutHeading(fit)).toBe('13 methods are left out')
     expect(someFitLine(fit)).toBe('4 can run for some patients')
+  })
+
+  it('noEnv positive leaves the heading as the answer causes (R2-1)', () => {
+    const fit: FitCounts = { total: 359, fit: 45, some: 0, leftOut: 53, noEnv: 265 }
+    expect(fitHeading(fit)).toBe('45 of 359 methods fit')
+    expect(leftOutHeading(fit)).toBe('53 methods are left out')
+  })
+})
+
+describe('hasStudyAnswers (R2-1 — the panel does not answer before the first answer)', () => {
+  it('is false for the birth state and true after the FIRST answer of any kind', () => {
+    expect(hasStudyAnswers(EMPTY_ANSWERS)).toBe(false)
+    expect(hasStudyAnswers({ ...EMPTY_ANSWERS, disease: 'lung' })).toBe(true)
+    expect(hasStudyAnswers({ ...EMPTY_ANSWERS, outcome: 'dynamic-risk' })).toBe(true)
+    expect(hasStudyAnswers({ ...EMPTY_ANSWERS, markerGroups: { ctdna: false } })).toBe(true)
+    expect(hasStudyAnswers({ ...EMPTY_ANSWERS, beforeTreatment: 'always' })).toBe(true)
+    expect(hasStudyAnswers({ ...EMPTY_ANSWERS, drawsDuringTreatment: 2 })).toBe(true)
+    expect(hasStudyAnswers({ ...EMPTY_ANSWERS, lastDrawDay: 56 })).toBe(true)
+  })
+
+  it('keeps the honest invite line constant', () => {
+    expect(PREVIEW_ANSWER_INVITE).toBe(
+      'Answer the questions above to see which methods fit your study.',
+    )
   })
 })
 
@@ -202,8 +278,8 @@ describe('descriptiveSentence (TEST-INT-2/examples)', () => {
   })
 })
 
-describe('excludedMethods (TEST-INT-2)', () => {
-  it('lists only the cannot_run verdicts, in response order, with one reason each', () => {
+describe('excludedMethods (TEST-INT-2, R2-1)', () => {
+  it('lists only the cannot_run verdicts with an ANSWER cause, in response order', () => {
     const r = response([
       method('m-a', 'can_run', []),
       method('m-b', 'cannot_run', [{ code: 'MARKER_GROUP_MISSING' }], {
@@ -220,6 +296,26 @@ describe('excludedMethods (TEST-INT-2)', () => {
       reasonText: 'needs markers from: Tumour DNA in blood (ctDNA)',
     })
     expect(excludedMethods(r, FORMATTERS)[1]).toEqual({ id: 'm-c', reasonText: 'needs 3 or more draws' })
+  })
+
+  it('leaves the ENV_IMAGE_MISSING verdicts to the panel env line (R2-1)', () => {
+    const r = response(
+      [
+        method('env-only', 'cannot_run', [{ code: 'ENV_IMAGE_MISSING' }]),
+        method('env-ans', 'cannot_run', [
+          { code: 'ENV_IMAGE_MISSING' },
+          { code: 'MARKER_GROUP_MISSING' },
+        ]),
+        method('answer', 'cannot_run', [{ code: 'MARKER_GROUP_MISSING' }]),
+      ],
+      { total_no_env: 2 },
+    )
+    expect(excludedMethods(r, FORMATTERS).map(m => m.id)).toEqual(['answer'])
+    // The shared E-vocabulary line for a env reason that reaches the line
+    // (the safety net: the panel never lists these rows, the reason text is
+    // still true if a consumer does).
+    const envOnly = method('env-only', 'cannot_run', [{ code: 'ENV_IMAGE_MISSING' }])
+    expect(excludedReasonLine(envOnly, FORMATTERS)).toBe('no published environment available')
   })
 
   it('renders the shared formatter line for a required marker (board bytes)', () => {

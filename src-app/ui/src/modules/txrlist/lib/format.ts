@@ -231,6 +231,17 @@ export function formatTotalTime(seconds: number | null): string {
   return `about ${minutes} ${minutes === 1 ? 'minute' : 'minutes'} in total`
 }
 
+/**
+ * The no-environment honesty line (CM-1, one vocabulary for the method list
+ * AND the screen-B panel): "N of M methods have no published environment and
+ * can't start." The count is `total_no_env` — the catalogue methods with no
+ * published environment (the list still shows them; the statement is the
+ * deployment fact, stated plainly, never a raw code).
+ */
+export function formatNoEnvLine(noEnv: number, total: number): string {
+  return `${noEnv} of ${total} methods have no published environment and can't start.`
+}
+
 /** The itemLabel plural: "method" → "methods" (the singular for n === 1). */
 export function pluralize(itemLabel: 'method' | 'model', n: number): string {
   return n === 1 ? itemLabel : `${itemLabel}s`

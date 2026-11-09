@@ -114,35 +114,51 @@ test.describe('txr-intake-full — the real backend (TEST-INT-17)', () => {
   test('screen B — the live fit panel answers the real eligibility endpoint', async ({ page }) => {
     await page.goto('/study')
 
-    // The panel's first verdict (default answers: no marker group checked,
-    // draw schedule always / 1 draw / day 56) — the real catalogue's 359
-    // methods, 41 of which fit (qa-fixes ITEM-2 CM-1: only the methods with
-    // a published environment can start — the panel's honest count).
-    const fitCount = page.getByTestId('txr-intake-panel-fit-count')
-    await expect(fitCount).toHaveText('41 of 359 methods fit', { timeout: 60_000 })
-    await expect(page.getByTestId('txr-intake-panel-excluded')).toContainText(
-      '318 methods are left out',
+    // R2-1: with NOTHING answered the panel says what to do — no count, no
+    // request (the old page reported "N of M methods fit" from an all-false /
+    // default-schedule body the user never composed).
+    await expect(page.getByTestId('txr-intake-panel-sentence')).toHaveText(
+      'Answer the questions above to see which methods fit your study.',
     )
-    // No can-run-for-some row: the real response reports zero.
-    await expect(page.getByTestId('txr-intake-panel-some')).toHaveCount(0)
+    await expect(page.getByTestId('txr-intake-panel-fit-count')).toHaveCount(0)
+    await expect(page.getByTestId('txr-intake-panel-excluded')).toContainText(
+      'Methods are left out',
+    )
 
     // The board's group checkboxes come from the real vocabulary (PROV-MC-4).
     await expect(page.getByTestId('txr-intake-study-group-ctdna')).toBeVisible()
     await expect(page.getByTestId('txr-intake-study-group-counts')).toBeVisible()
 
-    // "This updates as you answer": ticking ctDNA re-runs the eligibility and
-    // the count moves (41 → 42 — the real catalogue's verdicts).
-    await expect(page.getByTestId('txr-intake-panel-sentence')).toHaveText(
-      'This updates as you answer.',
-    )
+    // The first answer flips the panel: the real catalogue's verdicts — 176
+    // answer-fit methods (the runnable set plus the env-absent methods whose
+    // only reason is the environment), the "can't start yet" fact separated
+    // (R2-1), and the left-out count as the ANSWER causes only (a method
+    // with no published environment is never reported as "doesn't fit with
+    // these answers").
     await page.getByTestId('txr-intake-study-group-ctdna').click()
-    await expect(fitCount).toHaveText('42 of 359 methods fit', { timeout: 60_000 })
+    const fitCount = page.getByTestId('txr-intake-panel-fit-count')
+    await expect(fitCount).toHaveText('176 of 359 methods fit', { timeout: 60_000 })
+    await expect(page.getByTestId('txr-intake-panel-no-env')).toHaveText(
+      "265 of 359 methods have no published environment and can't start.",
+    )
+    await expect(page.getByTestId('txr-intake-panel-excluded')).toContainText(
+      '52 methods are left out',
+    )
+    // No can-run-for-some row: the real response reports zero.
+    await expect(page.getByTestId('txr-intake-panel-some')).toHaveCount(0)
     await expect(page.getByTestId('txr-intake-panel-sentence')).toHaveText(
       'with ctDNA. This updates as you answer.',
     )
-    await expect(page.getByTestId('txr-intake-panel-excluded')).toContainText(
-      '317 methods are left out',
-    )
+
+    // The left-out rows carry the TRUE answer reasons (the shared E-vocabulary
+    // lines), never the env fallback. The first visible row is the response's
+    // first answer-gated method; "needs 5 or more draws" is a draw-schedule
+    // cause, neither exists without an answer.
+    const excluded = page.getByTestId('txr-intake-panel-excluded')
+    await expect(excluded).toContainText('asm-best-change-rule')
+    await expect(excluded).toContainText('needs markers from:')
+    await expect(excluded).toContainText('needs 5 or more draws')
+    await expect(excluded).not.toContainText("doesn't fit with these answers")
   })
 
   test('screen C — the committed examples through the real inspect/validate flow', async ({
@@ -197,14 +213,18 @@ test.describe('txr-intake-full — the real backend (TEST-INT-17)', () => {
 
     // The example files carry the provider's own two A04 notes (the a.u.
     // unit is not a recognizable family — warning severity, never a gate;
-    // the notes live in their own group, qa-fixes ITEM-6 F5d).
+    // R2-6: a ready file WITH notes is the distinct warning-toned
+    // "Ready, with notes" state, not the green all-clear).
     const problems = page.getByTestId('txr-intake-file-notes-measurements')
-    await expect(measurementsStatus).toContainText('2 notes')
-    // The provider's markdown backticks are stripped for display (ITEM-6 F5e).
+    await expect(measurementsStatus).toContainText('Ready, with 2 notes')
+    // The provider's markdown backticks are stripped for display (ITEM-6 F5e);
+    // R2-5: the two notes are one grouped line each + the codes disclosure.
     await expect(problems).toContainText(
       "column M1 unit 'a.u.' is not a recognizable unit family — no scale assumption is made",
     )
-    await expect(problems.getByRole('listitem')).toHaveCount(2)
+    await expect(problems.locator(':scope > li')).toHaveCount(3)
+    // R2-3: the codes are out of the sentences — one details disclosure.
+    await expect(problems.getByTestId('txr-intake-file-notes-codes-measurements')).toBeVisible()
 
     // Warnings never block (DEC-10): Continue is enabled.
     await expect(page.getByTestId('txr-intake-continue')).toBeEnabled()

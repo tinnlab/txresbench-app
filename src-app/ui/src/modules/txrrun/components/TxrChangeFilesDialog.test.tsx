@@ -208,9 +208,11 @@ describe('TxrChangeFilesDialog (E change-files, TEST-RUN-14)', () => {
       validation: null,
     })
     renderDialog('study')
-    // Before the re-validation: the two cards' neutral inspected state
-    // (one line per card — the dialog hosts the provider's surface).
-    expect(screen.getAllByText('We check each file as soon as you choose it.')).toHaveLength(2)
+    // Before the re-validation: the two cards' explicit checking state
+    // (R2-7 — the spinner + "Checking the file…", one per card; both files
+    // are in the store, so no "once both are here" wait).
+    expect(screen.getAllByText('Checking the file…')).toHaveLength(2)
+    expect(screen.getAllByRole('status', { name: 'Checking the file' })).toHaveLength(2)
     // The provider's re-validation lands in the ONE store slot; the card
     // re-renders its green box from it (no second fetch, no local parse).
     TxrIntake.applyValidation(validation(36), TxrIntake.currentValidationKey())

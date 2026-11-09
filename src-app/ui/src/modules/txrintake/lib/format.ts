@@ -129,13 +129,14 @@ export function groupShortName(groupId: string): string {
 }
 
 /** The panel headline ("N of M methods fit" — the board's example count is data). */
-export function fitHeading(fit: Readonly<{ total: number; canRun: number }>): string {
-  return `${fit.canRun} of ${fit.total} methods fit`
+export function fitHeading(fit: Readonly<{ total: number; fit: number }>): string {
+  return `${fit.fit} of ${fit.total} methods fit`
 }
 
-/** The excluded-list heading ("N methods are left out" — board copy). */
-export function leftOutHeading(fit: Readonly<{ cannot: number }>): string {
-  return `${fit.cannot} methods are left out`
+/** The excluded-list heading ("N methods are left out" — board copy; N is
+ *  the ANSWER-caused count, R2-1 — the environment fact has its own line). */
+export function leftOutHeading(fit: Readonly<{ leftOut: number }>): string {
+  return `${fit.leftOut} methods are left out`
 }
 
 /**

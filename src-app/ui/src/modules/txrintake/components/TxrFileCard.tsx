@@ -35,7 +35,7 @@
  */
 
 import type { CSSProperties } from 'react'
-import { Alert, Button } from '@ziee/kit'
+import { Alert, Button, Spinner } from '@ziee/kit'
 import { useStore } from 'zustand'
 import type { FileTableKind } from '@/api-client/types'
 import {
@@ -245,7 +245,11 @@ const DOWNLOAD_LINK: CSSProperties = {
 }
 const DOWNLOAD_LINK_PLAIN: CSSProperties = { ...DOWNLOAD_LINK, fontWeight: 400 }
 
-/** Status boxes: green ready, red problems, the neutral "checking" state. */
+/** Status boxes: green ready, red problems, the neutral "checking" state,
+ *  and the READY-WITH-NOTES state (R2-6: the green "Ready." card carrying
+ *  warning notes contradicted itself — the box turns warning-toned and the
+ *  notes group reads "Ready, with N notes" instead of a quiet "N notes"
+ *  under a green all-clear). */
 const STATUS: CSSProperties = {
   padding: '12px 16px',
   borderRadius: 10,
@@ -254,6 +258,11 @@ const STATUS: CSSProperties = {
   gap: 4,
 }
 const STATUS_GOOD: CSSProperties = { ...STATUS, border: '1px solid var(--txr-success-border)', background: 'var(--txr-success-soft-2)' }
+const STATUS_GOOD_NOTES: CSSProperties = {
+  ...STATUS,
+  border: '1px solid var(--txr-warning)',
+  background: 'var(--txr-bg)',
+}
 const STATUS_BAD: CSSProperties = { ...STATUS, border: '1px solid var(--txr-danger-border)', background: 'var(--txr-danger-soft)' }
 const STATUS_NEUTRAL: CSSProperties = {
   ...STATUS,
@@ -265,6 +274,11 @@ const STATUS_HEADING: CSSProperties = { fontWeight: 700, margin: 0 }
 const STATUS_GOOD_HEADING: CSSProperties = { ...STATUS_HEADING, color: 'var(--txr-success)' }
 const STATUS_BAD_HEADING: CSSProperties = { ...STATUS_HEADING, color: 'var(--txr-danger)' }
 const STATUS_LINE: CSSProperties = { fontSize: 13.5, color: 'var(--txr-text-2)', margin: 0 }
+
+/** The checking line's row (R2-7: an explicit progress state between the
+ *  pick and the check finishing — the old neutral box repeated the page's
+ *  intro and looked finished while the validation was still running). */
+const CHECKING_LINE: CSSProperties = { ...STATUS_LINE, display: 'flex', alignItems: 'center', gap: 8 }
 
 /** A warning-only group under the ready box (warnings never block, DEC-10). */
 const WARNING_GROUP: CSSProperties = {
@@ -317,6 +331,14 @@ export function TxrFileCard(props: TxrFileCardProps) {
   // see the header: the status box's facts are the store's last validated
   // response, never a per-mount fetch or a second copy.
   const validation = useStore(useTxrIntakeStore, s => s.validation)
+  // R2-7: the C screen's check needs BOTH files — the patients card's
+  // "checking" state before the measurements file exists would be a lie
+  // (the flow is not running; the page's footer says both files are
+  // needed). The sibling slot tells the two states apart.
+  const siblingFile = useStore(useTxrIntakeStore, s =>
+    mode === 'study' ? (kind === 'patients' ? s.measurements : s.patients) : null,
+  )
+  const waitingForSibling = mode === 'study' && siblingFile === null
   const spec = cardSpec(mode, kind)
   const exampleRows = (file?.table.rows ?? []).slice(0, EXAMPLE_ROW_LIMIT)
   const problems = file?.problems ?? []
@@ -324,7 +346,10 @@ export function TxrFileCard(props: TxrFileCardProps) {
   const errorsOnly = problems.filter(problem => problem.severity === 'error')
   const rowCount = cardRowCount(file)
   const status = validation !== null ? statusFor(mode, kind, validation) : null
-  const showStatusBox = file !== null && file.inspection !== null
+  // R2-7: the status box shows as soon as the file is ADOPTED (its inspecting/
+  // validating state is an explicit phase — the old box appeared only after
+  // the inspect, leaving the card silently in-between for seconds).
+  const showStatusBox = file !== null
   const warnings = problems.filter(problem => problem.severity === 'warning')
   const hasNoDataRows = fileHasNoDataRows(file)
   // ITEM-6 F5d: the red box counts and lists ERROR problems; warnings are
@@ -334,6 +359,15 @@ export function TxrFileCard(props: TxrFileCardProps) {
     (file?.joinOffers.length ?? 0) > 0 ||
     (file?.vocabOffers.length ?? 0) > 0 ||
     (file?.columnOffers.length ?? 0) > 0
+  // R2-4: while the mapping/join/vocabulary suggestions are pending they are
+  // the action to take, and the problem list is HIDDEN — the renamed-file
+  // case offered its suggestions BELOW a 1,894-line red wall; the list
+  // reappears once the offers are declined (or accepted — the rename
+  // re-validates and the problems are re-derived from the canonical table).
+  const showProblemDetails = !hasOffers
+  // R2-6: a file that is READY but carries warning notes is not the green
+  // all-clear ("Ready, with notes" is its own state — see the styles above).
+  const readyWithNotes = status !== null && warnings.length > 0 && !hasNoDataRows
 
   return (
     <section style={CARD} data-testid={`txr-intake-file-card-${kind}`}>
@@ -345,10 +379,18 @@ export function TxrFileCard(props: TxrFileCardProps) {
 
       <div style={CARD_RIGHT}>
         {file !== null ? (
-          <>
-            <div style={EXAMPLE_LABEL}>Example (first rows)</div>
-            <FirstRows columns={file.table.columns} rows={exampleRows} />
-          </>
+          exampleRows.length > 0 ? (
+            <>
+              <div style={EXAMPLE_LABEL}>Example (first rows)</div>
+              <FirstRows columns={file.table.columns} rows={exampleRows} />
+            </>
+          ) : (
+            // R2-8: a header-only file's "Example (first rows)" was an empty
+            // table — the honest line instead.
+            <div data-testid={`txr-intake-file-no-rows-${kind}`} style={EXAMPLE_LABEL}>
+              No data rows to show.
+            </div>
+          )
         ) : (
           <div style={EXAMPLE_LABEL}>The columns we look for are on the left.</div>
         )}
@@ -382,80 +424,9 @@ export function TxrFileCard(props: TxrFileCardProps) {
           <TxrFileDrop kind={kind} busy={busy} onPick={onPick} />
         ) : null}
 
-        {showStatusBox ? (
-          <div
-            data-testid={`txr-intake-file-status-${kind}`}
-            style={
-              errors || hasNoDataRows
-                ? STATUS_BAD
-                : status !== null
-                  ? STATUS_GOOD
-                  : STATUS_NEUTRAL
-            }
-          >
-            {errors || hasNoDataRows ? (
-              <>
-                {hasNoDataRows ? (
-                  <div style={STATUS_BAD_HEADING}>This file has no data rows</div>
-                ) : (
-                  <div style={STATUS_BAD_HEADING}>
-                    {errorCount} problem{errorCount === 1 ? '' : 's'}
-                    {rowCount !== null && rowCount > 0
-                      ? ` in ${rowCount} row${rowCount === 1 ? '' : 's'}`
-                      : ''}
-                  </div>
-                )}
-                <TxrProblemList kind={kind} problems={errorsOnly} />
-                {warnings.length > 0 ? (
-                  <div style={WARNING_GROUP}>
-                    <div style={WARNING_TITLE}>
-                      {warnings.length} note{warnings.length === 1 ? '' : 's'}
-                    </div>
-                    <TxrProblemList kind={kind} group="notes" problems={warnings} />
-                  </div>
-                ) : null}
-                <Button
-                  variant="link"
-                  data-testid={`txr-intake-file-fix-${kind}`}
-                  style={FIX_LINK}
-                  onClick={onRemove}
-                >
-                  Fix and choose the file again
-                </Button>
-              </>
-            ) : status !== null ? (
-              <>
-                <div style={STATUS_GOOD_HEADING}>{status.heading}</div>
-                <p style={STATUS_LINE}>{status.line}</p>
-                {warnings.length > 0 ? (
-                  <div style={WARNING_GROUP}>
-                    <div style={WARNING_TITLE}>
-                      {warnings.length} note{warnings.length === 1 ? '' : 's'}
-                    </div>
-                    <TxrProblemList kind={kind} group="notes" problems={warnings} />
-                  </div>
-                ) : null}
-              </>
-            ) : (
-              <>
-                <div style={STATUS_HEADING}>
-                  {rowCount !== null ? `${rowCount} rows read` : 'File read'}
-                </div>
-                <p style={STATUS_LINE}>We check each file as soon as you choose it.</p>
-                {warnings.length > 0 ? <TxrProblemList kind={kind} group="notes" problems={warnings} /> : null}
-                <Button
-                  variant="link"
-                  data-testid={`txr-intake-file-choose-again-${kind}`}
-                  style={FIX_LINK}
-                  onClick={onRemove}
-                >
-                  Choose a different file
-                </Button>
-              </>
-            )}
-          </div>
-        ) : null}
-
+        {/* R2-4: the suggestions come FIRST — the pending question is the
+            action to take; the status box's problem list follows (and is
+            hidden until the offers are resolved). */}
         {hasOffers ? (
           <div style={OFFERS}>
             {(file?.joinOffers ?? []).map(offer => (
@@ -482,6 +453,102 @@ export function TxrFileCard(props: TxrFileCardProps) {
                 onReject={onRejectColumn}
               />
             ))}
+          </div>
+        ) : null}
+
+        {showStatusBox ? (
+          <div
+            data-testid={`txr-intake-file-status-${kind}`}
+            style={
+              errors || hasNoDataRows
+                ? STATUS_BAD
+                : status !== null
+                  ? readyWithNotes
+                    ? STATUS_GOOD_NOTES
+                    : STATUS_GOOD
+                  : STATUS_NEUTRAL
+            }
+          >
+            {errors || hasNoDataRows ? (
+              <>
+                {hasNoDataRows ? (
+                  <div style={STATUS_BAD_HEADING}>This file has no data rows</div>
+                ) : (
+                  <div style={STATUS_BAD_HEADING}>
+                    {errorCount} problem{errorCount === 1 ? '' : 's'}
+                    {rowCount !== null && rowCount > 0
+                      ? ` in ${rowCount} row${rowCount === 1 ? '' : 's'}`
+                      : ''}
+                  </div>
+                )}
+                {showProblemDetails ? (
+                  <>
+                    <TxrProblemList kind={kind} problems={errorsOnly} />
+                    {/* R2-8: a header-only file's warning notes (R14's "fewer
+                        than 10 patients …") describe rows that do not exist —
+                        the "no data rows" heading is the one true fact. */}
+                    {warnings.length > 0 && !hasNoDataRows ? (
+                      <div style={WARNING_GROUP}>
+                        <div style={WARNING_TITLE}>
+                          {warnings.length} note{warnings.length === 1 ? '' : 's'}
+                        </div>
+                        <TxrProblemList kind={kind} group="notes" problems={warnings} />
+                      </div>
+                    ) : null}
+                  </>
+                ) : null}
+                <Button
+                  variant="link"
+                  data-testid={`txr-intake-file-fix-${kind}`}
+                  style={FIX_LINK}
+                  onClick={onRemove}
+                >
+                  Fix and choose the file again
+                </Button>
+              </>
+            ) : status !== null ? (
+              <>
+                <div style={STATUS_GOOD_HEADING}>{status.heading}</div>
+                <p style={STATUS_LINE}>{status.line}</p>
+                {showProblemDetails && warnings.length > 0 ? (
+                  <div style={WARNING_GROUP}>
+                    <div style={WARNING_TITLE}>
+                      {readyWithNotes
+                        ? `Ready, with ${warnings.length} note${warnings.length === 1 ? '' : 's'}`
+                        : `${warnings.length} note${warnings.length === 1 ? '' : 's'}`}
+                    </div>
+                    <TxrProblemList kind={kind} group="notes" problems={warnings} />
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <div style={STATUS_HEADING}>
+                  {rowCount !== null ? `${rowCount} rows read` : 'File read'}
+                </div>
+                <p style={STATUS_LINE}>
+                  {waitingForSibling ? (
+                    'We check the files once both are here.'
+                  ) : (
+                    <span style={CHECKING_LINE}>
+                      <Spinner size="sm" label="Checking the file" />
+                      Checking the file…
+                    </span>
+                  )}
+                </p>
+                {showProblemDetails && warnings.length > 0 ? (
+                  <TxrProblemList kind={kind} group="notes" problems={warnings} />
+                ) : null}
+                <Button
+                  variant="link"
+                  data-testid={`txr-intake-file-choose-again-${kind}`}
+                  style={FIX_LINK}
+                  onClick={onRemove}
+                >
+                  Choose a different file
+                </Button>
+              </>
+            )}
           </div>
         ) : null}
       </div>
