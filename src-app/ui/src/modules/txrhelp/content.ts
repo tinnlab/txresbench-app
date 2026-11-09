@@ -25,13 +25,12 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     blocks: [
       {
         kind: 'paragraph',
-        text: 'TxResBench is a desktop application for clinicians: it predicts treatment response from repeated blood biomarker measurements, on your own computer. You bring two tables — one row per patient with their outcome, and one row per blood draw and marker — the methods are trained or applied on your machine, and you see per-patient predictions for every method you ran.',
+        text: 'TxResBench predicts treatment response from repeated blood biomarker measurements. You bring two tables — one row per patient with their outcome, and one row per blood draw and marker — and you see per-patient predictions for every method you ran.',
       },
       {
         kind: 'bullets',
         items: [
-          'It runs entirely on your computer: no account, no sign-up, no queue.',
-          'Every method runs in its own isolated environment on your machine.',
+          'Every method runs in its own isolated environment.',
           'You can train many methods at once and compare their per-patient predictions.',
           'You can save the trained models, reuse them on new patients, and return to any past run from the history.',
         ],
@@ -126,8 +125,8 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
         kind: 'bullets',
         items: [
           'Can run — the method has everything it needs on every patient. Can run for some patients — it will run where the requirements are met; the row says who. Cannot run — the row is greyed out and a reason is shown (a marker missing from your file, not enough draws, extra inputs your file lacks, an outcome column your file lacks, or units that do not match).',
-          'The estimate: each method\'s time is the benchmark\'s measured runtime, scaled to your file — about 150 patients and 4 CPUs are the reference, so more patients or fewer CPUs lengthen the estimate; the bottom bar sums your selection ("about 14 minutes in total on this computer"), packed onto the run-at-a-time lanes you choose.',
-          'The app runs each method in its own sandbox: nothing you do here affects the machine, and the method cannot reach the network while it runs.',
+          'The estimate: each method\'s time is the benchmark\'s measured runtime, scaled to your file — about 150 patients and 4 CPUs are the reference, so more patients or fewer CPUs lengthen the estimate; the bottom bar sums your selection ("about 14 minutes in total"), packed onto the run-at-a-time lanes you choose.',
+          'Each method runs in its own sandbox and cannot reach the network while it runs.',
           '"Run at a time" is how many methods run side by side; a lower number uses less memory and CPU. "Save the trained models" keeps each trained method so you can reuse it on new patients without re-training.',
           'The notice under the list is part of the app: the predictions are for research, not for deciding a patient\'s treatment.',
         ],
@@ -166,9 +165,9 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
       {
         kind: 'bullets',
         items: [
-          'Pretrained models — the project\'s published models, checked against your measurements file on the "choose the models" screen: which ones can run on your file, what they were learned on, how they performed on other cohorts, and their time. Models not bundled with the app are downloaded once and then stay local.',
-          'Saved models — the models you trained here, one section per training run, kept on your computer. Add the patients to predict and pick from them: the training data never has to be re-uploaded, and the app checks the new patients have the markers each model needs.',
-          'Your models — the inventory of everything kept on this computer: model, method, what it predicts, decision day, where it was trained and when it was made. Rename, export or delete; "Open a model file" and the folder buttons open the files in your file manager.',
+          'Pretrained models — the project\'s published models, checked against your measurements file on the "choose the models" screen: which ones can run on your file, what they were learned on, how they performed on other cohorts, and their time. Models not bundled with the app are downloaded once and then reused.',
+          'Saved models — the models you trained, one section per training run. Add the patients to predict and pick from them: the training data never has to be re-uploaded, and the app checks the new patients have the markers each model needs.',
+          'Your models — the inventory of everything you saved: model, method, what it predicts, decision day, what it was trained on and when it was made. Rename, export or delete; "Open a model file" and the folder buttons reveal the saved files.',
         ],
       },
       {
@@ -183,7 +182,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     blocks: [
       {
         kind: 'paragraph',
-        text: 'History lists everything you ran on this computer, newest first: each card\'s title, status, date, what it used and how long it took. Open one and you get the run\'s files, settings, per-method versions and durations, and its actions — open the results, run again with the same settings, download the predictions, open the folder, or show the run log for troubleshooting.',
+        text: 'History lists everything you ran, newest first: each card\'s title, status, date, what it used and how long it took. Open one and you get the run\'s files, settings, per-method versions and durations, and its actions — open the results, run again with the same settings, download the predictions, open the folder, or show the run log for troubleshooting.',
       },
       {
         kind: 'bullets',
@@ -197,33 +196,32 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
   },
   {
     id: 'privacy',
-    title: 'Privacy and the network',
+    title: 'Privacy',
     blocks: [
       {
         kind: 'paragraph',
-        text: 'Your data never leaves your computer. There is no account, no analytics, no tracking, and nothing is uploaded: the files you drop, the runs, the trained models and the history are read and written locally only.',
+        text: 'The app does not track you and uses no analytics. Your files are used only to run the analyses you start. You can delete runs, models and history yourself.',
       },
       {
         kind: 'bullets',
         items: [
-          'The only network use is planned and narrow: downloading a method\'s analysis environment from the project\'s container registry (once per method; later runs reuse the cached copy), downloading a pretrained model that is not bundled with the app, and one silent check for an application update when the app starts.',
+          'A method\'s analysis environment is downloaded once and reused by later runs.',
           'While a method runs, its sandbox has no network access at all.',
-          'The app is made for single-user use on one machine: there is no cloud, no queue and no account anywhere between you and your results.',
         ],
       },
     ],
   },
   {
     id: 'data-location',
-    title: 'Where your data lives',
+    title: 'What the app keeps',
     blocks: [
       {
         kind: 'paragraph',
-        text: 'Everything the app keeps sits under one hidden folder in your home directory, named .txresbench: the run database, the per-run folders (analysis-<date>-<time>-<id> — your files, the trained models and the predictions), the saved models, the downloaded analysis environments and the app\'s cache. The result screens\' "open the folder" affordance reveals a run\'s folder in your file manager, and the models folder is shown on the Your models screen.',
+        text: 'The app keeps the run database, the per-run folders (your files, the trained models and the predictions), the saved models, the downloaded analysis environments and its cache.',
       },
       {
         kind: 'note',
-        text: 'Uninstalling the app does not delete this folder; remove runs from History (with their file copies) and delete the models you no longer need to reclaim space.',
+        text: 'Remove runs from History (with their file copies) and delete the models you no longer need to reclaim space.',
       },
     ],
   },

@@ -2146,8 +2146,8 @@ export interface EligibilityResponse {
   /**
    * The `cannot_run` methods whose reason is
    *  [`ReasonCode::EnvImageMissing`] — the count of catalogue methods the
-   *  app cannot actually start (no published environment on this
-   *  computer), so the list header can say how many exist while still
+   *  app cannot actually start (no published environment available), so the
+   *  list header can say how many exist while still
    *  listing them.
    */
   total_no_env: number
@@ -2222,7 +2222,7 @@ export interface EstimateRequest {
 /**
  * The estimate response: per-method seconds, the plain sum, and the
  *  longest-processing-time schedule total over the `at_a_time` lanes (the
- *  bottom-bar "about X minutes in total on this computer"). `cpus` is the
+ *  bottom-bar "about X minutes in total"). `cpus` is the
  *  count actually used (the posted value, or the run's own resolution —
  *  [`estimate::host_cpus`] — when omitted), so the consumer can show the
  *  number the estimate was scaled to.
@@ -5623,7 +5623,7 @@ export interface SandboxStatus {
 export interface SaveModelsRequest {
   /**
    * Also write `<data_root>/models/exports/<set-name-slug>-<id8>.txr`
-   *  (the L board's "Also save as a file to move to another computer").
+   *  (the "Also save as a file" checkbox).
    */
   also_export?: boolean
   /**

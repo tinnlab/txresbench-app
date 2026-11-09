@@ -418,7 +418,7 @@ pub fn eligibility_for_runtime(
 }
 
 /// The RUNTIME-ENV stage (CM-1's fix): a catalogue method with no published
-/// environment on this computer can never start (the engine's run-start
+/// environment can never start (the engine's run-start
 /// `ENV_UNKNOWN`), so every such verdict is reclassified to `cannot_run` with
 /// [`ReasonCode::EnvImageMissing`] pushed FIRST (the first reason is the row's
 /// one detail line + the engine's run-row reason), the totals are recomputed,
@@ -2147,7 +2147,7 @@ mod tests {
     }
 
     /// CM-1: the runtime-env stage reclassifies every catalogue method with no
-    /// published environment on this computer to `cannot_run`, pushes
+    /// published environment to `cannot_run`, pushes
     /// `ENV_IMAGE_MISSING` FIRST (the row's one detail line + the engine's
     /// run-row reason), and counts them in `total_no_env` — the pure engine
     /// (the test seam) carries no env facts. The two ids are REAL manifest

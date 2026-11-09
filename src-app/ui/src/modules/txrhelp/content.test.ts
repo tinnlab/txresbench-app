@@ -116,8 +116,8 @@ describe('help content — sections (TEST-HELP-1)', () => {
       'Reading results',
       'Saved models and pretrained models',
       'Run history',
-      'Privacy and the network',
-      'Where your data lives',
+      'Privacy',
+      'What the app keeps',
       'Troubleshooting',
     ]) {
       expect(titles).toContain(subject)

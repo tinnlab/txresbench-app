@@ -434,8 +434,8 @@ TXHISTORY_DETAILS[TXHISTORY_RUN_COPIES_CLEARED.id] = {
 }
 
 /**
- * A usage figure (the footer's "N runs · … uses N MB on this computer.
- * Your data never leaves it."): the family's 6 runs with the 289 MiB
+ * A usage figure (the footer's "N runs · … uses N MB of stored files.
+ * Delete a run to free the space."): the family's 6 runs with the 289 MiB
  * total is `fixtureUsage(6, …)`; a scoped story (the empty state's 0
  * runs, the paging family's 25) seeds its own consistent figure. The
  * segment split follows the fixed ratios (runs 70% / models 25% /

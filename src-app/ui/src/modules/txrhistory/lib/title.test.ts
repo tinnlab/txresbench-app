@@ -154,12 +154,12 @@ describe('modelLinks (TEST-HIST-6 — named sets only, never a fabricated name)'
 describe('K copy constants (TEST-HIST-6 — board verbatim)', () => {
   it('pins the screen subtitle to the board bytes exactly', () => {
     expect(HISTORY_SUBTITLE).toBe(
-      'Everything you ran on this computer, newest first. Open a result again, or run it again with the same settings.',
+      'Everything you ran, newest first. Open a result again, or run it again with the same settings.',
     )
   })
 
   it('pins the footer trailing sentence to the board bytes exactly', () => {
-    expect(HISTORY_USAGE_TRAIL).toBe('on this computer. Your data never leaves it.')
+    expect(HISTORY_USAGE_TRAIL).toBe('of stored files. Delete a run to free the space.')
   })
 
   it('pins the four filter labels to the board bytes exactly', () => {

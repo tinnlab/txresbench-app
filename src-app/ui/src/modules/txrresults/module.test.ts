@@ -221,7 +221,11 @@ describe('txrresults module (TEST-UR-13)', () => {
           p !== 'src-app/ui/src/modules/txrshell/gallery.tsx' &&
           // qa-fixes2 ITEM-1 (the theme switch): the new toggle component + its unit test.
           p !== 'src-app/ui/src/modules/txrshell/TxrThemeToggle.tsx' &&
-          p !== 'src-app/ui/src/modules/txrshell/TxrThemeToggle.test.tsx' ,
+          p !== 'src-app/ui/src/modules/txrshell/TxrThemeToggle.test.tsx' &&
+          // qa-fixes2 ITEM-2 (the location-neutral copy guard): its test file
+          // + allow-list, the item's own new txrshell files.
+          p !== 'src-app/ui/src/modules/txrshell/lib/copyGuard.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/copyGuard.allowlist.json' ,
 
       ),
     ).toEqual([])

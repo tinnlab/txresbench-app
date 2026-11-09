@@ -60,16 +60,16 @@ import type { TxrChipTone } from '../types'
  * ran" carry no numbers).
  */
 export const HISTORY_SUBTITLE =
-  'Everything you ran on this computer, newest first. Open a result again, or run it again with the same settings.'
+  'Everything you ran, newest first. Open a result again, or run it again with the same settings.'
 
 /**
- * The footer usage line's trailing sentence (board verbatim): "… uses N MB
- * on this computer. Your data never leaves it." — the size figure and the
+ * The footer usage line's trailing sentence: "… uses N MB of stored files.
+ * Delete a run to free the space." — the size figure and the
  * path segment are the provider's (`TxrHistoryUsage`), composed by the
- * footer component; this constant keeps the promise line verbatim in one
+ * footer component; this constant keeps the storage line verbatim in one
  * place.
  */
-export const HISTORY_USAGE_TRAIL = 'on this computer. Your data never leaves it.'
+export const HISTORY_USAGE_TRAIL = 'of stored files. Delete a run to free the space.'
 
 /** The formatter options of `formatDurationWords` (`estimate: true` reads
  *  the duration in the board's estimate words — whole minutes). */

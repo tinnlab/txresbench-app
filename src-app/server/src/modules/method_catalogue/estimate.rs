@@ -1,6 +1,6 @@
 //! ITEM-4 — the time-estimate engine (PROV-MC-6/7): per-method seconds via the
 //! DEC-7 shape and the run-N-at-a-time schedule total (the bottom-bar "about X
-//! minutes in total on this computer").
+//! minutes in total").
 //!
 //! ## The estimate model (DEC-7)
 //!
@@ -224,7 +224,7 @@ fn validate_estimate_request(req: &EstimateRequest) -> Result<u32, EstimateError
 }
 
 /// The runtime-availability refusal stage over the pure core: a catalogue
-/// method with no published environment on this computer is never estimated
+/// method with no published environment is never estimated
 /// (the honest answer to "how long will it take" is that it will not start —
 /// the E screen's rows are disabled on this verdict, so the UI never asks;
 /// a stray id is refused, never summed). The HTTP surface's seat.
@@ -548,7 +548,7 @@ mod tests {
     #[test]
     fn runtime_surface_refuses_methods_without_a_published_environment() {
         // The CM-1 refusal: the estimate of a known catalogue method with no
-        // published environment on this computer is METHOD_NOT_RUNNABLE (the
+        // published environment is METHOD_NOT_RUNNABLE (the
         // E screen never asks — its rows are disabled — a stray id is refused,
         // never summed). `crp-flare-response-kinetics` is a committed
         // catalogue method NOT in the embedded manifest; `asm-best-change-rule`

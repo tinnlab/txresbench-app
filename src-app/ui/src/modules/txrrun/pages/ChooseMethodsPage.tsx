@@ -182,7 +182,7 @@ const PENDING_REFRESH_LINE = 'Re-check your files to see what can run.'
 const NO_ENV_LINE: CSSProperties = { margin: 0, fontSize: 12.5, color: 'var(--txr-warning)' }
 
 export function noEnvLine(noEnv: number, total: number): string {
-  return `${noEnv} of ${total} methods have no published environment on this computer and can't start.`
+  return `${noEnv} of ${total} methods have no published environment and can't start.`
 }
 
 /** The run statuses DEC-18 calls "active" (the one-active-run 409's target). */

@@ -147,7 +147,7 @@ describe('txrhistory module (TEST-HIST-1)', () => {
     expect(txrHistoryModule.metadata).toEqual({
       name: 'txrhistory',
       version: '1.0.0',
-      description: 'TxResBench history — everything you ran on this computer (screen K).',
+      description: 'TxResBench history — everything you ran, newest first (screen K).',
     })
   })
 
@@ -263,7 +263,11 @@ describe('txrhistory module (TEST-HIST-1)', () => {
           p !== 'scripts/dev-registry/make_real_inputs.test.py' &&
           p !== 'scripts/file-validator/gen_material.py' &&
           p !== 'scripts/file-validator/fixtures/expected/examples/patients.csv' &&
-          p !== 'scripts/file-validator/fixtures/expected/examples/measurements.csv',
+          p !== 'scripts/file-validator/fixtures/expected/examples/measurements.csv' &&
+          // qa-fixes2 ITEM-2 (location-neutral copy): the notice generator's
+          // header reword — "the TxResBench application", not "desktop
+          // application" (the generated THIRD-PARTY-NOTICES.md follows).
+          p !== 'scripts/third-party.py' ,
       ),
     ).toEqual([])
     // qa-fixes ITEM-7 (X1): the built-CSS url check — one script file
@@ -360,6 +364,10 @@ describe('txrhistory module (TEST-HIST-1)', () => {
           // qa-fixes2 ITEM-1 (the theme switch): the new toggle component + its unit test.
           p !== 'src-app/ui/src/modules/txrshell/TxrThemeToggle.tsx' &&
           p !== 'src-app/ui/src/modules/txrshell/TxrThemeToggle.test.tsx' &&
+          // qa-fixes2 ITEM-2 (the location-neutral copy guard): its test file
+          // + allow-list, the item's own new txrshell files.
+          p !== 'src-app/ui/src/modules/txrshell/lib/copyGuard.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/copyGuard.allowlist.json' &&
 
     // qa-fixes ITEM-7 (X3): the session guard's loading/failure
     // surface is tokenized with the pages (its own ink was a

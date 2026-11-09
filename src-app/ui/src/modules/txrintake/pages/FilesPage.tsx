@@ -370,8 +370,8 @@ export function FilesPage() {
         <div style={STEP_LINE}>Step 3 of 4</div>
         <h1 style={TITLE}>Add your files</h1>
         <p style={INTRO}>
-          Two tables, as CSV or Excel. Read on this computer only. Match the examples; we check
-          each file as soon as you choose it.
+          Two tables, as CSV or Excel. Used only for the analyses you start. Match the examples; we
+          check each file as soon as you choose it.
         </p>
       </div>
 

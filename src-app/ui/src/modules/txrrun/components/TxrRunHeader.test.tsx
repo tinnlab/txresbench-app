@@ -5,7 +5,7 @@
  * from the run's rows, the time-left/elapsed line (each segment omitted
  * when unknown, the board's "·"-joined sentence), the concurrency line
  * ("N run at a time on M CPUs" — the memory segment is absent per DEC-4/
- * OWNER-1, "on this computer" when the run detected no CPU count), the
+ * OWNER-1, the bare "N run at a time" when the run detected no CPU count), the
  * "See the results" link (exactly when the run is results-readable —
  * DEC-12's effective readiness; target via `txrresults`' own
  * `resultsPath(runId)` builder, never a URL literal) and the research-use
@@ -98,7 +98,7 @@ describe('TxrRunHeader (F header, TEST-RUN-18)', () => {
     cleanup()
     renderHeader({ cpus: null })
     expect(screen.getByTestId('txr-run-concurrency').textContent).toBe(
-      '3 run at a time on this computer',
+      '3 run at a time',
     )
 
     cleanup()

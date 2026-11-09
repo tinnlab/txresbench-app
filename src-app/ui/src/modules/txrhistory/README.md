@@ -1,7 +1,7 @@
 # txrhistory
 
 The history screen of the TxResBench app: screen K (board `History.dc.html` —
-"Everything you ran on this computer, newest first. Open a result again, or
+"Everything you ran, newest first. Open a result again, or
 run it again with the same settings."). It is the newest-first run list: the
 search field + the four-option filter, the collapsible per-run cards (header
 row + expanded detail block with your files, settings, methods, the took
@@ -113,7 +113,7 @@ Every user-facing string is the board's wording, verbatim: the title and
 subtitle, the filter labels, the card words ("Learned and predicted",
 "Saved model", "Done", "Failed", "Stopped", "Show details"), the re-run
 buttons ("Run again with the same settings", "Use these settings again"),
-the footer words ("Your data never leaves it.") and the retention links.
+the footer words ("Delete a run to free the space.") and the retention links.
 The boards' NUMBERS — run counts, patient counts, sizes in MB, durations —
 are design examples, never data and never constants in code or fixtures
 (FLOW.md): the module renders only the providers' real values through its

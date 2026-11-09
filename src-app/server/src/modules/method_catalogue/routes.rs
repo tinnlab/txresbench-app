@@ -218,8 +218,8 @@ fn get_marker_vocabulary_docs(op: TransformOperation) -> TransformOperation {
 
 /// `POST /api/methods/eligibility` — the per-method verdicts against a file
 /// inventory (screens C/N/E) or an early schedule preview (screen B), plus
-/// the runtime-env stage: a catalogue method with no published environment on
-/// this computer is `cannot_run` + `ENV_IMAGE_MISSING` (the count of them is
+/// the runtime-env stage: a catalogue method with no published environment is
+/// `cannot_run` + `ENV_IMAGE_MISSING` (the count of them is
 /// `total_no_env` — the catalogue still lists them).
 async fn post_eligibility(
     _auth: RequirePermissions<(ProjectsUse,)>,
@@ -237,7 +237,7 @@ async fn post_eligibility(
 
 fn post_eligibility_docs(op: TransformOperation) -> TransformOperation {
     with_permission::<(ProjectsUse,)>(op)
-        .description("Per-method eligibility verdicts (can_run / can_run_some / cannot_run) with structured reason codes, missing markers/groups and per-patient coverage aggregates. A method with no published environment on this computer is cannot_run + ENV_IMAGE_MISSING (total_no_env counts them). The body is a tagged union: `preview` (screen-B schedule answers) or `inventory` (the file validator's inventory).")
+        .description("Per-method eligibility verdicts (can_run / can_run_some / cannot_run) with structured reason codes, missing markers/groups and per-patient coverage aggregates. A method with no published environment available is cannot_run + ENV_IMAGE_MISSING (total_no_env counts them). The body is a tagged union: `preview` (screen-B schedule answers) or `inventory` (the file validator's inventory).")
         .id("MethodCatalogue.eligibility")
         .tag("method-catalogue")
         .response::<200, Json<EligibilityResponse>>()

@@ -70,7 +70,7 @@ export function TxrShell({ children }: { children: ReactNode }) {
             TxResBench
           </Link>
           <span className="txr-shell-tagline" style={{ color: 'var(--txr-muted)', fontSize: 13 }}>
-            Treatment response from blood markers, on your computer
+            Treatment response from blood markers
           </span>
         </div>
         <div

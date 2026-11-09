@@ -282,8 +282,7 @@ export function StartPage() {
         <div style={STEP_LINE}>Step 1 of 4</div>
         <h1 style={TITLE}>What do you want to do?</h1>
         <p style={INTRO}>
-          Everything runs on this computer. Pick the way that fits what you have; you can change
-          your mind later.
+          Pick the way that fits what you have; you can change your mind later.
         </p>
       </div>
 

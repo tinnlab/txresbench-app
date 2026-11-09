@@ -186,7 +186,7 @@ describe('buildMethodRows', () => {
     expect(row.run).toEqual({
       status: 'cannot',
       headline: 'Cannot run',
-      detail: 'no published environment for this computer',
+      detail: 'no published environment available',
       disabled: true,
     })
     expect(row.timeText).toBeNull()

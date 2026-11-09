@@ -217,7 +217,7 @@ function checkedLine(raw: {
 }
 
 /** Can the card be run WITHOUT a live download? An entry commits a
- *  provider state once (ready = verified on this computer); without an
+ *  provider state once (ready = verified present); without an
  *  entry the card's own list state decides (installed / bundled / ready —
  *  a bundled or downloaded+verified asset is installed at Run time). */
 function cardRunnable(
@@ -433,7 +433,7 @@ export function PretrainedModelsPage() {
   )
 
   /** The selection write: the shared list's controlled next-set, plus the
-   *  D auto-download — a card whose asset is not on this computer starts
+   *  D auto-download — a card whose asset is not downloaded yet starts
    *  its download when CHECKED (models.md: "larger ones are downloaded
    *  when selected"); a live/failed/verified download is never restarted
    *  (the store's idempotent start + the entry states are the guards). */
@@ -580,7 +580,7 @@ export function PretrainedModelsPage() {
               <p style={CHECK_LINE}>
                 The benchmark&rsquo;s published models arrive with its releases and appear here.
                 Until then, models you trained yourself are in Your models &mdash; from your own
-                analyses, or opened from another computer.
+                analyses, or opened from a file.
               </p>
               <Button
                 data-testid="txr-models-d-no-catalogue-cta"

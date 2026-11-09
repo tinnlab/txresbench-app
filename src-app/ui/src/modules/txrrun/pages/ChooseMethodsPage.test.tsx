@@ -642,7 +642,7 @@ describe('ChooseMethodsPage list + create path (ITEM-8, TEST-RUN-17)', () => {
     // own long formatter (the segment also carries the at-a-time label —
     // the board's own bar line).
     expect(screen.getByTestId('txr-list-total-time').textContent).toContain(
-      'under 1 minute in total on this computer',
+      'under 1 minute in total',
     )
     expect(screen.getByTestId('txr-list-selected-count').textContent).toBe('1 method selected')
   })
@@ -730,7 +730,7 @@ describe('ChooseMethodsPage list + create path (ITEM-8, TEST-RUN-17)', () => {
     await settle()
 
     expect(screen.getByTestId('txr-run-no-env-line').textContent).toBe(
-      "2 of 3 methods have no published environment on this computer and can't start.",
+      "2 of 3 methods have no published environment and can't start.",
     )
     expect(screen.getByTestId('txr-list-filter-can-run').textContent).toBe('Can run 2')
   })

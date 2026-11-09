@@ -25,7 +25,7 @@ import { expect, test, type Locator } from '@playwright/test'
  * What the fixture FORCES (records in `fixtures.ts`'s header + DRIFT-1
  * ITEM-8 #1): the first five enabled screen-E rows carry
  * [120, 120, 12, 840, 240] so the server's greedy LPT at 3 lanes is exactly
- * 840 s → the pinned "about 14 minutes in total on this computer" total,
+ * 840 s → the pinned "about 14 minutes in total" total,
  * while dynforest's ROW time is the fixture's one adjusted number
  * ("about 14 min"; the board's "about 5 min" is a design example). The
  * spec checks the FIRST FIVE rows and reads its totals from the same LPT
@@ -62,7 +62,7 @@ const E_FIRST_FIVE_KEYS = [
 const RESEARCH_NOTICE = "For research. Not for deciding a patient's treatment."
 
 /** The exact long-form total the fixture's LPT makespan serves (DEC-7/12). */
-const E_TOTAL_TEXT = 'about 14 minutes in total on this computer'
+const E_TOTAL_TEXT = 'about 14 minutes in total'
 
 /** A row's name/tag block: the row's monospace id line + paper line. */
 async function rowNameBlock(row: Locator) {

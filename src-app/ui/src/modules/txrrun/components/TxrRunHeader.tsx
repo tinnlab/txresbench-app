@@ -118,7 +118,7 @@ export interface TxrRunHeaderProps {
   elapsed: string | null
   /** The run's at-a-time value (null — the run carries none; omit the line). */
   atATime: number | null
-  /** The detected CPU count (null — "on this computer", DEC-4's honest fallback). */
+  /** The detected CPU count (null — omit the "on M CPUs" segment). */
   cpus: number | null
   /** DEC-12's effective readiness (`predictions_ready` OR ≥1 finished row —
    *  the page computes the OR; this header renders exactly what it is told). */
@@ -149,7 +149,7 @@ export function TxrRunHeader({
   const concurrency =
     atATime === null
       ? null
-      : `${atATime} run at a time on ${cpus !== null ? `${cpus} CPUs` : 'this computer'}`
+      : `${atATime} run at a time${cpus !== null ? ` on ${cpus} CPUs` : ''}`
   return (
     <header data-testid="txr-run-header" style={HEADER}>
       <div style={TITLE_ROW}>

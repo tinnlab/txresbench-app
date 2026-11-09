@@ -29,7 +29,7 @@ const DELETE_FAILED_LINE = 'The models could not be deleted.'
 /** The board's deletion promise, the set's plural reading (DEC-14/D23:
  *  files go with the row; prior results stay in History). */
 const DELETE_BODY =
-  'This removes the set and its models\u2019 files from this computer. Results already made with them are kept in History.'
+  'This removes the set and its models\u2019 files. Results already made with them are kept in History.'
 
 /** The danger button's look (the board's danger red over the kit variant). */
 const DANGER_BUTTON: CSSProperties = {

@@ -35,7 +35,7 @@ export interface UseMethodRowsResult {
   /** The joined screen-E rows for the last loaded inventory. */
   rows: TxrListRow[]
   /** The eligibility response's `total_no_env` — the count of catalogue
-   *  methods with no published environment on this computer (the list still
+   *  methods with no published environment (the list still
    *  shows them; the header counts them honestly — CM-1's "N are not
    *  installed"). */
   noEnvCount: number

@@ -1,6 +1,6 @@
 /**
  * Screen J — Your models (board `Models.dc.html`; ITEM-8, PROV-UI-MODELS-5):
- * the inventory of every model kept on this computer, from `model-store`'s
+ * the inventory of every kept model, from `model-store`'s
  * `GET /api/txr/models` (CONS-UM-4) — the fifth surface of the module, NOT
  * the shared selection list (the plan-audit ITEM-8: the board is an
  * inventory table; INV-1's "D, I and E are ONE list" names the choice
@@ -215,8 +215,7 @@ const BOX_LINE: CSSProperties = { padding: '14px', fontSize: 13.5, color: 'var(-
 const EMPTY_LINE = 'No models yet.'
 
 /** The empty state's explanation (next to the CTA; honest, no board copy). */
-const EMPTY_NOTE =
-  'Run an analysis and save its models, or open a model file from another computer.'
+const EMPTY_NOTE = 'Run an analysis and save its models, or open a model file.'
 
 /** The no-match line for a search/set view with no rows. */
 const NO_MATCH_LINE = 'Nothing matches here.'

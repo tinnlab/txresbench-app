@@ -396,7 +396,7 @@ export function formatMixedOutcomeNote(
 
 /**
  * The constant-column note (qa-fixes RES-03): "N methods gave the same chance
- * (0%) for every patient." — the screen never leaves a wall of identical
+ * (0%) for every patient." — the screen never shows a wall of identical
  * percents unexplained. The values are the columns' common 0–1 values as the
  * display's whole percents, distinct and ascending; null when nothing is
  * constant.

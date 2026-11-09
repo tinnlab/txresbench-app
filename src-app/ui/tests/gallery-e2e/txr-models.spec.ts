@@ -45,7 +45,7 @@ import { expect, test, type Locator } from '@playwright/test'
  * cannot (I), the sizes 4,600,000 per card and the 800 KB–12.8 MB
  * produced spread — never a board example number (INV-4). The D story's
  * total for the three selected cards is 45 + 90 + 120 = 255 s → "about 4
- * minutes in total on this computer"; the download card's 1,234,567 of
+ * minutes in total"; the download card's 1,234,567 of
  * 4,600,000 bytes reads "1.2 MB of 4.4 MB" at 27%.
  *
  * Run (own port on a shared box — the config derives one per worktree):
@@ -73,7 +73,7 @@ const I_CHECKED_LINE =
   'Checked against your file: 42 patients, 4 markers, draws at day 0, 14, 28 and 56. Models from one training run are grouped; pick any of them.'
 
 /** The fixture total for the three selected installed cards (45+90+120 s). */
-const D_TOTAL_TEXT = 'about 4 minutes in total on this computer'
+const D_TOTAL_TEXT = 'about 4 minutes in total'
 
 /** The gated-Run line (the D page's constant for a still-downloading card). */
 const GATE_DOWNLOADING_LINE =

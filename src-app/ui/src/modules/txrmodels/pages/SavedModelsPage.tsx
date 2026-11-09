@@ -1,6 +1,6 @@
 /**
  * Screen I — Choose the saved models to run (board `Saved.dc.html`; ITEM-7,
- * PROV-UI-MODELS-5): the models kept on this computer, grouped by the
+ * PROV-UI-MODELS-5): the kept models, grouped by the
  * training run that made them (INV-2), checked against the uploaded
  * predict file (PROV-MS-9's verdicts over the ONE intake inventory,
  * DEC-6), hosted in the SHARED `TxrSelectList` (INV-1 — another host,

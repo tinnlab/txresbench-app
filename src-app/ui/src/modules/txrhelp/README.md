@@ -10,8 +10,8 @@ The page is data-driven: `content.ts` holds the typed content
 is the one renderer — a wording change is a data change with no code churn.
 The sections: what TxResBench does, the four steps with what to click,
 preparing your files, choosing methods, reading results, saved and
-pretrained models, run history, privacy and the network, where your data
-lives, and troubleshooting with one entry per validator problem code.
+pretrained models, run history, privacy, what the app keeps,
+and troubleshooting with one entry per validator problem code.
 
 ## Routes
 

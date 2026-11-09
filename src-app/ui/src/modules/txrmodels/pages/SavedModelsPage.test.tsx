@@ -506,7 +506,7 @@ describe('SavedModelsPage — TEST-MOD-10 (screen I)', () => {
     // The board's deletion promise in the body (files go, History keeps the results).
     expect(
       screen.getByTestId('txr-models-set-delete-set-b-body').textContent,
-    ).toContain('removes the set and its models\u2019 files from this computer')
+    ).toContain('removes the set and its models\u2019 files')
     await act(async () => {
       fireEvent.click(screen.getByTestId('txr-models-set-delete-set-b-confirm'))
       await Promise.resolve()

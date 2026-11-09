@@ -523,7 +523,7 @@ describe('PretrainedModelsPage — TEST-MOD-09 (screen D)', () => {
     await settle(0)
     expect(screen.getByTestId('txr-list-selected-count').textContent).toBe('2 models selected')
     expect(screen.getByTestId('txr-list-total-time').textContent).toBe(
-      'about 2 minutes in total on this computer',
+      'about 2 minutes in total',
     )
     expect(screen.getByTestId('txr-list-run').textContent).toBe('Run 2 models')
 

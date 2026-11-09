@@ -408,7 +408,7 @@ export function PredictFilesPage() {
           <div style={STEP_LINE}>Step 3 of 4</div>
           <h1 style={TITLE}>Add the patients to predict</h1>
           <p style={INTRO}>
-            Only their blood measurements. Read on this computer only, never uploaded. Match the
+            Only their blood measurements. Used only for the analyses you start. Match the
             example; we check the file as soon as you choose it.
           </p>
         </div>

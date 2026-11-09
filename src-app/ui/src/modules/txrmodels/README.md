@@ -4,7 +4,7 @@ The model screens of the TxResBench app: screen D (board `Pretrained.dc.html`
 — "Choose the models to run"), screen I (board `Saved.dc.html` — "Choose the
 saved models to run", the saved models grouped by the training run) and
 screen J (board `Models.dc.html` — "Your models", the inventory of every
-model kept on this computer), plus the save dialogs L / L2 / L3 (boards
+kept model), plus the save dialogs L / L2 / L3 (boards
 `SaveModels.dc.html`, `SaveOne.dc.html`, `SaveDone.dc.html`) that open over
 the results screen of a finished run.
 

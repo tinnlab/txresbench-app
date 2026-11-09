@@ -67,7 +67,7 @@ const E_FIRST_FIVE_KEYS = [
 ]
 
 /** The exact long-form total the fixture's LPT makespan serves (the txrlist cassette). */
-const E_TOTAL_TEXT = 'about 14 minutes in total on this computer'
+const E_TOTAL_TEXT = 'about 14 minutes in total'
 
 /** The board's research-use notice (DEC-11, both run screens). */
 const RESEARCH_NOTICE = "For research. Not for deciding a patient's treatment."

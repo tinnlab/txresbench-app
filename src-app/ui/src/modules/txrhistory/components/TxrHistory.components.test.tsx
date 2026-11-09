@@ -253,7 +253,7 @@ describe('TxrHistoryToolbar (TEST-HIST-7 — title, subtitle, search, filter)', 
     )
     expect(view.getByTestId('txr-history-title').textContent).toBe('History')
     expect(view.getByTestId('txr-history-subtitle').textContent).toBe(
-      'Everything you ran on this computer, newest first. Open a result again, or run it again with the same settings.',
+      'Everything you ran, newest first. Open a result again, or run it again with the same settings.',
     )
   })
 
@@ -691,7 +691,7 @@ describe('TxrHistoryFooter (TEST-HIST-7 — usage line + the two retention links
       />,
     )
     const line = view.getByTestId('txr-history-usage')
-    expect(line.textContent).toBe('3 runs · /data/txresbench uses 327 MB on this computer. Your data never leaves it.')
+    expect(line.textContent).toBe('3 runs · /data/txresbench uses 327 MB of stored files. Delete a run to free the space.')
   })
 
   it('falls back to the list total for the count and omits the bytes/path segments when usage is unavailable', () => {
@@ -707,7 +707,7 @@ describe('TxrHistoryFooter (TEST-HIST-7 — usage line + the two retention links
       />,
     )
     expect(view.getByTestId('txr-history-usage').textContent).toBe(
-      '9 runs on this computer. Your data never leaves it.',
+      '9 runs of stored files. Delete a run to free the space.',
     )
   })
 

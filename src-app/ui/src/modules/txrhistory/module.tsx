@@ -8,7 +8,7 @@ const HistoryPage = lazyWithPreload(() =>
 
 /**
  * txrhistory — the history screen of TxResBench: screen K (board
- * `History.dc.html` — "Everything you ran on this computer, newest
+ * `History.dc.html` — "Everything you ran, newest
  * first"), the newest-first run list with the board's search + filter, the
  * collapsible per-run card (header row + expanded detail block), the four
  * run actions (open results / run again / download predictions / open the
@@ -32,7 +32,7 @@ export default createModule({
   metadata: {
     name: 'txrhistory',
     version: '1.0.0',
-    description: 'TxResBench history — everything you ran on this computer (screen K).',
+    description: 'TxResBench history — everything you ran, newest first (screen K).',
   },
   dependencies: ['router', 'txrshell', 'txrresults', 'txrrun', 'txrintake'],
   // The history store is WHOLE-STORE-LAZY (registerLazyStore in its own
