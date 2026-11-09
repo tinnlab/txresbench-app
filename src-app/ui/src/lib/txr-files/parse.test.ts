@@ -110,7 +110,10 @@ describe('the committed material through the shared decoder', () => {
     expect(table.columns).toEqual(['patient_id', 'day', 'marker', 'value', 'unit'])
     expect(table.rows).toHaveLength(3848)
     // Raw text entries: the marker/unit spellings survive the decode untouched.
-    expect(table.rows[0]).toEqual(['J0000', '0.0', 'M1', '12.417026714414604', 'a.u.'])
+    // The byte pin is the regenerated example (qa-fixes ITEM-6, F6): the
+    // generator rounds whole days and 1-decimal values for display, so the
+    // first row reads the rounded bytes the committed file now carries.
+    expect(table.rows[0]).toEqual(['J0000', '0', 'M1', '12.4', 'a.u.'])
   })
 
   it('reads the committed patients template (header only) in the patients shape', async () => {

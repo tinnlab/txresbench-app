@@ -141,7 +141,10 @@ test.describe('txr-models — the real backend (TEST-MOD-20)', () => {
       'Add the patients\u2019 measurements you want to predict first.',
     )
     await expect(page.getByTestId('txr-models-d-empty-cta')).toBeVisible()
-    await expect(page.getByTestId('txr-models-d-empty-cta')).toHaveText('Go to the start')
+    // qa-fixes ITEM-5 RES-20: the CTA names the step that unlocks the page.
+    await expect(page.getByTestId('txr-models-d-empty-cta')).toHaveText(
+      'Go to the measurements step',
+    )
 
     // The same state on I.
     await page.goto('/saved-models')
@@ -170,7 +173,9 @@ test.describe('txr-models — the real backend (TEST-MOD-20)', () => {
     expect(methods).toHaveLength(1)
     expect(methods[0].method_id).toBe(CANNOT_RUN_METHOD)
     expect(methods[0].state).toBe('cannot_run')
-    expect((methods[0].reason as Record<string, unknown>).code).toBe('ENV_UNKNOWN')
+    // qa-fixes ITEM-2 (one vocabulary, CONS-EE-10): the run-start
+    // classification names the SAME code the screens show.
+    expect((methods[0].reason as Record<string, unknown>).code).toBe('ENV_IMAGE_MISSING')
     expect((detail.models as unknown[]).length).toBe(0)
     const real = await getRun(page, token, runId)
     expect((real.models as unknown[]).length).toBe(0)

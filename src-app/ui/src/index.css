@@ -375,3 +375,19 @@ html.dark .os-theme-dark {
     flex-shrink: 1 !important;
   }
 }
+
+/* QA-fixes ITEM-8: the screen-E list frame at phone width. Chips, the
+ * select-all row and the bottom bar stack as the ink asks (ITEM-7's
+ * wrap rule above), which makes the list's own chrome ~430 px tall — far
+ * above the 240 px desktop floor. The shared list's flex-fill body then
+ * collapsed to 0 (measured: the overlayscrollbars host + the virtualizer's
+ * scroll area were 0 px), so the E screen showed NO methods at all at
+ * 390 px — the browser tier's 390 story caught it (the jsdom tier cannot:
+ * the virtualizer/scroll area never boots there). The floor below gives
+ * the row body a real area; the page scrolls its fixed parts (PAGE_MAIN's
+ * own overflow). */
+@media (max-width: 640px) {
+  .txr-run-list-frame {
+    min-height: 800px !important;
+  }
+}

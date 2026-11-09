@@ -310,11 +310,24 @@ export const gallery: ModuleGallery = {
   cassette: {
     'History.listHistory': (ctx: MockRequestContext) => {
       recordRequest('History.listHistory', ctx)
-      return fixtureHistoryPage(TXHISTORY_RUNS, ctx.query)
+      const page = fixtureHistoryPage(TXHISTORY_RUNS, ctx.query)
+      // The WIRE shape (qa-fixes ITEM-8, RES-01): the engine serializes its
+      // `Option<reason>` as JSON `null` for every run without one, while the
+      // generated client types the field optional-ONLY — so the wire carries
+      // `reason: null` exactly where the type says "no property". The
+      // cassette answers the page the way the real API does, so the K render
+      // path is exercised in a browser against the shape that crashed ITEM-1
+      // (the `fixtures.ts` domain model stays typed; the wire fidelity lives
+      // in the cassette, the mock of the API).
+      return {
+        ...page,
+        items: page.items.map(row => ({ ...row, reason: row.reason ?? null })),
+      }
     },
     'History.getHistory': (ctx: MockRequestContext) => {
       recordRequest('History.getHistory', ctx)
-      return TXHISTORY_DETAILS[ctx.params.id]!
+      const detail = TXHISTORY_DETAILS[ctx.params.id]!
+      return { ...detail, reason: detail.reason ?? null }
     },
     'History.updatePreferences': (ctx: MockRequestContext) => {
       recordRequest('History.updatePreferences', ctx)

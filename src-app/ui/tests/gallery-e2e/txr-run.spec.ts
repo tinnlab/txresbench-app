@@ -304,6 +304,9 @@ test.describe('txr-run-f-failed — the failures kept with their reasons (TEST-R
     await page.goto(`${GALLERY}txr-run-f-failed`)
 
     await expect(page.getByTestId('txr-run-title')).toHaveText('Running 6 methods')
+    // A failed row's reason is never blank (the row's own chip — read on
+    // the Failed tab, before the switch; the Cannot-run tab holds others).
+    await expect(page.getByTestId('txr-run-state-cox-timevarying-slope')).toHaveText('failed')
     await page.getByTestId('txr-run-tab-failed').click()
     await expect(page.getByTestId('txr-run-detail-cox-timevarying-slope')).toContainText(
       'the fitting step returned no model',
@@ -317,8 +320,6 @@ test.describe('txr-run-f-failed — the failures kept with their reasons (TEST-R
     await expect(page.getByTestId('txr-run-detail-cox-ctdna-status-rfs')).toContainText(
       'LDH is not in your measurements.',
     )
-    // A failed row's reason is never blank (the row's own chip + detail).
-    await expect(page.getByTestId('txr-run-state-cox-timevarying-slope')).toHaveText('failed')
 
     await page.getByTestId('txr-run-action-cox-ctdna-status-rfs').click()
     await expect(page.getByTestId('txr-run-log')).toBeVisible()
@@ -362,6 +363,15 @@ test.describe('txr-run-f-not-found — the 404 state (TEST-RUN-26)', () => {
 })
 
 test.describe('txr-run-e-narrow-390 / txr-run-f-narrow-390 — the mobile width (TEST-RUN-26)', () => {
+  // The window IS the phone here (ITEM-8): the narrow-390 stories wrap the
+  // page in a 390 px frame, but the ITEM-8 finding was that the frame alone
+  // was not enough — at a desktop window the E screen's wrapped chrome
+  // (~430 px of chips + bottom bar) collapsed the list's row body to 0
+  // (the virtualizer's scroll area measured 0, so the story showed NO
+  // methods), and the frame-floor media rule (the fix) keys on the WINDOW
+  // width like every other phone rule. At a real 390 px window the story
+  // is the real phone.
+  test.use({ viewport: { width: 390, height: 844 } })
   test('no horizontal page overflow; the header/bar actions stay inside the viewport', async ({
     page,
   }) => {

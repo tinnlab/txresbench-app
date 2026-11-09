@@ -178,6 +178,22 @@ test.describe('txr-history — the real backend (TEST-HIST-15)', () => {
     const token = await mintLocalSession(page)
     await seedLocalSession(page, token)
     const errors = watchPageErrors(page)
+
+    // The keep-copies preference is a GLOBAL singleton row (the store's
+    // migration seeds `keep_file_copies = true` at id 1) — a previous run
+    // of this same flow against the same backend leaves it FALSE, so the
+    // off-flow's precondition (the run below is created WITH input copies
+    // kept) is established first through the board's own flip-back
+    // confirmation, never assumed from the seed.
+    await page.goto('/history')
+    await expect(page.getByTestId('txr-history-footer')).toBeVisible({ timeout: 90_000 })
+    if ((await page.getByTestId('txr-history-copies-on').count()) === 1) {
+      await page.getByTestId('txr-history-copies-on').click()
+      await expect(page.getByTestId('txr-history-confirm-copies-on')).toBeVisible()
+      await page.getByTestId('txr-history-confirm-copies-on').click()
+      await expect(page.getByTestId('txr-history-copies-off')).toBeVisible({ timeout: 30_000 })
+    }
+
     const runId = await createRun(page, token, [CANNOT_RUN_METHOD])
     await waitForTerminalRun(page, token, runId)
 

@@ -22,6 +22,14 @@ import { expect, test, type Page } from '@playwright/test'
  *     the N screen's predict-mode validate + Continue reading
  *     `/pretrained-models` for intent `pretrained`; and the three screens at
  *     390×844: no horizontal overflow, cards stack, Continue on-screen.
+ *   · TEST-INT-18 (ITEM-8, `txr-intake-c`)  — F12's browser-tier leg: the
+ *     REAL drag-and-drop path. The report's synthetic events never reached
+ *     the kit handler (and no hover style appeared); this leg constructs a
+ *     genuine DataTransfer + File in the page and dispatches the native
+ *     dragenter/dragover/drop at the kit's dropzone — the drag-over state
+ *     flips (the class the kit adds) and the dropped File reaches the same
+ *     flow as a pick — plus the F4 guard through the DROP path (a .txt
+ *     drop is refused at the door, never parsed as CSV).
  *
  * What the fixtures FORCE (records in `fixtures.ts`'s header + DRIFT-1
  * ITEM-11): the measurements table's row 14 is the non-numeric day, rows
@@ -74,6 +82,37 @@ async function dropCsv(page: Page, cardTestId: string, name: string, text: strin
     .getByTestId(cardTestId)
     .locator('input[type=file]')
     .setInputFiles({ name, mimeType: 'text/csv', buffer: Buffer.from(text, 'utf8') })
+}
+
+/**
+ * Drop one file onto a card with REAL browser drag events. The DataTransfer
+ * is constructed in the page context, so the File is a genuine browser
+ * `File` and the drop is a genuine `DragEvent` — the kit `Upload`'s
+ * `onDrop` (React 19's delegated root listener) reads `dataTransfer.files`
+ * and feeds the SAME `pick` the input uses. This is ITEM-6 F12's path: the
+ * QA report's synthetic events never reached it, and the component-tier
+ * test fires the handler directly; this leg proves the DOM path in a real
+ * browser, dropzone to card.
+ */
+async function dropViaDrag(
+  page: Page,
+  cardTestId: string,
+  name: string,
+  text: string,
+  mimeType: string,
+): Promise<void> {
+  await page.evaluate(
+    ({ testid, name, text, mimeType }) => {
+      const el = document.querySelector(
+        `[data-testid="${testid}"] [role="button"]`,
+      ) as HTMLElement | null
+      if (!el) throw new Error(`dropzone ${testid} not found`)
+      const dt = new DataTransfer()
+      dt.items.add(new File([text], name, { type: mimeType }))
+      el.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }))
+    },
+    { testid: cardTestId, name, text, mimeType },
+  )
 }
 
 test.describe('txr-intake-b — the live "N of M fit" panel (TEST-INT-14)', () => {
@@ -210,6 +249,68 @@ test.describe('txr-intake-c — the shared file-card flow (TEST-INT-15)', () => 
     // 5. Continue → the declared E route (/choose-methods), recorded in the seam.
     await page.getByTestId('txr-intake-continue').click()
     await expect(page.getByTestId('txr-intake-nav-result')).toHaveText('/choose-methods')
+  })
+})
+
+test.describe('txr-intake-c — the real drag-and-drop path (TEST-INT-18, ITEM-8)', () => {
+  test('a real DataTransfer drop reaches the card; the drag-over state shows; F4 guards drops', async ({
+    page,
+  }) => {
+    await page.goto(`${GALLERY}txr-intake-c`)
+    const fixtures = await readFixtureBundle(page)
+
+    const zone = page
+      .getByTestId('txr-intake-file-drop-patients')
+      .locator('[role="button"]')
+    await expect(zone).toBeVisible()
+
+    // The drag-over state: the kit's own onDragOver flips its class (the
+    // report saw NO hover style — its synthetic events never reached the
+    // handler; this leg proves the handler in a real browser).
+    await page.evaluate(() => {
+      const el = document.querySelector(
+        '[data-testid="txr-intake-file-drop-patients"] [role="button"]',
+      ) as HTMLElement
+      el.dispatchEvent(new DragEvent('dragenter', { bubbles: true, cancelable: true }))
+      el.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true }))
+    })
+    await expect(zone).toHaveClass(/border-primary/)
+    await page.evaluate(() => {
+      const el = document.querySelector(
+        '[data-testid="txr-intake-file-drop-patients"] [role="button"]',
+      ) as HTMLElement
+      el.dispatchEvent(new DragEvent('dragleave', { bubbles: true, cancelable: true }))
+    })
+    await expect(zone).not.toHaveClass(/border-primary/)
+
+    // F4 through the DROP path: the kit `accept` only filters the OS picker
+    // — a drop can hand over anything, so the guard must refuse a .txt at
+    // the door, never parse it as CSV (the ITEM-6 report's cascade).
+    await dropViaDrag(
+      page,
+      'txr-intake-file-drop-patients',
+      'wrong.txt',
+      'not,a,csv',
+      'text/plain',
+    )
+    await expect(page.getByTestId('txr-intake-file-error-patients')).toContainText(
+      'This is not a CSV or Excel file — choose a .csv or .xlsx file.',
+    )
+    // The zone stays (the file never entered the card) — the fix is one
+    // drag away, exactly like a pick.
+    await expect(zone).toBeVisible()
+
+    // A real File through the same drop handler reaches the flow (the
+    // parse runs in the browser; the board's status box is the proof).
+    await dropViaDrag(
+      page,
+      'txr-intake-file-drop-patients',
+      'fixture-patients.csv',
+      fixtures.patients,
+      'text/csv',
+    )
+    await expect(zone).toHaveCount(0)
+    await expect(page.getByTestId('txr-intake-file-card-patients')).toContainText('30 rows read')
   })
 })
 

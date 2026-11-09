@@ -65,7 +65,9 @@ test.describe('txr-results — the real backend (TEST-UR-17)', () => {
     expect(methods).toHaveLength(1)
     expect(methods[0].method_id).toBe(CANNOT_RUN_METHOD)
     expect(methods[0].state).toBe('cannot_run')
-    expect((methods[0].reason as Record<string, unknown>).code).toBe('ENV_UNKNOWN')
+    // qa-fixes ITEM-2 (one vocabulary, CONS-EE-10): the run-start
+    // classification names the SAME code the screens show.
+    expect((methods[0].reason as Record<string, unknown>).code).toBe('ENV_IMAGE_MISSING')
     expect((methods[0].reason as Record<string, unknown>).detail).toContain(
       'no published environment',
     )

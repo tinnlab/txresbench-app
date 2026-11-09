@@ -359,6 +359,26 @@ describe('txrhelp module (TEST-HELP-4)', () => {
       // every txr surface + the shell story + the dark no-light-only pass
       // (TEST-QF-7).
       'src-app/ui/tests/gallery-e2e/txr-theme-phone.spec.ts',
+      // The qa-fixes ITEM-8 spec (its own DRIFT-1): the shell header +
+      // design fonts under the REAL app at 390 px (TEST-QF-7's full-app
+      // leg; the gallery frame cannot show the app router's layout) — the
+      // item's one new spec under tests/.
+      'src-app/ui/tests/e2e/txr-shell-phone.spec.ts',
+      // The qa-fixes ITEM-8 pin repair (its own DRIFT-1): the browser leg
+      // of the file-validator decode pins the ITEM-6-regenerated example
+      // bytes (the same stale-pin class as `src/lib/txr-files/parse.test.ts`,
+      // which sits outside every sweep).
+      'src-app/ui/tests/gallery-e2e/file-validator-parse.spec.ts',
+      // The qa-fixes ITEM-8 re-verification repairs (its own DRIFT-1): the
+      // stale pins + latent defects the full-backend run found and repaired
+      // — the cannot-run time needle that predates ITEM-2's CM-4 (txr-list
+      // gallery spec), the ENV_IMAGE_MISSING + D-CTA wording pins
+      // (txr-models-full), and the copies-off flow's global-singleton
+      // precondition (txr-history-full: the migration seeds `id = 1`, a
+      // re-run of the flow against the same backend leaves it false).
+      'src-app/ui/tests/gallery-e2e/txr-list.spec.ts',
+      'src-app/ui/tests/e2e/txrmodels/txr-models-full.spec.ts',
+      'src-app/ui/tests/e2e/txrhistory/txr-history-full.spec.ts',
     ])
     expect(testsTouched.length).toBeLessThanOrEqual(sanctionedTests.size)
     for (const file of testsTouched) {

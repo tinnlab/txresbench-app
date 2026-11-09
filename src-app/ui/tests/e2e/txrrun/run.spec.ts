@@ -103,13 +103,26 @@ async function driveToChooseMethods(page: Page): Promise<void> {
   await page.waitForURL('**/choose-methods')
 }
 
-/** Bring one specific method's row into view and select it. The list
- *  renders in the PAGE's scroll context (the E board is one document; the
- *  kit's ScrollArea wraps the whole list, 359 real catalogue rows), so the
- *  row's own `scrollIntoViewIfNeeded` is the scroll — never a pin on the
- *  row's index (the catalogue order is the provider's). */
+/** Bring one specific method's row into view and select it. The row body
+ *  is the ITEM-2 virtualized list (CM-2: the 359 real catalogue rows, the
+ *  windowed scroll box) — a deep row is NOT in the DOM until the scroll
+ *  container reaches it, so the scroll is the windowed body's own
+ *  (`[data-overlayscrollbars-viewport]` — the node the virtualizer listens
+ *  on), stepped until the row mounts; the row's index is never pinned (the
+ *  catalogue order is the provider's). */
 async function selectMethod(page: Page, methodId: string): Promise<void> {
   const checkbox = page.getByTestId(`txr-list-checkbox-${methodId}`)
+  if ((await checkbox.count()) === 0) {
+    const viewport = page.locator('[data-overlayscrollbars-viewport]').first()
+    await viewport.waitFor({ timeout: 60_000 })
+    for (let i = 0; i < 80 && (await checkbox.count()) === 0; i += 1) {
+      await viewport.evaluate(el => {
+        el.scrollTop += 600
+        el.dispatchEvent(new Event('scroll'))
+      })
+      await page.waitForTimeout(150)
+    }
+  }
   await checkbox.scrollIntoViewIfNeeded()
   await expect(checkbox).toBeVisible({ timeout: 120_000 })
   await expect(checkbox).toBeEnabled()
@@ -156,7 +169,9 @@ test.describe('txr-run — the real backend (TEST-RUN-28/29)', () => {
     expect(methods).toHaveLength(1)
     expect(methods[0].method_id).toBe(CANNOT_RUN_METHOD)
     expect(methods[0].state).toBe('cannot_run')
-    expect((methods[0].reason as Record<string, unknown>).code).toBe('ENV_UNKNOWN')
+    // qa-fixes ITEM-2 (one vocabulary, CONS-EE-10): the run-start
+    // classification names the SAME code the screens show.
+    expect((methods[0].reason as Record<string, unknown>).code).toBe('ENV_IMAGE_MISSING')
 
     // The F page's own session is the seeded one.
     await seedLocalSession(page, token)
@@ -184,9 +199,12 @@ test.describe('txr-run — the real backend (TEST-RUN-28/29)', () => {
       'no published environment',
     )
     await expect(page.getByTestId('txr-run-counts')).toBeVisible()
+    // The strip counts EVERY engine state over the run's own rows
+    // (the component's own pin: RunningPage.test.tsx:285 — a cannot-run
+    // row reads `1 cannot run`, never a fabricated zero).
     for (const state of ['finished', 'running', 'downloading', 'waiting', 'failed', 'stopped', 'skipped', 'cannot_run']) {
       await expect(page.getByTestId(`txr-run-counts-${state}`)).toContainText(
-        `0 ${state === 'cannot_run' ? 'cannot run' : state}`,
+        `${state === 'cannot_run' ? '1' : '0'} ${state === 'cannot_run' ? 'cannot run' : state}`,
       )
     }
     await expect(page.getByTestId('txr-run-tab-all')).toContainText('All 1')
@@ -288,13 +306,25 @@ test.describe('txr-run — the real backend (TEST-RUN-28/29)', () => {
       url => /^\/analysis\/[^/]+\/running$/.test(url.pathname),
       { timeout: 120_000 },
     )
-    const runId = page.url().split('/')[2]
+    // The run id is the URL's PATHNAME segment — `page.url()` is absolute
+    // (`http://host:port/analysis/<id>/running`), so a naive
+    // `split('/')[2]` reads the HOST (a latent defect the re-verification
+    // run unmasked: the GET then 400s).
+    const runId = new URL(page.url()).pathname.split('/')[2]
+    expect(runId).toMatch(/^[0-9a-f-]+$/)
 
     // F renders the new run: header (rows = the selected methods), counts
-    // strip, the method row, the leave-and-continue note.
+    // strip, the method row. The run's env phase is refused within ~200 ms
+    // of the create (TEST-RUN-29's own window), so the run can be TERMINAL
+    // before this page mounts — the title then reads the run's own word and
+    // the leave-and-continue note is absent (that surface is pinned exactly
+    // at the terminal assertions below); a page that mounts while the run
+    // is still live reads the board's "Running" title. Both surfaces are
+    // the test's own either-surface contract (the wait below).
     await expect(page.getByTestId('txr-run-header')).toBeVisible({ timeout: 60_000 })
-    await expect(page.getByTestId('txr-run-title')).toContainText('Running 1 method')
-    await expect(page.getByTestId('txr-run-leave-note')).toBeVisible()
+    await expect(page.getByTestId('txr-run-title')).toHaveText(
+      /^(Running|Finishing|Finished|Failed|Stopped) 1 method$/,
+    )
     const row = page.getByTestId(`txr-run-row-${RUNNABLE_METHOD}`)
     await expect(row).toBeVisible({ timeout: 60_000 })
 

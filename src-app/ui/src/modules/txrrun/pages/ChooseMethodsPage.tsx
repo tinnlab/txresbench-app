@@ -316,7 +316,7 @@ function TxrMethodListFrame({
   }, [rows, groupFilter, canOnly, groupLabelOf])
 
   return (
-    <div data-testid="txr-run-list" style={LIST_FRAME}>
+    <div data-testid="txr-run-list" className="txr-run-list-frame" style={LIST_FRAME}>
       {noEnvCount > 0 ? (
         <p data-testid="txr-run-no-env-line" style={NO_ENV_LINE}>
           {noEnvLine(noEnvCount, rows.length)}
