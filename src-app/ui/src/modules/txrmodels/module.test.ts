@@ -358,6 +358,10 @@ describe('txrmodels module (TEST-MOD-01)', () => {
           p !== 'src-app/ui/src/modules/txrshell/TxrLayout.tsx' &&
           p !== 'src-app/ui/src/modules/txrshell/TxrLayout.test.tsx' &&
           p !== 'src-app/ui/src/modules/txrshell/gallery.tsx' &&
+          // qa-fixes2 ITEM-1 (the theme switch): the new toggle component + its unit test.
+          p !== 'src-app/ui/src/modules/txrshell/TxrThemeToggle.tsx' &&
+          p !== 'src-app/ui/src/modules/txrshell/TxrThemeToggle.test.tsx' &&
+
     // qa-fixes ITEM-7 (X3): the session guard's loading/failure
     // surface is tokenized with the pages (its own ink was a
     // hard-coded light hex — a light flash before the app loads).

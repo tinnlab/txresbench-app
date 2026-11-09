@@ -1,19 +1,23 @@
 import { Link, NavLink, Outlet } from 'react-router-dom'
 import type { ReactNode } from 'react'
+import { TxrThemeToggle } from './TxrThemeToggle'
 
 /**
  * TxrLayout — the TxResBench app shell per the design boards: a top header with
  * the brand + tagline, the top navigation (New analysis / Models / History /
- * Help), and the routed main area below. No sidebar, no login, no setup.
+ * Help) and the theme switch, and the routed main area below. No sidebar, no
+ * login, no setup.
  *
  * The palette is the app's token layer (`assets/txr-theme.css`) — never a hex
  * literal — so the header follows the dark theme with the pages (RM-1, RES-25).
  * The responsive half (qa-fixes ITEM-7, X2): the board's header is desktop-only
  * (one 56 px row). Under 900 px the tagline yields (the longest, least-needed
  * byte — the brand stays); under 640 px the header stacks into two rows (brand
- * row, then nav + Help) so the four destinations never leave the screen. Those
- * rules live in index.css against the `.txr-shell-*` hooks below, because a
- * media query cannot touch an inline style; the desktop look above the
+ * row, then nav + Help + the theme switch) so the four destinations and the
+ * switch never leave the screen. Those rules live in index.css against the
+ * `.txr-shell-*` hooks below, because a media query cannot touch an inline
+ * style; the theme switch's own label collapse (icon stays) is the same
+ * device, against its `.txr-theme-toggle-*` hooks. The desktop look above the
  * breakpoints is the byte this file declares.
  *
  * The analysis screens themselves are a later build step; the routes registered
@@ -130,6 +134,7 @@ export function TxrShell({ children }: { children: ReactNode }) {
           >
             Help
           </Link>
+          <TxrThemeToggle />
         </div>
       </header>
       {/* The routed area is a plain flex frame, NOT a second <main> (qa-fixes

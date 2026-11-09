@@ -132,6 +132,14 @@ html.dark .os-theme-dark {
   .txr-shell-actions {
     flex: 1 1 100% !important;
   }
+  /* qa-fixes2 ITEM-1: the theme switch at phone width. The stacked header row
+   * is the shell's own; the switch keeps its icon and collapses its state
+   * label (the same yield rule as the tagline — the icon carries the state,
+   * the tooltip/accessible name the action). The switch itself stays on
+   * screen; the four destinations' on-screen sweep is above. */
+  .txr-theme-toggle .txr-theme-toggle-label {
+    display: none;
+  }
 }
 
 /* QA-fixes ITEM-7 (RES-26): the results pages at phone width. The board's

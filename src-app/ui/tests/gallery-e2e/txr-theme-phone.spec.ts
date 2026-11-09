@@ -154,6 +154,21 @@ test.describe('txr surfaces at 390 px (TEST-QF-7, X2/RES-26)', () => {
       expect(box!.x, `${label} starts inside`).toBeGreaterThanOrEqual(0)
       expect(box!.x + box!.width, `${label} ends inside`).toBeLessThanOrEqual(390 + 1)
     }
+    // The theme switch (qa-fixes2 ITEM-1) joins the stacked header row: it
+    // stays on-screen, its label collapses and the icon alone carries the
+    // state — the same yield rule as the tagline.
+    const toggle = page.getByTestId('txr-theme-toggle')
+    await expect(toggle).toBeVisible()
+    const toggleBox = await toggle.boundingBox()
+    expect(toggleBox, 'the theme switch must be on-screen').not.toBeNull()
+    expect(toggleBox!.x, 'starts inside').toBeGreaterThanOrEqual(0)
+    expect(toggleBox!.x + toggleBox!.width, 'ends inside').toBeLessThanOrEqual(390 + 1)
+    await expect(
+      page.locator('.txr-theme-toggle .txr-theme-toggle-label').evaluate(
+        el => getComputedStyle(el).display,
+      ),
+    ).resolves.toBe('none')
+    await expect(toggle.locator('svg')).toBeVisible()
   })
 })
 
