@@ -78,7 +78,7 @@ const PANEL_COLUMN: CSSProperties = {
   boxSizing: 'border-box',
   padding: '24px 32px',
   borderRadius: 12,
-  background: '#fbfaf8',
+  background: 'var(--txr-bg)',
   display: 'flex',
   flexDirection: 'column',
   gap: 16,
@@ -89,7 +89,7 @@ const STEP_LINE: CSSProperties = {
   fontWeight: 700,
   letterSpacing: '0.08em',
   textTransform: 'uppercase',
-  color: '#1d4e89',
+  color: 'var(--txr-brand)',
 }
 
 const TITLE: CSSProperties = {
@@ -102,14 +102,14 @@ const TITLE: CSSProperties = {
 
 const INTRO: CSSProperties = {
   margin: 0,
-  color: '#3a3a3a',
+  color: 'var(--txr-text-2)',
   maxWidth: '62ch',
 }
 
 /** One question group block (the board's bordered sections). */
 const QUESTION_GROUP: CSSProperties = {
   padding: '16px 0',
-  borderBottom: '1px solid #e7e5e0',
+  borderBottom: '1px solid var(--txr-border-subtle)',
 }
 
 const QUESTION_LABEL: CSSProperties = {
@@ -117,7 +117,7 @@ const QUESTION_LABEL: CSSProperties = {
   fontWeight: 700,
   letterSpacing: '0.08em',
   textTransform: 'uppercase',
-  color: '#5e5e5e',
+  color: 'var(--txr-muted)',
   marginBottom: 10,
 }
 
@@ -145,16 +145,16 @@ const PILL: CSSProperties = {
   padding: '5px 12px',
   fontSize: 13.5,
   fontWeight: 500,
-  border: '1px solid #cfcdc7',
-  background: '#ffffff',
-  color: '#3a3a3a',
+  border: '1px solid var(--txr-border)',
+  background: 'var(--txr-surface)',
+  color: 'var(--txr-text-2)',
 }
 
 const PILL_SELECTED: CSSProperties = {
   ...PILL,
-  border: '1px solid #1d4e89',
-  background: '#e8eef6',
-  color: '#143a68',
+  border: '1px solid var(--txr-brand)',
+  background: 'var(--txr-accent-soft)',
+  color: 'var(--txr-brand-ink)',
   fontWeight: 600,
 }
 
@@ -168,17 +168,17 @@ const BUTTON_ROW: CSSProperties = {
 
 const PRIMARY_BUTTON: CSSProperties = {
   borderRadius: 8,
-  background: '#1d4e89',
-  color: '#ffffff',
+  background: 'var(--txr-brand)',
+  color: 'var(--txr-on-brand)',
   fontWeight: 700,
 }
 
 const OUTLINE_BUTTON: CSSProperties = {
   borderRadius: 8,
-  background: '#ffffff',
-  color: '#141414',
+  background: 'var(--txr-surface)',
+  color: 'var(--txr-text)',
   fontWeight: 600,
-  border: '1px solid #cfcdc7',
+  border: '1px solid var(--txr-border)',
 }
 
 /** The panel's big count line (the board's big-number + suffix design). */
@@ -193,30 +193,30 @@ const PANEL_COUNT: CSSProperties = {
 // are separate spans and the report read "173of 359 methods fit".
 const PANEL_SUFFIX: CSSProperties = {
   fontSize: 20,
-  color: '#5e5e5e',
+  color: 'var(--txr-muted)',
   fontWeight: 400,
 }
 
 const PANEL_SENTENCE: CSSProperties = {
   margin: '4px 0 0',
-  color: '#3a3a3a',
+  color: 'var(--txr-text-2)',
   fontSize: 14,
 }
 
 const PANEL_SOME_LINE: CSSProperties = {
   margin: 0,
-  color: '#3a3a3a',
+  color: 'var(--txr-text-2)',
   fontSize: 13.5,
 }
 
-const PANEL_ERROR: CSSProperties = { margin: 0, color: '#b3261e', fontSize: 13.5 }
+const PANEL_ERROR: CSSProperties = { margin: 0, color: 'var(--txr-danger)', fontSize: 13.5 }
 
 /** The "What you will upload" box (board: bordered white card). */
 const UPLOAD_BOX: CSSProperties = {
   padding: '14px 16px',
-  border: '1px solid #cfcdc7',
+  border: '1px solid var(--txr-border)',
   borderRadius: 10,
-  background: '#ffffff',
+  background: 'var(--txr-surface)',
   display: 'flex',
   flexDirection: 'column',
   gap: 4,
@@ -239,7 +239,7 @@ const UPLOAD_LIST: CSSProperties = {
 const LINK: CSSProperties = {
   padding: 0,
   fontSize: 13.5,
-  color: '#1d4e89',
+  color: 'var(--txr-brand)',
   fontWeight: 600,
 }
 
@@ -255,7 +255,7 @@ const EXCLUDED_LI: CSSProperties = {
   display: 'flex',
   gap: 10,
   padding: '5px 0',
-  borderBottom: '1px solid #efede8',
+  borderBottom: '1px solid var(--txr-surface-raised)',
 }
 
 const EXCLUDED_ID: CSSProperties = {
@@ -271,7 +271,7 @@ const EXCLUDED_ID: CSSProperties = {
   overflowWrap: 'anywhere',
 }
 
-const EXCLUDED_REASON: CSSProperties = { color: '#5e5e5e', fontSize: 13.5 }
+const EXCLUDED_REASON: CSSProperties = { color: 'var(--txr-muted)', fontSize: 13.5 }
 
 export function StudyPage() {
   const navigate = useNavigate()
@@ -361,7 +361,7 @@ export function StudyPage() {
 
           <div style={QUESTION_GROUP}>
             <div style={QUESTION_LABEL}>What you want to predict</div>
-            <div style={PILLS} role="group" aria-label="What you want to predict">
+            <div style={PILLS} className="txr-intake-pills" role="group" aria-label="What you want to predict">
               {OUTCOME_OPTIONS.map(option => {
                 const selected = study.outcome === option.value
                 return (
@@ -476,7 +476,7 @@ export function StudyPage() {
               {panel.fit !== null ? (
                 <span style={{ fontWeight: 600 }}>{panel.fit.canRun}</span>
               ) : (
-                <span style={{ fontWeight: 600, color: '#5e5e5e' }}>…</span>
+                <span style={{ fontWeight: 600, color: 'var(--txr-muted)' }}>…</span>
               )}
               <span style={PANEL_SUFFIX}>
                 {panel.fit !== null ? ` of ${panel.fit.total} methods fit` : ' methods fit'}
@@ -523,17 +523,17 @@ export function StudyPage() {
               shownExcluded.length > 0 ? (
                 <ul style={EXCLUDED_LIST}>
                   {shownExcluded.map(method => (
-                    <li key={method.id} style={EXCLUDED_LI}>
+                    <li key={method.id} style={EXCLUDED_LI} className="txr-intake-excluded-row">
                       <span style={EXCLUDED_ID}>{method.id}</span>
                       <span style={EXCLUDED_REASON}>{method.reasonText}</span>
                     </li>
                   ))}
                 </ul>
               ) : (
-                <div style={{ color: '#5e5e5e', fontSize: 13.5 }}>None</div>
+                <div style={{ color: 'var(--txr-muted)', fontSize: 13.5 }}>None</div>
               )
             ) : (
-              <div style={{ color: '#5e5e5e', fontSize: 13.5 }}>…</div>
+              <div style={{ color: 'var(--txr-muted)', fontSize: 13.5 }}>…</div>
             )}
             {hasMoreExcluded ? (
               <Button

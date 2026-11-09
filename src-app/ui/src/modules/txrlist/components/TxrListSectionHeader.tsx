@@ -6,7 +6,7 @@
  *
  * Board-exact facts of this layout (DEC-8/DEC-10):
  * - the header row is the board's flex line: checkbox, bold title,
- *   `13.5px #5e5e5e` subtitle (the run facts: "trained 19 Oct on
+ *   `13.5px var(--txr-muted)` subtitle (the run facts: "trained 19 Oct on
  *   patients.csv · 151 patients · 11 models · progression or death by
  *   day 238"), a spacer, then the action links;
  * - the select-all is CONTROLLED like every selection control in the
@@ -19,7 +19,7 @@
  * - the actions are a slot: `onSectionAction(sectionKey, actionId)` —
  *   `model-store` owns rename/delete (DEC-10). The label + tone come
  *   from the host's `TxrListSection.actions`; the danger tone is the
- *   board's `#b3261e`, the default tone the board's link blue.
+ *   board's `var(--txr-danger)`, the default tone the board's link blue.
  */
 import type { CSSProperties } from 'react'
 import { Button, Checkbox } from '@ziee/kit'
@@ -27,8 +27,8 @@ import type { TxrListRow, TxrListSection } from '../types'
 
 /** The section action link colours (board literals; DEC-8). */
 const SECTION_ACTION_COLORS: Record<'default' | 'danger', string> = {
-  default: '#1d4e89',
-  danger: '#b3261e',
+  default: 'var(--txr-brand)',
+  danger: 'var(--txr-danger)',
 }
 
 /** The board's action-link look (a text button, not navigation). */
@@ -82,7 +82,7 @@ export function TxrListSectionHeader({
         onCheckedChange={() => onToggleSection?.(section)}
       />
       <span style={{ fontWeight: 700 }}>{section.title}</span>
-      <span style={{ fontSize: 13.5, color: '#5e5e5e' }}>{section.subtitle}</span>
+      <span style={{ fontSize: 13.5, color: 'var(--txr-muted)' }}>{section.subtitle}</span>
       <span style={{ flexGrow: 1 }} />
       {section.actions.map(action => (
         <Button

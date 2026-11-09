@@ -169,16 +169,16 @@ export function formatDate(iso: string, options: FormatDateOptions = {}): string
 export function statusLabel(bucket: TxrHistoryBucket): { text: string; tone: string } {
   switch (bucket) {
     case 'running':
-      return { text: 'Running', tone: '#143a68' }
+      return { text: 'Running', tone: 'var(--txr-brand-ink)' }
     case 'finished':
-      return { text: 'Done', tone: '#1f6b3a' }
+      return { text: 'Done', tone: 'var(--txr-success)' }
     case 'stopped':
-      return { text: 'Stopped', tone: '#5e5e5e' }
+      return { text: 'Stopped', tone: 'var(--txr-muted)' }
     case 'failed':
-      return { text: 'Failed', tone: '#b3261e' }
+      return { text: 'Failed', tone: 'var(--txr-danger)' }
   }
   const _unreachable: never = bucket
-  return { text: 'Failed', tone: '#b3261e' }
+  return { text: 'Failed', tone: 'var(--txr-danger)' }
 }
 
 /**

@@ -87,9 +87,9 @@ const DOWNLOAD_ERROR: CSSProperties = {
   padding: '10px 14px',
   borderWidth: 1,
   borderStyle: 'solid',
-  borderColor: '#f0c9c4',
+  borderColor: 'var(--txr-danger-border)',
   borderRadius: 8,
-  background: '#fdf3f2',
+  background: 'var(--txr-danger-soft)',
   fontSize: 14,
 }
 
@@ -118,7 +118,7 @@ function NotFoundResults({ onNewAnalysis }: { onNewAnalysis: () => void }) {
   return (
     <div data-testid="txr-results-not-found" style={NOT_FOUND_BLOCK}>
       <h2 style={NOT_FOUND_TITLE}>This analysis run could not be found</h2>
-      <p style={{ margin: 0, fontSize: 14, color: '#3a3a3a' }}>
+      <p style={{ margin: 0, fontSize: 14, color: 'var(--txr-text-2)' }}>
         It may have been removed, or the link is outdated.
       </p>
       <Button
@@ -223,7 +223,7 @@ export function ResultsPage() {
 
   if (runError === 'not-found') {
     return (
-      <main data-testid="txr-results" style={PAGE_MAIN}>
+      <main data-testid="txr-results" className="txr-results-page" style={PAGE_MAIN}>
         <NotFoundResults onNewAnalysis={() => navigate('/')} />
       </main>
     )
@@ -238,7 +238,7 @@ export function ResultsPage() {
   // DEC-18). With a snapshot the content branch below keeps rendering it.
   if (runError === 'network' || (run !== null && predictions === null && predictionsError === 'network')) {
     return (
-      <main data-testid="txr-results" style={PAGE_MAIN}>
+      <main data-testid="txr-results" className="txr-results-page" style={PAGE_MAIN}>
         <ErrorState
           variant="page"
           resource="the run"
@@ -254,7 +254,7 @@ export function ResultsPage() {
   // is — the skeleton never reappears over a loaded snapshot.
   if (run === null || (predictions === null && predictionsLoading)) {
     return (
-      <main data-testid="txr-results" style={PAGE_MAIN}>
+      <main data-testid="txr-results" className="txr-results-page" style={PAGE_MAIN}>
         <LoadingResults />
       </main>
     )
@@ -272,7 +272,7 @@ export function ResultsPage() {
   // fills the columns without a reload (INV-1, EXAMPLE-UR-4).
   if (predictions === null) {
     return (
-      <main data-testid="txr-results" style={PAGE_MAIN}>
+      <main data-testid="txr-results" className="txr-results-page" style={PAGE_MAIN}>
         <TxrResultsHeader
           run={run}
           predictions={null}
@@ -306,7 +306,7 @@ export function ResultsPage() {
   }
 
   return (
-    <main data-testid="txr-results" style={PAGE_MAIN}>
+    <main data-testid="txr-results" className="txr-results-page" style={PAGE_MAIN}>
       <TxrResultsHeader
         run={run}
         predictions={predictions}
@@ -323,7 +323,7 @@ export function ResultsPage() {
           The predictions could not be downloaded. Try again.
         </div>
       ) : null}
-      <div style={CONTROLS_ROW}>
+      <div className="txr-results-controls" style={CONTROLS_ROW}>
         <TxrOutcomeTabs
           columns={allColumns}
           active={outcomeTab}
@@ -344,12 +344,12 @@ export function ResultsPage() {
       </div>
       <TxrHeatmapTable view={view} onShowAll={() => TxrResults.setPatientLimit(-1)} />
       {mixedNote !== null ? (
-        <p data-testid="txr-results-mixed-note" style={{ margin: 0, fontSize: 13.5, color: '#3a3a3a' }}>
+        <p data-testid="txr-results-mixed-note" style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-text-2)' }}>
           {mixedNote}
         </p>
       ) : null}
       {constantNote !== null ? (
-        <p data-testid="txr-results-constant-note" style={{ margin: 0, fontSize: 13.5, color: '#3a3a3a' }}>
+        <p data-testid="txr-results-constant-note" style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-text-2)' }}>
           {constantNote}
         </p>
       ) : null}

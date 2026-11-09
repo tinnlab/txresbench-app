@@ -123,7 +123,7 @@ const STEP_LINE: CSSProperties = {
   fontWeight: 700,
   letterSpacing: '0.08em',
   textTransform: 'uppercase',
-  color: '#1d4e89',
+  color: 'var(--txr-brand)',
 }
 
 const TITLE: CSSProperties = {
@@ -135,7 +135,7 @@ const TITLE: CSSProperties = {
 }
 
 /** The board's lead paragraph under the title (the board's own meters). */
-const INTRO: CSSProperties = { margin: 0, color: '#3a3a3a', maxWidth: '62ch' }
+const INTRO: CSSProperties = { margin: 0, color: 'var(--txr-text-2)', maxWidth: '62ch' }
 
 /** The board's settings-card skeleton (the card's place while the first
  *  sticky-config GET is in flight — a defaults flash would mislead). */
@@ -154,9 +154,9 @@ const LIST_FRAME: CSSProperties = {
   minHeight: 240,
   display: 'flex',
   flexDirection: 'column',
-  border: '1px solid #cfcdc7',
+  border: '1px solid var(--txr-border)',
   borderRadius: 10,
-  background: '#ffffff',
+  background: 'var(--txr-surface)',
   overflow: 'hidden',
 }
 
@@ -165,12 +165,12 @@ const PENDING_BLOCK: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   padding: '18px 20px',
-  border: '1px solid #e7e5e0',
+  border: '1px solid var(--txr-border-subtle)',
   borderRadius: 10,
-  background: '#fbfaf8',
+  background: 'var(--txr-bg)',
 }
 
-const PENDING_LINE: CSSProperties = { margin: 0, fontSize: 13.5, color: '#5e5e5e' }
+const PENDING_LINE: CSSProperties = { margin: 0, fontSize: 13.5, color: 'var(--txr-muted)' }
 
 /** The pending line (the list's place while the summary is transiently null). */
 const PENDING_REFRESH_LINE = 'Re-check your files to see what can run.'
@@ -179,7 +179,7 @@ const PENDING_REFRESH_LINE = 'Re-check your files to see what can run.'
  *  published environment, stated before the rows — the board has no such
  *  line (every board method can start), so the copy follows the app's
  *  plain-voice rule, never a raw code. */
-const NO_ENV_LINE: CSSProperties = { margin: 0, fontSize: 12.5, color: '#8a5a00' }
+const NO_ENV_LINE: CSSProperties = { margin: 0, fontSize: 12.5, color: 'var(--txr-warning)' }
 
 export function noEnvLine(noEnv: number, total: number): string {
   return `${noEnv} of ${total} methods have no published environment on this computer and can't start.`

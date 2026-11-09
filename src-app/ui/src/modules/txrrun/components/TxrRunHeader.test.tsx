@@ -123,7 +123,7 @@ describe('TxrRunHeader (F header, TEST-RUN-18)', () => {
   it('the See-results link reads in the board\'s link tone — a link, not a bold caption (RP-8)', () => {
     renderHeader({ predictionsReady: true })
     const link = screen.getByTestId('txr-run-see-results')
-    expect(link.style.color).toBe('rgb(29, 78, 137)')
+    expect(link.style.color).toBe('var(--txr-brand)')
     expect(link.style.fontWeight).toBe('400')
   })
 

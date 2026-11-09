@@ -33,7 +33,7 @@ import {
 } from '../lib/format'
 
 const CARD: CSSProperties = {
-  border: '1px solid #cfcdc7',
+  border: '1px solid var(--txr-border)',
   borderRadius: 10,
   padding: '16px 18px',
   display: 'flex',
@@ -45,7 +45,7 @@ const TITLE: CSSProperties = { fontWeight: 600, margin: 0 }
 
 const SENTENCES: CSSProperties = {
   fontSize: 14,
-  color: '#3a3a3a',
+  color: 'var(--txr-text-2)',
   display: 'flex',
   flexDirection: 'column',
   gap: 8,
@@ -55,7 +55,7 @@ const TOGGLE: CSSProperties = {
   alignSelf: 'flex-start',
   fontSize: 14,
   padding: 0,
-  color: '#1d4e89',
+  color: 'var(--txr-brand)',
 }
 
 /** The board's named-id list: comma-joined, "and" before the last, ids bold. */
@@ -147,7 +147,7 @@ export function TxrCompareCard({
         <Button
           data-testid="txr-compare-divergent-toggle"
           variant="link"
-          className="p-0"
+          className="txr-compare-toggle p-0"
           aria-pressed={divergentOnly}
           disabled={report.divergentCount === 0}
           style={TOGGLE}

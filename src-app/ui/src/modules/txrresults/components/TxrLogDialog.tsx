@@ -41,15 +41,15 @@ const PRE: CSSProperties = {
   maxHeight: 340,
   overflow: 'auto',
   padding: '10px 12px',
-  border: '1px solid #e7e5e0',
+  border: '1px solid var(--txr-border-subtle)',
   borderRadius: 8,
-  background: '#fbfaf8',
+  background: 'var(--txr-bg)',
   fontFamily: MONO_FONT,
   fontSize: 12,
   lineHeight: 1.55,
   whiteSpace: 'pre-wrap',
   overflowWrap: 'anywhere',
-  color: '#141414',
+  color: 'var(--txr-text)',
 }
 
 /** The dialog's lines — the store's log tail, filtered to the open method. */
@@ -125,7 +125,7 @@ export function TxrLogDialog() {
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }} data-testid="txr-log-dialog-body">
         {state.streaming ? (
-          <div style={{ fontSize: 12.5, color: '#5e5e5e' }}>
+          <div style={{ fontSize: 12.5, color: 'var(--txr-muted)' }}>
             Lines appear here as the run writes them.
           </div>
         ) : null}

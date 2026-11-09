@@ -7,6 +7,11 @@
 /* The kit ships a self-contained shadcn token layer — import it directly
    (SDK_GAPS FE-3: app#1 inlines its own copy instead of consuming this). */
 @import "@ziee/kit/styles/tokens.css";
+/* TxResBench's OWN palette (the design boards' cream/navy bytes + the app's
+   dark inversion). Every txr* component colors through these tokens — the one
+   place the board hexes live; the app's theme.test.ts scans the modules for a
+   stray hex literal (RM-1: the dark-mode-half-applied defect class). */
+@import "./assets/txr-theme.css";
 /* TxResBench local fonts (Source Sans 3 / Source Serif 4 / Source Code Pro — no CDN). */
 @import "./assets/fonts.css";
 
@@ -104,26 +109,52 @@ html.dark .os-theme-dark {
   z-index: 49;
 }
 
-/* QA-fixes ITEM-2 (CM-5): the kit checkbox + switch on the board's light
- * surfaces. In dark OS mode the kit swaps to dark tokens (a white-15%
- * border and white-30% fill) — invisible on the white rows of the
- * method/model lists and the settings card. These surfaces stay light
- * until the full dark palette lands (ITEM-7), so the controls keep their
- * light look while the theme is mixed: a visible gray border + white fill
- * (checked keeps the primary fill), and the toggle's light track + white
- * thumb. `!important` because the kit's own `dark:` utilities tie the
- * specificity and some ship with the state on the control — see the
- * switch's `dark:data-unchecked:` pair. */
-.txr-list-checkbox:is(.dark *):not([data-checked]) {
-  border-color: #cfcdc7 !important;
-  background-color: #ffffff !important;
+/* QA-fixes ITEM-7 (X2): the shell header at phone width. The board's header
+ * is desktop-only: at 390 px the tagline wrapped to six lines and clipped,
+ * and the nav pushed History/Help off-screen (the measured 526/817 px page
+ * scrollWidth). Below 900 px the tagline yields (the brand stays — the
+ * tagline is the least-needed byte and the longest); below 640 px the header
+ * stacks: the brand row first, then the nav + Help row on its own line, so
+ * all four destinations stay on-screen with no horizontal page scroll. The
+ * desktop look above those widths is untouched (the inline styles carry it). */
+@media (max-width: 900px) {
+  .txr-shell-tagline {
+    display: none !important;
+  }
 }
-.txr-settings-switch:is(.dark *):not([data-checked]) {
-  background-color: oklch(0.922 0 0) !important;
+@media (max-width: 640px) {
+  .txr-shell-header {
+    height: auto !important;
+    flex-wrap: wrap !important;
+    padding: 10px 16px !important;
+    row-gap: 6px;
+  }
+  .txr-shell-actions {
+    flex: 1 1 100% !important;
+  }
 }
-.txr-settings-switch:is(.dark *):not([data-checked]) [data-slot='switch-thumb'] {
-  background-color: #ffffff !important;
+
+/* QA-fixes ITEM-7 (RES-26): the results pages at phone width. The board's
+ * results/compare screens are desktop-only (seven heatmap columns, the
+ * outcome tab strip, the filter bar with its legend) — at 390 px the page
+ * was 526 px wide and the outcome tabs clipped. Below 640 px the page
+ * padding tightens and the controls row wraps in an even rhythm (the
+ * filter bar takes its own full-width row and wraps inside itself), while
+ * the outcome tab strip and the heatmap keep scrolling inside their own
+ * boxes (the kit tabs' native overflow-x; the board's own overflow-x
+ * container for the heatmap) — the page itself never scrolls sideways. */
+@media (max-width: 640px) {
+  .txr-results-page {
+    padding: 20px 16px !important;
+  }
+  .txr-results-controls {
+    gap: 8px !important;
+  }
+  .txr-results-filter {
+    flex: 1 1 100%;
+  }
 }
+
 
 /* QA-fixes ITEM-3 (RP-5): screen F's method table at phone width. The
  * board's table columns cannot fit 390 px — the State column clipped and
@@ -165,7 +196,7 @@ html.dark .os-theme-dark {
     flex: 0 0 68px;
     font-size: 12px;
     font-weight: 600;
-    color: #5e5e5e;
+    color: var(--txr-muted);
   }
 }
 @media (min-width: 641px) {
@@ -177,7 +208,7 @@ html.dark .os-theme-dark {
 /* QA-fixes ITEM-3 (RP-8): the F header's "See the results" link — the
  * board's link tone on hover (the inline style carries the resting tone). */
 .txr-run-see-results:hover {
-  color: #143a68 !important;
+  color: var(--txr-brand-ink) !important;
 }
 
 /* QA-fixes ITEM-5 (RES-16): screen J's inventory table at phone width.
@@ -209,7 +240,7 @@ html.dark .os-theme-dark {
   .txr-models-j-table > tbody > tr {
     display: block;
     padding: 10px 0 14px;
-    border-bottom: 1px solid #e7e5e0;
+    border-bottom: 1px solid var(--txr-border-subtle);
   }
   .txr-models-j-table > tbody > tr:last-child {
     border-bottom: none;
@@ -233,7 +264,7 @@ html.dark .os-theme-dark {
     flex: 0 0 96px;
     font-size: 12px;
     font-weight: 600;
-    color: #5e5e5e;
+    color: var(--txr-muted);
   }
 }
 
@@ -267,5 +298,80 @@ html.dark .os-theme-dark {
   }
   .txr-intake-page .txr-intake-first-rows table {
     min-width: 520px;
+  }
+}
+
+/* QA-fixes ITEM-7 (X2/RES-26): the history page at phone width. The expanded
+ * row's action column kept the board's 320 px basis and the kit buttons'
+ * nowrap labels ("Run again with the same settings" = a ~304 px
+ * min-content) so the block could never shrink to the frame, and the
+ * model-set links ("Cohort A, day 60") overflowed the dl grid's second
+ * column (the measured +45–65 px on every history surface). Below 640 px
+ * the action column takes its own full-width row, its labels wrap, the
+ * model-set links wrap, and the page padding tightens (the toolbar's
+ * fixed-width search then fits). The desktop two-column block is untouched
+ * (the inline styles carry it). */
+@media (max-width: 640px) {
+  .txr-history-page {
+    padding: 20px 16px !important;
+  }
+  .txr-history-page .txr-history-actions {
+    flex: 1 1 100% !important;
+    min-width: 0 !important;
+  }
+  .txr-history-page .txr-history-actions button {
+    white-space: normal !important;
+    height: auto !important;
+  }
+  .txr-history-page [data-testid^="txr-history-model-set-"] {
+    white-space: normal !important;
+  }
+}
+
+/* QA-fixes ITEM-7 (RES-26): the H compare card + the intake study/predict
+ * footers at phone width. The compare card's "Show only the patients where
+ * they differ" link kept the kit button's nowrap (a 287 px min-content)
+ * and pushed the aside past the 390 px frame (+35 px, and the title's
+ * "How <method> and <method> compare" drove the card the same way); the
+ * intake outcome pills' nowrap ("Risk of progression or death before day
+ * 238" = 311 px) and the Continue footer's nowrap button did the same on
+ * screens B/N (+31/+48 px). Below 640 px the toggle and pills wrap, the
+ * aside can shrink to the row width, the left-out rows wrap, and the
+ * footer stacks its label and button. Desktop is untouched. */
+@media (max-width: 640px) {
+  .txr-results-page .txr-compare-toggle {
+    white-space: normal !important;
+    height: auto !important;
+  }
+  .txr-results-page aside {
+    min-width: 0 !important;
+  }
+  .txr-intake-page .txr-intake-pills > button {
+    white-space: normal !important;
+    height: auto !important;
+    /* The kit button base is `shrink-0`: without this the pill keeps its
+     * max-content width (311 px for "Risk of progression…") and wraps only
+     * text-wise while the box itself overflows the field. */
+    flex-shrink: 1 !important;
+  }
+  .txr-intake-page .txr-intake-excluded-row {
+    flex-wrap: wrap !important;
+  }
+  .txr-intake-page .txr-intake-footer {
+    flex-wrap: wrap !important;
+  }
+}
+
+/* QA-fixes ITEM-7 (RES-26): the shared list filter bar (screens D/I) at
+ * phone width. The chips are kit buttons (`nowrap` + the base's `shrink-0`):
+ * "Checked on 2 or more other cohorts" measured 283 px — wider than the
+ * bounded list card (234 px), where its `overflow: hidden` cut the label
+ * off at the card edge instead of growing the page. Below 640 px the chips
+ * wrap (and can shrink), so the whole label stays visible. */
+@media (max-width: 640px) {
+  .txr-list-filter-bar > button {
+    white-space: normal !important;
+    height: auto !important;
+    flex-shrink: 1 !important;
   }
 }

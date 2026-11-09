@@ -49,12 +49,12 @@ import { TxrHistoryActions } from './TxrHistoryActions'
 
 /** The expanded block's wrap layout + tint (the board's 28 px gap). */
 const BLOCK: CSSProperties = {
-  borderTop: '1px solid #e7e5e0',
+  borderTop: '1px solid var(--txr-border-subtle)',
   padding: '14px 18px 16px',
   display: 'flex',
   flexWrap: 'wrap',
   gap: 28,
-  background: '#fbfaf8',
+  background: 'var(--txr-bg)',
   borderRadius: '0 0 8px 8px',
 }
 
@@ -69,7 +69,7 @@ const DL: CSSProperties = {
   alignContent: 'start',
 }
 
-const DT: CSSProperties = { color: '#5e5e5e' }
+const DT: CSSProperties = { color: 'var(--txr-muted)' }
 
 const DD: CSSProperties = { margin: 0, minWidth: 0 }
 
@@ -81,7 +81,7 @@ const MONO: CSSProperties = {
 }
 
 /** The copies note's quiet line. */
-const NOTE: CSSProperties = { fontSize: 12.5, color: '#5e5e5e', marginTop: 2 }
+const NOTE: CSSProperties = { fontSize: 12.5, color: 'var(--txr-muted)', marginTop: 2 }
 
 /** The in-line link look (the board's 14 px link inside the sentence). */
 const LINK_INLINE: CSSProperties = { fontSize: 14, fontWeight: 400, padding: 0, height: 'auto' }
@@ -263,6 +263,7 @@ export function TxrHistoryDetailBlock({
                   <Button
                     data-testid={`txr-history-model-set-${link.setId}`}
                     variant="link"
+                    className="txr-history-model-set"
                     style={LINK_INLINE}
                     onClick={() => onOpenSet?.(link.setId)}
                   >

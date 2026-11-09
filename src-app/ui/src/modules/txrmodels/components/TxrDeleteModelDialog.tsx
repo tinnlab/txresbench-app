@@ -31,8 +31,8 @@ const DELETE_BODY =
 
 /** The danger button's look (the board's danger red over the kit variant). */
 const DANGER_BUTTON: CSSProperties = {
-  background: '#b3261e',
-  color: '#ffffff',
+  background: 'var(--txr-danger-strong)',
+  color: 'var(--txr-on-danger)',
 }
 
 function errorText(error: unknown): string {
@@ -100,11 +100,11 @@ export function TxrDeleteModelDialog({ model, onClose, onDeleted }: TxrDeleteMod
         </div>
       }
     >
-      <p data-testid={`txr-models-delete-dialog-${model?.id}-body`} style={{ margin: 0, fontSize: 13.5, lineHeight: 1.5, color: '#3a3a3a' }}>
+      <p data-testid={`txr-models-delete-dialog-${model?.id}-body`} style={{ margin: 0, fontSize: 13.5, lineHeight: 1.5, color: 'var(--txr-text-2)' }}>
         {DELETE_BODY}
       </p>
       {error !== null ? (
-        <p data-testid={`txr-models-delete-dialog-${model?.id}-error`} style={{ margin: 0, fontSize: 13.5, color: '#b3261e' }}>
+        <p data-testid={`txr-models-delete-dialog-${model?.id}-error`} style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-danger)' }}>
           {errorText(error)}
         </p>
       ) : null}

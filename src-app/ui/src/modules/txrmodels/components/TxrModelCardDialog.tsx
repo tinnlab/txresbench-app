@@ -50,7 +50,7 @@ const LEAD: CSSProperties = {
   margin: '0 0 10px',
   fontSize: 13.5,
   lineHeight: 1.5,
-  color: '#3a3a3a',
+  color: 'var(--txr-text-2)',
 }
 
 /** The multi-line value blocks (the citation, the cohort list). */
@@ -59,17 +59,17 @@ const BLOCK: CSSProperties = {
   fontSize: 12.5,
   whiteSpace: 'pre-wrap',
   overflowWrap: 'anywhere',
-  color: '#3a3a3a',
+  color: 'var(--txr-text-2)',
 }
 
 /** The single-line values' look. */
-const VALUE: CSSProperties = { fontSize: 12.5, color: '#3a3a3a' }
+const VALUE: CSSProperties = { fontSize: 12.5, color: 'var(--txr-text-2)' }
 
 /** The error line's look (the dialog's own muted red). */
-const ERROR: CSSProperties = { fontSize: 13.5, color: '#b3261e' }
+const ERROR: CSSProperties = { fontSize: 13.5, color: 'var(--txr-danger)' }
 
 /** The research-use notice line (the board's own copy, INV-3). */
-const NOTICE_LINE: CSSProperties = { fontSize: 13, color: '#5e5e5e' }
+const NOTICE_LINE: CSSProperties = { fontSize: 13, color: 'var(--txr-muted)' }
 
 /** The access-class word for the data-sources lines (the record's own
  *  vocabulary — a controlled source is named, never hidden). */

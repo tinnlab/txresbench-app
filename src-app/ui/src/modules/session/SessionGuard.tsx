@@ -38,7 +38,7 @@ export function SessionGuard({ children }: { children: ReactNode }) {
         }}
       >
         <h1 style={{ margin: 0, fontSize: 22 }}>TxResBench could not start</h1>
-        <p data-allow-custom-color style={{ margin: 0, color: '#666', maxWidth: 520 }}>
+        <p data-allow-custom-color style={{ margin: 0, color: 'var(--txr-text-2)', maxWidth: 520 }}>
           The app's local service did not answer. Start it and reload this page.
         </p>
         <pre
@@ -46,8 +46,8 @@ export function SessionGuard({ children }: { children: ReactNode }) {
           style={{
             margin: 0,
             padding: 12,
-            background: '#f5f5f5',
-            border: '1px solid #ddd',
+            background: 'var(--txr-surface-dim)',
+            border: '1px solid var(--txr-border)',
             borderRadius: 4,
             fontSize: 12,
             maxWidth: 640,
@@ -80,7 +80,7 @@ export function SessionGuard({ children }: { children: ReactNode }) {
           minHeight: '100dvh',
         }}
       >
-        <span aria-label="Loading" style={{ fontSize: 13, color: '#5e5e5e' }}>
+        <span aria-label="Loading" style={{ fontSize: 13, color: 'var(--txr-muted)' }}>
           Loading…
         </span>
       </div>

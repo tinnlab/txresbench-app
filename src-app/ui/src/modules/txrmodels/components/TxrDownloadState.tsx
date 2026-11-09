@@ -51,11 +51,11 @@ const LINE: CSSProperties = {
   alignItems: 'center',
   gap: 8,
   fontSize: 13,
-  color: '#3a3a3a',
+  color: 'var(--txr-text-2)',
 }
 
 /** The error line's look (the board's red). */
-const ERROR_LINE: CSSProperties = { fontSize: 13, color: '#b3261e' }
+const ERROR_LINE: CSSProperties = { fontSize: 13, color: 'var(--txr-danger)' }
 
 /** The progress fraction: 0–100, or null when the total is unknown. */
 function progressPct(entry: TxrModelDownloadState): number | null {
@@ -105,7 +105,7 @@ export function TxrDownloadState({ id, label, entry, retrying, onRetry }: TxrDow
         </span>
         <span
           data-testid={`txr-models-download-${id}-pct`}
-          style={{ fontVariantNumeric: 'tabular-nums', color: '#5e5e5e' }}
+          style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--txr-muted)' }}
         >
           {progressPct(download) === null ? '' : `${progressPct(download)}%`}
         </span>

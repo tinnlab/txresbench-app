@@ -30,14 +30,14 @@ const SLOT_ROW: CSSProperties = {
 /** The board's chip box (the neutral token row: 8×14 padding, 8 radius). */
 const SLOT_CHIP: CSSProperties = {
   padding: '8px 14px',
-  border: '1px solid #e7e5e0',
+  border: '1px solid var(--txr-border-subtle)',
   borderRadius: 8,
-  background: '#fbfaf8',
+  background: 'var(--txr-bg)',
   fontSize: 13.5,
 }
 
-/** The slot label's muted color (the board's `#5e5e5e`). */
-const SLOT_LABEL: CSSProperties = { color: '#5e5e5e' }
+/** The slot label's muted color (the board's `var(--txr-muted)`). */
+const SLOT_LABEL: CSSProperties = { color: 'var(--txr-muted)' }
 
 /** The board's "Change files" link styling. */
 const CHANGE_FILES: CSSProperties = {

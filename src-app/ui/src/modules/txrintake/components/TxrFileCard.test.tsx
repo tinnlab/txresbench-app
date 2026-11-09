@@ -334,16 +334,17 @@ describe('TxrFileCard (shared file card, ITEM-9)', () => {
     expect(within(items[0] as HTMLElement).getByRole('link', { name: 'Help for problem code R03' }).getAttribute('href')).toBe(
       '/help#problem-r03',
     )
-    // jsdom serializes the inline hex to its rgb form (the bytes are the
-    // component's, `#b3261e` per DEC-14 — RGB is the same color).
-    expect(items[0].style.color).toBe('rgb(179, 38, 30)')
+    // The error tone is the board's red as the shared danger token (the
+    // component renders the theme variable; the LIGHT byte is #b3261e in
+    // `assets/txr-theme.css`, DEC-14).
+    expect(items[0].style.color).toBe('var(--txr-danger)')
     // The warning is a card note (its color is the notes group's amber).
     const note = items[1]
     expect(note.textContent).toBe('Row 88: P0187 is not in the patients tableR08')
     expect(within(note as HTMLElement).getByRole('link', { name: 'Help for problem code R08' }).getAttribute('href')).toBe(
       '/help#problem-r08',
     )
-    expect(note.style.color).toBe('rgb(138, 90, 0)')
+    expect(note.style.color).toBe('var(--txr-warning)')
     fireEvent.click(within(status).getByText('Fix and choose the file again'))
     expect(callbacks.onRemove).toHaveBeenCalledTimes(1)
   })
@@ -361,7 +362,7 @@ describe('TxrFileCard (shared file card, ITEM-9)', () => {
       'listitem',
     )
     expect(items).toHaveLength(1)
-    expect(items[0].style.color).toBe('rgb(138, 90, 0)')
+    expect(items[0].style.color).toBe('var(--txr-warning)')
   })
 
   it('an inspected-but-unvalidated file shows the neutral state', () => {
@@ -462,8 +463,8 @@ describe('ITEM-6 F2/F5/F11 - the mapping offer, the honest problem box, the alig
     expect(within(status).getByText('1 note')).toBeTruthy()
     const inStatus = within(status).getAllByRole('listitem')
     expect(inStatus).toHaveLength(2)
-    expect(inStatus[0].style.color).toBe('rgb(179, 38, 30)')
-    expect(inStatus[1].style.color).toBe('rgb(138, 90, 0)')
+    expect(inStatus[0].style.color).toBe('var(--txr-danger)')
+    expect(inStatus[1].style.color).toBe('var(--txr-warning)')
   })
 
   it('the problem list clips at 20 lines with the "Show all N" disclosure (F2)', () => {

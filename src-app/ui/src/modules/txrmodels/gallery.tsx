@@ -165,7 +165,7 @@ function RunResultLine() {
   return (
     <pre
       data-testid="txr-models-run-result"
-      style={{ margin: 8, fontSize: 11, color: '#5e5e5e', whiteSpace: 'pre-wrap' }}
+      style={{ margin: 8, fontSize: 11, color: 'var(--txr-muted)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
     >
       {record === null
         ? 'run not fired yet'
@@ -182,7 +182,7 @@ function RequestSeam() {
   return (
     <pre
       data-testid="txr-models-request-seam"
-      style={{ margin: 8, fontSize: 11, color: '#5e5e5e', whiteSpace: 'pre-wrap' }}
+      style={{ margin: 8, fontSize: 11, color: 'var(--txr-muted)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
     >
       {JSON.stringify(REQUEST_LOG)}
     </pre>
@@ -195,7 +195,7 @@ function LandedAt() {
   return (
     <pre
       data-testid="txr-models-landed"
-      style={{ margin: 24, fontSize: 12, color: '#5e5e5e' }}
+      style={{ margin: 24, fontSize: 12, color: 'var(--txr-muted)' }}
     >
       navigated to {location.pathname}
     </pre>
@@ -236,22 +236,22 @@ const HOST_BUTTON: CSSProperties = {
   zIndex: 10,
   fontSize: 12,
   padding: '4px 10px',
-  border: '1px solid #cfcdc7',
+  border: '1px solid var(--txr-border)',
   borderRadius: 8,
-  background: '#ffffff',
-  color: '#1d4e89',
+  background: 'var(--txr-surface)',
+  color: 'var(--txr-brand)',
 }
 
 /** The list-frame look (the gallery's bounded white pane). */
 const FRAME: CSSProperties = {
-  border: '1px solid #cfcdc7',
+  border: '1px solid var(--txr-border)',
   borderRadius: 10,
-  background: '#ffffff',
+  background: 'var(--txr-surface)',
 }
 
 /** The gallery's note under a story (host chrome, muted). */
 function BoardNote({ children }: { children: string }) {
-  return <p style={{ margin: '10px 2px 0', fontSize: 12.5, color: '#5e5e5e' }}>{children}</p>
+  return <p style={{ margin: '10px 2px 0', fontSize: 12.5, color: 'var(--txr-muted)' }}>{children}</p>
 }
 
 /** A seed-then-render gate (the txrrun SeedGate idiom: the store must be
@@ -427,7 +427,7 @@ function DStoryView({ narrow = false }: { narrow?: boolean }) {
 /** The run-landing seam (the D Run's in-frame navigation's destination). */
 function LandingLine({ path }: { path: string }) {
   return (
-    <p data-testid="txr-models-d-run-landed" style={{ margin: 12, fontSize: 12, color: '#5e5e5e' }}>
+    <p data-testid="txr-models-d-run-landed" style={{ margin: 12, fontSize: 12, color: 'var(--txr-muted)' }}>
       {path}
     </p>
   )

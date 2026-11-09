@@ -127,7 +127,7 @@ function RequestSeam() {
 function LandedAt() {
   const location = useLocation()
   return (
-    <pre data-testid="txr-history-landed" style={{ margin: 24, fontSize: 12, color: '#5e5e5e' }}>
+    <pre data-testid="txr-history-landed" style={{ margin: 24, fontSize: 12, color: 'var(--txr-muted)' }}>
       navigated to {location.pathname}
     </pre>
   )
@@ -137,15 +137,21 @@ function LandedAt() {
 const SEAM_STYLE: CSSProperties = {
   margin: 8,
   fontSize: 11,
-  color: '#5e5e5e',
+  color: 'var(--txr-muted)',
   whiteSpace: 'pre-wrap',
+  // qa-fixes ITEM-7: JSON.stringify emits ONE unbroken token per requested
+  // body, and `pre-wrap` only breaks at whitespace — a long body made the
+  // seam (and the gallery frame's scrollWidth) wider than 390 px. The
+  // break-anywhere rule keeps the seam inside its frame (it is dev chrome;
+  // it must not fail the phone sweep's own check).
+  overflowWrap: 'anywhere',
 }
 
 /** The list-frame look (the gallery's bounded white pane). */
 const FRAME: CSSProperties = {
-  border: '1px solid #cfcdc7',
+  border: '1px solid var(--txr-border)',
   borderRadius: 10,
-  background: '#ffffff',
+  background: 'var(--txr-surface)',
 }
 
 // ── the story frame (the SeedGate idiom: the cassette extensions + the

@@ -30,9 +30,9 @@ const BANNER: CSSProperties = {
   padding: '10px 14px',
   borderWidth: 1,
   borderStyle: 'solid',
-  borderColor: '#f0c9c4',
+  borderColor: 'var(--txr-danger-border)',
   borderRadius: 8,
-  background: '#fdf3f2',
+  background: 'var(--txr-danger-soft)',
   fontSize: 14,
 }
 
@@ -41,7 +41,7 @@ const METHOD_ID: CSSProperties = {
   fontSize: 13,
 }
 
-const SHOW_LOG: CSSProperties = { fontSize: 13, color: '#1d4e89', marginLeft: 'auto', whiteSpace: 'nowrap' }
+const SHOW_LOG: CSSProperties = { fontSize: 13, color: 'var(--txr-brand)', marginLeft: 'auto', whiteSpace: 'nowrap' }
 
 export interface TxrCannotRunMethod {
   method_id: string
@@ -73,7 +73,7 @@ export function TxrCannotRunBanner({ methods, total, onShowLog }: TxrCannotRunBa
             height={18}
             viewBox="0 0 24 24"
             fill="none"
-            stroke="#b3261e"
+            stroke="var(--txr-danger)"
             strokeWidth={2.2}
             strokeLinecap="round"
             strokeLinejoin="round"

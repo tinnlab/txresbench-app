@@ -114,7 +114,7 @@ const STEP_LINE: CSSProperties = {
   fontWeight: 700,
   letterSpacing: '0.08em',
   textTransform: 'uppercase',
-  color: '#1d4e89',
+  color: 'var(--txr-brand)',
 }
 
 const TITLE: CSSProperties = {
@@ -126,10 +126,10 @@ const TITLE: CSSProperties = {
 }
 
 /** The header row's right-hand totals line (the board's muted span). */
-const TOTALS: CSSProperties = { fontSize: 14, color: '#3a3a3a' }
+const TOTALS: CSSProperties = { fontSize: 14, color: 'var(--txr-text-2)' }
 
 /** The header block's lead paragraph (the board's own). */
-const CHECK_LINE: CSSProperties = { margin: 0, color: '#3a3a3a', maxWidth: '62ch' }
+const CHECK_LINE: CSSProperties = { margin: 0, color: 'var(--txr-text-2)', maxWidth: '62ch' }
 
 /** The list area's frame (the bounded column the shared list fills). */
 const LIST_FRAME: CSSProperties = {
@@ -137,14 +137,14 @@ const LIST_FRAME: CSSProperties = {
   minHeight: 0,
   display: 'flex',
   flexDirection: 'column',
-  border: '1px solid #cfcdc7',
+  border: '1px solid var(--txr-border)',
   borderRadius: 10,
-  background: '#ffffff',
+  background: 'var(--txr-surface)',
   overflow: 'hidden',
 }
 
 /** The board's footnote under the list (verbatim — the I board's own). */
-const FOOTNOTE: CSSProperties = { fontSize: 13, color: '#5e5e5e' }
+const FOOTNOTE: CSSProperties = { fontSize: 13, color: 'var(--txr-muted)' }
 
 /** The not-ready state's line (no validated file — never a half list). */
 const EMPTY_LINE = 'Add the patients\u2019 measurements you want to predict first.'

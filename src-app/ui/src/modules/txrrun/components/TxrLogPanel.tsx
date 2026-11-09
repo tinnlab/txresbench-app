@@ -64,8 +64,8 @@ const ASIDE: CSSProperties = {
   minHeight: 0,
   boxSizing: 'border-box',
   padding: '26px 28px',
-  background: '#fbfaf8',
-  borderLeft: '1px solid #e7e5e0',
+  background: 'var(--txr-bg)',
+  borderLeft: '1px solid var(--txr-border-subtle)',
   display: 'flex',
   flexDirection: 'column',
   gap: 10,
@@ -84,7 +84,7 @@ const HEADING: CSSProperties = {
   fontWeight: 700,
   letterSpacing: '0.04em',
   textTransform: 'uppercase',
-  color: '#3a3a3a',
+  color: 'var(--txr-text-2)',
 }
 
 const SPACER: CSSProperties = { flexGrow: 1 }
@@ -98,7 +98,7 @@ const FILTER_ROW: CSSProperties = {
   gap: 8,
 }
 
-const FILTER_LABEL: CSSProperties = { fontSize: 12.5, color: '#5e5e5e' }
+const FILTER_LABEL: CSSProperties = { fontSize: 12.5, color: 'var(--txr-muted)' }
 
 const SELECT: CSSProperties = { width: '100%', maxWidth: 240 }
 
@@ -109,19 +109,19 @@ const PRE: CSSProperties = {
   minHeight: 140,
   boxSizing: 'border-box',
   padding: '12px 14px',
-  border: '1px solid #e7e5e0',
+  border: '1px solid var(--txr-border-subtle)',
   borderRadius: 8,
-  background: '#ffffff',
+  background: 'var(--txr-surface)',
   fontFamily: "'Source Code Pro', ui-monospace, monospace",
   fontSize: 12,
   lineHeight: 1.6,
-  color: '#3a3a3a',
+  color: 'var(--txr-text-2)',
   whiteSpace: 'pre-wrap',
   overflowY: 'auto',
 }
 
 /** The 'Showing N of M lines' count (the capped tail's honest count line). */
-const COUNT: CSSProperties = { fontSize: 12, color: '#5e5e5e' }
+const COUNT: CSSProperties = { fontSize: 12, color: 'var(--txr-muted)' }
 
 /** The follow/copy row (the board's footer row). */
 const FOOTER: CSSProperties = {
@@ -129,7 +129,7 @@ const FOOTER: CSSProperties = {
   alignItems: 'center',
   gap: 10,
   fontSize: 13,
-  color: '#3a3a3a',
+  color: 'var(--txr-text-2)',
 }
 
 const COPY: CSSProperties = { fontSize: 13, padding: '2px 4px' }

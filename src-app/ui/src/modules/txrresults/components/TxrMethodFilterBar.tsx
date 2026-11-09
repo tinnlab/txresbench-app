@@ -45,7 +45,7 @@ const LEGEND: CSSProperties = {
   alignItems: 'center',
   gap: 8,
   fontSize: 12.5,
-  color: '#5e5e5e',
+  color: 'var(--txr-muted)',
   marginLeft: 'auto',
 }
 const LEGEND_GRADIENT: CSSProperties = {
@@ -54,7 +54,7 @@ const LEGEND_GRADIENT: CSSProperties = {
   height: 10,
   borderRadius: 3,
   background:
-    'linear-gradient(to right, rgba(29, 78, 137, 0.04), rgba(29, 78, 137, 0.9))',
+    'linear-gradient(to right, rgba(var(--txr-chance-rgb), 0.04), rgba(var(--txr-chance-rgb), 0.9))',
 }
 
 export interface TxrMethodFilter {
@@ -136,7 +136,7 @@ export function TxrMethodFilterBar({
   const pickerValue = pickerValueOf(filter)
   const chooseMode = pickerValue === CHOOSE_VALUE
   return (
-    <div style={ROW}>
+    <div data-testid="txr-results-filter" className="txr-results-filter" style={ROW}>
       <Input
         data-testid="txr-results-search"
         type="search"

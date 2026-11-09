@@ -162,7 +162,7 @@ function RequestSeam() {
   return (
     <pre
       data-testid="txr-run-request-seam"
-      style={{ margin: 8, fontSize: 11, color: '#5e5e5e', whiteSpace: 'pre-wrap' }}
+      style={{ margin: 8, fontSize: 11, color: 'var(--txr-muted)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
     >
       {txrrunRequestLogLine()}
     </pre>

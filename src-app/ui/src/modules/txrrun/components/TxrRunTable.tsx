@@ -40,10 +40,10 @@ import { TxrRunRow, type TxrRunRowAction } from './TxrRunRow'
 
 /** The board's table card (rounded, hairline border; horizontal scroll on a narrow screen). */
 const TABLE_BOX: CSSProperties = {
-  border: '1px solid #cfcdc7',
+  border: '1px solid var(--txr-border)',
   borderRadius: 10,
   overflowX: 'auto',
-  background: '#ffffff',
+  background: 'var(--txr-surface)',
 }
 
 const TABLE: CSSProperties = { width: '100%', borderCollapse: 'collapse', fontSize: 14 }
@@ -51,10 +51,10 @@ const TABLE: CSSProperties = { width: '100%', borderCollapse: 'collapse', fontSi
 const HEADER_LOOK: CSSProperties = {
   padding: '8px 12px',
   textAlign: 'left',
-  borderBottom: '1px solid #cfcdc7',
+  borderBottom: '1px solid var(--txr-border)',
   fontWeight: 600,
-  color: '#3a3a3a',
-  background: '#f7f6f3',
+  color: 'var(--txr-text-2)',
+  background: 'var(--txr-surface-dim)',
   whiteSpace: 'nowrap',
 }
 
@@ -70,7 +70,7 @@ const VISUALLY_HIDDEN: CSSProperties = {
 const EMPTY_LOOK: CSSProperties = {
   padding: '14px 12px',
   fontSize: 13,
-  color: '#5e5e5e',
+  color: 'var(--txr-muted)',
   textAlign: 'center',
 }
 
@@ -87,15 +87,15 @@ const STOP_ALL: CSSProperties = {
   fontWeight: 700,
   borderWidth: 1,
   borderStyle: 'solid',
-  borderColor: '#b3261e',
-  color: '#b3261e',
-  background: '#ffffff',
+  borderColor: 'var(--txr-danger)',
+  color: 'var(--txr-danger)',
+  background: 'var(--txr-surface)',
   borderRadius: 8,
 }
 
 const ACTION_ERROR: CSSProperties = {
   fontSize: 12.5,
-  color: '#b3261e',
+  color: 'var(--txr-danger)',
   maxWidth: 420,
 }
 

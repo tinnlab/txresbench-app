@@ -95,8 +95,8 @@ const ASIDE: CSSProperties = {
   minWidth: 0,
   boxSizing: 'border-box',
   padding: '26px 28px',
-  background: '#fbfaf8',
-  borderLeft: '1px solid #e7e5e0',
+  background: 'var(--txr-bg)',
+  borderLeft: '1px solid var(--txr-border-subtle)',
   display: 'flex',
   flexDirection: 'column',
   gap: 12,
@@ -107,10 +107,10 @@ const ASIDE_EYEBROW: CSSProperties = {
   fontWeight: 700,
   letterSpacing: '0.08em',
   textTransform: 'uppercase',
-  color: '#5e5e5e',
+  color: 'var(--txr-muted)',
 }
 
-const ASIDE_PARA: CSSProperties = { margin: 0, fontSize: 14, color: '#3a3a3a' }
+const ASIDE_PARA: CSSProperties = { margin: 0, fontSize: 14, color: 'var(--txr-text-2)' }
 
 const ASIDE_LIST: CSSProperties = {
   margin: 0,
@@ -119,7 +119,7 @@ const ASIDE_LIST: CSSProperties = {
   // global reset removed them and the items read as one grey block.
   listStyle: 'disc',
   fontSize: 14.5,
-  color: '#3a3a3a',
+  color: 'var(--txr-text-2)',
 }
 
 /** One aside item: the board's bold lead-in on its own line, then the fact. */
@@ -128,24 +128,24 @@ const ASIDE_ITEM: CSSProperties = { margin: '2px 0' }
 /** The board's "Not sure what you have?" note (the study clause is a link). */
 const ASIDE_NOTE: CSSProperties = {
   padding: '10px 12px',
-  border: '1px solid #e7e5e0',
+  border: '1px solid var(--txr-border-subtle)',
   borderRadius: 8,
-  background: '#ffffff',
+  background: 'var(--txr-surface)',
   fontSize: 13.5,
-  color: '#3a3a3a',
+  color: 'var(--txr-text-2)',
 }
 
-const ASIDE_LINK: CSSProperties = { color: '#1d4e89', fontWeight: 600 }
+const ASIDE_LINK: CSSProperties = { color: 'var(--txr-brand)', fontWeight: 600 }
 
 /** The board's bottom line — the predict-mode promise, static. */
-const ASIDE_FOOTER: CSSProperties = { marginTop: 'auto', fontSize: 13.5, color: '#5e5e5e' }
+const ASIDE_FOOTER: CSSProperties = { marginTop: 'auto', fontSize: 13.5, color: 'var(--txr-muted)' }
 
 const STEP_LINE: CSSProperties = {
   fontSize: 12,
   fontWeight: 700,
   letterSpacing: '0.08em',
   textTransform: 'uppercase',
-  color: '#1d4e89',
+  color: 'var(--txr-brand)',
 }
 
 const TITLE: CSSProperties = {
@@ -158,7 +158,7 @@ const TITLE: CSSProperties = {
 
 const INTRO: CSSProperties = {
   margin: 0,
-  color: '#3a3a3a',
+  color: 'var(--txr-text-2)',
   maxWidth: '62ch',
 }
 
@@ -171,15 +171,15 @@ const FOOTER: CSSProperties = {
 const FOOTER_LABEL: CSSProperties = {
   flex: '1 1 auto',
   fontSize: 13.5,
-  color: '#5e5e5e',
+  color: 'var(--txr-muted)',
 }
 const PRIMARY_BUTTON: CSSProperties = {
   borderRadius: 8,
-  background: '#1d4e89',
-  color: '#ffffff',
+  background: 'var(--txr-brand)',
+  color: 'var(--txr-on-brand)',
   fontWeight: 700,
 }
-const PAGE_ERROR: CSSProperties = { margin: 0, color: '#b3261e', fontSize: 13.5 }
+const PAGE_ERROR: CSSProperties = { margin: 0, color: 'var(--txr-danger)', fontSize: 13.5 }
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : 'The file could not be read.'
@@ -438,7 +438,7 @@ export function PredictFilesPage() {
           onDownloadExample={() => void downloadCsv('example')}
         />
 
-        <div style={FOOTER}>
+        <div style={FOOTER} className="txr-intake-footer">
           <span style={FOOTER_LABEL}>
             {file === null
               ? 'Add the measurements file to check which models can run on it.'

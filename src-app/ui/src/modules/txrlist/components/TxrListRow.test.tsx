@@ -92,9 +92,9 @@ describe('TxrListRow (TEST-UL-8 — board-exact row)', () => {
 
   it('renders the three statuses with the boards\' colours and verbatim headlines', () => {
     const cases: Array<[TxrRunStatus, string, string]> = [
-      ['can', '#1f6b3a', 'Can run'],
-      ['some', '#8a5a00', 'Can run for some patients'],
-      ['cannot', '#b3261e', 'Cannot run'],
+      ['can', 'var(--txr-success)', 'Can run'],
+      ['some', 'var(--txr-warning)', 'Can run for some patients'],
+      ['cannot', 'var(--txr-danger)', 'Cannot run'],
     ]
     for (const [status, color, headline] of cases) {
       const { container } = render(
@@ -133,7 +133,7 @@ describe('TxrListRow (TEST-UL-8 — board-exact row)', () => {
       checkbox.hasAttribute('data-disabled')
     expect(disabledMarked).toBe(true)
     expect(rendered.style.opacity).toBe('0.8')
-    expect(colorHex(rendered.style.background)).toBe('#fbfaf8')
+    expect(colorHex(rendered.style.background)).toBe('var(--txr-bg)')
   })
 
   it('a stale host selection never shows a disabled row checked (the board never ticks one)', () => {
@@ -157,8 +157,8 @@ describe('TxrListRow (TEST-UL-8 — board-exact row)', () => {
       <TxrListRowView row={row({ chip: { label: 'Response call', tone: 'neutral' } })} checked={false} />,
     )
     const neutralChip = neutral.querySelector<HTMLElement>('[data-tone="neutral"]')!
-    expect(colorHex(neutralChip.style.background)).toBe('#eef0e6')
-    expect(colorHex(neutralChip.style.color)).toBe('#3d4a14')
+    expect(colorHex(neutralChip.style.background)).toBe('var(--txr-success-soft)')
+    expect(colorHex(neutralChip.style.color)).toBe('var(--txr-success-ink)')
 
     const { container: accent } = render(
       <TxrListRowView
@@ -167,8 +167,8 @@ describe('TxrListRow (TEST-UL-8 — board-exact row)', () => {
       />,
     )
     const accentChip = accent.querySelector<HTMLElement>('[data-tone="accent"]')!
-    expect(colorHex(accentChip.style.background)).toBe('#e8eef6')
-    expect(colorHex(accentChip.style.color)).toBe('#143a68')
+    expect(colorHex(accentChip.style.background)).toBe('var(--txr-accent-soft)')
+    expect(colorHex(accentChip.style.color)).toBe('var(--txr-brand-ink)')
   })
 
   it('performanceText null renders no performance column; a value renders it', () => {
@@ -220,20 +220,20 @@ describe('TxrListRow (TEST-UL-8 — board-exact row)', () => {
     ).toBeNull()
   })
 
-  it('a checked row carries the board\'s selected look (2px #1d4e89 on #f4f8fc)', () => {
+  it('a checked row carries the board\'s selected look (2px var(--txr-brand) on var(--txr-accent-softer))', () => {
     const { container } = render(<TxrListRowView row={row()} checked={true} />)
     const rendered = container.querySelector<HTMLElement>('[data-testid="txr-list-row-direct-on"]')!
     expect(rendered.style.borderWidth).toBe('2px')
-    expect(colorHex(rendered.style.borderColor)).toBe('#1d4e89')
-    expect(colorHex(rendered.style.background)).toBe('#f4f8fc')
+    expect(colorHex(rendered.style.borderColor)).toBe('var(--txr-brand)')
+    expect(colorHex(rendered.style.background)).toBe('var(--txr-accent-softer)')
   })
 
-  it('an unchecked row carries the board\'s neutral look (1px #cfcdc7 on white)', () => {
+  it('an unchecked row carries the board\'s neutral look (1px var(--txr-border) on white)', () => {
     const { container } = render(<TxrListRowView row={row()} checked={false} />)
     const rendered = container.querySelector<HTMLElement>('[data-testid="txr-list-row-direct-on"]')!
     expect(rendered.style.borderWidth).toBe('1px')
-    expect(colorHex(rendered.style.borderColor)).toBe('#cfcdc7')
-    expect(colorHex(rendered.style.background)).toBe('#ffffff')
+    expect(colorHex(rendered.style.borderColor)).toBe('var(--txr-border)')
+    expect(colorHex(rendered.style.background)).toBe('var(--txr-surface)')
   })
 
   it('a cannot row\'s checkbox never fires the toggle', () => {

@@ -116,7 +116,7 @@ const STATE_BLOCK: CSSProperties = {
  *  always-rendered wiring, not the panel's). */
 const LEAVE_NOTE: CSSProperties = {
   fontSize: 13.5,
-  color: '#5e5e5e',
+  color: 'var(--txr-muted)',
   display: 'flex',
   alignItems: 'center',
   flexWrap: 'wrap',
@@ -128,19 +128,19 @@ const TAB_CHIP = {
   borderRadius: 999,
   padding: '5px 12px',
   fontSize: 13.5,
-  background: '#ffffff',
-  color: '#3a3a3a',
+  background: 'var(--txr-surface)',
+  color: 'var(--txr-text-2)',
   borderWidth: 1,
   borderStyle: 'solid',
-  borderColor: '#cfcdc7',
+  borderColor: 'var(--txr-border)',
 } as const
 
 /** The active tab's look (the board's pressed pill). */
 const ACTIVE_TAB = {
   ...TAB_CHIP,
-  background: '#e8eef6',
-  color: '#143a68',
-  borderColor: '#1d4e89',
+  background: 'var(--txr-accent-soft)',
+  color: 'var(--txr-brand-ink)',
+  borderColor: 'var(--txr-brand)',
 } as const
 
 /**

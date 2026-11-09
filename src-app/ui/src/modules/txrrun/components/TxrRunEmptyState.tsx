@@ -29,13 +29,13 @@ const BLOCK: CSSProperties = {
   alignItems: 'flex-start',
   gap: 10,
   padding: '18px 20px',
-  border: '1px solid #e7e5e0',
+  border: '1px solid var(--txr-border-subtle)',
   borderRadius: 10,
-  background: '#fbfaf8',
+  background: 'var(--txr-bg)',
 }
 
 const TITLE: CSSProperties = { margin: 0, fontWeight: 700, fontSize: 17 }
-const LINE: CSSProperties = { margin: 0, fontSize: 14, color: '#3a3a3a' }
+const LINE: CSSProperties = { margin: 0, fontSize: 14, color: 'var(--txr-text-2)' }
 
 export interface TxrRunEmptyStateProps {
   /** The mode's first missing input (null = nothing configured at all). */

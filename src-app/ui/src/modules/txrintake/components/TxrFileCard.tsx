@@ -31,7 +31,7 @@
  * Copy rule (DEC-13): every label is the board's verbatim bytes and every
  * number is computed from the file + validate response (row counts, problem
  * counts, marker lists) — never a design-example count. Colors per DEC-14:
- * `#1f6b3a` ready, `#b3261e` error box, `#8a5a00` warning / notes.
+ * `var(--txr-success)` ready, `var(--txr-danger)` error box, `var(--txr-warning)` warning / notes.
  */
 
 import type { CSSProperties } from 'react'
@@ -78,9 +78,9 @@ export interface TxrFileCardProps {
 
 /** The board's bordered card. */
 const CARD: CSSProperties = {
-  border: '1px solid #cfcdc7',
+  border: '1px solid var(--txr-border)',
   borderRadius: 12,
-  background: '#ffffff',
+  background: 'var(--txr-surface)',
   padding: '18px 20px',
   display: 'flex',
   flexWrap: 'wrap',
@@ -103,7 +103,7 @@ const CARD_TITLE: CSSProperties = {
   fontSize: 20,
 }
 
-const CARD_DESC: CSSProperties = { margin: '2px 0 10px', color: '#3a3a3a', fontSize: 14 }
+const CARD_DESC: CSSProperties = { margin: '2px 0 10px', color: 'var(--txr-text-2)', fontSize: 14 }
 
 /** The static per-role column table (board bytes: role, tag, copy). */
 const ROLE_TABLE: CSSProperties = { borderCollapse: 'collapse' }
@@ -122,11 +122,11 @@ const ROLE_NAME: CSSProperties = {
 const ROLE_TAG: CSSProperties = {
   padding: '3px 10px 3px 0',
   fontSize: 12.5,
-  color: '#5e5e5e',
+  color: 'var(--txr-muted)',
   whiteSpace: 'nowrap',
   verticalAlign: 'top',
 }
-const ROLE_COPY: CSSProperties = { padding: '3px 0', fontSize: 13, color: '#3a3a3a' }
+const ROLE_COPY: CSSProperties = { padding: '3px 0', fontSize: 13, color: 'var(--txr-text-2)' }
 
 /** The board's two column tables: grouped role rows, verbatim copy. */
 interface RoleRow {
@@ -207,10 +207,10 @@ function statusFor(
   return mode === 'predict' ? predictMeasurementsStatus(validation) : measurementsStatus(validation)
 }
 
-const EXAMPLE_LABEL: CSSProperties = { fontSize: 13, color: '#5e5e5e' }
+const EXAMPLE_LABEL: CSSProperties = { fontSize: 13, color: 'var(--txr-muted)' }
 const EXAMPLE_TABLE: CSSProperties = {
   overflow: 'hidden',
-  border: '1px solid #cfcdc7',
+  border: '1px solid var(--txr-border)',
   borderRadius: 8,
   borderCollapse: 'collapse',
   width: '100%',
@@ -218,14 +218,14 @@ const EXAMPLE_TABLE: CSSProperties = {
 const EXAMPLE_HEAD: CSSProperties = {
   textAlign: 'left',
   padding: '4px 10px',
-  background: '#f7f6f3',
-  borderBottom: '1px solid #cfcdc7',
+  background: 'var(--txr-surface-dim)',
+  borderBottom: '1px solid var(--txr-border)',
   fontWeight: 600,
   fontSize: 12.5,
 }
 const EXAMPLE_ENTRY: CSSProperties = {
   padding: '4px 10px',
-  borderBottom: '1px solid #efede8',
+  borderBottom: '1px solid var(--txr-surface-raised)',
   fontSize: 12.5,
 }
 const EXAMPLE_CODE: CSSProperties = {
@@ -236,7 +236,7 @@ const EXAMPLE_CODE: CSSProperties = {
 const DOWNLOADS: CSSProperties = { display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center' }
 const DOWNLOAD_LINK: CSSProperties = {
   fontSize: 13.5,
-  color: '#1d4e89',
+  color: 'var(--txr-brand)',
   fontWeight: 600,
   background: 'none',
   border: 'none',
@@ -253,31 +253,31 @@ const STATUS: CSSProperties = {
   flexDirection: 'column',
   gap: 4,
 }
-const STATUS_GOOD: CSSProperties = { ...STATUS, border: '1px solid #b9dcc4', background: '#f1f9f3' }
-const STATUS_BAD: CSSProperties = { ...STATUS, border: '1px solid #f0c9c4', background: '#fdf3f2' }
+const STATUS_GOOD: CSSProperties = { ...STATUS, border: '1px solid var(--txr-success-border)', background: 'var(--txr-success-soft-2)' }
+const STATUS_BAD: CSSProperties = { ...STATUS, border: '1px solid var(--txr-danger-border)', background: 'var(--txr-danger-soft)' }
 const STATUS_NEUTRAL: CSSProperties = {
   ...STATUS,
-  border: '1px solid #e7e5e0',
-  background: '#fbfaf8',
+  border: '1px solid var(--txr-border-subtle)',
+  background: 'var(--txr-bg)',
 }
 
 const STATUS_HEADING: CSSProperties = { fontWeight: 700, margin: 0 }
-const STATUS_GOOD_HEADING: CSSProperties = { ...STATUS_HEADING, color: '#1f6b3a' }
-const STATUS_BAD_HEADING: CSSProperties = { ...STATUS_HEADING, color: '#b3261e' }
-const STATUS_LINE: CSSProperties = { fontSize: 13.5, color: '#3a3a3a', margin: 0 }
+const STATUS_GOOD_HEADING: CSSProperties = { ...STATUS_HEADING, color: 'var(--txr-success)' }
+const STATUS_BAD_HEADING: CSSProperties = { ...STATUS_HEADING, color: 'var(--txr-danger)' }
+const STATUS_LINE: CSSProperties = { fontSize: 13.5, color: 'var(--txr-text-2)', margin: 0 }
 
 /** A warning-only group under the ready box (warnings never block, DEC-10). */
 const WARNING_GROUP: CSSProperties = {
-  borderTop: '1px solid #efede8',
+  borderTop: '1px solid var(--txr-surface-raised)',
   marginTop: 8,
   paddingTop: 6,
 }
-const WARNING_TITLE: CSSProperties = { fontWeight: 700, color: '#8a5a00', fontSize: 13 }
+const WARNING_TITLE: CSSProperties = { fontWeight: 700, color: 'var(--txr-warning)', fontSize: 13 }
 
 const FIX_LINK: CSSProperties = {
   marginTop: 6,
   fontSize: 13,
-  color: '#1d4e89',
+  color: 'var(--txr-brand)',
   fontWeight: 600,
   background: 'none',
   border: 'none',

@@ -44,8 +44,8 @@ import { TxrHistoryDetailBlock } from './TxrHistoryDetailBlock'
  *  module's own bytes — the words are shared, the hexes are the
  *  rendering component's, DRIFT-1 #7). */
 export const TXRHISTORY_CHIP_TONES: Record<TxrChipTone, CSSProperties> = {
-  accent: { background: '#e8eef6', color: '#143a68' },
-  neutral: { background: '#eef0e6', color: '#3d4a14' },
+  accent: { background: 'var(--txr-accent-soft)', color: 'var(--txr-brand-ink)' },
+  neutral: { background: 'var(--txr-success-soft)', color: 'var(--txr-success-ink)' },
 }
 
 /** The board's chip pill shape (both tones share it). */
@@ -71,26 +71,26 @@ const TITLE_BLOCK: CSSProperties = { flex: '1 1 360px', minWidth: 0 }
 
 const ROW_TITLE: CSSProperties = { fontWeight: 700, overflowWrap: 'anywhere' }
 
-const ROW_SUBTITLE: CSSProperties = { fontSize: 13.5, color: '#3a3a3a' }
+const ROW_SUBTITLE: CSSProperties = { fontSize: 13.5, color: 'var(--txr-text-2)' }
 
-const FAILURE_SUBTITLE: CSSProperties = { ...ROW_SUBTITLE, color: '#b3261e' }
+const FAILURE_SUBTITLE: CSSProperties = { ...ROW_SUBTITLE, color: 'var(--txr-danger)' }
 
 /** The status word's look (bold, the status tone). */
 const STATUS: CSSProperties = { fontSize: 13.5, fontWeight: 600, whiteSpace: 'nowrap' }
 
-const DATE: CSSProperties = { fontSize: 13.5, color: '#5e5e5e', whiteSpace: 'nowrap' }
+const DATE: CSSProperties = { fontSize: 13.5, color: 'var(--txr-muted)', whiteSpace: 'nowrap' }
 
 /** The Show/Hide-details toggle (the board's quiet text button). */
 const TOGGLE: CSSProperties = { fontSize: 13.5, padding: '2px 4px' }
 
 /** The expanded block's loading area (the detail is on its way). */
 const LOADING_BLOCK: CSSProperties = {
-  borderTop: '1px solid #e7e5e0',
+  borderTop: '1px solid var(--txr-border-subtle)',
   padding: '14px 18px 16px',
   display: 'flex',
   flexDirection: 'column',
   gap: 10,
-  background: '#fbfaf8',
+  background: 'var(--txr-bg)',
   borderRadius: '0 0 8px 8px',
 }
 
@@ -171,9 +171,9 @@ export function TxrHistoryCard({
   const rowStyle: CSSProperties = {
     borderWidth: expanded ? 2 : 1,
     borderStyle: 'solid',
-    borderColor: expanded ? '#1d4e89' : '#cfcdc7',
+    borderColor: expanded ? 'var(--txr-brand)' : 'var(--txr-border)',
     borderRadius: 10,
-    background: '#ffffff',
+    background: 'var(--txr-surface)',
   }
   return (
     <li data-testid={`txr-history-row-${item.id}`} style={rowStyle}>

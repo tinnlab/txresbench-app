@@ -31,9 +31,9 @@ export type TxrRunStatus = 'can' | 'some' | 'cannot'
 /**
  * The two board chip palettes (DEC-8):
  *
- * - `'neutral'` — `#eef0e6` chip / `#3d4a14` text: the method group chips
+ * - `'neutral'` — `var(--txr-success-soft)` chip / `var(--txr-success-ink)` text: the method group chips
  *   (e.g. "Response probability") on screen E;
- * - `'accent'`  — `#e8eef6` chip / `#143a68` text: the Published /
+ * - `'accent'`  — `var(--txr-accent-soft)` chip / `var(--txr-brand-ink)` text: the Published /
  *   Learned here / Trained by you chips on screens D and I.
  */
 export type TxrListChipTone = 'neutral' | 'accent'

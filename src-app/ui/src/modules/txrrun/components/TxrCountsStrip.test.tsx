@@ -96,15 +96,15 @@ describe('TxrCountsStrip (the per-state counters, TEST-RUN-19)', () => {
     render(<TxrCountsStrip counts={countsOf()} />)
     const b = (state: string) =>
       countEl(state).querySelector<HTMLElement>('b')!
-    expect(colorHex(b('finished').style.color)).toBe('#1f6b3a')
-    expect(colorHex(b('running').style.color)).toBe('#143a68')
-    expect(colorHex(b('downloading').style.color)).toBe('#8a5a00')
-    expect(colorHex(b('waiting').style.color)).toBe('#5e5e5e')
+    expect(colorHex(b('finished').style.color)).toBe('var(--txr-success)')
+    expect(colorHex(b('running').style.color)).toBe('var(--txr-brand-ink)')
+    expect(colorHex(b('downloading').style.color)).toBe('var(--txr-warning)')
+    expect(colorHex(b('waiting').style.color)).toBe('var(--txr-muted)')
     expect(b('failed').textContent).toBe('0')
-    expect(colorHex(b('failed').style.color)).toBe('#5e5e5e')
-    expect(colorHex(b('stopped').style.color)).toBe('#5e5e5e')
-    expect(colorHex(b('skipped').style.color)).toBe('#5e5e5e')
-    expect(colorHex(b('cannot_run').style.color)).toBe('#b3261e')
+    expect(colorHex(b('failed').style.color)).toBe('var(--txr-muted)')
+    expect(colorHex(b('stopped').style.color)).toBe('var(--txr-muted)')
+    expect(colorHex(b('skipped').style.color)).toBe('var(--txr-muted)')
+    expect(colorHex(b('cannot_run').style.color)).toBe('var(--txr-danger)')
   })
 
   it('renders an empty run as greyed zero counters without a crash', () => {

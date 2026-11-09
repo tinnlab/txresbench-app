@@ -30,25 +30,25 @@ import type { TxrHeatmapColumn } from '../types'
 import { formatCoverage, formatProbSourceLine, formatSavedIn } from '../lib/format'
 
 const CARD: CSSProperties = {
-  border: '1px solid #cfcdc7',
+  border: '1px solid var(--txr-border)',
   borderRadius: 10,
   padding: '16px 18px',
   fontSize: 14,
-  color: '#3a3a3a',
+  color: 'var(--txr-text-2)',
   display: 'flex',
   flexDirection: 'column',
   gap: 8,
 }
 
-const CARD_TITLE: CSSProperties = { fontWeight: 600, color: '#141414' }
+const CARD_TITLE: CSSProperties = { fontWeight: 600, color: 'var(--txr-text)' }
 
-const FACT_LINE: CSSProperties = { fontSize: 13.5, color: '#3a3a3a' }
+const FACT_LINE: CSSProperties = { fontSize: 13.5, color: 'var(--txr-text-2)' }
 
-const LINK: CSSProperties = { fontSize: 13.5, color: '#1d4e89', padding: 0 }
+const LINK: CSSProperties = { fontSize: 13.5, color: 'var(--txr-brand)', padding: 0 }
 
 const SAVED_IN: CSSProperties = {
   fontSize: 13.5,
-  color: '#5e5e5e',
+  color: 'var(--txr-muted)',
   display: 'flex',
   flexWrap: 'wrap',
   alignItems: 'center',
@@ -132,7 +132,7 @@ export function TxrMethodAside({
           data-testid="txr-results-chance-link"
           variant="link"
           className="p-0 self-start"
-          style={{ fontSize: 14, color: '#1d4e89' }}
+          style={{ fontSize: 14, color: 'var(--txr-brand)' }}
           onClick={onOpenChance}
         >
           How the chance is calculated
@@ -147,7 +147,7 @@ export function TxrMethodAside({
               data-testid="txr-results-open-folder"
               variant="link"
               className="p-0"
-              style={{ fontSize: 13.5, color: '#1d4e89' }}
+              style={{ fontSize: 13.5, color: 'var(--txr-brand)' }}
               onClick={() => onOpenFolder(dir ?? '')}
             >
               Open the folder

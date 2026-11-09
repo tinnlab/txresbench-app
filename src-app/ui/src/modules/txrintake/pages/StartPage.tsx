@@ -52,7 +52,7 @@ const STEP_LINE: CSSProperties = {
   fontWeight: 700,
   letterSpacing: '0.08em',
   textTransform: 'uppercase',
-  color: '#1d4e89',
+  color: 'var(--txr-brand)',
 }
 
 const TITLE: CSSProperties = {
@@ -65,7 +65,7 @@ const TITLE: CSSProperties = {
 
 const INTRO: CSSProperties = {
   margin: 0,
-  color: '#3a3a3a',
+  color: 'var(--txr-text-2)',
   maxWidth: '62ch',
 }
 
@@ -85,19 +85,19 @@ const CARD_BASE: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 10,
-  background: '#ffffff',
+  background: 'var(--txr-surface)',
 }
 
 /** The highlighted card (Path 1) — the 2 px accent border distinguishes it. */
 const CARD_ACCENT: CSSProperties = {
   ...CARD_BASE,
-  border: '2px solid #1d4e89',
+  border: '2px solid var(--txr-brand)',
 }
 
 /** The two plain cards (Paths 2 and 3). */
 const CARD_PLAIN: CSSProperties = {
   ...CARD_BASE,
-  border: '1px solid #cfcdc7',
+  border: '1px solid var(--txr-border)',
 }
 
 const CARD_EYEBROW: CSSProperties = {
@@ -105,7 +105,7 @@ const CARD_EYEBROW: CSSProperties = {
   fontWeight: 700,
   letterSpacing: '0.08em',
   textTransform: 'uppercase',
-  color: '#5e5e5e',
+  color: 'var(--txr-muted)',
 }
 
 const CARD_TITLE: CSSProperties = {
@@ -118,7 +118,7 @@ const CARD_TITLE: CSSProperties = {
 
 const CARD_BODY: CSSProperties = {
   margin: 0,
-  color: '#3a3a3a',
+  color: 'var(--txr-text-2)',
 }
 
 const CARD_BULLETS: CSSProperties = {
@@ -127,19 +127,19 @@ const CARD_BULLETS: CSSProperties = {
   // qa-fixes ITEM-6 L2: the board's dots — the kit's global reset removed
   // `list-style` and the cards read as indented paragraphs.
   listStyle: 'disc',
-  color: '#3a3a3a',
+  color: 'var(--txr-text-2)',
   fontSize: 14.5,
 }
 
 const CARD_BULLET: CSSProperties = { margin: '3px 0' }
 
-/** The "Recommended to start" pill (board inline span; #eef0e6/#3d4a14). */
+/** The "Recommended to start" pill (board inline span; var(--txr-success-soft)/var(--txr-success-ink)). */
 const RECOMMENDED_BADGE: CSSProperties = {
   fontSize: 12.5,
   padding: '2px 10px',
   borderRadius: 999,
-  background: '#eef0e6',
-  color: '#3d4a14',
+  background: 'var(--txr-success-soft)',
+  color: 'var(--txr-success-ink)',
   marginLeft: 8,
   whiteSpace: 'nowrap',
 }
@@ -153,17 +153,17 @@ const CARD_BUTTON_ROW: CSSProperties = {
 
 const PRIMARY_BUTTON: CSSProperties = {
   borderRadius: 8,
-  background: '#1d4e89',
-  color: '#ffffff',
+  background: 'var(--txr-brand)',
+  color: 'var(--txr-on-brand)',
   fontWeight: 700,
 }
 
 const OUTLINE_BUTTON: CSSProperties = {
   borderRadius: 8,
-  background: '#ffffff',
-  color: '#141414',
+  background: 'var(--txr-surface)',
+  color: 'var(--txr-text)',
   fontWeight: 600,
-  border: '1px solid #cfcdc7',
+  border: '1px solid var(--txr-border)',
 }
 
 /** The banner (board copy + the board's two affordances). */
@@ -173,10 +173,10 @@ const BANNER: CSSProperties = {
   gap: 14,
   alignItems: 'baseline',
   padding: '14px 18px',
-  border: '1px solid #e7e5e0',
+  border: '1px solid var(--txr-border-subtle)',
   borderRadius: 10,
-  background: '#fbfaf8',
-  color: '#3a3a3a',
+  background: 'var(--txr-bg)',
+  color: 'var(--txr-text-2)',
   fontSize: 14,
 }
 
@@ -185,12 +185,12 @@ const BANNER_SPACER: CSSProperties = { flexGrow: 1 }
 // qa-fixes ITEM-6 L1: the button carried the kit link's padding (the
 // 11 px indent + the extra top gap vs the paragraph above it); it now
 // renders flush with the banner's line.
-const EXAMPLE_LINK: CSSProperties = { padding: 0, color: '#1d4e89', fontWeight: 600 }
+const EXAMPLE_LINK: CSSProperties = { padding: 0, color: 'var(--txr-brand)', fontWeight: 600 }
 
 /** The one-line web notice (DEC-12): origin read at runtime, never a literal. */
 const WEB_URL_NOTICE: CSSProperties = {
   margin: '0 0 -8px',
-  color: '#5e5e5e',
+  color: 'var(--txr-muted)',
   fontSize: 13.5,
 }
 
@@ -396,7 +396,7 @@ export function StartPage() {
       </div>
 
       {exampleError !== null ? (
-        <div role="alert" style={{ color: '#b3261e', fontSize: 13.5 }}>
+        <div role="alert" style={{ color: 'var(--txr-danger)', fontSize: 13.5 }}>
           {exampleError}
         </div>
       ) : null}

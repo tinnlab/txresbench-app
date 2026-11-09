@@ -23,24 +23,24 @@ const DROPZONE: CSSProperties = {
   alignItems: 'center',
   gap: 16,
   padding: '14px 16px',
-  border: '2px dashed #b3261e',
+  border: '2px dashed var(--txr-danger)',
   borderRadius: 10,
-  background: '#fbfaf8',
+  background: 'var(--txr-bg)',
   width: '100%',
   boxSizing: 'border-box',
   textAlign: 'left',
 }
 const DROPZONE_TEXT: CSSProperties = { display: 'block', flex: '1 1 auto', minWidth: 0 }
 const DROPZONE_TITLE: CSSProperties = { display: 'block', fontWeight: 600 }
-const DROPZONE_HINT: CSSProperties = { display: 'block', fontSize: 13, color: '#5e5e5e' }
+const DROPZONE_HINT: CSSProperties = { display: 'block', fontSize: 13, color: 'var(--txr-muted)' }
 const DROPZONE_CHOOSE: CSSProperties = {
   padding: '6px 12px',
-  border: '1px solid #1d4e89',
+  border: '1px solid var(--txr-brand)',
   borderRadius: 6,
-  color: '#1d4e89',
+  color: 'var(--txr-brand)',
   fontWeight: 600,
   fontSize: 14,
-  background: '#ffffff',
+  background: 'var(--txr-surface)',
   whiteSpace: 'nowrap',
 }
 
@@ -77,7 +77,7 @@ export function TxrFileDrop(props: TxrFileDropProps) {
       }}
     >
       <div style={DROPZONE}>
-        <span style={{ color: '#1d4e89', fontWeight: 600, fontSize: 22 }} aria-hidden>
+        <span style={{ color: 'var(--txr-brand)', fontWeight: 600, fontSize: 22 }} aria-hidden>
           ↓
         </span>
         <span style={DROPZONE_TEXT}>

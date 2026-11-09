@@ -5,7 +5,7 @@
  * problem, the FILE row number first when the problem is a data-row problem
  * (the board's "Row 14: …" lines — the row is the provider's 1-based fact
  * INCLUDING the header, per PROV-FV-2/3), severity-colored per DEC-14
- * (`#b3261e` error, `#8a5a00` warning).
+ * (`var(--txr-danger)` error, `var(--txr-warning)` warning).
  *
  * Two qa-fixes ITEM-6 render rules:
  * - the "Row N:" prefix belongs to DATA rows only. Column-level problems
@@ -40,11 +40,11 @@ import { helpPath, problemAnchorOf } from '@/modules/txrhelp'
 
 /** The board's boxed list (problem lines are the provider's messages). */
 const PROBLEM_LIST: CSSProperties = { margin: '4px 0 0', paddingLeft: 18, fontSize: 13.5 }
-const PROBLEM_ERROR: CSSProperties = { color: '#b3261e' }
-const PROBLEM_WARNING: CSSProperties = { color: '#8a5a00' }
+const PROBLEM_ERROR: CSSProperties = { color: 'var(--txr-danger)' }
+const PROBLEM_WARNING: CSSProperties = { color: 'var(--txr-warning)' }
 const SHOW_ALL_LINK: CSSProperties = {
   fontSize: 13,
-  color: '#1d4e89',
+  color: 'var(--txr-brand)',
   fontWeight: 600,
   background: 'none',
   border: 'none',
@@ -61,7 +61,7 @@ const PROBLEM_CODE_LINK: CSSProperties = {
   fontFamily: "'Source Code Pro', monospace",
   fontSize: 12,
   fontWeight: 600,
-  color: '#1d4e89',
+  color: 'var(--txr-brand)',
   textDecoration: 'underline',
   textUnderlineOffset: 3,
   whiteSpace: 'nowrap',

@@ -27,9 +27,17 @@ const moduleTable = txrlistModule as AppModule & {
  * item's file set.
  */
 function itemDelta(): string[] {
+  // The tests run from `src-app/ui`, and git prints STATUS/LS-FILES paths
+  // relative to the working directory while DIFF paths are repo-root
+  // relative — so the three sources must be read from the ROOT with `-C`,
+  // otherwise an untracked file (qa-fixes ITEM-7's new files) would be
+  // reported on the wrong base and the no-edit pins would misfire
+  // (`src-app/ui/scripts/…` arriving as `scripts/…`). The txrhelp sweep's
+  // convention.
+  const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim()
   const git = (args: string[]): string[] => {
     try {
-      return execFileSync('git', args, { encoding: 'utf8' })
+      return execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' })
         .split('\n')
         .filter(Boolean)
     } catch {
@@ -87,7 +95,11 @@ describe('txrlist module', () => {
   it('does not change the dependency set or the guard/scripts tree (INV-5/6)', () => {
     const touched = itemDelta()
     expect(touched.filter(p => p === 'src-app/ui/package.json')).toEqual([])
-    expect(touched.filter(p => p.startsWith('src-app/ui/scripts/'))).toEqual([])
+    // qa-fixes ITEM-7 (X1): the built-CSS url check — one script file
+    // (`scripts/check-built-css-urls.mjs`, wired into the vite
+    // closeBundle), sanctioned verbatim with the fonts fix.
+    expect(touched.filter(p => p.startsWith('src-app/ui/scripts/') &&
+          p !== 'src-app/ui/scripts/check-built-css-urls.mjs')).toEqual([])
   })
 
   it('README pins the three-step host wiring and the provider binding (PROV-UI-LIST-7)', () => {

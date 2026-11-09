@@ -116,7 +116,7 @@ describe('TxrListFilterBar (TEST-UL-9 — filter/search/sort bar)', () => {
       />,
     )
     expect(getByTestId('txr-list-filter-all').getAttribute('aria-pressed')).toBe('true')
-    expect(getByTestId('txr-list-filter-all').style.background).toBe('rgb(232, 238, 246)')
+    expect(getByTestId('txr-list-filter-all').style.background).toBe('var(--txr-accent-soft)')
     rerender(
       <TxrListFilterBar
         rows={rows(38, 5)}
@@ -148,12 +148,12 @@ describe('TxrListFilterBar (TEST-UL-9 — filter/search/sort bar)', () => {
     expect(inactive.textContent).toBe('Response probability 9')
     expect(active.getAttribute('aria-pressed')).toBe('true')
     expect(inactive.getAttribute('aria-pressed')).toBe('false')
-    // The active chip is the board's pressed pill (blue border on #e8eef6);
+    // The active chip is the board's pressed pill (blue border on var(--txr-accent-soft));
     // the inactive one the neutral pill.
-    expect(colorHex(active.style.borderColor)).toBe('#1d4e89')
-    expect(colorHex(active.style.background)).toBe('#e8eef6')
-    expect(colorHex(inactive.style.borderColor)).toBe('#cfcdc7')
-    expect(colorHex(inactive.style.background)).toBe('#ffffff')
+    expect(colorHex(active.style.borderColor)).toBe('var(--txr-brand)')
+    expect(colorHex(active.style.background)).toBe('var(--txr-accent-soft)')
+    expect(colorHex(inactive.style.borderColor)).toBe('var(--txr-border)')
+    expect(colorHex(inactive.style.background)).toBe('var(--txr-surface)')
     fireEvent.click(active)
     expect(onToggleA).toHaveBeenCalledTimes(1)
     fireEvent.click(inactive)

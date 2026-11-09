@@ -127,14 +127,14 @@ describe('STATE_LABEL / STATE_TONE (TEST-RUN-03)', () => {
 
   it('gives every state the shared list palette tone, never blank', () => {
     const expected: Record<TxrMethodState, string> = {
-      waiting: '#5e5e5e',
-      downloading: '#8a5a00',
-      running: '#143a68',
-      finished: '#1f6b3a',
-      failed: '#b3261e',
-      stopped: '#5e5e5e',
-      skipped: '#5e5e5e',
-      cannot_run: '#b3261e',
+      waiting: 'var(--txr-muted)',
+      downloading: 'var(--txr-warning)',
+      running: 'var(--txr-brand-ink)',
+      finished: 'var(--txr-success)',
+      failed: 'var(--txr-danger)',
+      stopped: 'var(--txr-muted)',
+      skipped: 'var(--txr-muted)',
+      cannot_run: 'var(--txr-danger)',
     }
     for (const state of STATES) {
       expect(STATE_TONE[state], state).toBe(expected[state])

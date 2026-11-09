@@ -23,25 +23,25 @@ const OFFER_ROW: CSSProperties = {
   alignItems: 'center',
   gap: 10,
   padding: '8px 12px',
-  border: '1px solid #e7e5e0',
+  border: '1px solid var(--txr-border-subtle)',
   borderRadius: 8,
-  background: '#fbfaf8',
+  background: 'var(--txr-bg)',
   fontSize: 13.5,
 }
-const OFFER_TEXT: CSSProperties = { flex: '1 1 200px', minWidth: 0, color: '#3a3a3a' }
+const OFFER_TEXT: CSSProperties = { flex: '1 1 200px', minWidth: 0, color: 'var(--txr-text-2)' }
 const OFFER_ACTION: CSSProperties = { borderRadius: 6, fontSize: 13, fontWeight: 600 }
 const OFFER_ACCEPT: CSSProperties = {
   ...OFFER_ACTION,
-  background: '#1d4e89',
-  color: '#ffffff',
+  background: 'var(--txr-brand)',
+  color: 'var(--txr-on-brand)',
   border: 'none',
   padding: '5px 12px',
 }
 const OFFER_DECLINE: CSSProperties = {
   ...OFFER_ACTION,
-  background: '#ffffff',
-  color: '#141414',
-  border: '1px solid #cfcdc7',
+  background: 'var(--txr-surface)',
+  color: 'var(--txr-text)',
+  border: '1px solid var(--txr-border)',
   padding: '4px 11px',
 }
 

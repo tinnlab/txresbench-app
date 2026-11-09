@@ -105,7 +105,7 @@ const STEP_LINE: CSSProperties = {
   fontWeight: 700,
   letterSpacing: '0.08em',
   textTransform: 'uppercase',
-  color: '#1d4e89',
+  color: 'var(--txr-brand)',
 }
 
 const TITLE: CSSProperties = {
@@ -117,10 +117,10 @@ const TITLE: CSSProperties = {
 }
 
 /** The header row's right-hand totals line (the board's muted span). */
-const TOTALS: CSSProperties = { fontSize: 14, color: '#3a3a3a' }
+const TOTALS: CSSProperties = { fontSize: 14, color: 'var(--txr-text-2)' }
 
 /** The header block's lead paragraph (the board's own). */
-const CHECK_LINE: CSSProperties = { margin: 0, color: '#3a3a3a', maxWidth: '62ch' }
+const CHECK_LINE: CSSProperties = { margin: 0, color: 'var(--txr-text-2)', maxWidth: '62ch' }
 
 /** The list area's frame (the bounded column the shared list fills). */
 const LIST_FRAME: CSSProperties = {
@@ -128,9 +128,9 @@ const LIST_FRAME: CSSProperties = {
   minHeight: 0,
   display: 'flex',
   flexDirection: 'column',
-  border: '1px solid #cfcdc7',
+  border: '1px solid var(--txr-border)',
   borderRadius: 10,
-  background: '#ffffff',
+  background: 'var(--txr-surface)',
   overflow: 'hidden',
 }
 
@@ -141,16 +141,16 @@ const DOWNLOAD_STRIP: CSSProperties = {
   gap: '8px 18px',
   alignItems: 'center',
   padding: '10px 14px',
-  border: '1px solid #e7e5e0',
+  border: '1px solid var(--txr-border-subtle)',
   borderRadius: 10,
-  background: '#fbfaf8',
+  background: 'var(--txr-bg)',
 }
 
 /** The strip's "Downloads" caption (the board's muted small line). */
-const STRIP_CAPTION: CSSProperties = { fontSize: 12.5, color: '#5e5e5e', fontWeight: 700 }
+const STRIP_CAPTION: CSSProperties = { fontSize: 12.5, color: 'var(--txr-muted)', fontWeight: 700 }
 
 /** The board's footnote under the list. */
-const FOOTNOTE: CSSProperties = { fontSize: 13, color: '#5e5e5e' }
+const FOOTNOTE: CSSProperties = { fontSize: 13, color: 'var(--txr-muted)' }
 
 /** The not-ready state's line (no validated file — never a half list). */
 const EMPTY_LINE = 'Add the patients\u2019 measurements you want to predict first.'
@@ -574,7 +574,7 @@ export function PretrainedModelsPage() {
                 padding: '24px 0',
               }}
             >
-              <p style={{ margin: 0, fontSize: 15.5, color: '#3a3a3a', fontWeight: 600 }}>
+              <p style={{ margin: 0, fontSize: 15.5, color: 'var(--txr-text-2)', fontWeight: 600 }}>
                 No published models are available yet.
               </p>
               <p style={CHECK_LINE}>

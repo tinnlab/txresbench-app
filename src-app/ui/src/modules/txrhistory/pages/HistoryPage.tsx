@@ -195,7 +195,7 @@ export function HistoryPage() {
       : []
 
   return (
-    <main data-testid="txr-history" style={PAGE_MAIN}>
+    <main data-testid="txr-history" className="txr-history-page" style={PAGE_MAIN}>
       <TxrHistoryToolbar
         search={state.searchInput}
         filter={state.filter}

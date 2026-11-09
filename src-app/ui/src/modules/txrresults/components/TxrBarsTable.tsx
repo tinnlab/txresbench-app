@@ -3,7 +3,7 @@
  * (`Results.dc.html`): the kit `Table` (DEC-11's twin of the G heatmap — a
  * handful of columns, no two-axis pinning, so the kit grid table is the
  * right primitive) with one row per patient and one per-method chance bar
- * (the board's `height: 10px` rounded track + `#1d4e89` fill) beside its
+ * (the board's `height: 10px` rounded track + `var(--txr-brand)` fill) beside its
  * percent, plus the board's footer sentence and the "Show all M" link.
  *
  * The rows arrive ALREADY sorted and windowed by the page (DEC-6: "sorted
@@ -38,7 +38,7 @@ const MONO_FONT = "'Source Code Pro', ui-monospace, monospace"
 /** The board's table box (the H board's `overflow-x: auto` rounded box). */
 const TABLE_BOX: CSSProperties = {
   overflowX: 'auto',
-  border: '1px solid #cfcdc7',
+  border: '1px solid var(--txr-border)',
   borderRadius: 10,
 }
 
@@ -48,7 +48,7 @@ const FOOTER: CSSProperties = {
   justifyContent: 'space-between',
   gap: 10,
   fontSize: 13,
-  color: '#5e5e5e',
+  color: 'var(--txr-muted)',
   marginTop: 8,
 }
 

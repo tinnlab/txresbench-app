@@ -375,8 +375,8 @@ describe('TxrHistoryCard (TEST-HIST-7 — the collapsed row and the expanded blo
     )
     const chip = within(row).getByTestId('txr-history-chip-run-1')
     expect(chip.textContent).toBe('Learned and predicted')
-    expect(colorHex(chip.style.background)).toBe('#e8eef6')
-    expect(colorHex(chip.style.color)).toBe('#143a68')
+    expect(colorHex(chip.style.background)).toBe('var(--txr-accent-soft)')
+    expect(colorHex(chip.style.color)).toBe('var(--txr-brand-ink)')
     expect(within(row).getByTestId('txr-history-status-run-1').textContent).toBe('Done')
     expect(within(row).getByTestId('txr-history-status-run-1').style.color).not.toBe('')
     const toggle = within(row).getByTestId('txr-history-toggle-run-1')
@@ -414,9 +414,9 @@ describe('TxrHistoryCard (TEST-HIST-7 — the collapsed row and the expanded blo
     )
     const line = view.getByTestId('txr-history-subtitle-run-1')
     expect(line.textContent).toBe('Stopped: marker LDH is missing from the measurements')
-    expect(colorHex(line.style.color)).toBe('#b3261e')
+    expect(colorHex(line.style.color)).toBe('var(--txr-danger)')
     expect(view.getByTestId('txr-history-status-run-1').textContent).toBe('Stopped')
-    expect(view.getByTestId('txr-history-status-run-1').style.color).toBe('rgb(94, 94, 94)')
+    expect(view.getByTestId('txr-history-status-run-1').style.color).toBe('var(--txr-muted)')
   })
 
   it('a reuse run reads the neutral chip + the Predicted line', () => {
@@ -437,8 +437,8 @@ describe('TxrHistoryCard (TEST-HIST-7 — the collapsed row and the expanded blo
     )
     const chip = view.getByTestId('txr-history-chip-run-1')
     expect(chip.textContent).toBe('Saved model')
-    expect(colorHex(chip.style.background)).toBe('#eef0e6')
-    expect(colorHex(chip.style.color)).toBe('#3d4a14')
+    expect(colorHex(chip.style.background)).toBe('var(--txr-success-soft)')
+    expect(colorHex(chip.style.color)).toBe('var(--txr-success-ink)')
     // The reuse subtitle: no method segment (the title names the model),
     // the capital-P Predicted line + the endpoint line.
     expect(view.getByTestId('txr-history-subtitle-run-1').textContent).toBe(
@@ -727,7 +727,7 @@ describe('TxrHistoryFooter (TEST-HIST-7 — usage line + the two retention links
       'Do not keep copies of my files',
     )
     expect(view.queryByTestId('txr-history-copies-on')).toBeNull()
-    expect(colorHex(view.getByTestId('txr-history-clear-all').style.color)).toBe('#b3261e')
+    expect(colorHex(view.getByTestId('txr-history-clear-all').style.color)).toBe('var(--txr-danger)')
     cleanup()
     const view2 = render(
       <TxrHistoryFooter

@@ -271,7 +271,7 @@ export function TxrSelectList({
           </div>
         ) : error !== null && rows.length === 0 ? (
           <div data-testid="txr-list-error" style={STATE_BODY}>
-            <span style={{ fontSize: 13.5, color: '#b3261e' }}>{error}</span>
+            <span style={{ fontSize: 13.5, color: 'var(--txr-danger)' }}>{error}</span>
             {onRetry ? (
               <Button data-testid="txr-list-retry" variant="outline" onClick={onRetry}>
                 Retry
@@ -280,7 +280,7 @@ export function TxrSelectList({
           </div>
         ) : items.length === 0 ? (
           <div data-testid="txr-list-empty" style={STATE_BODY}>
-            <span style={{ fontSize: 13.5, color: '#5e5e5e' }}>
+            <span style={{ fontSize: 13.5, color: 'var(--txr-muted)' }}>
               {emptyText ?? `No ${pluralize(itemLabel, 2)} to show`}
             </span>
           </div>

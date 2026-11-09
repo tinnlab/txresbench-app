@@ -221,7 +221,11 @@ describe('txrhelp module (TEST-HELP-4)', () => {
           p !== 'scripts/file-validator/fixtures/expected/examples/measurements.csv',
       ),
     ).toEqual([])
-    expect(touched.filter(p => p.startsWith('src-app/ui/scripts/'))).toEqual([])
+    // qa-fixes ITEM-7 (X1): the built-CSS url check — one script file
+    // (`scripts/check-built-css-urls.mjs`, wired into the vite
+    // closeBundle), sanctioned verbatim with the fonts fix.
+    expect(touched.filter(p => p.startsWith('src-app/ui/scripts/') &&
+          p !== 'src-app/ui/scripts/check-built-css-urls.mjs')).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/package.json')).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/package-lock.json')).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/scripts/domain-baseline.json')).toEqual([])
@@ -309,6 +313,12 @@ describe('txrhelp module (TEST-HELP-4)', () => {
           p !== 'src-app/ui/src/modules/txrshell/module.tsx' &&
           p !== 'src-app/ui/src/modules/txrshell/pages/ShellPage.tsx' &&
           p !== 'src-app/ui/src/modules/txrshell/TxrLayout.tsx' &&
+          p !== 'src-app/ui/src/modules/txrshell/TxrLayout.test.tsx' &&
+          p !== 'src-app/ui/src/modules/txrshell/gallery.tsx' &&
+    // qa-fixes ITEM-7 (X3): the session guard's loading/failure
+    // surface is tokenized with the pages (its own ink was a
+    // hard-coded light hex — a light flash before the app loads).
+          p !== 'src-app/ui/src/modules/session/SessionGuard.tsx' &&
           p !== 'src-app/ui/src/modules/txrhistory/module.test.ts' &&
           !p.startsWith('src-app/ui/src/modules/txrrun/') &&
           !p.startsWith('src-app/ui/src/modules/txrresults/') &&
@@ -345,6 +355,10 @@ describe('txrhelp module (TEST-HELP-4)', () => {
       // count, the 206-events/216-day patients line, "draws on 9 days").
       'src-app/ui/tests/gallery-e2e/txr-intake.spec.ts',
       'src-app/ui/tests/e2e/txrintake/txr-intake-full.spec.ts',
+      // The qa-fixes ITEM-7 spec (its own DRIFT-1): the 390 px sweep over
+      // every txr surface + the shell story + the dark no-light-only pass
+      // (TEST-QF-7).
+      'src-app/ui/tests/gallery-e2e/txr-theme-phone.spec.ts',
     ])
     expect(testsTouched.length).toBeLessThanOrEqual(sanctionedTests.size)
     for (const file of testsTouched) {

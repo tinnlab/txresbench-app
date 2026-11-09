@@ -60,18 +60,18 @@ const BUILT_IN_CHIP = {
   borderRadius: 999,
   padding: '5px 12px',
   fontSize: 13.5,
-  background: '#ffffff',
-  color: '#3a3a3a',
+  background: 'var(--txr-surface)',
+  color: 'var(--txr-text-2)',
   borderWidth: 1,
   borderStyle: 'solid',
-  borderColor: '#cfcdc7',
+  borderColor: 'var(--txr-border)',
 } as const
 
 const ACTIVE_CHIP = {
   ...BUILT_IN_CHIP,
-  background: '#e8eef6',
-  color: '#143a68',
-  borderColor: '#1d4e89',
+  background: 'var(--txr-accent-soft)',
+  color: 'var(--txr-brand-ink)',
+  borderColor: 'var(--txr-brand)',
 } as const
 
 /** One built-in pill: the host-wired chip (a real button with the pressed
@@ -122,7 +122,10 @@ export function TxrListFilterBar({
   const allCanRunSelected =
     canRunCount > 0 && rows.every(row => row.run.disabled || selected.has(row.key))
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+    <div
+      className="txr-list-filter-bar"
+      style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}
+    >
       <BuiltInChip testId="txr-list-filter-all" label="All" count={rows.length} wired={allFilter} />
       <BuiltInChip
         testId="txr-list-filter-can-run"

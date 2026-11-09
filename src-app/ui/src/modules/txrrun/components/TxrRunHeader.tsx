@@ -66,9 +66,9 @@ const TITLE: CSSProperties = {
   lineHeight: 1.2,
 }
 
-const TIME_LINE: CSSProperties = { fontSize: 14, color: '#3a3a3a' }
+const TIME_LINE: CSSProperties = { fontSize: 14, color: 'var(--txr-text-2)' }
 
-const CONCURRENCY: CSSProperties = { fontSize: 14, color: '#3a3a3a' }
+const CONCURRENCY: CSSProperties = { fontSize: 14, color: 'var(--txr-text-2)' }
 
 const FOOTER_ROW: CSSProperties = {
   display: 'flex',
@@ -81,11 +81,11 @@ const FOOTER_ROW: CSSProperties = {
 const SEE_RESULTS: CSSProperties = {
   fontSize: 14,
   fontWeight: 400,
-  color: '#1d4e89',
+  color: 'var(--txr-brand)',
   textDecoration: 'none',
 }
 
-const NOTICE: CSSProperties = { fontSize: 13, color: '#5e5e5e' }
+const NOTICE: CSSProperties = { fontSize: 13, color: 'var(--txr-muted)' }
 
 /** The run-status → title word (the board's "Running"; the terminal states
  *  the run's own word — a finished run is never titled "Running"). */

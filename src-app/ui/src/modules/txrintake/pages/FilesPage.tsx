@@ -77,7 +77,7 @@ const STEP_LINE: CSSProperties = {
   fontWeight: 700,
   letterSpacing: '0.08em',
   textTransform: 'uppercase',
-  color: '#1d4e89',
+  color: 'var(--txr-brand)',
 }
 
 const TITLE: CSSProperties = {
@@ -90,7 +90,7 @@ const TITLE: CSSProperties = {
 
 const INTRO: CSSProperties = {
   margin: 0,
-  color: '#3a3a3a',
+  color: 'var(--txr-text-2)',
   maxWidth: '62ch',
 }
 
@@ -103,15 +103,15 @@ const FOOTER: CSSProperties = {
 const FOOTER_LABEL: CSSProperties = {
   flex: '1 1 auto',
   fontSize: 13.5,
-  color: '#5e5e5e',
+  color: 'var(--txr-muted)',
 }
 const PRIMARY_BUTTON: CSSProperties = {
   borderRadius: 8,
-  background: '#1d4e89',
-  color: '#ffffff',
+  background: 'var(--txr-brand)',
+  color: 'var(--txr-on-brand)',
   fontWeight: 700,
 }
-const PAGE_ERROR: CSSProperties = { margin: 0, color: '#b3261e', fontSize: 13.5 }
+const PAGE_ERROR: CSSProperties = { margin: 0, color: 'var(--txr-danger)', fontSize: 13.5 }
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : 'The file could not be read.'
@@ -418,7 +418,7 @@ export function FilesPage() {
         onDownloadExample={() => void downloadCsv('measurements', 'example')}
       />
 
-      <div style={FOOTER}>
+      <div style={FOOTER} className="txr-intake-footer">
         <span style={FOOTER_LABEL}>
           {canContinue
             ? 'Both files check out — next you choose the methods that can run on them.'

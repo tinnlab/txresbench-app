@@ -109,9 +109,9 @@ const DOWNLOAD_ERROR: CSSProperties = {
   padding: '10px 14px',
   borderWidth: 1,
   borderStyle: 'solid',
-  borderColor: '#f0c9c4',
+  borderColor: 'var(--txr-danger-border)',
   borderRadius: 8,
-  background: '#fdf3f2',
+  background: 'var(--txr-danger-soft)',
   fontSize: 14,
 }
 
@@ -133,10 +133,10 @@ const METHOD_HEADING: CSSProperties = {
   lineHeight: 1.3,
 }
 
-const METHOD_HEADING_LABEL: CSSProperties = { fontSize: 13, color: '#5e5e5e', margin: 0 }
+const METHOD_HEADING_LABEL: CSSProperties = { fontSize: 13, color: 'var(--txr-muted)', margin: 0 }
 
 /** The page's plain-voice notes under the table (RES-03/04). */
-const NOTE_LINE: CSSProperties = { fontSize: 13.5, color: '#3a3a3a', margin: 0 }
+const NOTE_LINE: CSSProperties = { fontSize: 13.5, color: 'var(--txr-text-2)', margin: 0 }
 
 /** The one run endpoint key the normalize fallback needs (the generated `TxrEndpoint` is closed). */
 function endpointKeyOf(run: TxrRunDetail): TxrOutcomeKey {
@@ -160,7 +160,7 @@ function NotFoundResults({ onNewAnalysis }: { onNewAnalysis: () => void }) {
   return (
     <div data-testid="txr-results-not-found" style={NOT_FOUND_BLOCK}>
       <h2 style={NOT_FOUND_TITLE}>This analysis run could not be found</h2>
-      <p style={{ margin: 0, fontSize: 14, color: '#3a3a3a' }}>
+      <p style={{ margin: 0, fontSize: 14, color: 'var(--txr-text-2)' }}>
         It may have been removed, or the link is outdated.
       </p>
       <Button
@@ -305,7 +305,7 @@ export function MethodResultsPage() {
 
   if (runError === 'not-found') {
     return (
-      <main data-testid="txr-results" style={PAGE_MAIN}>
+      <main data-testid="txr-results" className="txr-results-page" style={PAGE_MAIN}>
         <NotFoundResults onNewAnalysis={() => navigate('/')} />
       </main>
     )
@@ -317,7 +317,7 @@ export function MethodResultsPage() {
 
   if (runError === 'network' || (run !== null && predictions === null && predictionsError === 'network')) {
     return (
-      <main data-testid="txr-results" style={PAGE_MAIN}>
+      <main data-testid="txr-results" className="txr-results-page" style={PAGE_MAIN}>
         <ErrorState
           variant="page"
           resource="the run"
@@ -331,7 +331,7 @@ export function MethodResultsPage() {
 
   if (run === null || (predictions === null && predictionsLoading)) {
     return (
-      <main data-testid="txr-results" style={PAGE_MAIN}>
+      <main data-testid="txr-results" className="txr-results-page" style={PAGE_MAIN}>
         <LoadingResults />
       </main>
     )
@@ -347,7 +347,7 @@ export function MethodResultsPage() {
   // omitted.
   if (predictions === null) {
     return (
-      <main data-testid="txr-results" style={PAGE_MAIN}>
+      <main data-testid="txr-results" className="txr-results-page" style={PAGE_MAIN}>
         <TxrResultsHeader
           run={run}
           predictions={null}
@@ -378,10 +378,10 @@ export function MethodResultsPage() {
   // the state names the problem).
   if (methodNotFound) {
     return (
-      <main data-testid="txr-results" style={PAGE_MAIN}>
+      <main data-testid="txr-results" className="txr-results-page" style={PAGE_MAIN}>
         <div data-testid="txr-results-method-not-found" style={METHOD_NOT_FOUND_BLOCK}>
           <h2 style={NOT_FOUND_TITLE}>This method could not be found in this run</h2>
-          <p style={{ margin: 0, fontSize: 14, color: '#3a3a3a' }}>
+          <p style={{ margin: 0, fontSize: 14, color: 'var(--txr-text-2)' }}>
             It may have failed before producing predictions, or the link is outdated.
           </p>
           <Button
@@ -407,7 +407,7 @@ export function MethodResultsPage() {
   const activeColumnMethod = activeColumn ? { ...activeColumn } : null
   const tableColumns = activeColumnMethod ? [activeColumnMethod] : baseView.columns
   return (
-    <main data-testid="txr-results" style={PAGE_MAIN}>
+    <main data-testid="txr-results" className="txr-results-page" style={PAGE_MAIN}>
       <TxrResultsHeader
         run={run}
         predictions={predictions}

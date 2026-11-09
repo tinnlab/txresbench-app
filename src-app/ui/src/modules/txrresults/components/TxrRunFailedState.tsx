@@ -45,9 +45,9 @@ const BOX: CSSProperties = {
   padding: '16px 18px',
   borderWidth: 1,
   borderStyle: 'solid',
-  borderColor: '#f0c9c4',
+  borderColor: 'var(--txr-danger-border)',
   borderRadius: 8,
-  background: '#fdf3f2',
+  background: 'var(--txr-danger-soft)',
 }
 
 const TITLE: CSSProperties = {
@@ -58,7 +58,7 @@ const TITLE: CSSProperties = {
   lineHeight: 1.3,
 }
 
-const LEAD: CSSProperties = { margin: 0, fontSize: 14, color: '#3a3a3a' }
+const LEAD: CSSProperties = { margin: 0, fontSize: 14, color: 'var(--txr-text-2)' }
 
 const ROW: CSSProperties = {
   display: 'flex',
@@ -66,7 +66,7 @@ const ROW: CSSProperties = {
   gap: 8,
   fontSize: 14,
   paddingTop: 8,
-  borderTop: '1px solid #f0c9c4',
+  borderTop: '1px solid var(--txr-danger-border)',
 }
 
 const METHOD_ID: CSSProperties = {
@@ -76,11 +76,11 @@ const METHOD_ID: CSSProperties = {
   whiteSpace: 'nowrap',
 }
 
-const STATE: CSSProperties = { color: '#b3261e', fontSize: 13.5, whiteSpace: 'nowrap' }
+const STATE: CSSProperties = { color: 'var(--txr-danger)', fontSize: 13.5, whiteSpace: 'nowrap' }
 
-const REASON: CSSProperties = { color: '#3a3a3a', flex: '1 1 auto', minWidth: 0 }
+const REASON: CSSProperties = { color: 'var(--txr-text-2)', flex: '1 1 auto', minWidth: 0 }
 
-const SHOW_LOG: CSSProperties = { fontSize: 13, color: '#1d4e89', whiteSpace: 'nowrap' }
+const SHOW_LOG: CSSProperties = { fontSize: 13, color: 'var(--txr-brand)', whiteSpace: 'nowrap' }
 
 /** The row's state word — the F screen's chip words (DEC-2's vocabulary). */
 function stateWord(state: TxrRunMethod['state']): string {

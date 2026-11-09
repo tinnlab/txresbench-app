@@ -29,7 +29,7 @@ const RENAME_FAILED_LINE = 'The set could not be renamed.'
 const CONFIRM_LABEL = 'Rename'
 
 /** The error line's look (the dialog's own muted red). */
-const ERROR: CSSProperties = { fontSize: 13.5, color: '#b3261e' }
+const ERROR: CSSProperties = { fontSize: 13.5, color: 'var(--txr-danger)' }
 
 function errorText(error: unknown): string {
   if (error instanceof Error) return error.message

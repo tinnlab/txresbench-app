@@ -98,29 +98,29 @@ const MODELS_LABEL = 'Models to save'
 const SAVED_LABEL: CSSProperties = { fontWeight: 600, margin: '0 0 2px' }
 
 /** The rule-of-copy body lines' look. */
-const RULED_TEXT: CSSProperties = { margin: '0 0 8px', fontSize: 12.5, color: '#3a3a3a' }
+const RULED_TEXT: CSSProperties = { margin: '0 0 8px', fontSize: 12.5, color: 'var(--txr-text-2)' }
 
 /** The facts line's look ("Made from …"). */
-const MADE_FROM: CSSProperties = { margin: '4px 0 0', fontSize: 12, color: '#5e5e5e' }
+const MADE_FROM: CSSProperties = { margin: '4px 0 0', fontSize: 12, color: 'var(--txr-muted)' }
 
 /** The muted section-subline look. */
-const SUBLINE: CSSProperties = { fontSize: 12.5, color: '#5e5e5e' }
+const SUBLINE: CSSProperties = { fontSize: 12.5, color: 'var(--txr-muted)' }
 
 /** The error looks (the dialog's own muted red). */
-const ERROR: CSSProperties = { fontSize: 13.5, color: '#b3261e' }
+const ERROR: CSSProperties = { fontSize: 13.5, color: 'var(--txr-danger)' }
 
 /** The checklist row's board look (the mono id + the group label). */
 const ROW_NAME: CSSProperties = {
   fontFamily: "'JetBrains Mono', 'SFMono-Regular', Consolas, monospace",
   fontSize: 12.5,
-  color: '#3a3a3a',
+  color: 'var(--txr-text-2)',
 }
 
 /** The row's right-aligned size (the board's checklist column). */
-const ROW_SIZE: CSSProperties = { fontSize: 12.5, color: '#5e5e5e' }
+const ROW_SIZE: CSSProperties = { fontSize: 12.5, color: 'var(--txr-muted)' }
 
 /** The group label's muted look. */
-const ROW_GROUP: CSSProperties = { fontSize: 12.5, color: '#5e5e5e' }
+const ROW_GROUP: CSSProperties = { fontSize: 12.5, color: 'var(--txr-muted)' }
 
 /** One checklist row's layout (the board's row: checkbox, name + group,
  *  size right). */
@@ -135,7 +135,7 @@ const ROW: CSSProperties = {
 const ROW_TEXT: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 1 }
 
 /** The cannot-run note's muted look. */
-const NOTE: CSSProperties = { margin: '6px 0 0', fontSize: 12.5, color: '#5e5e5e' }
+const NOTE: CSSProperties = { margin: '6px 0 0', fontSize: 12.5, color: 'var(--txr-muted)' }
 
 /** The skeleton rows of the loading state. */
 const SKELETON_ROWS = 4

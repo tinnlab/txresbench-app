@@ -43,8 +43,8 @@ const KEEP_FILES_LABEL = 'Clear history, keep files'
 
 /** The danger look (the board's danger red over the kit button). */
 const DANGER_BUTTON: CSSProperties = {
-  background: '#b3261e',
-  color: '#ffffff',
+  background: 'var(--txr-danger-strong)',
+  color: 'var(--txr-on-danger)',
 }
 
 /** The footer CTA row (the kit dialog footer's gap). */

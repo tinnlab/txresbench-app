@@ -121,10 +121,10 @@ describe('formatDate (TEST-HIST-5 — injected locale/now, no hardcoded month ta
 
 describe('statusLabel (TEST-HIST-5)', () => {
   it('maps the four provider buckets to the board words and the sibling status tones (DEC-9)', () => {
-    expect(statusLabel('running')).toEqual({ text: 'Running', tone: '#143a68' })
-    expect(statusLabel('finished')).toEqual({ text: 'Done', tone: '#1f6b3a' })
-    expect(statusLabel('stopped')).toEqual({ text: 'Stopped', tone: '#5e5e5e' })
-    expect(statusLabel('failed')).toEqual({ text: 'Failed', tone: '#b3261e' })
+    expect(statusLabel('running')).toEqual({ text: 'Running', tone: 'var(--txr-brand-ink)' })
+    expect(statusLabel('finished')).toEqual({ text: 'Done', tone: 'var(--txr-success)' })
+    expect(statusLabel('stopped')).toEqual({ text: 'Stopped', tone: 'var(--txr-muted)' })
+    expect(statusLabel('failed')).toEqual({ text: 'Failed', tone: 'var(--txr-danger)' })
   })
 
   it('is total over the provider bucket vocabulary — every bucket yields a word', () => {

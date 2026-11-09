@@ -49,7 +49,7 @@ const TITLE: CSSProperties = {
   lineHeight: 1.2,
 }
 
-const SUBTITLE: CSSProperties = { color: '#3a3a3a', fontSize: 14 }
+const SUBTITLE: CSSProperties = { color: 'var(--txr-text-2)', fontSize: 14 }
 
 const ACTIONS: CSSProperties = { display: 'flex', gap: 10, flexWrap: 'wrap' }
 

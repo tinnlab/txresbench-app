@@ -59,7 +59,7 @@ const STRIP: CSSProperties = {
 const COUNT: CSSProperties = { fontWeight: 700 }
 
 /** A zero counter's grey (the neutral of the module's palette). */
-const ZERO_TONE = '#5e5e5e'
+const ZERO_TONE = 'var(--txr-muted)'
 
 export interface TxrCountsStripProps {
   /** The run's per-state counts (the engine's own — PROV-EE-3). */

@@ -62,21 +62,21 @@ export const STATE_LABEL: Record<TxrMethodState, string> = {
 
 /**
  * The F screens' per-state chip tone — the shared list's status palette,
- * in the boards' own hex: neutral `#5e5e5e` (waiting, stopped, skipped —
+ * in the boards' own hex: neutral `var(--txr-muted)` (waiting, stopped, skipped —
  * nothing is happening and nothing went wrong), the work colours
- * `#8a5a00` (downloading) / `#143a68` (running), the done green `#1f6b3a`
- * and the `#b3261e` failure red (failed / cannot run — INV-2 keeps the
+ * `var(--txr-warning)` (downloading) / `var(--txr-brand-ink)` (running), the done green `var(--txr-success)`
+ * and the `var(--txr-danger)` failure red (failed / cannot run — INV-2 keeps the
  * failure visible).
  */
 export const STATE_TONE: Record<TxrMethodState, string> = {
-  waiting: '#5e5e5e',
-  downloading: '#8a5a00',
-  running: '#143a68',
-  finished: '#1f6b3a',
-  failed: '#b3261e',
-  stopped: '#5e5e5e',
-  skipped: '#5e5e5e',
-  cannot_run: '#b3261e',
+  waiting: 'var(--txr-muted)',
+  downloading: 'var(--txr-warning)',
+  running: 'var(--txr-brand-ink)',
+  finished: 'var(--txr-success)',
+  failed: 'var(--txr-danger)',
+  stopped: 'var(--txr-muted)',
+  skipped: 'var(--txr-muted)',
+  cannot_run: 'var(--txr-danger)',
 }
 
 /**

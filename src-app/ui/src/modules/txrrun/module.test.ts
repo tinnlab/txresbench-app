@@ -56,9 +56,17 @@ const MODULE_DIR = fileURLToPath(new URL('.', import.meta.url))
  * epic integration base; see DRIFT-1).
  */
 function itemDelta(): string[] {
+  // The tests run from `src-app/ui`, and git prints STATUS/LS-FILES paths
+  // relative to the working directory while DIFF paths are repo-root
+  // relative — so the three sources must be read from the ROOT with `-C`,
+  // otherwise an untracked file (qa-fixes ITEM-7's new files) would be
+  // reported on the wrong base and the no-edit pins would misfire
+  // (`src-app/ui/scripts/…` arriving as `scripts/…`). The txrhelp sweep's
+  // convention.
+  const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim()
   const git = (args: string[]): string[] => {
     try {
-      return execFileSync('git', args, { encoding: 'utf8' })
+      return execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' })
         .split('\n')
         .filter(Boolean)
     } catch {
@@ -191,7 +199,11 @@ describe('txrrun module (TEST-RUN-01)', () => {
           p !== 'scripts/file-validator/fixtures/expected/examples/measurements.csv',
       ),
     ).toEqual([])
-    expect(touched.filter(p => p.startsWith('src-app/ui/scripts/'))).toEqual([])
+    // qa-fixes ITEM-7 (X1): the built-CSS url check — one script file
+    // (`scripts/check-built-css-urls.mjs`, wired into the vite
+    // closeBundle), sanctioned verbatim with the fonts fix.
+    expect(touched.filter(p => p.startsWith('src-app/ui/scripts/') &&
+          p !== 'src-app/ui/scripts/check-built-css-urls.mjs')).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/package.json')).toEqual([])
     // TWO shell exceptions. (i) The sanctioned `/models` route handoff of
     // the `feat/ui-models` item: the `txrmodels` module takes over the
@@ -209,7 +221,13 @@ describe('txrrun module (TEST-RUN-01)', () => {
           p.startsWith('src-app/ui/src/modules/txrshell/') &&
           p !== 'src-app/ui/src/modules/txrshell/module.tsx' &&
           p !== 'src-app/ui/src/modules/txrshell/pages/ShellPage.tsx' &&
-          p !== 'src-app/ui/src/modules/txrshell/TxrLayout.tsx',
+          p !== 'src-app/ui/src/modules/txrshell/TxrLayout.tsx' &&
+          p !== 'src-app/ui/src/modules/txrshell/TxrLayout.test.tsx' &&
+          p !== 'src-app/ui/src/modules/txrshell/gallery.tsx' &&
+    // qa-fixes ITEM-7 (X3): the session guard's loading/failure
+    // surface is tokenized with the pages (its own ink was a
+    // hard-coded light hex — a light flash before the app loads).
+          p !== 'src-app/ui/src/modules/session/SessionGuard.tsx',
       ),
     ).toEqual([])
     expect(touched.filter(p => p === 'src-app/ui/src/modules/loader.ts')).toEqual([])
@@ -300,7 +318,10 @@ describe('txrrun module (TEST-RUN-01)', () => {
           !p.startsWith('src-app/ui/src/modules/txrresults/') &&
           p !== 'src-app/ui/src/modules/txrshell/module.tsx' &&
           p !== 'src-app/ui/src/modules/txrshell/pages/ShellPage.tsx' &&
-          p !== 'src-app/ui/src/modules/txrshell/TxrLayout.tsx',
+          p !== 'src-app/ui/src/modules/txrshell/TxrLayout.tsx' &&
+          p !== 'src-app/ui/src/modules/txrshell/TxrLayout.test.tsx' &&
+          p !== 'src-app/ui/src/modules/txrshell/gallery.tsx' &&
+          p !== 'src-app/ui/src/modules/session/SessionGuard.tsx',
       ),
     ).toEqual([])
   })
