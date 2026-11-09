@@ -3,6 +3,7 @@ import type { CSSProperties } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useStore } from 'zustand'
 import { Button, Checkbox, Select, Skeleton } from '@ziee/kit'
+import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { useTxrIntakeStore } from '../stores/TxrIntake.store'
 import { useMarkers } from '../data/useMarkers'
 import { useStudyPreview } from '../data/useStudyPreview'
@@ -282,6 +283,8 @@ export function StudyPage() {
   const patchParameters = useStore(useTxrIntakeStore, s => s.patchParameters)
   const { groups, loading: groupsLoading, error: groupsError } = useMarkers()
   const panel = useStudyPreview(study, groups)
+  // R2-G1: the tab/title byte is the page's own h1.
+  useDocumentTitle('Tell us about your study')
   const [showAllExcluded, setShowAllExcluded] = useState(false)
 
   /** One checkbox toggle: the answer map grows/shrinks explicitly (DEC-5). */

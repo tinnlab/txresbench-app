@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import { callAsync, getAuthToken, getBaseUrl } from '@ziee/framework/api-client'
+import { isDocumentUnloading } from '@ziee/framework/sync'
 import { onAgentConnected, onAgentDisconnected } from './capabilityReport'
 import { createActionContext } from './ctx'
 import { getActionMeta, runAction } from './defineAction'
@@ -221,7 +222,16 @@ async function connectLoop(myEpoch: number): Promise<void> {
     } catch (error) {
       if (!started || myEpoch !== epoch) break
       if (!(error instanceof DOMException && error.name === 'AbortError')) {
-        console.warn('[actions] agent stream ended; reconnecting', error)
+        // R2-G5 (help-r2.md): the agent stream is cut when the page
+        // navigates or closes; that teardown is not a failure, so an
+        // unloading document logs at debug while a genuine drop on a live
+        // page stays a warn. The signal is the SDK sync module's own
+        // (pagehide/pageshow) — one truth for both long-lived streams.
+        if (isDocumentUnloading()) {
+          console.debug('[actions] agent stream ended as the page unloads; reconnecting', error)
+        } else {
+          console.warn('[actions] agent stream ended; reconnecting', error)
+        }
       }
     }
     if (!started || myEpoch !== epoch) break

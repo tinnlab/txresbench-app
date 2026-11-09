@@ -68,6 +68,7 @@ import {
   TxrSelectList,
 } from '@/modules/txrlist'
 import { predictFilesPath, runningPath } from '@/modules/txrrun'
+import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { modelsPath } from '../routes'
 import { Alert, Button } from '@ziee/kit'
 import { usePretrained } from '../data/usePretrained'
@@ -312,6 +313,8 @@ export function PretrainedModelsPage() {
   const atATime = useStore(useTxrModelsStore, s => s.atATime)
   const downloadState = useStore(useTxrModelsStore, s => s.downloadState)
   const dialog = useStore(useTxrModelsStore, s => s.dialog)
+  // R2-G1: the tab/title byte is the page's own h1.
+  useDocumentTitle('Choose the models to run')
 
   const { cards, loading: cardsLoading, error: cardsError, refetch } = usePretrained()
   const {

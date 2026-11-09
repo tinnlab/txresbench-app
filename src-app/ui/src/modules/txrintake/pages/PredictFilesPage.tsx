@@ -5,6 +5,7 @@ import { Button } from '@ziee/kit'
 import { ApiClient } from '@/api-client'
 import type { FileTableKind } from '@/api-client/types'
 import { useStore } from 'zustand'
+import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { TxrIntake, useTxrIntakeStore } from '../stores/TxrIntake.store'
 import {
   cardProblems,
@@ -211,6 +212,8 @@ export function PredictFilesPage() {
   const mapping = useStore(useTxrIntakeStore, s => s.mapping)
   const parameters = useStore(useTxrIntakeStore, s => s.parameters)
   const validation = useStore(useTxrIntakeStore, s => s.validation)
+  // R2-G1: the tab/title byte is the page's own h1.
+  useDocumentTitle('Add the patients to predict')
   // The J "Use" handoff (RES-21): the id + display label ride the URL (the
   // J "?set=" view precedent) so this screen can name the chosen model —
   // the reuse flow said nothing about WHICH model was picked between the

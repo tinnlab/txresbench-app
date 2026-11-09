@@ -331,6 +331,15 @@ describe('txrhelp module (TEST-HELP-4)', () => {
           // + allow-list, the item's own new txrshell files.
           p !== 'src-app/ui/src/modules/txrshell/lib/copyGuard.test.ts' &&
           p !== 'src-app/ui/src/modules/txrshell/lib/copyGuard.allowlist.json' &&
+          // qa-fixes2 ITEM-4 (global + shell): the title hook + its unit
+          // test, the not-found screen + its unit test, the TxrLayout
+          // brand-link class (the header ring unification's hook) and the
+          // shell's catch-all route itself (module.tsx is sanctioned above;
+          // the module test pins the routes array).
+          p !== 'src-app/ui/src/modules/txrshell/lib/document-title.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/document-title.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/pages/NotFoundPage.tsx' &&
+          p !== 'src-app/ui/src/modules/txrshell/pages/NotFoundPage.test.tsx' &&
 
     // qa-fixes ITEM-7 (X3): the session guard's loading/failure
     // surface is tokenized with the pages (its own ink was a
@@ -387,6 +396,11 @@ describe('txrhelp module (TEST-HELP-4)', () => {
       // collapse (TEST-QF2-1; the gallery arm rides the sanctioned
       // txr-theme-phone spec).
       'src-app/ui/tests/e2e/txr-theme-toggle.spec.ts',
+      // The qa-fixes2 ITEM-4 spec (its own DRIFT-1): the global defects
+      // under the REAL app — per-route document titles, the 404 screen for
+      // unknown URLs, the one header focus ring, zero stream-reconnect
+      // warnings across a full route walk (TEST-QF2-3).
+      'src-app/ui/tests/e2e/txr-shell-global.spec.ts',
       // The qa-fixes ITEM-8 pin repair (its own DRIFT-1): the browser leg
       // of the file-validator decode pins the ITEM-6-regenerated example
       // bytes (the same stale-pin class as `src/lib/txr-files/parse.test.ts`,
@@ -410,7 +424,10 @@ describe('txrhelp module (TEST-HELP-4)', () => {
   })
 
   it('records the txrshell `/help` handoff: every scaffold route is gone, the comment names every takeover', () => {
-    expect(routesOf(txrShellModule).map(r => r.path)).toEqual([])
+    // The one route the shell keeps is the global catch-all (qa-fixes2
+    // ITEM-4, R2-G2: an unknown URL renders the not-found screen instead of
+    // the SDK router's silent redirect to `/`).
+    expect(routesOf(txrShellModule).map(r => r.path)).toEqual(['*'])
     const shellSource = readFileSync(
       fileURLToPath(new URL('../txrshell/module.tsx', import.meta.url)),
       'utf8',
@@ -426,15 +443,36 @@ describe('txrhelp module (TEST-HELP-4)', () => {
     expect(fileURLToPath(new URL('../txrshell/pages/ShellPage.tsx', import.meta.url))).toBeTruthy()
     expect(existsSync(fileURLToPath(new URL('../txrshell/pages/ShellPage.tsx', import.meta.url)))).toBe(false)
 
-    // The patch itself: removed lines are the `/help` route block + the
-    // ShellPage import, added lines are the new comment + the empty routes
-    // array; the byte-pin asserts "no other change" (DEC-2).
+    // The patch itself: with this item's working-tree diff the walk-back
+    // takes THIS item's shell patch (qa-fixes2 ITEM-4 — the catch-all), so
+    // the byte pin asserts THAT patch: removed lines are the old empty
+    // `routes: []` only; added lines are the NotFoundPage import + the
+    // catch-all comment block + the catch-all route block only. Byte-pins
+    // "NO other change" (DEC-2). The earlier handoff patches (the `/help`
+    // route removal, the ShellPage deletion) are inside HEAD now.
     const { added, removed } = shellPatch()
+    const commentLine = (l: string) => /^(\s*\/\*\*|\s*\*(?:\s.*)?|\s*\*\/)$/.test(l)
+    const routeBlockLine = (l: string) =>
+      [
+        "import { NotFoundPage } from './pages/NotFoundPage'",
+        '  routes: [',
+        '    {',
+        "      path: '*',",
+        '      element: <NotFoundPage />,',
+        '      requiresAuth: true,',
+        '      layout: TxrLayoutDef,',
+        '    },',
+        '  ],',
+      ].includes(l)
     expect(removed.length).toBeGreaterThan(0)
-    expect(removed).toContain("      path: '/help',")
-    expect(removed).toContain("      element: <ShellPage title=\"Help\" />,")
-    expect(removed).toContain("import { ShellPage } from './pages/ShellPage'")
-    expect(added.includes('  routes: [],')).toBe(true)
+    expect(removed).toEqual(['  routes: [],'])
+    for (const line of added) {
+      // The new comment block words the catch-all (asserted on the source
+      // above); every added line is comment text or the catch-all route
+      // block.
+      expect(commentLine(line) || routeBlockLine(line)).toBe(true)
+    }
+    expect(added).toContain("      path: '*',")
   })
 
   it('carries no status words, no literal design-example numbers and no URL literal in its own copy (INV-5/6)', () => {

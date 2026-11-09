@@ -18,6 +18,7 @@ import {
   useMethodRows,
 } from '@/modules/txrlist'
 import { Alert, Button, Skeleton } from '@ziee/kit'
+import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { RESEARCH_NOTICE } from '../lib/format'
 import {
   droppedNotice,
@@ -373,6 +374,8 @@ export function ChooseMethodsPage() {
   const [runError, setRunError] = useState<string | null>(null)
   const [runNotice, setRunNotice] = useState<string | null>(null)
   const creating = useRef(false)
+  // R2-G1: the tab/title byte is the page's own h1.
+  useDocumentTitle('Choose the methods and settings')
   const mode = useStore(useTxrIntakeStore, s => s.mode)
   const patients = useStore(useTxrIntakeStore, s => s.patients)
   const measurements = useStore(useTxrIntakeStore, s => s.measurements)

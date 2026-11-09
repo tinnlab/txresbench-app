@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useStore } from 'zustand'
 import { Button, ErrorState, Skeleton } from '@ziee/kit'
 import type { TxrRunDetail } from '@/api-client/types'
+import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { TxrResults, useTxrResultsStore } from '../stores/Results.store'
 import { buildColumns, compareReport, divergentPatients, sortByFirstMethod, viewOf } from '../lib/heatmap'
 import { compareResultsPath, methodResultsPath, downloadPredictionsCsv, revealRunDir } from '../index'
@@ -220,6 +221,12 @@ export function MethodResultsPage() {
   )
   const isCompareTab = methodId === undefined || methodId === null
   const methodNotFound = !isCompareTab && activeColumn === null
+  // R2-G1: the tab/title byte is the page's own h1 — the Compare-methods tab
+  // on `/compare`, the method column's label on a method tab (the same word
+  // the page renders under the method tabs), "Method" while it loads.
+  useDocumentTitle(
+    isCompareTab ? 'Compare methods' : (activeColumn?.label ?? 'Method'),
+  )
   // The H base view: the one-method tab's OWN column (its task is the
   // method's — the outcome tabs yield to it, RES-11), else the active
   // outcome tab's columns. UNFILTERED (H has no search/method-group controls

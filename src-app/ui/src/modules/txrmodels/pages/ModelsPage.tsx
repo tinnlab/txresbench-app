@@ -57,6 +57,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ApiClient } from '@/api-client'
 import type { ModelSummary } from '@/api-client/types'
 import { isDesktop } from '@/core/platform'
+import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { useTxrIntakeStore } from '@/modules/txrintake'
 import { predictFilesPath } from '@/modules/txrrun'
 import { revealRunDir } from '@/modules/txrresults'
@@ -252,6 +253,8 @@ export function ModelsPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const setId = searchParams.get('set')
+  // R2-G1: the tab/title byte is the page's own h1.
+  useDocumentTitle('Your models')
 
   const [search, setSearch] = useState('')
   const inventory = useModelInventory({ query: search, setId })

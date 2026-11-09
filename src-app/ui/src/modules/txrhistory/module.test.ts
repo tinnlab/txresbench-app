@@ -373,6 +373,15 @@ describe('txrhistory module (TEST-HIST-1)', () => {
           // + allow-list, the item's own new txrshell files.
           p !== 'src-app/ui/src/modules/txrshell/lib/copyGuard.test.ts' &&
           p !== 'src-app/ui/src/modules/txrshell/lib/copyGuard.allowlist.json' &&
+          // qa-fixes2 ITEM-4 (global + shell): the title hook + its unit
+          // test, the not-found screen + its unit test, the TxrLayout
+          // brand-link class (the header ring unification's hook) and the
+          // shell's catch-all route itself (module.tsx is sanctioned above;
+          // the module test pins the routes array).
+          p !== 'src-app/ui/src/modules/txrshell/lib/document-title.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/document-title.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/pages/NotFoundPage.tsx' &&
+          p !== 'src-app/ui/src/modules/txrshell/pages/NotFoundPage.test.tsx' &&
 
     // qa-fixes ITEM-7 (X3): the session guard's loading/failure
     // surface is tokenized with the pages (its own ink was a
@@ -388,8 +397,11 @@ describe('txrhistory module (TEST-HIST-1)', () => {
 
   it('records the txrshell `/history` handoff: the route is gone, the handoff comment is there, nothing else in the shell moves', () => {
     // The current shell state (all four handoffs' result): no screen route
-    // — `/help` left the shell with the ITEM-4 handoff (`txrhelp` owns it).
-    expect(routesOf(txrShellModule).map(r => r.path)).toEqual([])
+    // — `/help` left the shell with the ITEM-4 handoff (`txrhelp` owns it);
+    // the ONE route the shell keeps is the global catch-all (qa-fixes2
+    // ITEM-4, R2-G2: an unknown URL renders the not-found screen instead of
+    // the SDK router's silent redirect to `/`).
+    expect(routesOf(txrShellModule).map(r => r.path)).toEqual(['*'])
     const shellSource = readFileSync(
       fileURLToPath(new URL('../txrshell/module.tsx', import.meta.url)),
       'utf8',
@@ -398,38 +410,36 @@ describe('txrhistory module (TEST-HIST-1)', () => {
     expect(shellSource).not.toContain('ShellPage') // the scaffold component left with the `/help` route
     expect(shellSource).not.toContain("path: '/history'")
 
-    // The patch itself: the newest shell-touching item is ITEM-4's `/help`
-    // handoff (the walk-back takes the nearest one — this item's is the
-    // `/history` handoff's descendant), so the byte pin asserts THAT
-    // patch: removed lines are the old comment block + the ShellPage
-    // import + the `/help` route block only; added lines are the new
-    // comment block + the empty `routes: []` line only. Byte-pins "NO
-    // other change" (DEC-2).
+    // The patch itself: with this item's working-tree diff the walk-back
+    // takes THIS item's shell patch (qa-fixes2 ITEM-4 — the catch-all), so
+    // the byte pin asserts THAT patch: removed lines are the old empty
+    // `routes: []` only; added lines are the NotFoundPage import + the
+    // catch-all comment block + the catch-all route block only. Byte-pins
+    // "NO other change" (DEC-2). The earlier handoff patches `/help`
+    // removal, `ShellPage` deletion etc.) are inside HEAD now.
     const { added, removed } = shellPatch()
     const commentLine = (l: string) => /^(\s*\/\*\*|\s*\*(?:\s.*)?|\s*\*\/)$/.test(l)
     const routeBlockLine = (l: string) =>
       [
-        "import { ShellPage } from './pages/ShellPage'",
+        "import { NotFoundPage } from './pages/NotFoundPage'",
         '  routes: [',
-        '  ],',
         '    {',
-        "      path: '/help',",
-        '      element: <ShellPage title="Help" />,',
+        "      path: '*',",
+        '      element: <NotFoundPage />,',
         '      requiresAuth: true,',
         '      layout: TxrLayoutDef,',
         '    },',
+        '  ],',
       ].includes(l)
     expect(removed.length).toBeGreaterThan(0)
-    expect(removed).toContain("      path: '/help',")
-    expect(removed).toContain("import { ShellPage } from './pages/ShellPage'")
-    for (const line of removed) {
+    expect(removed).toEqual(['  routes: [],'])
+    for (const line of added) {
+      // The new comment block words the catch-all (asserted on the source
+      // above); every added line is comment text or the catch-all route
+      // block.
       expect(commentLine(line) || routeBlockLine(line)).toBe(true)
     }
-    for (const line of added) {
-      // The new comment block words the handoff (asserted on the source
-      // above); every added line is comment text or the empty route list.
-      expect(commentLine(line) || line === '  routes: [],').toBe(true)
-    }
+    expect(added).toContain("      path: '*',")
   })
 
   it('carries no status words, no literal design-example numbers and no URL literal in its own copy (INV-5/6)', () => {

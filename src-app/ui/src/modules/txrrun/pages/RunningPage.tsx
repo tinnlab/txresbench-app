@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useStore } from 'zustand'
 import { methodResultsPath, resultsPath } from '@/modules/txrresults/routes'
 import { Alert, Button, Result, Skeleton } from '@ziee/kit'
+import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import type { TxrRunBucket } from '../types'
 import { bucketOf, formatSecs, formatTimeLeft, LEAVE_AND_CONTINUE_NOTE } from '../lib/format'
 import { historyPath } from '../routes'
@@ -245,6 +246,11 @@ export function RunningPage() {
   const runStatus = run?.status ?? null
   const terminal = runStatus !== null && TERMINAL_RUN_STATUSES.has(runStatus)
   const title = formatRunTitle(run?.methods.length ?? 0, runStatus)
+  // R2-G1: the tab/title byte is the page's own h1 once the run is known
+  // ("Running N methods", "Finished N methods"…); before that the status
+  // word alone ("Running …"). A run record carries no name field, so the
+  // title is derived exactly like the page heading — never invented.
+  useDocumentTitle(run === null ? 'Running' : title)
 
   // The LIVE elapsed (RP-2): the run's own snapshot at load (the detail's
   // `elapsed_secs`; the `started_at` anchor for a run whose snapshot had no

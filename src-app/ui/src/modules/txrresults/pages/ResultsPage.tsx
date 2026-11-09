@@ -4,11 +4,12 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useStore } from 'zustand'
 import { Button, ErrorState, Skeleton } from '@ziee/kit'
 import type { TxrRunDetail } from '@/api-client/types'
+import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import type { TxrOutcomeKey } from '../types'
 import { TxrResults, useTxrResultsStore } from '../stores/Results.store'
 import { buildColumns, viewOf } from '../lib/heatmap'
 import { downloadPredictionsCsv } from '../index'
-import { TxrResultsHeader, subtitleFactsOf } from '../components/TxrResultsHeader'
+import { formatPredictionsTitle, TxrResultsHeader, subtitleFactsOf } from '../components/TxrResultsHeader'
 import { TxrCannotRunBanner } from '../components/TxrCannotRunBanner'
 import { TxrRunFailedState } from '../components/TxrRunFailedState'
 import { TxrOutcomeTabs } from '../components/TxrOutcomeTabs'
@@ -151,6 +152,13 @@ export function ResultsPage() {
     patientLimit,
   } = state
   const [downloadFailed, setDownloadFailed] = useState(false)
+  // R2-G1: the tab/title byte is the page's own h1 (the header's
+  // "Predictions for N patients"; "Predictions" while the run loads). A run
+  // record carries no name field, so the title is the page's own words, not
+  // an invented run name (the report's "Predictions - TxResBench" byte).
+  useDocumentTitle(
+    predictions === null ? 'Predictions' : formatPredictionsTitle(predictions.patients.length),
+  )
 
   // Load on mount + on a run-id change; the store resets first and drops
   // the previous run's in-flight work (no cross-run bleed, DEC-3).

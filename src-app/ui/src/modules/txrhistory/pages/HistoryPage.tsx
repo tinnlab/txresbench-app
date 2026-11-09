@@ -47,6 +47,7 @@ import { useNavigate } from 'react-router-dom'
 import { useStore } from 'zustand'
 import { Alert } from '@ziee/kit'
 import { isDesktop } from '@/core/platform'
+import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { modelsPath } from '@/modules/txrmodels'
 import { downloadPredictionsCsv, resultsPath, revealRunDir } from '@/modules/txrresults'
 import { chooseMethodsPath, runningPath } from '@/modules/txrrun'
@@ -92,6 +93,8 @@ export function HistoryPage() {
   const navigate = useNavigate()
   const state = useStore(useTxrHistory)
   const [actionError, setActionError] = useState<string | null>(null)
+  // R2-G1: the tab/title byte is the page's own h1.
+  useDocumentTitle('History')
 
   // Mount + every `window` focus: the fresh trio. The listener is removed
   // on unmount (no leak — TEST-HIST-8); a run finishing while K is open

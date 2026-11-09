@@ -109,6 +109,27 @@ html.dark .os-theme-dark {
   z-index: 49;
 }
 
+/* qa-fixes2 ITEM-4 (R2-G3): the shell header's focus ring is ONE ring.
+ * The header links (brand + the four NavLinks) painted the browser's
+ * default 1 px outline next to the kit Button's 3 px shadow ring (the
+ * theme switch beside Help) — two different focus styles side by side.
+ * The links come TO the controls' ring (the ITEM-1/ITEM-3 drift's
+ * direction), i.e. the exact ring the kit Button paints and the Help
+ * accordion triggers use: no default outline, a 3 px `--ring` shadow at
+ * 50 %, following the control's own border-radius (the links use 6 px,
+ * the same radius the kit Button's ring follows). `:focus-visible`, never
+ * `:focus` — a mouse click on a link leaves no ring; the keyboard byte is
+ * what changes. */
+.txr-shell-brand,
+.txr-nav-link {
+  border-radius: 6px;
+}
+.txr-shell-brand:focus-visible,
+.txr-nav-link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent);
+}
+
 /* QA-fixes ITEM-7 (X2): the shell header at phone width. The board's header
  * is desktop-only: at 390 px the tagline wrapped to six lines and clipped,
  * and the nav pushed History/Help off-screen (the measured 526/817 px page

@@ -5,6 +5,7 @@ import { Button } from '@ziee/kit'
 import { ApiClient } from '@/api-client'
 import type { FileTableKind } from '@/api-client/types'
 import { useStore } from 'zustand'
+import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { TxrIntake, useTxrIntakeStore } from '../stores/TxrIntake.store'
 import {
   cardProblems,
@@ -146,6 +147,8 @@ export function FilesPage() {
   const parameters = useStore(useTxrIntakeStore, s => s.parameters)
   const validation = useStore(useTxrIntakeStore, s => s.validation)
   const exampleLoaded = useStore(useTxrIntakeStore, s => s.exampleLoaded)
+  // R2-G1: the tab/title byte is the page's own h1.
+  useDocumentTitle('Add your files')
 
   const [busySlot, setBusySlot] = useState<Slot | null>(null)
   const [cardErrors, setCardErrors] = useState<Partial<Record<Slot, string>>>({})

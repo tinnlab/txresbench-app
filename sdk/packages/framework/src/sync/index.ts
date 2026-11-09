@@ -1,6 +1,10 @@
 import { startSyncClient, stopSyncClient } from './SyncClient'
 
 export { startSyncClient, stopSyncClient } from './SyncClient'
+// R2-G5: the app's own long-lived agent stream answers the same "is the
+// document unloading" question the sync client uses to decide warn vs
+// debug — one signal, one truth (the sync module owns it).
+export { isDocumentUnloading } from './unload'
 
 interface AuthLike {
   user?: { id: string } | null

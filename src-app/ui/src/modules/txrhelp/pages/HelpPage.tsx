@@ -35,6 +35,7 @@ import { Button, Input, Collapsible, CollapsibleContent, CollapsibleTrigger } fr
 import { FiAlertTriangle, FiArrowUp, FiCheckCircle, FiInfo } from 'react-icons/fi'
 import { ApiClient } from '@/api-client'
 import type { FileTableKind } from '@/api-client/types'
+import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { STATE_LABEL, STATE_TONE } from '@/modules/txrrun/lib/format'
 import { formatRunHeadline } from '@/modules/txrlist/lib/format'
 import { TXRLIST_STATUS_COLORS } from '@/modules/txrlist/components/TxrListRow'
@@ -880,14 +881,10 @@ function sectionText(section: (typeof HELP_SECTIONS)[number]): string {
 
 export function HelpPage() {
   const location = useLocation()
-  // The one h1 + the document title ("Help — TxResBench", R2-G1's rule for
-  // THIS page; the per-route title system is ITEM-4's global item).
-  useEffect(() => {
-    document.title = 'Help — TxResBench'
-    return () => {
-      document.title = 'TxResBench'
-    }
-  }, [])
+  // The per-route title system (R2-G1) — ITEM-3's local effect is now the
+  // shell's one hook: the same "Help — TxResBench" byte, with the previous
+  // title restored on unmount like every other route.
+  useDocumentTitle('Help')
 
   const [query, setQuery] = useState('')
   const [activeSection, setActiveSection] = useState(HELP_SECTIONS[0].id)

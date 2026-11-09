@@ -1,5 +1,6 @@
 import { createModule } from '@ziee/framework'
 import TxrLayout from './TxrLayout'
+import { NotFoundPage } from './pages/NotFoundPage'
 
 /**
  * txrshell — TxResBench's own shell: the top-nav layout (New analysis / Models /
@@ -12,6 +13,13 @@ import TxrLayout from './TxrLayout'
  * (the Help content page, which owns it now). Every one of the four shell
  * routes is a sibling module's; this module only provides the layout every
  * route uses.
+ *
+ * The one route the shell DOES register is the global catch-all
+ * (`path: '*'`, R2-G2): an unknown address must render the not-found screen
+ * inside the shell — never the SDK router's silent redirect to `/` (which
+ * made a wrong deep link look like a working landing page). The screen is
+ * the shell's own because it is chrome, not content — no sibling module
+ * claims it (the same reason the shell owns the layout).
  */
 
 export const TxrLayoutDef = {
@@ -26,5 +34,12 @@ export default createModule({
     description: 'TxResBench shell — top navigation + the four app routes.',
   },
   dependencies: ['router'],
-  routes: [],
+  routes: [
+    {
+      path: '*',
+      element: <NotFoundPage />,
+      requiresAuth: true,
+      layout: TxrLayoutDef,
+    },
+  ],
 })

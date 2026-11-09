@@ -58,6 +58,7 @@ export function TxrShell({ children }: { children: ReactNode }) {
         >
           <Link
             to="/"
+            className="txr-shell-brand"
             style={{
               fontFamily: "'Source Serif 4', Georgia, serif",
               fontWeight: 600,
