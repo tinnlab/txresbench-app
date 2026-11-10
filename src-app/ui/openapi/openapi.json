@@ -19707,6 +19707,10 @@
         "description": "One method's full fact set — the `methods[]` entry of the committed catalogue\n and the `GET /api/methods/{id}` payload (PROV-MC-3's MethodDetail is exactly\n this entry).",
         "type": "object",
         "properties": {
+          "title": {
+            "description": "The short human name (qa-fixes3 ITEM-1): the generator derives it from\n the description's lead phrase, capped at [`MAX_METHOD_TITLE_CHARS`],\n falling back to the prettified id — never empty.",
+            "type": "string"
+          },
           "description": {
             "type": "string"
           },
@@ -19784,6 +19788,13 @@
           "paper_doi": {
             "type": "string"
           },
+          "paper_title": {
+            "description": "The primary paper's published title when the benchmark tree knows it\n (built from the literature store at generation time); `None` when\n unknown — the list row shows the derived `title`, never this blank.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "params": {
             "type": "object",
             "additionalProperties": true
@@ -19826,6 +19837,10 @@
           "spec_status": {
             "type": "string"
           },
+          "summary": {
+            "description": "The one-sentence summary (the description's first sentence, capped at\n [`MAX_METHOD_SUMMARY_CHARS`]) — never empty.",
+            "type": "string"
+          },
           "tasks": {
             "type": "array",
             "items": {
@@ -19853,6 +19868,8 @@
           "version",
           "group",
           "group_label",
+          "title",
+          "summary",
           "journal",
           "year",
           "citations",
@@ -20308,6 +20325,9 @@
         "description": "The list-row projection — the full PROV-MC-1 fact set minus the\n detail-only fields (description/software/licence/references/params and the\n internal-ish gate/env/fitted/saves_model/own_outputs facts). Named explicitly\n so a consumer binds the exact row vocabulary (the E-row performance text and\n the models-dialog warning bind named fields here).",
         "type": "object",
         "properties": {
+          "title": {
+            "type": "string"
+          },
           "container": {
             "type": "boolean"
           },
@@ -20358,6 +20378,12 @@
           "paper_doi": {
             "type": "string"
           },
+          "paper_title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "performance": {
             "anyOf": [
               {
@@ -20384,6 +20410,9 @@
           "spec_status": {
             "type": "string"
           },
+          "summary": {
+            "type": "string"
+          },
           "tasks": {
             "type": "array",
             "items": {
@@ -20406,6 +20435,8 @@
           "id",
           "group",
           "group_label",
+          "title",
+          "summary",
           "year",
           "language",
           "journal",

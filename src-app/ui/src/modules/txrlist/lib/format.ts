@@ -32,7 +32,7 @@
  *   the host passes.
  */
 import type { ReasonCode } from '@/api-client/types'
-import type { TxrRunStatus } from '../types'
+import type { TxrMethodNeeds, TxrMethodRank, TxrRunStatus } from '../types'
 
 /**
  * The reason-code vocabulary the formatter renders.
@@ -229,6 +229,56 @@ export function formatTotalTime(seconds: number | null): string {
   if (seconds < 60) return 'under 1 minute in total'
   const minutes = Math.round(seconds / 60)
   return `about ${minutes} ${minutes === 1 ? 'minute' : 'minutes'} in total`
+}
+
+// ── the redesigned E screen's copy (qa-fixes3 ITEM-1) ───────────────────────
+// The picker's strings are the new plain-voice copy; each formatter is pure
+// and reads the card's STRUCTURED fields only (DEC-5 — the provider's
+// display text is the consumer's, never a param blob).
+
+/** The row's estimate label ("Estimated 12 s" — quality rides the dot). */
+export function formatEstimateLabel(seconds: number): string {
+  return `Estimated ${formatDurationShort(seconds)}`
+}
+
+/** The row's benchmark score ("Benchmark score 0.74 (38 cohorts)"; the
+ *  parenthetical is omitted when the aggregate's cohort count is unknown —
+ *  a fact that is not there is never invented). */
+export function formatBenchmarkScore(rank: TxrMethodRank): string {
+  const base = `Benchmark score ${rank.median.toFixed(2)}`
+  return rank.nDatasets > 0 ? `${base} (${rank.nDatasets} cohorts)` : base
+}
+
+/** The score's tooltip: exactly what the number is (D36's honesty rule). */
+export function formatBenchmarkTooltip(rank: TxrMethodRank): string {
+  const measure = rank.kind === 'auc' ? 'AUC' : 'concordance'
+  return rank.nDatasets > 0
+    ? `The median ${measure} across the ${rank.nDatasets} datasets the method was tested on.`
+    : `The median ${measure} from the benchmark.`
+}
+
+/**
+ * The row's quiet needs line ("Needs: 1 marker · covariates optional · 1+
+ * draws"); `coverageLine` prefixes the "Runs on 120 of 151 patients" fact
+ * when the method runs for a subset (the board's some-patients honesty).
+ */
+export function formatMethodNeedsLine(
+  needs: TxrMethodNeeds,
+  coverageText: string | null,
+): string {
+  const parts: string[] = []
+  if (coverageText !== null) parts.push(coverageText)
+  parts.push(`Needs: ${needs.markers}`)
+  if (needs.covariates !== null) parts.push(needs.covariates)
+  parts.push(needs.draws)
+  return parts.join(' · ')
+}
+
+/** The plain coverage text ("Runs on all 151 patients" / "Runs on 120 of
+ *  151 patients") — the picker's ready-to-run rows, not the board's red. */
+export function formatMethodCoverage(coverage: TxrCoverageFacts): string {
+  if (coverage.eligible === coverage.total) return `Runs on all ${coverage.total} patients`
+  return `Runs on ${coverage.eligible} of ${coverage.total} patients`
 }
 
 /**

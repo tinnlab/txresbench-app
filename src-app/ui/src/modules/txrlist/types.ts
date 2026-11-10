@@ -113,6 +113,81 @@ export interface TxrFilterChip {
   onToggle(): void
 }
 
+// ── screen E's method cards (qa-fixes3 ITEM-1 redesign) ────────────────────
+// The redesigned E list (TxrMethodPicker) is NOT the board row stream of the
+// D/I screens: it is a picker around the patient's job ("pick the methods
+// that will run on my data, see how long it takes, and run") — one bounded
+// page document, family sections, presets, an in-place About disclosure.
+// The card below is the redesign's row contract; the D/I `TxrListRow` stays
+// the board-row contract of the model screens.
+
+/** The estimate fact's quality — the "measured"/"estimate" dot on the row. */
+export type TxrEstimateQuality = 'measured' | 'estimate'
+
+/**
+ * The row's benchmark score fact (D36: rendered ONLY when the catalogue
+ * carries it). `kind` names which aggregate the number is — the benchmark's
+ * primary aggregate is the median c-index; an `auc` median is the call rule's
+ * own aggregate when the benchmark evaluated it.
+ */
+export interface TxrMethodRank {
+  median: number
+  kind: 'c-index' | 'auc'
+  /** The datasets the aggregate was computed across ("(38 cohorts)"). */
+  nDatasets: number
+}
+
+/** The row's quiet "Needs:" facts (assembled from the catalogue summary). */
+export interface TxrMethodNeeds {
+  /** "1 marker" | "5 markers" | "any markers". */
+  markers: string
+  /** "covariates optional" / "covariates required"; `null` when the method
+   *  takes none (the segment is omitted). */
+  covariates: string | null
+  /** "1+ draws" | "3+ draws". */
+  draws: string
+}
+
+/**
+ * One selectable method of the redesigned E screen.
+ *
+ * - `key` = `id` — the stable catalogue key, the selection-set member.
+ * - `title`/`summary`/`paperTitle` are the generator's human-name fields
+ *   (qa-fixes3 ITEM-1) — never derived here, never blank (`title`/`summary`).
+ * - `estimate` is the eligibility verdict's per-method seconds + quality
+ *   (one estimate call serves the whole list — DEC-6); `null` only on the
+ *   defensive no-verdict fallback row (a method the response does not know).
+ * - `rank` is the benchmark fact (D36); `needs` the quiet line's facts.
+ * - `run` is the eligibility verdict in the picker's terms: the three board
+ *   codes, the coverage line, and — for a `cannot` card — the FIRST reason's
+ *   code (the picker's per-reason grouping), the plain reason line and the
+ *   one-line fix ("add a column named …").
+ */
+export interface TxrMethodCard {
+  key: string
+  id: string
+  title: string
+  summary: string
+  paperTitle: string | null
+  group: string
+  groupLabel: string
+  language: string
+  journal: string
+  year: number
+  paperDoi: string
+  estimate: { seconds: number; quality: TxrEstimateQuality } | null
+  rank: TxrMethodRank | null
+  needs: TxrMethodNeeds
+  run: {
+    status: TxrRunStatus
+    coverageLine: string
+    reasonCode: string | null
+    reasonLine: string
+    reasonFix: string
+    disabled: boolean
+  }
+}
+
 /**
  * The host-controlled sort control (screens D and I only). Changing the
  * value re-sorts the host's row/section order — the component does not

@@ -5,16 +5,16 @@ import { useStore } from 'zustand'
 import { ApiClient } from '@/api-client'
 import type {
   InventoryEligibilityRequest,
-  MethodSummary,
   TxrRunStatus,
 } from '@/api-client/types'
 import type { IntakeSnapshot } from '@/modules/txrintake'
 import { buildTxrRunInput, useTxrIntakeStore } from '@/modules/txrintake'
 import {
   countSelected,
-  formatNoEnvLine,
   formatTotalTime,
-  TxrSelectList,
+  recommendedSelection,
+  TxrListBottomBar,
+  TxrMethodPicker,
   useListEstimate,
   useMethodRows,
 } from '@/modules/txrlist'
@@ -31,73 +31,40 @@ import { buildSlotSummaries, runSetupMissing } from '../lib/slotSummary'
 import { mergeRunSettings, type RunSettings } from '../lib/settings'
 import { buildRunRequest } from '../lib/runRequest'
 import { buildCovariates } from '../lib/covariates'
-import { buildGroupChips } from '../data/groupChips'
 import { useKeepCopies } from '../data/useKeepCopies'
-import { useMethodList } from '../data/useMethodList'
 import { useRunConfig } from '../data/useRunConfig'
 import { runningPath } from '../routes'
-import { TxrAboutDialog } from '../components/TxrAboutDialog'
 import { TxrChangeFilesDialog } from '../components/TxrChangeFilesDialog'
 import { TxrRunEmptyState } from '../components/TxrRunEmptyState'
 import { TxrSettingsBlock } from '../components/TxrSettingsBlock'
 import { TxrSlotSummary } from '../components/TxrSlotSummary'
+import type { TxrMethodCard } from '@/modules/txrlist'
 
 /**
- * Screen E — Choose the methods and settings (board `Busy.dc.html`): the
- * file-slot lines (Patients / Measurements / Predict with "Change files"),
- * the four setting rows (Predict, Decision day, Look ahead to, Extra
- * inputs + More settings), the shared method list with its group chips and
- * the bottom bar (selected count, total time, run-N-at-a-time, save-the-
- * trained-models, research notice, Run).
+ * Screen E — Choose the methods and settings (qa-fixes3 ITEM-1 redesign,
+ * part 1: structure, defaults, rows; ITEM-2 takes the settings summary +
+ * run bar + phone):
  *
- * Delivered over the ITEM-6/7 shell, ITEM-8 adds the list + the create
- * path:
- *
- * - the list is the SHARED `TxrSelectList` (INV-3 — never a bespoke row),
- *   fed by `txrlist`'s `useMethodRows(inventory)` (CONS-UI-RUN-13's
- *   inventory — the intake store's ONE validation payload, DEC-13/OWNER-4;
- *   this page never re-validates and never re-derives it) and the
- *   estimate-driven bottom bar link (`useListEstimate`, INV-4 — every time
- *   text is the providers' responses);
- * - the group chips are `buildGroupChips` (the ITEM-4 builder) wired by
- *   the host: `active`/`onToggle` are this page's filter state, the counts
- *   and order are the builder's (DEC-8 — the chips' facts come from one
- *   `MethodCatalogue.list` payload, the bounded no-pagination catalogue);
- * - the Run button posts `buildRunRequest` (the frozen PROV-EE-2 shape:
- *   the intake's own `buildTxrRunInput` verbatim — with `keep_copies`
- *   overridden by the history-store preference, CONS-UI-RUN-17/TEST-RUN-36
- *   — the settings as the config, `label_day: null`) through
- *   `ApiClient.Txr.createRun`; on `202` the URL becomes the new run's
- *   `runningPath` (the module's builder, never a literal);
- * - the create errors: a `400` surfaces the engine's line (the settings
- *   keep their values — the run was never created); a `404
- *   METHOD_NOT_FOUND` drops the selected rows the CURRENT catalogue no
- *   longer knows and says so (a stale selection is never handed to the
- *   engine twice, a message is never blank); a `409 RUN_ALREADY_ACTIVE`
- *   resolves through `Txr.listRuns` to the active run and navigates to its
- *   `runningPath` with the one-line notice (DEC-18 — the duplicate-run
- *   button is never seen), or surfaces the error when no active run
- *   answers. One create is ever in flight (the ref guard — a second click
- *   is a no-op, never a second run).
- *
- * The empty state's rule: the E content renders when the run's mode has
- * its inputs (the two train files, or the one predict file); anything
- * partial shows the state naming the missing piece. The slot lines render
- * the store's own facts (the file names + the ONE validated summary) —
- * this page never re-validates and never formats a number. When the
- * inputs are present but the store's validation is transiently null (a
- * mutation the change-files dialog made — the provider re-validates on its
- * own screens) the list area shows the pending line instead of a
- * half-built list (DEC-16's never-half-broken rule; the inventory is the
- * validation's, and a fabricated one would be a re-derivation).
+ * - the page is ONE document that scrolls (`PAGE_MAIN` is the only vertical
+ *   scroll container — the old nested ~330 px list box is gone);
+ * - the list is the picker `TxrMethodPicker` (txrlist), fed by the
+ *   catalogue × eligibility adapter (`useMethodRows` — the intake
+ *   validation's ONE inventory, DEC-13: this page never re-validates) with
+ *   the new human-name fields (title/summary/paper_title) from the API;
+ * - on arrival a deterministic recommended set is already ticked (up to 8,
+ *   at most 3 per family — `recommendedSelection`); the user's own tick or
+ *   a preset stops the auto-selection for the rest of the screen's life
+ *   (a settings change then keeps the user's selection — ITEM-2's
+ *   eligibility-preserving rule builds on this);
+ * - the estimate-driven bottom bar stays the boards' shared
+ *   `TxrListBottomBar` (ITEM-2 replaces it with the new run bar design);
+ * - the create path is unchanged: `buildRunRequest` → `Txr.createRun`, the
+ *   202 → `runningPath`, the 404/409 resolutions, the one-create-in-flight
+ *   guard (see the ITEM-8 notes carried in the git history).
  */
+
 const PAGE_OUTER: CSSProperties = {
   flexGrow: 1,
-  // The bounded page (CM-2): the shell header is 56px, and the page below it
-  // is the ONE scroll container boundary — without a definite height the
-  // list's flex-fill has no bounded parent and the virtualizer renders every
-  // row (the 22,630 px report). The list gets the remaining height and
-  // scrolls inside itself; the bottom bar stays pinned to its frame.
   height: 'calc(100dvh - 56px)',
   minHeight: 0,
   display: 'flex',
@@ -108,9 +75,6 @@ const PAGE_OUTER: CSSProperties = {
 const PAGE_MAIN: CSSProperties = {
   flexGrow: 1,
   minHeight: 0,
-  // A short window (or the phone's tall settings stack) scrolls the fixed
-  // parts instead of pushing the list off; on a normal desktop the list
-  // fills the space and scrolls inside ITSELF.
   overflowY: 'auto',
   boxSizing: 'border-box',
   padding: '24px 36px',
@@ -136,30 +100,14 @@ const TITLE: CSSProperties = {
   lineHeight: 1.2,
 }
 
-/** The board's lead paragraph under the title (the board's own meters). */
+/** The board's lead paragraph under the title (the data-filled meter). */
 const INTRO: CSSProperties = { margin: 0, color: 'var(--txr-text-2)', maxWidth: '62ch' }
 
-/** The board's settings-card skeleton (the card's place while the first
- *  sticky-config GET is in flight — a defaults flash would mislead). */
+/** The settings card's skeleton while the first sticky-config GET is in
+ *  flight (a defaults flash would mislead). */
 const SETTINGS_SKELETON: CSSProperties = {
   height: 72,
   borderRadius: 10,
-}
-
-/** The list area's frame (the bounded column the shared list fills; the
- *  board's max-height 330px on a taller real page becomes the flex fill —
- *  the fill is BOUNDED by the page's definite height, CM-2 — with a floor
- *  so a short window never collapses the list into nothing). */
-const LIST_FRAME: CSSProperties = {
-  flexGrow: 1,
-  flexShrink: 1,
-  minHeight: 240,
-  display: 'flex',
-  flexDirection: 'column',
-  border: '1px solid var(--txr-border)',
-  borderRadius: 10,
-  background: 'var(--txr-surface)',
-  overflow: 'hidden',
 }
 
 /** The pending line's card (the inputs are there, the summary is not). */
@@ -176,14 +124,6 @@ const PENDING_LINE: CSSProperties = { margin: 0, fontSize: 13.5, color: 'var(--t
 
 /** The pending line (the list's place while the summary is transiently null). */
 const PENDING_REFRESH_LINE = 'Re-check your files to see what can run.'
-
-/** The no-env honesty line (CM-1): the count of catalogue methods with no
- *  published environment, stated before the rows — the board has no such
- *  line (every board method can start), so the copy follows the app's
- *  plain-voice rule, never a raw code. Shared with the screen-B panel
- *  (R2-1's separation — the same sentence, one vocabulary
- *  `txrlist/lib/format`). */
-const NO_ENV_LINE: CSSProperties = { margin: 0, fontSize: 12.5, color: 'var(--txr-warning)' }
 
 /** The run statuses DEC-18 calls "active" (the one-active-run 409's target). */
 const ACTIVE_RUN_STATUSES: ReadonlySet<TxrRunStatus> = new Set([
@@ -218,8 +158,7 @@ const errorText = (error: unknown): string => {
 }
 
 /** The diff-patch: the fields the user changed from the value the screen
- *  showed. The screen's value is the merge + the patch, so a change never
- *  writes defaults over a sticky field the user did not touch. */
+ *  showed (a change never writes defaults over a sticky field). */
 function diffPatch(next: RunSettings, current: RunSettings): Partial<RunSettings> {
   const out: Partial<RunSettings> = {}
   for (const key of Object.keys(next) as (keyof RunSettings)[]) {
@@ -230,135 +169,63 @@ function diffPatch(next: RunSettings, current: RunSettings): Partial<RunSettings
   return out
 }
 
-/** The list section's props (the page's composition surface). */
-interface TxrMethodListFrameProps {
-  /** The one eligibility object (the validation's inventory, DEC-13). */
-  inventory: InventoryEligibilityRequest
-  /** The catalogue's method rows (the chips' facts, DEC-8). */
-  methods: MethodSummary[]
-  /** The host's selection (controlled; the shared list reports changes). */
-  selected: ReadonlySet<string>
-  onSelectionChange: (next: ReadonlySet<string>) => void
-  /** The active group chip (host filter state — the builder's facts are inert). */
-  groupFilter: string | null
-  onGroupFilterChange: (id: string | null) => void
-  /** The "Can run" pill (CM-3): only non-disabled rows when on. */
-  canOnly: boolean
-  onCanOnlyChange: (on: boolean) => void
-  /** The screen's settings (the bar's at-a-time + save-models tie to them). */
-  settings: RunSettings
-  onSettingsChange: (next: RunSettings) => void
-  /** The row "About" slot (the host owns the dialog). */
-  onAbout: (methodId: string) => void
-  /** The Run button: the run keys + the bar's options (the create path). */
-  onCreate: (keys: string[], opts: { atATime: number; saveModels: boolean }) => void
-  /** The chips' own refetch (wired to the list's Retry too). */
-  onRetryList?: () => void
-}
-
-/**
- * The list's section: the shared `TxrSelectList` fed by the two `txrlist`
- * hooks and the host's group-chip wiring. Split off the page so the
- * inventory-dependent hooks are unconditional here while the page owns the
- * create path and the empty/pending branches (a null inventory — the
- * transient post-mutation state — never fabricates a request object).
- */
-function TxrMethodListFrame({
+/** The picker's frame: the inventory-dependent hooks (the one adapter fed by
+ *  the validation's inventory — a null inventory never fabricates a request
+ *  object) plus the ONE-TIME recommended seeding. The joined cards are
+ *  reported up so the page can count the bar's selection against the real
+ *  runnable set (a stale key is never counted). */
+function TxrMethodPickerFrame({
   inventory,
-  methods,
   selected,
   onSelectionChange,
-  groupFilter,
-  onGroupFilterChange,
-  canOnly,
-  onCanOnlyChange,
-  settings,
-  onSettingsChange,
-  onAbout,
-  onCreate,
-  onRetryList,
-}: TxrMethodListFrameProps) {
-  const { rows, noEnvCount, loading, error, refetch } = useMethodRows(inventory)
-  const estimate = useListEstimate([...selected], {
-    patients: inventory.patients,
-    cpus: settings.cpus ?? undefined,
-    atATime: settings.at_a_time,
-  })
+  onCards,
+  onChangeFiles,
+  onChangeSettings,
+}: {
+  inventory: InventoryEligibilityRequest
+  selected: ReadonlySet<string>
+  onSelectionChange(next: ReadonlySet<string>): void
+  onCards(cards: TxrMethodCard[]): void
+  onChangeFiles(): void
+  onChangeSettings(): void
+}) {
+  const { cards, loading, error, refetch } = useMethodRows(inventory)
+  // The user's own selection change (a manual tick or a preset) turns the
+  // auto-recommendation off for the rest of the screen's life — a settings
+  // change recomputes eligibility but never overrides a human choice.
+  const touched = useRef(false)
+  const seeded = useRef(false)
 
-  // The chips: the builder's static facts (the board order, the labels, the
-  // counts over the passed set) + this host's two stateful fields — the
-  // active chip and the toggle of the group filter (DRIFT-1 ITEM-4 #4).
-  const chips = useMemo(
-    () =>
-      buildGroupChips(methods).map(chip => ({
-        ...chip,
-        active: groupFilter === chip.id,
-        onToggle: () =>
-          onGroupFilterChange(groupFilter === chip.id ? null : chip.id),
-      })),
-    [methods, groupFilter, onGroupFilterChange],
+  useEffect(() => {
+    onCards(cards)
+    if (touched.current || seeded.current || cards.length === 0) return
+    seeded.current = true
+    onSelectionChange(new Set(recommendedSelection(cards)))
+    // `cards` is the only trigger: the seed is one-shot per card set; a
+    // content-identical rebuild (same inventory) does not re-seed because
+    // the adapter keeps the last good cards.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cards])
+
+  const changeSelection = useCallback(
+    (next: ReadonlySet<string>): void => {
+      touched.current = true
+      onSelectionChange(next)
+    },
+    [onSelectionChange],
   )
 
-  // The row set the list shows: the group filter over the rows' chip labels
-  // (the rows carry the label, never the group id — DEC-8) composed with the
-  // can-run-only pill (CM-3's "Can run = only runnable rows").
-  const groupLabelOf = useMemo(() => {
-    const byGroup = new Map<string, string>()
-    for (const method of methods) byGroup.set(method.group, method.group_label)
-    return byGroup
-  }, [methods])
-  const shown = useMemo(() => {
-    const grouped =
-      groupFilter === null
-        ? rows
-        : rows.filter(row => row.chip?.label === groupLabelOf.get(groupFilter))
-    return canOnly ? grouped.filter(row => !row.run.disabled) : grouped
-  }, [rows, groupFilter, canOnly, groupLabelOf])
-
   return (
-    <div data-testid="txr-run-list" className="txr-run-list-frame" style={LIST_FRAME}>
-      {noEnvCount > 0 ? (
-        <p data-testid="txr-run-no-env-line" style={NO_ENV_LINE}>
-          {formatNoEnvLine(noEnvCount, rows.length)}
-        </p>
-      ) : null}
-      <TxrSelectList
-        rows={shown}
-        itemLabel="method"
-        selected={selected}
-        onSelectionChange={onSelectionChange}
-        filterChips={chips}
-        allFilter={{
-          active: groupFilter === null && !canOnly,
-          onClick: () => {
-            onGroupFilterChange(null)
-            onCanOnlyChange(false)
-          },
-        }}
-        canRunFilter={{ active: canOnly, onClick: () => onCanOnlyChange(!canOnly) }}
-        loading={loading}
-        error={error}
-        onRetry={() => {
-          refetch()
-          onRetryList?.()
-        }}
-        bottomBar={{
-          selectedCount: countSelected(selected, rows),
-          totalTimeText: formatTotalTime(estimate.scheduleSeconds),
-          atATime: {
-            value: settings.at_a_time,
-            onChange: value => onSettingsChange({ ...settings, at_a_time: value }),
-          },
-          saveModels: {
-            checked: settings.save_models,
-            onChange: value => onSettingsChange({ ...settings, save_models: value }),
-          },
-          notice: RESEARCH_NOTICE,
-          onRun: (keys, opts) => onCreate(keys, opts),
-        }}
-        onRowAction={row => onAbout(row.key)}
-      />
-    </div>
+    <TxrMethodPicker
+      cards={cards}
+      loading={loading}
+      error={error}
+      onRetry={refetch}
+      selected={selected}
+      onSelectionChange={changeSelection}
+      onChangeFiles={onChangeFiles}
+      onChangeSettings={onChangeSettings}
+    />
   )
 }
 
@@ -367,13 +234,10 @@ export function ChooseMethodsPage() {
   const [changeOpen, setChangeOpen] = useState(false)
   const [settingsPatch, setSettingsPatch] = useState<Partial<RunSettings> | null>(null)
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
-  const [groupFilter, setGroupFilter] = useState<string | null>(null)
-  const [canOnly, setCanOnly] = useState(false)
-  const [aboutId, setAboutId] = useState<string | null>(null)
   const [runError, setRunError] = useState<string | null>(null)
   const [runNotice, setRunNotice] = useState<string | null>(null)
   const creating = useRef(false)
-  // R2-G1: the tab/title byte is the page's own h1.
+  const settingsAnchor = useRef<HTMLDivElement | null>(null)
   useDocumentTitle('Choose the methods and settings')
   const mode = useStore(useTxrIntakeStore, s => s.mode)
   const patients = useStore(useTxrIntakeStore, s => s.patients)
@@ -385,16 +249,12 @@ export function ChooseMethodsPage() {
   const parameters = useStore(useTxrIntakeStore, s => s.parameters)
   const runConfig = useRunConfig()
   const { keepCopies } = useKeepCopies()
-  const { methods, refetch: refetchList } = useMethodList()
 
   const merged = useMemo(
     () => mergeRunSettings(runConfig.engine, parameters),
     [runConfig.engine, parameters],
   )
   const settings = settingsPatch === null ? merged : { ...merged, ...settingsPatch }
-  // The Extra-inputs names line: the patients file's inspection
-  // covariate columns (the one file that owns the covariate roles); a
-  // render without a patients file has no covariate source at all.
   const covariates = patients === null ? null : buildCovariates(patients.inspection)
 
   const change = (next: RunSettings): void => {
@@ -402,14 +262,9 @@ export function ChooseMethodsPage() {
     void runConfig.update(next)
   }
 
-  // A retry-load that lands AFTER the user's edit recomposes the merged
-  // view: the write-through body is once more the screen's truth (the
-  // user's fields + the freshly restored sticky fields). The user's
-  // edit was queued against the defaults-based view, and the hook
-  // coalesces the two writes so the sticky store never ends at a
-  // defaults value for a field the user did not touch. The mount
-  // transition (first engine value) has no patch yet — the skeleton
-  // keeps the rows un-runnable until it lands — so it writes nothing.
+  // The retry-load transition (the engine's sticky fields land after an
+  // edit): the write-through body is once more the screen's truth.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const engineBefore = useRef<typeof runConfig.engine>(runConfig.engine)
   useEffect(() => {
     const previous = engineBefore.current
@@ -418,21 +273,16 @@ export function ChooseMethodsPage() {
     if (previous !== runConfig.engine) {
       void runConfig.update({ ...merged, ...settingsPatch })
     }
-    // The engine transition is the only trigger — a row change is already
-    // written by `change` above (this closure intentionally binds only
-    // the transition render's patch/merge).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runConfig.engine])
 
   const inventory = validation?.inventory ?? null
+  const [cards, setCards] = useState<TxrMethodCard[]>([])
+  const estimate = useListEstimate([...selected], {
+    patients: inventory?.patients ?? 0,
+    cpus: settings.cpus ?? undefined,
+    atATime: settings.at_a_time,
+  })
 
-  /**
-   * The Run button's create path: one request (the frozen PROV-EE-2 shape)
-   * through the engine, then the module's own `runningPath`. The bar's
-   * options are the screen's values for the two fields they own; the
-   * intake's input builder result is VERBATIM with the history-store
-   * preference overriding `keep_copies` (CONS-UI-RUN-17).
-   */
   const createRun = useCallback(
     async (
       keys: string[],
@@ -443,13 +293,6 @@ export function ChooseMethodsPage() {
       setRunError(null)
       setRunNotice(null)
       try {
-        // The intake's ONE builder gets the run inputs it reads — the file
-        // slots, the confirmed joins and the marker mapping. The remaining
-        // `IntakeSnapshot` fields (the answer/interests/parameters slices,
-        // whose names this module never spells — the ITEM-6 copy rule) are
-        // untouched by the builder; the provider's type requires them, so
-        // the object here is the builder's consumed contract (the same
-        // type-bridge class as `toRunConfig`'s, ITEM-3 note (a)).
         const input = buildTxrRunInput({
           patients,
           measurements,
@@ -481,11 +324,8 @@ export function ChooseMethodsPage() {
           setRunError(RUN_ALREADY_ACTIVE_LINE)
         } else if (status === 404) {
           const message = errorText(err)
-          const dropped = staleMethodIds(
-            message,
-            keys,
-            methods.map(method => method.id),
-          )
+          const known = new Set(cards.map(card => card.id))
+          const dropped = staleMethodIds(message, keys, [...known])
           if (dropped.length > 0) {
             const droppedSet = new Set(dropped)
             setSelected(current => new Set([...current].filter(key => !droppedSet.has(key))))
@@ -500,18 +340,12 @@ export function ChooseMethodsPage() {
         creating.current = false
       }
     },
-    [
-      patients,
-      measurements,
-      predictMeasurements,
-      joins,
-      mapping,
-      keepCopies,
-      settings,
-      methods,
-      navigate,
-    ],
+    [patients, measurements, predictMeasurements, joins, mapping, keepCopies, settings, cards, navigate],
   )
+
+  const onChangeSettings = useCallback((): void => {
+    settingsAnchor.current?.scrollIntoView({ block: 'start' })
+  }, [])
 
   const missing = runSetupMissing({ mode, patients, measurements, predictMeasurements })
   if (missing !== null) {
@@ -531,43 +365,44 @@ export function ChooseMethodsPage() {
       <div style={PAGE_MAIN}>
         <div style={STEP_LINE}>Step 4 of 4</div>
         <h1 style={TITLE}>Choose the methods and settings</h1>
-        {inventory !== null ? (
-          <p data-testid="txr-run-intro" style={INTRO}>
-            Checked against your files. Pick as many methods as you like; each
-            learns from your {inventory.patients} patients, then predicts.
-          </p>
-        ) : null}
+        <p data-testid="txr-run-intro" style={INTRO}>
+          Run these methods on your patients. Checked against your files;
+          each learns from your {inventory !== null ? inventory.patients : 0}{' '}
+          patients, then predicts.
+        </p>
         <TxrSlotSummary
           slots={buildSlotSummaries({ mode, patients, measurements, predictMeasurements, validation })}
           onChangeFiles={() => setChangeOpen(true)}
         />
-        {runConfig.loading ? (
-          <Skeleton data-testid="txr-run-settings-loading" style={SETTINGS_SKELETON} />
-        ) : (
-          <>
-            {runConfig.error !== null ? (
-              <Alert
-                tone="warning"
-                data-testid="txr-run-settings-error"
-                title={runConfig.error}
-              >
-                <Button
-                  variant="outline"
-                  data-testid="txr-run-settings-retry"
-                  onClick={runConfig.retry}
+        <div ref={settingsAnchor}>
+          {runConfig.loading ? (
+            <Skeleton data-testid="txr-run-settings-loading" style={SETTINGS_SKELETON} />
+          ) : (
+            <>
+              {runConfig.error !== null ? (
+                <Alert
+                  tone="warning"
+                  data-testid="txr-run-settings-error"
+                  title={runConfig.error}
                 >
-                  Retry
-                </Button>
-              </Alert>
-            ) : null}
-            <TxrSettingsBlock
-              value={settings}
-              covariates={covariates}
-              onChange={change}
-              onMoreSettings={next => change({ ...settings, ...next })}
-            />
-          </>
-        )}
+                  <Button
+                    variant="outline"
+                    data-testid="txr-run-settings-retry"
+                    onClick={runConfig.retry}
+                  >
+                    Retry
+                  </Button>
+                </Alert>
+              ) : null}
+              <TxrSettingsBlock
+                value={settings}
+                covariates={covariates}
+                onChange={change}
+                onMoreSettings={next => change({ ...settings, ...next })}
+              />
+            </>
+          )}
+        </div>
         {runError !== null ? (
           <Alert tone="error" data-testid="txr-run-create-error" title={runError} />
         ) : null}
@@ -575,22 +410,13 @@ export function ChooseMethodsPage() {
           <Alert tone="warning" data-testid="txr-run-create-notice" title={runNotice} />
         ) : null}
         {inventory !== null ? (
-          <TxrMethodListFrame
+          <TxrMethodPickerFrame
             inventory={inventory}
-            methods={methods}
             selected={selected}
             onSelectionChange={setSelected}
-            groupFilter={groupFilter}
-            onGroupFilterChange={setGroupFilter}
-            canOnly={canOnly}
-            onCanOnlyChange={setCanOnly}
-            settings={settings}
-            onSettingsChange={change}
-            onAbout={setAboutId}
-            onCreate={(keys, opts) => {
-              void createRun(keys, opts)
-            }}
-            onRetryList={refetchList}
+            onCards={setCards}
+            onChangeFiles={() => setChangeOpen(true)}
+            onChangeSettings={onChangeSettings}
           />
         ) : (
           <div data-testid="txr-run-list-pending" style={PENDING_BLOCK}>
@@ -598,12 +424,35 @@ export function ChooseMethodsPage() {
           </div>
         )}
       </div>
+      {inventory !== null ? (
+        <TxrListBottomBar
+          itemLabel="method"
+          selectedCount={countSelected(selected, cards)}
+          totalTimeText={formatTotalTime(estimate.scheduleSeconds)}
+          atATime={{
+            value: settings.at_a_time,
+            onChange: value => change({ ...settings, at_a_time: value }),
+          }}
+          saveModels={{
+            checked: settings.save_models,
+            onChange: value => change({ ...settings, save_models: value }),
+          }}
+          notice={RESEARCH_NOTICE}
+          onRun={(opts) => {
+            // The bar reports the OPTIONS; the keys are the selection minus
+            // the cards this page can see are disabled (the shared rule set
+            // the TxrSelectList computes internally on the D/I screens).
+            const disabled = new Set(cards.filter(card => card.run.disabled).map(card => card.key))
+            const keys = [...selected].filter(key => !disabled.has(key))
+            void createRun(keys, opts)
+          }}
+        />
+      ) : null}
       <TxrChangeFilesDialog
         mode={mode}
         open={changeOpen}
         onOpenChange={setChangeOpen}
       />
-      <TxrAboutDialog methodId={aboutId} onClose={() => setAboutId(null)} />
     </main>
   )
 }

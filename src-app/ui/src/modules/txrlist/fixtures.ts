@@ -53,8 +53,9 @@ import type {
   Timing,
   TimingQuality,
 } from '@/api-client/types'
-import type { TxrListRow, TxrListSection } from './types'
-import { buildMethodRows } from './data/methodRows'
+import type { TxrListRow, TxrListSection, TxrMethodCard } from './types'
+import { buildMethodCards } from './data/methodRows'
+import { formatDurationShort, formatRunHeadline } from './lib/format'
 
 // ── the screen-E inventory (the host supplies this; the module never builds it) ──
 
@@ -160,6 +161,12 @@ interface FxMethodSpec extends FxVerdictFacts {
   groupLabel: string
   status: 'can_run' | 'can_run_some' | 'cannot_run'
   seconds: number
+  /** The human-name fields (qa-fixes3 ITEM-1); defaults are synthetic. */
+  title?: string
+  summary?: string
+  paperTitle?: string
+  /** The benchmark rank the summary carries (D36: rendered only when present). */
+  performance?: { c_index_median: number; auc_rule_median?: number; n_datasets: number }
 }
 
 /** The all-151 coverage of a clean run (the board's "all 151 patients"). */
@@ -182,10 +189,10 @@ const KI67 = [{ display_name: 'Ki-67' }]
  */
 const FX_METHODS: FxMethodSpec[] = [
   // ── the board's screen-E rows, verbatim ──
-  { id: 'direct-on', year: 2021, language: 'R', group: 'response-probability', groupLabel: 'Response probability', status: 'can_run', seconds: 120 },
-  { id: 'cox-timevarying-slope', year: 2019, language: 'R', group: 'dynamic-risk', groupLabel: 'Dynamic risk', status: 'can_run', seconds: 120 },
+  { id: 'direct-on', year: 2021, language: 'R', group: 'response-probability', groupLabel: 'Response probability', status: 'can_run', seconds: 120, title: 'Direct on-treatment response rule', summary: 'A direct on-treatment response rule fixed in the paper that introduced it; the fixture card carries no method with real data.', performance: { c_index_median: 0.74, n_datasets: 38 } },
+  { id: 'cox-timevarying-slope', year: 2019, language: 'R', group: 'dynamic-risk', groupLabel: 'Dynamic risk', status: 'can_run', seconds: 120, title: 'Time-varying Cox model' },
   { id: 'baseline-ctdna-detectability', year: 2020, language: 'Python', group: 'static-risk', groupLabel: 'Static risk', status: 'can_run', seconds: 12 },
-  { id: 'dynforest', year: 2022, language: 'R', group: 'dynamic-risk', groupLabel: 'Dynamic risk', status: 'can_run_some', seconds: 840, reason: 'MIN_DRAWS_UNMET', coverage: C120, minDraws: DRAWS_3_OF_151 },
+  { id: 'dynforest', year: 2022, language: 'R', group: 'dynamic-risk', groupLabel: 'Dynamic risk', status: 'can_run_some', seconds: 840, reason: 'MIN_DRAWS_UNMET', coverage: C120, minDraws: DRAWS_3_OF_151, title: 'Dynamic random forest', performance: { c_index_median: 0.58, n_datasets: 4 } },
   { id: 'flirti', year: 2023, language: 'Python', group: 'response-probability', groupLabel: 'Response probability', status: 'can_run', seconds: 240 },
   { id: 'ctdna-clearance', year: 2018, language: 'R', group: 'response-call', groupLabel: 'Response call', status: 'can_run', seconds: 45 },
   { id: 'cox-ctdna-status-rfs', year: 2020, language: 'R', group: 'static-risk', groupLabel: 'Static risk', status: 'cannot_run', seconds: 45, reason: 'REQUIRED_MARKER_MISSING', coverage: { eligible: 0, total: 151, fraction: 0 }, minDraws: { required: 0, met: 0, unmet_patients: 151 }, missingMarkers: LDH },
@@ -232,13 +239,24 @@ function timing(seconds: number, quality: TimingQuality): Timing {
 }
 
 /**
- * The catalogue wire rows: one `MethodSummary` per spec row.
- * `performance` is deliberately absent (the E board's rows carry none).
+ * The catalogue wire rows: one `MethodSummary` per spec row. The human-name
+ * fields (qa-fixes3 ITEM-1) default to synthetic values; `performance` is
+ * present only where a spec carries it (D36: the row renders the benchmark
+ * fact only then).
  */
+const prettify = (id: string): string =>
+  id.split('-').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
+
 export const TXRLIST_METHODS: MethodSummary[] = FX_METHODS.map(spec => ({
   id: spec.id,
   group: spec.group,
   group_label: spec.groupLabel,
+  title: spec.title ?? prettify(spec.id),
+  summary: spec.summary ?? `A synthetic fixture method from the ${spec.groupLabel} family.`,
+  // The generated type models Option as ABSENT (the wire may also carry
+  // null — the row adapter guards both); an unknown paper leaves the
+  // property out.
+  paper_title: spec.paperTitle,
   year: spec.year,
   language: spec.language,
   journal: 'Fictional Journal of Fixtures',
@@ -257,6 +275,14 @@ export const TXRLIST_METHODS: MethodSummary[] = FX_METHODS.map(spec => ({
   tasks: ['response'],
   uses_history: 'landmark',
   timing: timing(spec.seconds, spec.seconds >= 600 ? 'estimate' : 'measured'),
+  performance: spec.performance
+    ? {
+        c_index_median: spec.performance.c_index_median,
+        auc_rule_median: spec.performance.auc_rule_median,
+        n_units: spec.performance.n_datasets,
+        n_datasets: spec.performance.n_datasets,
+      }
+    : undefined,
 }))
 
 /** One per-method verdict wire row (the board's structured facts). */
@@ -612,10 +638,33 @@ export const TXRLIST_I_NOTE =
  * adapter over the fixture wire shapes (no hand-copied row copy here),
  * including the two overflow cases the fixture catalogue carries — a long
  * method id and a `cannot` row whose missing-marker line is long — so the
- * wrap path (EXAMPLE-UL-6) is exercised at 390 px.
+ * wrap path (EXAMPLE-UL-6) is exercised at 390 px. The story renders the
+ * SHARED `TxrSelectList` (the D/I boards still use it; the E screen is the
+ * picker's), so the cards are adapted back to the board row shape.
  */
 export function txrlistNarrowRows(): TxrListRow[] {
-  const all = buildMethodRows(TXRLIST_METHODS, TXRLIST_ELIGIBILITY)
+  function rowOf(card: TxrMethodCard): TxrListRow {
+    return {
+      key: card.key,
+      name: card.id,
+      tag: `Paper ${card.year}, ${card.language}`,
+      chip: { label: card.groupLabel, tone: 'neutral' },
+      performanceText:
+        card.rank === null ? null : `other cohorts: AUC ${card.rank.median.toFixed(2)}`,
+      run: {
+        status: card.run.status,
+        headline: formatRunHeadline(card.run.status),
+        detail: card.run.reasonLine,
+        disabled: card.run.disabled,
+      },
+      timeText:
+        card.run.disabled || card.estimate === null
+          ? null
+          : formatDurationShort(card.estimate.seconds),
+      action: { label: 'About' },
+    }
+  }
+  const cards = buildMethodCards(TXRLIST_METHODS, TXRLIST_ELIGIBILITY)
   const wanted = [
     'direct-on',
     'cox-timevarying-slope',
@@ -625,8 +674,8 @@ export function txrlistNarrowRows(): TxrListRow[] {
     'ctdna-clearance-with-lod-imputation-extension',
   ]
   return wanted.map(id => {
-    const row = all.find(r => r.key === id)
-    if (row === undefined) throw new Error(`fixture row missing: ${id}`)
-    return row
+    const card = cards.find(c => c.id === id)
+    if (card === undefined) throw new Error(`fixture row missing: ${id}`)
+    return rowOf(card)
   })
 }

@@ -223,7 +223,12 @@ describe('txrhelp module (TEST-HELP-4)', () => {
           // qa-fixes2 ITEM-2 (location-neutral copy): the notice generator's
           // header reword — "the TxResBench application", not "desktop
           // application" (the generated THIRD-PARTY-NOTICES.md follows).
-          p !== 'scripts/third-party.py' ,
+          p !== 'scripts/third-party.py' &&
+          // qa-fixes3 ITEM-1 (the catalogue's human-name fields): the
+          // catalogue generator's title/summary/paper_title derivation +
+          // the regenerated fixture-mode expected bytes.
+          p !== 'scripts/method-catalogue/gen_method_catalogue.py' &&
+          p !== 'scripts/method-catalogue/fixtures/expected-catalogue.json',
       ),
     ).toEqual([])
     // qa-fixes ITEM-7 (X1): the built-CSS url check — one script file
@@ -264,6 +269,8 @@ describe('txrhelp module (TEST-HELP-4)', () => {
           p !== 'src-app/server/src/modules/execution_engine/orchestrator.rs' &&
           p !== 'src-app/server/src/modules/model_store/types.rs' &&
           p !== 'src-app/server/src/modules/pretrained_catalogue/types.rs' &&
+          p !== 'src-app/server/src/modules/method_catalogue/catalogue.rs' &&
+          p !== 'src-app/server/tests/method_catalogue/catalogue_hygiene_test.rs' &&
           p !== 'src-app/server/tests/method_catalogue/api_test.rs' &&
           p !== 'src-app/server/src/modules/execution_engine/types.rs' &&
           p !== 'src-app/server/src/modules/execution_engine/routes.rs' &&

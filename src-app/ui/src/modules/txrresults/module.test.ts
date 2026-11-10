@@ -192,7 +192,12 @@ describe('txrresults module (TEST-UR-13)', () => {
           p !== 'scripts/file-validator/gen_material.py' &&
           p !== 'scripts/file-validator/fixtures/expected/examples/patients.csv' &&
           p !== 'scripts/file-validator/fixtures/expected/examples/measurements.csv' &&
-          p !== 'scripts/file-validator/gen_help_catalog.sh'
+          p !== 'scripts/file-validator/gen_help_catalog.sh' &&
+          // qa-fixes3 ITEM-1 (the catalogue's human-name fields): the
+          // catalogue generator's title/summary/paper_title derivation +
+          // the regenerated fixture-mode expected bytes.
+          p !== 'scripts/method-catalogue/gen_method_catalogue.py' &&
+          p !== 'scripts/method-catalogue/fixtures/expected-catalogue.json'
       ),
     ).toEqual([])
     // qa-fixes ITEM-7 (X1): the built-CSS url check — one script file
@@ -277,6 +282,11 @@ describe('txrresults module (TEST-UR-13)', () => {
           p !== 'src-app/server/src/modules/method_catalogue/estimate.rs' &&
           p !== 'src-app/server/src/modules/method_catalogue/routes.rs' &&
           p !== 'src-app/server/src/modules/method_catalogue/mod.rs' &&
+          // qa-fixes3 ITEM-1 (the catalogue's human-name fields): the
+          // `Method`/`MethodSummary` serialization pins + the integration
+          // fixtures carrying the three new required fields.
+          p !== 'src-app/server/src/modules/method_catalogue/catalogue.rs' &&
+          p !== 'src-app/server/tests/method_catalogue/catalogue_hygiene_test.rs' &&
           p !== 'src-app/server/src/modules/method_catalogue/calibration.rs' &&
           p !== 'src-app/server/src/modules/execution_engine/orchestrator.rs' &&
           p !== 'src-app/server/src/modules/execution_engine/repository.rs' &&

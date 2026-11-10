@@ -725,6 +725,8 @@ function fixtureMethodSummary(
   return {
     id,
     group_label: groupLabel,
+    title: 'Fixture method',
+    summary: 'A synthetic fixture method from the TxResBench dev gallery.',
     group: 'static-risk',
     runnable: true,
     container: true,

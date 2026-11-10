@@ -1,6 +1,6 @@
 /**
- * TEST-UL-3 — txrlist method-catalogue adapter: `buildMethodRows`
- * (PROV-UI-LIST-3, INV-1).
+ * TEST-UL-3 — txrlist method-catalogue adapter: `buildMethodCards`
+ * (PROV-UI-LIST-3, INV-1; the qa-fixes3 ITEM-1 card join).
  *
  * The join is pure, so no ApiClient mock is needed here: the fixtures are
  * the provider's generated wire types (`MethodSummary[]`,
@@ -8,24 +8,28 @@
  * renames or reshapes either payload breaks the typecheck on this file
  * until the join moves with it (DEC-11's mechanical-move contract).
  *
- * Pinned behaviours (EXAMPLE-UL-2 + the adapter clauses of PROV-UI-LIST-3):
+ * Pinned behaviours:
  *
- * - one row per catalogue method, in catalogue order, keyed by the method
- *   id — the E-row's `name` is the monospace id from the board;
- * - `tag` = "Paper <year>, <language>"; `chip` = the group label with the
- *   board's neutral tone; `action` = { label: 'About' };
+ * - one card per catalogue method, in catalogue order, keyed by the method
+ *   id; the card's `title`/`summary`/`paperTitle` are the generator's
+ *   human-name fields verbatim (never derived here, never blank);
  * - `run.status` follows the eligibility verdict (can_run / can_run_some /
  *   cannot_run → can / some / cannot), `run.disabled` is `cannot`, the
- *   headline is the board string, and the detail line is FIRST-reason board
- *   copy when the verdict carries reasons, the coverage line otherwise;
- * - `timeText` comes from the verdict's `estimated_seconds` — except on a
- *   `cannot` row, which carries NO time (CM-4: the board shows none and the
- *   provider still posts seconds);
- * - `performanceText` renders "other cohorts: AUC <2dp>" when the summary
- *   carries its performance facts (OWNER-UL-1 / D36), else null;
+ *   reason line is FIRST-reason board copy when the verdict carries
+ *   reasons, the coverage line otherwise, and the fix line names the
+ *   missing marker for REQUIRED_MARKER_MISSING (the plan's "add a column
+ *   named …");
+ * - `estimate` comes from the verdict's `estimated_seconds` +
+ *   `estimate_quality` — except on a `cannot` card, which carries NO
+ *   estimate (CM-4: the board shows none and the provider still posts
+ *   seconds);
+ * - `rank` renders the benchmark fact (D36) when the summary carries it —
+ *   the auc median when evaluated, the c-index median otherwise;
+ * - the needs line's facts: markers ("any markers"/"N markers"),
+ *   covariates segment (omitted when none), draws ("N+ draws");
  * - a catalogue method the eligibility response does not know becomes a
- *   `cannot` row with the NOT_RUNNABLE reason line ("not available with
- *   this build") and no time — a method never silently disappears; an
+ *   `cannot` card with the NOT_RUNNABLE reason line ("not available with
+ *   this build") and no estimate — a method never silently disappears; an
  *   eligibility-only id is dropped (the catalogue is the list source);
  * - the join never mutates its inputs.
  */
@@ -36,7 +40,7 @@ import type {
   MethodSummary,
   Timing,
 } from '@/api-client/types'
-import { buildMethodRows } from './methodRows'
+import { buildMethodCards } from './methodRows'
 
 const TIMING: Timing = { base_seconds_per_fold: 60, benchmarked_units: 2, quality: 'measured' }
 
@@ -51,6 +55,9 @@ function summary(
     frozen_model: false,
     group: 'response-probability',
     group_label: 'Response probability',
+    title: 'Fixture method title',
+    summary: 'The fixture method summary.',
+    paper_title: 'The fixture paper title',
     journal: 'J. Methods',
     marker_groups_required: [],
     markers: { kind: 'panel', count: 3 },
@@ -59,338 +66,175 @@ function summary(
     needs_detection_call: false,
     paper_doi: '10.1000/example',
     runnable: true,
-    spec_status: 'shipped',
-    tasks: ['response-probability'],
+    spec_status: 'stable',
+    tasks: ['response'],
     timing: TIMING,
     uses_history: 'landmark',
     ...over,
   }
 }
 
-/** A per-method eligibility verdict fixture. */
-function verdict(
-  over: Partial<MethodEligibility> & Pick<MethodEligibility, 'id' | 'status'>,
-): MethodEligibility {
+/** A verdict fixture; the interesting facts are the overrides. */
+function verdict(id: string, over: Partial<MethodEligibility> = {}): MethodEligibility {
   return {
-    coverage: { eligible: 151, total: 151, fraction: 1 },
-    estimate_quality: 'measured',
-    estimated_seconds: 120,
-    min_draws: { required: 3, met: 151, unmet_patients: 0 },
-    missing_groups: [],
-    missing_markers: [],
+    id,
+    status: 'can_run',
     reasons: [],
+    missing_markers: [],
+    missing_groups: [],
+    coverage: { eligible: 151, total: 151, fraction: 1 },
+    min_draws: { required: 0, met: 151, unmet_patients: 0 },
+    estimated_seconds: 120,
+    estimate_quality: 'measured',
     ...over,
   }
 }
 
-/** An eligibility response fixture; the totals default to the fixture's one-method shape. */
-function eligibility(
-  over: Partial<EligibilityResponse> & { methods: MethodEligibility[] },
-): EligibilityResponse {
+function eligibility(entries: MethodEligibility[]): EligibilityResponse {
   return {
-    total_cannot: 0,
+    methods: entries,
     total_fit: 0,
     total_some: 0,
+    total_cannot: 0,
     total_no_env: 0,
-    ...over,
   }
 }
 
-describe('buildMethodRows', () => {
-  it('renders the EXAMPLE-UL-2 can-run row: headline, coverage detail, time, About', () => {
-    const methods = [summary({ id: 'direct-on', year: 2021, language: 'R' })]
-    const row = buildMethodRows(
-      methods,
-      eligibility({ methods: [verdict({ id: 'direct-on', status: 'can_run' })] }),
-    )[0]
-
-    expect(row.key).toBe('direct-on')
-    expect(row.name).toBe('direct-on')
-    expect(row.tag).toBe('Paper 2021, R')
-    expect(row.chip).toEqual({ label: 'Response probability', tone: 'neutral' })
-    expect(row.performanceText).toBeNull()
-    expect(row.run).toEqual({
-      status: 'can',
-      headline: 'Can run',
-      detail: 'all 151 patients',
-      disabled: false,
-    })
-    expect(row.timeText).toBe('about 2 min')
-    expect(row.action).toEqual({ label: 'About' })
+describe('buildMethodCards — the screen-E catalogue × eligibility join', () => {
+  it('joins one card per catalogue method with the human-name fields verbatim, in catalogue order', () => {
+    const m1 = summary({ id: 'alpha', year: 2021, language: 'R' })
+    const m2 = summary({ id: 'beta', year: 2019, language: 'Python' })
+    const cards = buildMethodCards([m1, m2], eligibility([verdict('alpha'), verdict('beta')]))
+    expect(cards.map(card => card.key)).toEqual(['alpha', 'beta'])
+    const alpha = cards[0]
+    expect(alpha.title).toBe('Fixture method title')
+    expect(alpha.summary).toBe('The fixture method summary.')
+    expect(alpha.paperTitle).toBe('The fixture paper title')
+    expect(alpha.groupLabel).toBe('Response probability')
+    expect(alpha.run.status).toBe('can')
+    expect(alpha.run.disabled).toBe(false)
   })
 
-  it('renders the EXAMPLE-UL-2 some-patients row from min_draws + coverage (board line)', () => {
-    const row = buildMethodRows(
-      [summary({ id: 'dynforest', year: 2022, language: 'Python' })],
-      eligibility({
-        methods: [
-          verdict({
-            id: 'dynforest',
-            status: 'can_run_some',
-            coverage: { eligible: 120, total: 151, fraction: 120 / 151 },
-            min_draws: { required: 3, met: 120, unmet_patients: 31 },
-            reasons: [{ code: 'MIN_DRAWS_UNMET' }],
-          }),
-        ],
-      }),
-    )[0]
-
-    expect(row.run).toEqual({
-      status: 'some',
-      headline: 'Can run for some patients',
-      detail: 'needs 3 or more draws; 120 of 151 have them',
-      disabled: false,
-    })
-  })
-
-  it('renders the EXAMPLE-UL-2 cannot-run row and disables the checkbox', () => {
-    const row = buildMethodRows(
-      [summary({ id: 'cox-ldh', year: 2020, language: 'R' })],
-      eligibility({
-        methods: [
-          verdict({
-            id: 'cox-ldh',
-            status: 'cannot_run',
-            coverage: { eligible: 0, total: 151, fraction: 0 },
-            reasons: [{ code: 'REQUIRED_MARKER_MISSING' }],
-            missing_markers: [{ id: 'ldh', id_system: 'catalog', display_name: 'LDH' }],
-          }),
-        ],
-      }),
-    )[0]
-
-    expect(row.run).toEqual({
-      status: 'cannot',
-      headline: 'Cannot run',
-      detail: 'needs LDH, not in your file',
-      disabled: true,
-    })
-    // CM-4: a cannot-run row carries no time entry (the board shows none).
-    expect(row.timeText).toBeNull()
-  })
-
-  it('renders the ENV_IMAGE_MISSING no-published-environment row with the plain reason (CM-1)', () => {
-    const row = buildMethodRows(
-      [summary({ id: 'bjm', year: 2020, language: 'R' })],
-      eligibility({
-        methods: [
-          verdict({
-            id: 'bjm',
-            status: 'cannot_run',
-            reasons: [{ code: 'ENV_IMAGE_MISSING' }],
-          }),
-        ],
-      }),
-    )[0]
-
-    expect(row.run).toEqual({
-      status: 'cannot',
-      headline: 'Cannot run',
-      detail: 'no published environment available',
-      disabled: true,
-    })
-    expect(row.timeText).toBeNull()
-  })
-
-  it('maps all three provider verdict codes to the board status codes', () => {
-    const rows = buildMethodRows(
-      [
-        summary({ id: 'a', year: 2021, language: 'R' }),
-        summary({ id: 'b', year: 2021, language: 'R' }),
-        summary({ id: 'c', year: 2021, language: 'R' }),
-      ],
-      eligibility({
-        methods: [
-          verdict({ id: 'a', status: 'can_run' }),
-          verdict({ id: 'b', status: 'can_run_some' }),
-          verdict({ id: 'c', status: 'cannot_run' }),
-        ],
-      }),
+  it('maps the three verdict codes and carries the estimate + quality from the verdict', () => {
+    const m = summary({ id: 'alpha', year: 2021, language: 'R' })
+    const cards = buildMethodCards(
+      [m],
+      eligibility([
+        verdict('alpha', {
+          status: 'can_run_some',
+          estimated_seconds: 12.4,
+          estimate_quality: 'estimate',
+          coverage: { eligible: 120, total: 151, fraction: 120 / 151 },
+        }),
+      ]),
     )
-
-    expect(rows.map(row => row.run.status)).toEqual(['can', 'some', 'cannot'])
-    expect(rows.map(row => row.run.disabled)).toEqual([false, false, true])
+    expect(cards[0].run.status).toBe('some')
+    expect(cards[0].run.disabled).toBe(false)
+    expect(cards[0].estimate).toEqual({ seconds: 12.4, quality: 'estimate' })
   })
 
-  it('shows the coverage line when the verdict carries no reasons', () => {
-    const row = buildMethodRows(
-      [summary({ id: 'direct-on', year: 2021, language: 'R' })],
-      eligibility({
-        methods: [
-          verdict({
-            id: 'direct-on',
-            status: 'can_run_some',
-            coverage: { eligible: 120, total: 151, fraction: 120 / 151 },
-          }),
-        ],
-      }),
-    )[0]
-
-    expect(row.run.detail).toBe('120 of 151 patients')
-  })
-
-  it("gives the first reason's board line precedence over the coverage line", () => {
-    const row = buildMethodRows(
-      [summary({ id: 'landmark-cox', year: 2018, language: 'R' })],
-      eligibility({
-        methods: [
-          verdict({
-            id: 'landmark-cox',
-            status: 'can_run',
-            reasons: [{ code: 'UNIT_MISMATCH' }],
-          }),
-        ],
-      }),
-    )[0]
-
-    expect(row.run.detail).toBe('all 151 patients, check the scales')
-  })
-
-  it('formats the row time from estimated_seconds (DEC-6: no per-row estimate call)', () => {
-    const rows = buildMethodRows(
-      [
-        summary({ id: 'fast', year: 2021, language: 'R' }),
-        summary({ id: 'slow', year: 2021, language: 'R' }),
-      ],
-      eligibility({
-        methods: [
-          verdict({ id: 'fast', status: 'can_run', estimated_seconds: 30 }),
-          verdict({ id: 'slow', status: 'can_run', estimated_seconds: 840 }),
-        ],
-      }),
+  it('a cannot card carries NO estimate and the first reason line + fix (named marker)', () => {
+    const m = summary({ id: 'alpha', year: 2021, language: 'R' })
+    const cards = buildMethodCards(
+      [m],
+      eligibility([
+        verdict('alpha', {
+          status: 'cannot_run',
+          estimated_seconds: 45,
+          reasons: [{ code: 'REQUIRED_MARKER_MISSING' }],
+          missing_markers: [{ id: 'ldh', id_system: 'LOINC', display_name: 'LDH' }],
+          coverage: { eligible: 0, total: 151, fraction: 0 },
+        }),
+      ]),
     )
-
-    expect(rows[0].timeText).toBe('under 1 min')
-    expect(rows[1].timeText).toBe('about 14 min')
+    expect(cards[0].estimate).toBeNull()
+    expect(cards[0].run.disabled).toBe(true)
+    expect(cards[0].run.reasonCode).toBe('REQUIRED_MARKER_MISSING')
+    expect(cards[0].run.reasonLine).toContain('LDH')
+    expect(cards[0].run.reasonFix).toBe('Add a column named LDH')
   })
 
-  it('renders the performance column from the summary performance facts when present (D36)', () => {
-    const rows = buildMethodRows(
+  it('a marker without a display name falls back to a constant fix (never blank)', () => {
+    const m = summary({ id: 'alpha', year: 2021, language: 'R' })
+    const cards = buildMethodCards(
+      [m],
+      eligibility([
+        verdict('alpha', {
+          status: 'cannot_run',
+          reasons: [{ code: 'REQUIRED_MARKER_MISSING' }],
+          missing_markers: [],
+        }),
+      ]),
+    )
+    expect(cards[0].run.reasonFix).toBe('Add a column with the marker the method needs.')
+  })
+
+  it('the rank is the benchmark fact when the summary carries it (auc preferred), else null', () => {
+    const withRank = summary({
+      id: 'ranked',
+      year: 2020,
+      language: 'R',
+      // `auc_rule_median` absent = the "no auc fact" case (the generated
+      // type models the wire's null as absence; the rank guard still
+      // accepts null at runtime).
+      performance: { c_index_median: 0.74, n_units: 38, n_datasets: 38 },
+    })
+    const withAuc = summary({
+      id: 'auc',
+      year: 2020,
+      language: 'R',
+      performance: { c_index_median: 0.62, auc_rule_median: 0.79, n_units: 12, n_datasets: 12 },
+    })
+    const none = summary({ id: 'none', year: 2020, language: 'R' })
+    const cards = buildMethodCards(
+      [withRank, withAuc, none],
+      eligibility([verdict('ranked'), verdict('auc'), verdict('none')]),
+    )
+    expect(cards[0].rank).toEqual({ median: 0.74, kind: 'c-index', nDatasets: 38 })
+    expect(cards[1].rank).toEqual({ median: 0.79, kind: 'auc', nDatasets: 12 })
+    expect(cards[2].rank).toBeNull()
+  })
+
+  it('the needs facts assemble from the catalogue summary', () => {
+    const m = summary({ id: 'alpha', year: 2021, language: 'R', markers: { kind: 'multi', count: 1 } })
+    const cards = buildMethodCards([m], eligibility([verdict('alpha')]))
+    expect(cards[0].needs).toEqual({ markers: '1 marker', covariates: null, draws: '3+ draws' })
+    const optional = buildMethodCards(
       [
         summary({
-          id: 'direct-on',
+          id: 'b',
           year: 2021,
           language: 'R',
-          performance: { c_index_median: 0.64, n_units: 5, n_datasets: 3 },
-        }),
-        summary({
-          id: 'cox',
-          year: 2019,
-          language: 'R',
-          performance: { c_index_median: 0.6, auc_rule_median: 0.61, n_units: 4, n_datasets: 2 },
-        }),
-        summary({
-          id: 'dynforest',
-          year: 2022,
-          language: 'Python',
-          performance: { c_index_median: 0.666, n_units: 1, n_datasets: 1 },
+          covariates: 'optional',
+          markers: { kind: 'any', count: 0 },
         }),
       ],
-      eligibility({
-        methods: [
-          verdict({ id: 'direct-on', status: 'can_run' }),
-          verdict({ id: 'cox', status: 'can_run' }),
-          verdict({ id: 'dynforest', status: 'can_run' }),
-        ],
-      }),
+      eligibility([verdict('b')]),
     )
-
-    // The board's performance-column copy, two decimals; the number is the
-    // benchmark's primary aggregate (the median c-index) and never a
-    // call-rule AUC here (that fact stays with the model-card builders).
-    expect(rows[0].performanceText).toBe('other cohorts: AUC 0.64')
-    expect(rows[1].performanceText).toBe('other cohorts: AUC 0.60')
-    expect(rows[2].performanceText).toBe('other cohorts: AUC 0.67')
-  })
-
-  it('renders no performance column when the summary carries no performance facts', () => {
-    const row = buildMethodRows(
-      [summary({ id: 'direct-on', year: 2021, language: 'R' })],
-      eligibility({ methods: [verdict({ id: 'direct-on', status: 'can_run' })] }),
-    )[0]
-
-    expect(row.performanceText).toBeNull()
-  })
-
-  it('keeps a catalogue method missing from the eligibility response as a NOT_RUNNABLE cannot row', () => {
-    const row = buildMethodRows(
-      [
-        summary({
-          id: 'ghost',
-          year: 2021,
-          language: 'R',
-          group_label: 'Dynamic risk',
-          performance: { c_index_median: 0.58, n_units: 2, n_datasets: 2 },
-        }),
-      ],
-      eligibility({ methods: [] }),
-    )[0]
-
-    expect(row.key).toBe('ghost')
-    expect(row.tag).toBe('Paper 2021, R')
-    expect(row.chip).toEqual({ label: 'Dynamic risk', tone: 'neutral' })
-    expect(row.performanceText).toBe('other cohorts: AUC 0.58')
-    expect(row.run).toEqual({
-      status: 'cannot',
-      headline: 'Cannot run',
-      detail: 'not available with this build',
-      disabled: true,
+    expect(optional[0].needs).toEqual({
+      markers: 'any markers',
+      covariates: 'covariates optional',
+      draws: '3+ draws',
     })
-    expect(row.timeText).toBeNull()
-    expect(row.action).toEqual({ label: 'About' })
   })
 
-  it('keeps the catalogue order and drops eligibility-only ids (the catalogue is the list source)', () => {
-    const rows = buildMethodRows(
-      [
-        summary({ id: 'first', year: 2021, language: 'R' }),
-        summary({ id: 'second', year: 2020, language: 'Python' }),
-      ],
-      eligibility({
-        methods: [
-          verdict({ id: 'second', status: 'can_run' }),
-          verdict({ id: 'orphan', status: 'can_run' }),
-        ],
-      }),
-    )
-
-    expect(rows.map(row => row.key)).toEqual(['first', 'second'])
-    // The orphan verdict has no catalogue method: no row is created for it.
-    expect(rows[0].run.status).toBe('cannot')
-    expect(rows[0].run.detail).toBe('not available with this build')
-    expect(rows[1].run.status).toBe('can')
+  it('a catalogue method the eligibility response does not know is a defensive cannot card; an eligibility-only id is dropped', () => {
+    const known = summary({ id: 'known', year: 2021, language: 'R' })
+    const cards = buildMethodCards([known], eligibility([verdict('known'), verdict('orphan')]))
+    expect(cards).toHaveLength(1)
+    expect(cards[0].key).toBe('known')
+    const missing = buildMethodCards([known], eligibility([]))
+    expect(missing[0].run.status).toBe('cannot')
+    expect(missing[0].run.reasonCode).toBe('NOT_RUNNABLE')
+    expect(missing[0].estimate).toBeNull()
+    expect(missing[0].run.reasonLine).not.toBe('')
   })
 
-  it('returns one row per catalogue method (count parity against the method list)', () => {
-    const methods = [
-      summary({ id: 'a', year: 2021, language: 'R' }),
-      summary({ id: 'b', year: 2021, language: 'R' }),
-      summary({ id: 'c', year: 2021, language: 'R' }),
-    ]
-    // Two verdicts only: the third method must still render (the fallback).
-    const rows = buildMethodRows(
-      methods,
-      eligibility({
-        methods: [
-          verdict({ id: 'a', status: 'can_run' }),
-          verdict({ id: 'b', status: 'can_run' }),
-        ],
-      }),
-    )
-
-    expect(rows).toHaveLength(methods.length)
-    expect(new Set(rows.map(row => row.key))).toEqual(new Set(['a', 'b', 'c']))
-  })
-
-  it('does not mutate its inputs', () => {
-    const methods = [summary({ id: 'direct-on', year: 2021, language: 'R' })]
-    const response = eligibility({
-      methods: [verdict({ id: 'direct-on', status: 'can_run' })],
-    })
-    const before = JSON.stringify({ methods, response })
-
-    buildMethodRows(methods, response)
-
-    expect(JSON.stringify({ methods, response })).toBe(before)
+  it('never mutates its inputs', () => {
+    const m = summary({ id: 'alpha', year: 2021, language: 'R' })
+    const eligibilityResponse = eligibility([verdict('alpha')])
+    const before = JSON.stringify([m, eligibilityResponse])
+    void buildMethodCards([m], eligibilityResponse)
+    expect(JSON.stringify([m, eligibilityResponse])).toBe(before)
   })
 })

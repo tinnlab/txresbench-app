@@ -11,7 +11,7 @@
  *   a stable inventory KEY: the object a host rebuilds on every render (new
  *   identity, identical content) does NOT refetch ("same key → no refetch");
  * - a CONTENT change refetches both endpoints, reports `loading` in between
- *   and rebuilds the rows through `buildMethodRows`;
+ *   and rebuilds the cards through `buildMethodCards`;
  * - a first-fetch failure surfaces `loading` → `error` (the thrown message,
  *   or the constant for a non-Error throw — the Datasets-store idiom);
  * - `refetch()` clears the error and retries both endpoints;
@@ -62,6 +62,8 @@ function summary(
     frozen_model: false,
     group: 'response-probability',
     group_label: 'Response probability',
+    title: 'Fixture method title',
+    summary: 'The fixture method summary.',
     journal: 'J. Methods',
     marker_groups_required: [],
     markers: { kind: 'panel', count: 3 },
@@ -158,7 +160,7 @@ afterEach(() => {
 })
 
 describe('useMethodRows (TEST-UL-11)', () => {
-  it('fetches list + eligibility once and joins the verdicts into rows', async () => {
+  it('fetches list + eligibility once and joins the verdicts into cards', async () => {
     const inv = inventory()
     const { result } = renderHook(({ inv }) => useMethodRows(inv), {
       initialProps: { inv },
@@ -173,15 +175,14 @@ describe('useMethodRows (TEST-UL-11)', () => {
     expect(api.eligibility).toHaveBeenCalledWith({ inventory: inv })
     expect(result.current.loading).toBe(false)
     expect(result.current.error).toBeNull()
-    expect(result.current.rows).toHaveLength(1)
-    expect(result.current.rows[0]).toMatchObject({
+    expect(result.current.cards).toHaveLength(1)
+    expect(result.current.cards[0]).toMatchObject({
       key: 'direct-on',
-      name: 'direct-on',
-      tag: 'Paper 2021, R',
-      run: { status: 'can', headline: 'Can run', detail: 'all 151 patients' },
-      timeText: 'about 2 min',
-      action: { label: 'About' },
+      title: 'Fixture method title',
+      summary: 'The fixture method summary.',
+      run: { status: 'can', disabled: false, reasonLine: 'all 151 patients' },
     })
+    expect(result.current.cards[0].estimate).toEqual({ seconds: 120, quality: 'measured' })
   })
 
   it('does NOT refetch for a content-identical rebuilt inventory (stable key)', async () => {
@@ -191,7 +192,7 @@ describe('useMethodRows (TEST-UL-11)', () => {
     await act(async () => {})
     expect(api.list).toHaveBeenCalledTimes(1)
 
-    const rowsBefore = result.current.rows
+    const cardsBefore = result.current.cards
     // The host's every-render rebuild: a NEW object, byte-identical content.
     rerender({ inv: inventory() })
     await act(async () => {})
@@ -199,7 +200,7 @@ describe('useMethodRows (TEST-UL-11)', () => {
     expect(api.list).toHaveBeenCalledTimes(1)
     expect(api.eligibility).toHaveBeenCalledTimes(1)
     // Same key => the same state slot: no spin through loading, no row rebuild.
-    expect(result.current.rows).toBe(rowsBefore)
+    expect(result.current.cards).toBe(cardsBefore)
     expect(result.current.loading).toBe(false)
     expect(result.current.error).toBeNull()
   })
@@ -230,10 +231,10 @@ describe('useMethodRows (TEST-UL-11)', () => {
       eligibilityPending.resolve(eligibilityResponse())
     })
     expect(result.current.loading).toBe(false)
-    expect(result.current.rows).toHaveLength(1)
+    expect(result.current.cards).toHaveLength(1)
   })
 
-  it('surfaces a first-fetch failure as error (loading -> error, no rows)', async () => {
+  it('surfaces a first-fetch failure as error (loading -> error, no cards)', async () => {
     api.eligibility.mockRejectedValueOnce(new Error('eligibility exploded'))
     const { result } = renderHook(({ inv }) => useMethodRows(inv), {
       initialProps: { inv: inventory() },
@@ -242,7 +243,7 @@ describe('useMethodRows (TEST-UL-11)', () => {
 
     expect(result.current.loading).toBe(false)
     expect(result.current.error).toBe('eligibility exploded')
-    expect(result.current.rows).toEqual([])
+    expect(result.current.cards).toEqual([])
     expect(api.list).toHaveBeenCalledTimes(1)
     expect(api.eligibility).toHaveBeenCalledTimes(1)
   })
@@ -287,7 +288,7 @@ describe('useMethodRows (TEST-UL-11)', () => {
     })
     expect(result.current.loading).toBe(false)
     expect(result.current.error).toBeNull()
-    expect(result.current.rows).toHaveLength(1)
+    expect(result.current.cards).toHaveLength(1)
   })
 
   it('never writes state after unmount with a request in flight', async () => {

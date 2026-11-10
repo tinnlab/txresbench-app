@@ -73,12 +73,16 @@ async fn method_catalogue_list_returns_the_full_set_with_the_named_fields() {
     assert!(methods.len() >= 300, "the runnable set ({})", methods.len());
     assert_eq!(body["total"], methods.len() as u64);
 
-    // TEST-MC-26's named fact set is present and populated per row.
+    // TEST-MC-26's named fact set is present and populated per row (the
+    // qa-fixes3 ITEM-1 human-name fields included — TEST-MC-28).
     let row = methods.iter().find(|m| m["id"] == "asm-best-change-rule").expect("row");
     for field in [
         "id",
         "group",
         "group_label",
+        "title",
+        "summary",
+        "paper_title",
         "year",
         "language",
         "journal",

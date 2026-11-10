@@ -103,27 +103,17 @@ async function driveToChooseMethods(page: Page): Promise<void> {
   await page.waitForURL('**/choose-methods')
 }
 
-/** Bring one specific method's row into view and select it. The row body
- *  is the ITEM-2 virtualized list (CM-2: the 359 real catalogue rows, the
- *  windowed scroll box) — a deep row is NOT in the DOM until the scroll
- *  container reaches it, so the scroll is the windowed body's own
- *  (`[data-overlayscrollbars-viewport]` — the node the virtualizer listens
- *  on), stepped until the row mounts; the row's index is never pinned (the
- *  catalogue order is the provider's). */
+/** Select one runnable method on the ITEM-1 picker. The ready-to-run
+ *  default (never the 359-row alphabet list) shows only the methods the
+ *  engine's verdict can start; the SEARCH is the way one specific row is
+ *  reached — the old virtualized scroll box is gone (the page is one
+ *  document now), and the search expands every matching section. */
 async function selectMethod(page: Page, methodId: string): Promise<void> {
-  const checkbox = page.getByTestId(`txr-list-checkbox-${methodId}`)
-  if ((await checkbox.count()) === 0) {
-    const viewport = page.locator('[data-overlayscrollbars-viewport]').first()
-    await viewport.waitFor({ timeout: 60_000 })
-    for (let i = 0; i < 80 && (await checkbox.count()) === 0; i += 1) {
-      await viewport.evaluate(el => {
-        el.scrollTop += 600
-        el.dispatchEvent(new Event('scroll'))
-      })
-      await page.waitForTimeout(150)
-    }
-  }
-  await checkbox.scrollIntoViewIfNeeded()
+  await expect(page.getByTestId('txr-method-picker')).toBeVisible()
+  const box = page.getByTestId('txr-method-search')
+  await box.waitFor({ timeout: 60_000 })
+  await box.fill(methodId)
+  const checkbox = page.getByTestId(`txr-method-checkbox-${methodId}`)
   await expect(checkbox).toBeVisible({ timeout: 120_000 })
   await expect(checkbox).toBeEnabled()
   await checkbox.click()
@@ -284,14 +274,21 @@ test.describe('txr-run — the real backend (TEST-RUN-28/29)', () => {
     const errors = watchPage(page)
     await driveToChooseMethods(page)
 
-    // E renders the board's shell: the slots + the shared list with the
+    // E renders the board's shell: the slots + the ITEM-1 picker with the
     // real eligibility rows and the bottom bar (the runnable verdicts over
-    // the example files — never a board number).
+    // the example files — never a board number). The recommended set is
+    // ticked on arrival; the leg wants exactly ONE method, so None first.
     await expect(page.getByTestId('txr-run-intro')).toContainText('learns from your 300 patients', {
       timeout: 120_000,
     })
     await expect(page.getByTestId('txr-run-settings-error')).toHaveCount(0)
     await expect(page.getByTestId('txr-list-bottom-bar')).toBeVisible()
+    await expect(page.getByTestId('txr-method-picker')).toBeVisible()
+    await expect(page.getByTestId('txr-method-preset-recommended')).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    await page.getByTestId('txr-method-preset-none').click()
     await expect(page.getByTestId('txr-list-selected-count')).toContainText('0 methods selected')
 
     // One runnable row — the engine's own verdict over the example files

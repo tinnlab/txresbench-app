@@ -24,7 +24,10 @@
  * provider regen that reshapes a frame breaks this file's typecheck loudly.
  */
 import type {
+  EligibilityResponse,
   Method,
+  MethodListResponse,
+  MethodSummary,
   RunConfig,
   TxrAppConfig,
   TxrLogStream,
@@ -209,6 +212,82 @@ export function txrrunMethodDetail(): Method {
     },
     uses_history: 'landmark',
   } as unknown as Method
+}
+
+// ── the small-method E story (qa-fixes3 ITEM-1: six runnable methods) ──────
+
+/** The 6-method catalogue list the `txr-run-e-small` story overrides
+ *  (ITEM-1's measured test needs a small runnable set: all six run, so the
+ *  page stays under 1,500 px at 1440 and every row is visible). */
+export function txrrunSmallMethods(): MethodListResponse['methods'] {
+  const make = (
+    id: string,
+    group: MethodSummary['group'],
+    groupLabel: string,
+    seconds: number,
+  ): MethodSummary => ({
+    id,
+    group,
+    group_label: groupLabel,
+    title: 'Fixture ' + id.split('-').join(' '),
+    summary: 'A small synthetic fixture method for ' + groupLabel + '.',
+    year: 2021,
+    language: 'R',
+    journal: 'Fictional Journal of Fixtures',
+    paper_doi: '10.0000/fx.small',
+    runnable: true,
+    frozen_model: false,
+    container: true,
+    embeds_training_data: false,
+    spec_status: 'wrapped',
+    markers: { kind: 'multi', count: 3 },
+    covariates: 'optional',
+    min_draws: 1,
+    needs_baseline: true,
+    needs_detection_call: false,
+    marker_groups_required: [],
+    tasks: ['response'],
+    uses_history: 'landmark',
+    timing: { base_seconds_per_fold: seconds, benchmarked_units: 1, quality: 'measured' },
+    performance: undefined,
+  })
+  return [
+    make('fx-call-one', 'response-call', 'Response call', 45),
+    make('fx-prob-one', 'response-probability', 'Response probability', 90),
+    make('fx-prob-two', 'response-probability', 'Response probability', 30),
+    make('fx-static-one', 'static-risk', 'Static risk', 60),
+    make('fx-static-two', 'static-risk', 'Static risk', 20),
+    make('fx-dynamic-one', 'dynamic-risk', 'Dynamic risk', 120),
+  ]
+}
+
+/** The small eligibility answer: every method can run (six verdicts). */
+export function txrrunSmallEligibility(): EligibilityResponse {
+  const seconds: Record<string, number> = {
+    'fx-call-one': 45,
+    'fx-prob-one': 90,
+    'fx-prob-two': 30,
+    'fx-static-one': 60,
+    'fx-static-two': 20,
+    'fx-dynamic-one': 120,
+  }
+  return {
+    methods: Object.entries(seconds).map(([id, estimated_seconds]) => ({
+      id,
+      status: 'can_run',
+      estimated_seconds: estimated_seconds,
+      estimate_quality: 'measured',
+      coverage: { eligible: 18, total: 18, fraction: 1 },
+      min_draws: { required: 0, met: 18, unmet_patients: 0 },
+      missing_markers: [],
+      missing_groups: [],
+      reasons: [],
+    })),
+    total_fit: 6,
+    total_some: 0,
+    total_cannot: 0,
+    total_no_env: 0,
+  }
 }
 
 // ── the F run fixtures (one synthetic run per story) ───────────────────────

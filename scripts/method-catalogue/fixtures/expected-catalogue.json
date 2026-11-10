@@ -135,6 +135,7 @@
     "call"
    ],
    "paper_doi": "10.5555/fx-asm-methylation-panel.2026",
+   "paper_title": null,
    "params": {
     "call_cutoff": 0.0,
     "positivity_cutoffs": [
@@ -177,6 +178,7 @@
     }
    },
    "spec_status": "verified",
+   "summary": "A synthetic fixture rule over the two-marker cfDNA methylation panel (EYA4, GRIA4",
    "tasks": [
     "response"
    ],
@@ -185,6 +187,7 @@
     "benchmarked_units": 1,
     "quality": "measured"
    },
+   "title": "A synthetic fixture rule over the two-marker cfDNA",
    "uses_history": "landmark",
    "version": "1.0.0",
    "year": 2026
@@ -225,6 +228,7 @@
     "p_event_H"
    ],
    "paper_doi": "10.5555/fx-baseline-cox.2026",
+   "paper_title": null,
    "params": {
     "reference_patients": 150
    },
@@ -247,6 +251,7 @@
     }
    },
    "spec_status": "verified",
+   "summary": "A synthetic fixture Cox model on baseline marker values up to the baseline window",
    "tasks": [
     "survival"
    ],
@@ -255,6 +260,7 @@
     "benchmarked_units": 2,
     "quality": "measured"
    },
+   "title": "A synthetic fixture Cox model on baseline marker values up",
    "uses_history": "landmark",
    "version": "1.2.0",
    "year": 2026
@@ -298,6 +304,7 @@
     "call"
    ],
    "paper_doi": "10.5555/fx-response-signature.2026",
+   "paper_title": null,
    "params": {
     "thresholds": [
      0.4,
@@ -329,6 +336,7 @@
     }
    },
    "spec_status": "verified",
+   "summary": "A synthetic fixture logistic signature that predicts response probability from the serum CEA trajectory; the fitted signature embeds the training rows",
    "tasks": [
     "response"
    ],
@@ -337,6 +345,7 @@
     "benchmarked_units": 0,
     "quality": "estimate"
    },
+   "title": "A synthetic fixture logistic signature that predicts",
    "uses_history": "landmark",
    "version": "0.9.0",
    "year": 2026

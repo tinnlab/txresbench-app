@@ -1,27 +1,17 @@
 /**
- * txrrun — the About-dialog data hook (PROV-UI-RUN-4's `TxrAboutDialog`
- * source, CONS-UI-RUN-5; ITEM-4).
+ * txrlist method-card detail hook (qa-fixes3 ITEM-1) — the in-place About
+ * disclosure's data source (a single `GET /api/methods/{id}` per opened
+ * disclosure, the provider's own payload — the same class as the D/I model
+ * cards: the consumer renders, the provider owns the facts).
  *
- * The row's "About" opens the method's detail card; the card's facts
- * (description, software, licence, references, params, timing, performance)
- * are the method catalogue's OWN payload — `ApiClient.MethodCatalogue.detail`
- * (PROV-MC-3), never a re-derived view: this hook fetches the generated
- * `Method` and the dialog renders its fields, nothing is rebuilt here.
- *
- * Error semantics (TEST-RUN-08):
- *
- * - a `404` (the engine's `METHOD_NOT_FOUND` — a method id the catalogue no
- *   longer serves, or a stale row from an older catalogue snapshot) maps to
- *   the `'not-found'` state, which the dialog renders as the module's
- *   `METHOD_NOT_FOUND_LINE` — never a blank card, never a crash;
- * - any other failure is `'network'` (the dialog's error+retry line);
- * - the effect's promise is always caught — a rejection cannot escape as an
- *   unhandled promise rejection;
- * - the id is part of the request key: a changed id resets the previous
- *   method's detail (the dialog is single-method; a stale detail must never
- *   render under a new id), and a `null` id is the closed state (no call).
- * - `retry()` re-issues the fetch for the id; the epoch guard discards an
- *   older response resolving after the retry's (or after an id change).
+ * Semantics (the module's fetch discipline):
+ * - no request, no stale detail while the disclosure is closed (`id`
+ *   `null` — the same closed-state rule as the module's other hooks);
+ * - the effect's promise is always caught; a `404` (a stale row whose
+ *   method the catalogue no longer serves) maps to the `'not-found'` state
+ *   rendered as the constant line — never blank, never a crash;
+ * - `retry()` re-issues the fetch; the epoch guard discards an older
+ *   response resolving after the retry's or after an id change.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiClient } from '@/api-client'
@@ -39,36 +29,33 @@ const statusOf = (err: unknown): number | null =>
 /** The 404's stable machine code (PROV-MC-3's `METHOD_NOT_FOUND`). */
 const NOT_FOUND_STATUS = 404
 
-export type TxrMethodDetailError = 'not-found' | 'network' | null
-
-/**
- * The About card's fallback line: the catalogue answered 404 — the method
- * no longer exists, but the card never renders blank.
- */
+/** The disclosure's fallback line: the catalogue answered 404 — the method
+ *  no longer exists, but the disclosure never renders blank. */
 export const METHOD_NOT_FOUND_LINE = 'This method is no longer in the catalogue.'
 
-export interface UseMethodDetailResult {
+export type TxrMethodCardDetailError = 'not-found' | 'network' | null
+
+export interface UseMethodCardDetailResult {
   /** The catalogue's `Method` payload, `null` while loading / on error. */
   detail: Method | null
   /** True while the fetch is in flight. */
   loading: boolean
   /** The failure class; `'not-found'` is 404 (METHOD_NOT_FOUND), `'network'`
    *  any other failure. `null` when healthy. */
-  error: TxrMethodDetailError
+  error: TxrMethodCardDetailError
   /** Re-issue the fetch for the current id. */
   retry(): void
 }
 
-export function useMethodDetail(id: string | null): UseMethodDetailResult {
+export function useMethodCardDetail(id: string | null): UseMethodCardDetailResult {
   const [detail, setDetail] = useState<Method | null>(null)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<TxrMethodDetailError>(null)
+  const [error, setError] = useState<TxrMethodCardDetailError>(null)
   const [tick, setTick] = useState(0)
   const epoch = useRef(0)
 
   useEffect(() => {
     if (id === null) {
-      // The closed dialog: no request, no stale detail.
       epoch.current += 1
       setDetail(null)
       setLoading(false)

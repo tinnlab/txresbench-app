@@ -3458,6 +3458,12 @@ export interface MembersQuery {
  *  this entry).
  */
 export interface Method {
+  /**
+   * The short human name (qa-fixes3 ITEM-1): the generator derives it from
+   *  the description's lead phrase, capped at [`MAX_METHOD_TITLE_CHARS`],
+   *  falling back to the prettified id — never empty.
+   */
+  title: string
   description: string
   citations: number
   container: boolean
@@ -3481,6 +3487,12 @@ export interface Method {
   needs_detection_call: boolean
   own_outputs: string[]
   paper_doi: string
+  /**
+   * The primary paper's published title when the benchmark tree knows it
+   *  (built from the literature store at generation time); `None` when
+   *  unknown — the list row shows the derived `title`, never this blank.
+   */
+  paper_title?: string
   params: any
   performance?: Performance
   references: string[]
@@ -3489,6 +3501,11 @@ export interface Method {
   saves_model: boolean
   software: Software
   spec_status: string
+  /**
+   * The one-sentence summary (the description's first sentence, capped at
+   *  [`MAX_METHOD_SUMMARY_CHARS`]) — never empty.
+   */
+  summary: string
   tasks: string[]
   timing: Timing
   uses_history: UsesHistory
@@ -3655,6 +3672,7 @@ export interface MethodRunResult {
  *  the models-dialog warning bind named fields here).
  */
 export interface MethodSummary {
+  title: string
   container: boolean
   covariates: CovariateMode
   embeds_training_data: boolean
@@ -3670,10 +3688,12 @@ export interface MethodSummary {
   needs_baseline: boolean
   needs_detection_call: boolean
   paper_doi: string
+  paper_title?: string
   performance?: Performance
   required_markers?: RequiredMarkers
   runnable: boolean
   spec_status: string
+  summary: string
   tasks: string[]
   timing: Timing
   uses_history: UsesHistory

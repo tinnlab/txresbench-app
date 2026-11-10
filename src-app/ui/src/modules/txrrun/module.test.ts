@@ -201,7 +201,13 @@ describe('txrrun module (TEST-RUN-01)', () => {
           // qa-fixes2 ITEM-2 (location-neutral copy): the notice generator's
           // header reword — "the TxResBench application", not "desktop
           // application" (the generated THIRD-PARTY-NOTICES.md follows).
-          p !== 'scripts/third-party.py' ,
+          p !== 'scripts/third-party.py' &&
+          // qa-fixes3 ITEM-1 (the catalogue's human-name fields): the
+          // catalogue generator's title/summary/paper_title derivation +
+          // the regenerated fixture-mode expected bytes. Nothing else under
+          // scripts/ moves for this item.
+          p !== 'scripts/method-catalogue/gen_method_catalogue.py' &&
+          p !== 'scripts/method-catalogue/fixtures/expected-catalogue.json',
       ),
     ).toEqual([])
     // qa-fixes ITEM-7 (X1): the built-CSS url check — one script file
@@ -281,6 +287,10 @@ describe('txrrun module (TEST-RUN-01)', () => {
         p =>
           p.startsWith('src-app/server/') &&
           p !== 'src-app/server/src/modules/method_catalogue/types.rs' &&
+          // qa-fixes3 ITEM-1 (the catalogue's human-name fields): the
+          // `Method`/`MethodSummary` wire additions' serialization pins
+          // (`catalogue.rs`, with `types.rs` above).
+          p !== 'src-app/server/src/modules/method_catalogue/catalogue.rs' &&
           p !== 'src-app/server/src/modules/method_catalogue/eligibility.rs' &&
           p !== 'src-app/server/src/modules/method_catalogue/estimate.rs' &&
           p !== 'src-app/server/src/modules/method_catalogue/routes.rs' &&
@@ -293,6 +303,9 @@ describe('txrrun module (TEST-RUN-01)', () => {
           p !== 'src-app/server/src/modules/model_store/types.rs' &&
           p !== 'src-app/server/src/modules/pretrained_catalogue/types.rs' &&
           p !== 'src-app/server/tests/method_catalogue/api_test.rs' &&
+          // qa-fixes3 ITEM-1 (the catalogue's human-name fields): the
+          // integration fixtures carry the three new required fields.
+          p !== 'src-app/server/tests/method_catalogue/catalogue_hygiene_test.rs' &&
           p !== 'src-app/server/src/modules/execution_engine/types.rs' &&
           p !== 'src-app/server/src/modules/execution_engine/routes.rs' &&
           p !== 'src-app/server/src/modules/execution_engine/README.md' &&

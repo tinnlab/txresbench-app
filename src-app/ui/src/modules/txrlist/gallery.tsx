@@ -28,15 +28,17 @@
  * DEV-ONLY: this file is picked up by the dev gallery's `import.meta.glob`
  * (`src/dev/gallery/main.tsx`) and is never in a production bundle path.
  */
-import { lazy, useMemo, useState, type CSSProperties } from 'react'
+import { lazy, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { ModuleGallery } from '@ziee/gallery'
 import type { TxrListRow, TxrFilterChip, TxrSortControl } from './types'
 import { TxrSelectList } from './components/TxrSelectList'
-import { TXRLIST_DEFAULT_AT_A_TIME } from './components/TxrListBottomBar'
+import { TxrListBottomBar, TXRLIST_DEFAULT_AT_A_TIME } from './components/TxrListBottomBar'
+import { TxrMethodPicker } from './components/TxrMethodPicker'
 import { useMethodRows } from './data/useMethodRows'
 import { useListEstimate } from './data/useListEstimate'
 import { countSelected } from './lib/selection'
 import { formatTotalTime } from './lib/format'
+import { recommendedSelection } from './lib/methodPicker'
 import {
   TXRLIST_D_MODELS,
   TXRLIST_D_NOTE,
@@ -91,65 +93,72 @@ function BoardNote({ children }: { children: string }) {
   )
 }
 
-// ── screen E — the adapter-fed list (cassette: MethodCatalogue.*) ──
+// ── screen E — the adapter-fed method picker (cassette: MethodCatalogue.*) ──
 
 /**
- * The E story's host: exactly what ui-run will do — the inventory (its
- * own), the two hooks, the selection, the group-chip filter state, the run
- * options, and the Run callback's record.
+ * The E story's host: exactly what the choose-methods page does — the
+ * inventory (its own), the two hooks, the selection with the one-time
+ * recommended seeding (qa-fixes3 ITEM-1), the picker, the estimate-driven
+ * bar, and the Run callback's record.
  */
 function EStoryView() {
-  const { rows, loading, error, refetch } = useMethodRows(TXRLIST_INVENTORY)
+  const { cards, loading, error, refetch } = useMethodRows(TXRLIST_INVENTORY)
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
-  const [groupLabel, setGroupLabel] = useState<string | null>(null)
+  const seeded = useRef(false)
   const [atATime, setAtATime] = useState(TXRLIST_DEFAULT_AT_A_TIME)
   const [saveModels, setSaveModels] = useState(false)
   const [runResult, setRunResult] = useState<RunResult | null>(null)
+  useEffect(() => {
+    if (seeded.current || cards.length === 0) return
+    seeded.current = true
+    setSelected(new Set(recommendedSelection(cards)))
+  }, [cards])
   const estimate = useListEstimate([...selected], {
     patients: TXRLIST_INVENTORY.patients,
     atATime,
   })
 
-  // The group chips over the FULL catalogue (the host's chips count the
-  // host's own set; the rows passed to the list are the filtered ones —
-  // DEC-9: the component never filters).
-  const chips: TxrFilterChip[] = useMemo(() => {
-    const labels = [...new Set(rows.map(r => r.chip?.label).filter((l): l is string => l !== undefined))]
-    return labels.map(label => ({
-      id: label,
-      label,
-      count: rows.filter(r => r.chip?.label === label).length,
-      active: groupLabel === label,
-      onToggle: () => setGroupLabel(prev => (prev === label ? null : label)),
-    }))
-  }, [rows, groupLabel])
-
-  const shown = groupLabel === null ? rows : rows.filter(r => r.chip?.label === groupLabel)
-
   return (
     <div>
-      <div style={LIST_FRAME}>
-        <TxrSelectList
-          rows={shown}
-          itemLabel="method"
-          selected={selected}
-          onSelectionChange={setSelected}
-          filterChips={chips}
+      <div style={PICKER_FRAME}>
+        <TxrMethodPicker
+          cards={cards}
           loading={loading}
           error={error}
           onRetry={refetch}
-          bottomBar={{
-            selectedCount: countSelected(selected, rows),
-            totalTimeText: formatTotalTime(estimate.scheduleSeconds),
-            atATime: { value: atATime, onChange: setAtATime },
-            saveModels: { checked: saveModels, onChange: setSaveModels },
-            onRun: (keys, opts) => setRunResult({ keys, opts }),
-          }}
+          selected={selected}
+          onSelectionChange={setSelected}
+          onChangeFiles={() => {}}
+          onChangeSettings={() => {}}
         />
       </div>
+      <TxrListBottomBar
+        itemLabel="method"
+        selectedCount={countSelected(selected, cards)}
+        totalTimeText={formatTotalTime(estimate.scheduleSeconds)}
+        atATime={{ value: atATime, onChange: setAtATime }}
+        saveModels={{ checked: saveModels, onChange: setSaveModels }}
+        notice={RESEARCH_NOTICE}
+        onRun={opts => {
+          // The bar reports the OPTIONS; the keys are the host's selection
+          // minus the cards the host can see are disabled (the page's own
+          // rule — the story records the same pair).
+          const disabled = new Set(cards.filter(card => card.run.disabled).map(card => card.key))
+          const keys = [...selected].filter(key => !disabled.has(key))
+          setRunResult({ keys, opts })
+        }}
+      />
       <RunResultLine result={runResult} />
     </div>
   )
+}
+
+/** The E story's frame (the picker is one document — the story gives it room). */
+const PICKER_FRAME: CSSProperties = {
+  background: 'var(--txr-surface)',
+  border: '1px solid var(--txr-border)',
+  borderRadius: 10,
+  padding: 12,
 }
 
 // ── screens D and I — host-built rows (the ui-models side of the contract) ──
@@ -447,8 +456,8 @@ export const gallery: ModuleGallery = {
   seeded: [
     {
       slug: 'txr-list-e',
-      title: 'Methods list (screen E) — adapter-fed',
-      note: 'The list fed by the REAL fetch hooks over the mock cassette: 38 catalogue methods × eligibility verdicts (the board\'s first rows verbatim), the four group chips, the bottom bar with the at-a-time select and the save toggle; the Run click records the keys + options below the list.',
+      title: 'Method picker (screen E) — adapter-fed',
+      note: 'The redesigned picker (qa-fixes3 ITEM-1) fed by the REAL fetch hooks over the mock cassette: 38 catalogue methods × eligibility verdicts (the board\'s first rows verbatim), the family sections with the explainer + select-all, the presets (Recommended is ticked on arrival), the search/family/sort toolbar, the collapsed can\'t-run section with per-reason chips, and the estimate bar; the Run click records the keys + options below the list.',
       path: '/txrlist/e',
       initialPath: '/txrlist/e',
       component: lazy(() => Promise.resolve({ default: EStoryView })),

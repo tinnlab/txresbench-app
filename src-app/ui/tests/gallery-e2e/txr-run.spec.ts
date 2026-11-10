@@ -72,16 +72,14 @@ const E_TOTAL_TEXT = 'about 14 minutes in total'
 /** The board's research-use notice (DEC-11, both run screens). */
 const RESEARCH_NOTICE = "For research. Not for deciding a patient's treatment."
 
-test.describe('txr-run-e — choose the methods and settings (TEST-RUN-24)', () => {
-  test('board layout, shared list rows, group chips, selection → estimate total, About', async ({
+test.describe('txr-run-e — choose the methods and settings (TEST-RUN-24, qa-fixes3 ITEM-1)', () => {
+  test('the page: slots, settings, the picker (ready-only, recommended ticked), the estimate bar', async ({
     page,
   }) => {
     await page.goto(`${GALLERY}txr-run-e`)
 
     // ── the shell: the step line + the board title, then the slot lines ──
     await expect(page.getByText('Step 4 of 4')).toBeVisible()
-    // The gallery frame's own title is a sibling heading with the same words —
-    // the anchor pins the page's own h1.
     await expect(
       page.getByRole('heading', { name: /^Choose the methods and settings$/ }),
     ).toBeVisible()
@@ -89,12 +87,9 @@ test.describe('txr-run-e — choose the methods and settings (TEST-RUN-24)', () 
     const patients = page.getByTestId('txr-run-slots-patients')
     await expect(patients).toContainText('Patients')
     await expect(patients).toContainText('fixture-patients.csv')
-    // The validated facts ride the slot line (the intake fixture's summary).
-    await expect(patients).toContainText('·')
     const measurements = page.getByTestId('txr-run-slots-measurements')
     await expect(measurements).toContainText('Measurements')
     await expect(measurements).toContainText('fixture-measurements.csv')
-    // The train-mode flow has no predict slot (a slot without a file is absent).
     await expect(page.getByTestId('txr-run-slots-predict')).toHaveCount(0)
     await expect(page.getByTestId('txr-run-change-files')).toBeVisible()
 
@@ -105,72 +100,49 @@ test.describe('txr-run-e — choose the methods and settings (TEST-RUN-24)', () 
       await expect(settings).toContainText(label)
     }
     await expect(page.getByTestId('txr-run-settings-endpoint')).toContainText('Progression or death')
-    await expect(page.getByTestId('txr-run-settings-endpoint')).toContainText('Death only')
     await expect(page.getByTestId('txr-run-settings-decision-day')).toContainText('Day 56')
     await expect(page.getByTestId('txr-run-settings-look-ahead')).toContainText('Day 238')
-    // The fixture patients file's inspection carries no covariate column:
-    // the row names the honest absent line (the board's names are data, INV-6).
     await expect(page.getByTestId('txr-run-settings-covariate-names')).toHaveText(
       'no extra inputs in your file',
     )
 
-    // ── the shared list over the catalogue cassette: the board's bytes ──
-    await expect(page.getByTestId('txr-list')).toBeVisible()
-    await expect(page.getByTestId('txr-list-row-direct-on')).toBeVisible()
-    const row = await page.getByTestId('txr-list-row-direct-on').textContent()
+    // ── the picker over the catalogue cassette: the redesigned row bytes ──
+    await expect(page.getByTestId('txr-method-picker')).toBeVisible()
+    const row = await page.getByTestId('txr-method-card-direct-on').textContent()
     for (const needle of [
+      'Direct on-treatment response rule',
       'direct-on',
-      'Paper 2021, R',
       'Response probability',
-      'Can run',
-      'all 151 patients',
-      'about 2 min',
-      'About',
+      'Estimated about 2 min',
+      'Benchmark score 0.74 (38 cohorts)',
     ]) {
       expect(row, `row direct-on must carry ${needle!}`).toContain(needle!)
     }
-    const someRow = await page.getByTestId('txr-list-row-dynforest').textContent()
-    for (const needle of ['Can run for some patients', 'needs 3 or more draws; 120 of 151 have them', 'about 14 min']) {
+    const someRow = await page.getByTestId('txr-method-card-dynforest').textContent()
+    for (const needle of ['Dynamic random forest', 'Runs on 120 of 151 patients', 'Estimated about 14 min']) {
       expect(someRow, `row dynforest must carry ${needle!}`).toContain(needle!)
     }
-    const cannotRow = await page.getByTestId('txr-list-row-cox-ctdna-status-rfs').textContent()
-    expect(cannotRow).toContain('Cannot run')
-    expect(cannotRow).toContain('needs LDH, not in your file')
+    // The default view is ready-to-run only — the cannot methods are in the
+    // section; "Cannot run" is never printed.
+    await expect(page.getByTestId('txr-method-ready-heading')).toHaveText('Ready to run (26)')
+    expect(await page.locator('body').innerText()).not.toContain('Cannot run')
+    await expect(page.getByTestId('txr-method-cannot-heading')).toHaveText(
+      "12 methods can't run on this data",
+    )
 
-    // ── the built-in count chips + the four group chips (one per group) ──
-    await expect(page.getByTestId('txr-list-filter-all')).toHaveText('All 38')
-    await expect(page.getByTestId('txr-list-filter-can-run')).toHaveText('Can run 26')
-    for (const group of [
-      'response-call',
-      'response-probability',
-      'static-risk',
-      'dynamic-risk',
-    ]) {
-      await expect(page.getByTestId(`txr-list-filter-${group}`)).toBeVisible()
-    }
-
-    // ── the bottom bar: select five → the pinned estimate total ──
-    for (const key of E_FIRST_FIVE_KEYS) {
-      await page.getByTestId(`txr-list-checkbox-${key}`).click()
-    }
-    await expect(page.getByTestId('txr-list-selected-count')).toHaveText('5 methods selected')
-    await expect(page.getByTestId('txr-list-total-time')).toContainText(E_TOTAL_TEXT)
-    await expect(page.getByTestId('txr-list-run')).toHaveText('Run 5 methods')
+    // ── the recommended set is ticked on arrival; the bar reads it ──
+    await expect(page.getByTestId('txr-list-selected-count')).toHaveText('8 methods selected')
     await expect(page.getByTestId('txr-list-bottom-bar')).toContainText(RESEARCH_NOTICE)
 
-    // ── the About dialog shows the fixture method card ──
-    await page.getByTestId('txr-list-row-direct-on-action').click()
-    const about = page.getByTestId('txr-run-about-direct-on')
+    // ── the in-place About disclosure shows the fixture method facts ──
+    await page.getByTestId('txr-method-about-toggle-direct-on').click()
+    const about = page.getByTestId('txr-method-about-direct-on')
     await expect(about).toBeVisible()
-    await expect(about).toContainText('direct-on')
-    await expect(page.getByTestId('txr-run-about-description')).toContainText(
-      'direct on-treatment response rule',
+    await expect(about).toContainText(
+      'A direct on-treatment response rule fixed in the paper that introduced it',
     )
-    const facts = page.getByTestId('txr-run-about-facts')
-    await expect(facts).toContainText('Software')
-    await expect(facts).toContainText('R')
-    await expect(facts).toContainText('Licence')
-    await expect(facts).toContainText('MIT')
+    await expect(about).toContainText('Fictional Journal of Fixtures, 2021')
+    await expect(page.getByTestId('txr-method-about-doi-direct-on')).toBeVisible()
   })
 })
 
@@ -191,9 +163,9 @@ test.describe('txr-run-e-empty / txr-run-e-error — the DEC-16 states (TEST-RUN
     await page.goto(`${GALLERY}txr-run-e-error`)
 
     await expect(page.getByTestId('txr-run-slots')).toBeVisible()
-    await expect(page.getByTestId('txr-list-error')).toBeVisible()
-    await expect(page.getByTestId('txr-list-retry')).toBeVisible()
-    await expect(page.getByTestId('txr-list-row-direct-on')).toHaveCount(0)
+    await expect(page.getByTestId('txr-method-error')).toBeVisible()
+    await expect(page.getByTestId('txr-method-retry')).toBeVisible()
+    await expect(page.getByTestId('txr-method-card-direct-on')).toHaveCount(0)
   })
 })
 
@@ -377,8 +349,7 @@ test.describe('txr-run-e-narrow-390 / txr-run-f-narrow-390 — the mobile width 
   }) => {
     await page.goto(`${GALLERY}txr-run-e-narrow-390`)
     await expect(page.getByTestId('txr-run-slots')).toBeVisible()
-    await expect(page.getByTestId('txr-list')).toBeVisible()
-    await expect(page.getByTestId('txr-list-row-direct-on')).toBeVisible()
+    await expect(page.getByTestId('txr-method-picker')).toBeVisible()
     let overflow = await page.evaluate(
       () =>
         document.documentElement.scrollWidth - document.documentElement.clientWidth,
