@@ -290,6 +290,37 @@ export function txrrunSmallEligibility(): EligibilityResponse {
   }
 }
 
+/**
+ * The ITEM-2 re-check story's eligibility: the decision-day-aware responder —
+ * the small set is fully runnable at the fixture's decision day (56), and
+ * the probability method becomes cannot-run when the screen asks for a
+ * decision day of 28 (the cassette equivalent of "the eligibility changed
+ * because the settings changed" — the ITEM-2 browser test drives the
+ * untick toast through it).
+ */
+export function txrrunRecheckEligibility(ctx: { body?: unknown }): EligibilityResponse {
+  const body = (ctx.body ?? {}) as { inventory?: { decision_day?: number } }
+  const decisionDay = body.inventory?.decision_day ?? 56
+  const base = txrrunSmallEligibility()
+  if (decisionDay === 56) return base
+  return {
+    ...base,
+    total_fit: 5,
+    total_cannot: 1,
+    methods: base.methods.map(method =>
+      method.id === 'fx-prob-one'
+        ? {
+            ...method,
+            status: 'cannot_run',
+            coverage: { eligible: 0, total: 18, fraction: 0 },
+            min_draws: { required: 2, met: 0, unmet_patients: 18 },
+            reasons: [{ code: 'DECISION_DAY_UNMET' }],
+          }
+        : method,
+    ),
+  }
+}
+
 // ── the F run fixtures (one synthetic run per story) ───────────────────────
 
 /** The fixture run's sticky facts — none of them a board example value. */

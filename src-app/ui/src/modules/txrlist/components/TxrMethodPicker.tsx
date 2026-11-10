@@ -102,6 +102,16 @@ const MORE_LINE: CSSProperties = { display: 'flex', justifyContent: 'flex-start'
 /** The panel's plain-voice muted text. */
 const MUTED: CSSProperties = { fontSize: 13, color: 'var(--txr-muted)' }
 
+/** The recompute line (ITEM-2: a settings change re-checks eligibility —
+ *  the old rows stay visible under it, never a blank flash). */
+const REFRESH_LINE: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  fontSize: 13,
+  color: 'var(--txr-muted)',
+}
+
 /** The rows a section shows before "Show N more" (the plan's 6). */
 const SECTION_SHOW_FIRST = 6
 
@@ -110,6 +120,10 @@ export interface TxrMethodPickerProps {
   cards: TxrMethodCard[]
   /** The first load (the skeleton state). */
   loading: boolean
+  /** True while a NEWER inventory's answer is in flight (the settings
+   *  recompute): the picked rows stay on screen under the re-check line —
+   *  a settings change is never a blank flash. */
+  refreshing?: boolean
   /** The fetch failure message, `null` when healthy. */
   error: string | null
   /** The error state's Retry handler. */
@@ -152,6 +166,7 @@ const PRESET_ON: CSSProperties = {
 export function TxrMethodPicker({
   cards,
   loading,
+  refreshing = false,
   error,
   onRetry,
   selected,
@@ -251,6 +266,40 @@ export function TxrMethodPicker({
 
   return (
     <div data-testid="txr-method-picker" style={PICKER}>
+      <div data-testid="txr-method-presets" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {presets.map(item => (
+          <Button
+            key={item.value}
+            type="button"
+            data-testid={`txr-method-preset-${item.value}`}
+            aria-pressed={preset === item.value}
+            variant="outline"
+            className="txr-method-preset"
+            style={preset === item.value ? { ...FAMILY_CHIP, ...PRESET_ON } : FAMILY_CHIP}
+            onClick={() => applyPreset(item.value)}
+          >
+            {item.label}
+          </Button>
+        ))}
+      </div>
+
+      {refreshing && cards.length > 0 ? (
+        <div data-testid="txr-method-refreshing" aria-busy="true" style={REFRESH_LINE}>
+          <span
+            aria-hidden="true"
+            style={{
+              width: 10,
+              height: 10,
+              borderRadius: 999,
+              border: '2px solid var(--txr-border)',
+              borderTopColor: 'var(--txr-brand)',
+              display: 'inline-block',
+            }}
+          />
+          Re-checking what can run with these settings…
+        </div>
+      ) : null}
+
       <div data-testid="txr-method-toolbar" style={TOOLBAR}>
         <Input
           data-testid="txr-method-search"
@@ -272,6 +321,7 @@ export function TxrMethodPicker({
               data-testid={`txr-method-family-${group}`}
               aria-pressed={active}
               variant="outline"
+              className="txr-method-family"
               style={active ? { ...FAMILY_CHIP, ...FAMILY_CHIP_ON } : FAMILY_CHIP}
               onClick={() => toggleFamily(group)}
             >
@@ -300,22 +350,6 @@ export function TxrMethodPicker({
         >
           {cannotOpen ? 'Hide methods that can\'t run' : "Show methods that can't run"}
         </Button>
-      </div>
-
-      <div data-testid="txr-method-presets" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        {presets.map(item => (
-          <Button
-            key={item.value}
-            type="button"
-            data-testid={`txr-method-preset-${item.value}`}
-            aria-pressed={preset === item.value}
-            variant="outline"
-            style={preset === item.value ? { ...FAMILY_CHIP, ...PRESET_ON } : FAMILY_CHIP}
-            onClick={() => applyPreset(item.value)}
-          >
-            {item.label}
-          </Button>
-        ))}
       </div>
 
       {runnable.length === 0 ? (

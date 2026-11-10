@@ -72,6 +72,7 @@ import {
   txrrunSmallMethods,
   txrrunOnRequest,
   txrrunRecordRequest,
+  txrrunRecheckEligibility,
   txrrunRequestLogLine,
   txrrunRunSummary,
   txrrunSeedValidatedIntake,
@@ -232,6 +233,40 @@ function ESmallStoryView() {
   )
 }
 
+/**
+ * The ITEM-2 re-check story's seed: the small set plus a DECISION-DAY-AWARE
+ * eligibility — the set is fully runnable at the fixture's decision day
+ * (56), and one method becomes cannot-run when the user picks day 28, so
+ * the browser test can drive the recompute + the untick toast (a settings
+ * change that changes the eligibility) over the real page.
+ */
+function seedRecheckMethods(): void {
+  txrrunSeedValidatedIntake()
+  extendCassette({
+    'MethodCatalogue.list': { methods: txrrunSmallMethods(), total: 6 },
+    'MethodCatalogue.eligibility': txrrunRecheckEligibility,
+    'MethodCatalogue.estimate': (ctx: { body?: unknown }) => {
+      const ids = ((ctx.body ?? {}) as { method_ids?: string[] }).method_ids ?? []
+      return {
+        at_a_time: 3,
+        cpus: 4,
+        methods: ids.map(id => ({ id, estimated_seconds: 45, estimate_quality: 'measured' })),
+        total_seconds: ids.length * 45,
+        schedule_seconds: ids.length * 45,
+      }
+    },
+  })
+}
+
+/** The ITEM-2 re-check story view. */
+function ERecheckStoryView() {
+  return (
+    <SeedGate seed={seedRecheckMethods}>
+      <ChooseMethodsPage />
+    </SeedGate>
+  )
+}
+
 // ── the module's gallery seed ──────────────────────────────────────────────
 
 /**
@@ -289,6 +324,15 @@ export const gallery: ModuleGallery = {
       path: '/choose-methods',
       initialPath: '/choose-methods',
       component: lazy(() => Promise.resolve({ default: ESmallStoryView })),
+      fullHeight: true,
+    },
+    {
+      slug: 'txr-run-e-recheck',
+      title: 'Screen E — a settings change re-checks the methods',
+      note: 'The ITEM-2 story: the small set is fully runnable at the fixture\'s decision day; picking day 28 makes one method no longer fit — the list re-checks with the re-check line, the method is unticked and the toast names it, and the run bar reads the new selection.',
+      path: '/choose-methods',
+      initialPath: '/choose-methods',
+      component: lazy(() => Promise.resolve({ default: ERecheckStoryView })),
       fullHeight: true,
     },
     {

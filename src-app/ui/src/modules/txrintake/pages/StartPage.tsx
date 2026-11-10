@@ -297,8 +297,8 @@ export function StartPage() {
             <span style={RECOMMENDED_BADGE}>Recommended to start</span>
           </h2>
           <p style={CARD_BODY}>
-            Add the blood measurements of the patients you want predictions for. We show which
-            pretrained models can run on them, and you pick as many as you like.
+            Add the blood measurements of the patients you want predictions for. The app shows
+            which pretrained models can run on them, and you pick as many as you like.
           </p>
           <ul style={CARD_BULLETS}>
             <li style={CARD_BULLET}>Works with a small cohort, and with no outcomes</li>
@@ -325,7 +325,8 @@ export function StartPage() {
           <h2 style={CARD_TITLE}>Learn from my data</h2>
           <p style={CARD_BODY}>
             Train the methods on your own patients with known outcomes, then predict new patients.
-            Select as many methods as you like.
+            Choose what to predict — progression or death within a chosen horizon — and run the
+            methods that fit your file.
           </p>
           <ul style={CARD_BULLETS}>
             <li style={CARD_BULLET}>

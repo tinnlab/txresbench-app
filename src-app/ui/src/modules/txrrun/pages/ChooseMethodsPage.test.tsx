@@ -628,8 +628,8 @@ describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST
     await settle()
 
     expect(screen.getByTestId('txr-method-picker')).toBeTruthy()
-    expect(screen.getByTestId('txr-list-bottom-bar')).toBeTruthy()
-    expect(screen.getByTestId('txr-list-selected-count').textContent).toBe('2 methods selected')
+    expect(screen.getByTestId('txr-run-bar')).toBeTruthy()
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('2 methods selected')
 
     // The board lead paragraph is data-filled from the inventory (INV-6:
     // the fixture's own 18, never the board's 151).
@@ -659,7 +659,7 @@ describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST
     // The auto-seed fired BEFORE any user interaction: the recommendation
     // (both runnable methods — the fixture has two, one per family) is
     // ticked and the one debounced estimate call carries them.
-    expect(screen.getByTestId('txr-list-selected-count').textContent).toBe('2 methods selected')
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('2 methods selected')
     await settle(250)
     expect(api.estimate).toHaveBeenCalledWith({
       method_ids: ['direct-on', 'dynforest'],
@@ -667,8 +667,8 @@ describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST
       cpus: undefined,
       at_a_time: 3,
     })
-    expect(screen.getByTestId('txr-list-total-time').textContent).toContain(
-      'under 1 minute in total',
+    expect(screen.getByTestId('txr-run-bar-time').textContent).toContain(
+      'under 1 min (3 at a time)',
     )
   })
 
@@ -685,12 +685,12 @@ describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST
       fireEvent.click(screen.getByTestId('txr-method-preset-none'))
       await Promise.resolve()
     })
-    expect(screen.getByTestId('txr-list-selected-count').textContent).toBe('0 methods selected')
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('0 methods selected')
     await act(async () => {
       fireEvent.click(screen.getByTestId('txr-method-preset-all'))
       await Promise.resolve()
     })
-    expect(screen.getByTestId('txr-list-selected-count').textContent).toBe('2 methods selected')
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('2 methods selected')
 
     // The auto-recommendation is OFF once the user has touched the selection:
     // a settings change (an eligibility refetch) never re-treads the user's
@@ -708,7 +708,7 @@ describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST
       await Promise.resolve()
     })
     await settle(RUN_CONFIG_DEBOUNCE_MS + 50)
-    expect(screen.getByTestId('txr-list-selected-count').textContent).toBe('0 methods selected')
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('0 methods selected')
   })
 
   it('search and the family multi-filter restrict the sections and restore', async () => {
@@ -785,7 +785,7 @@ describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST
     await chooseOnly('direct-on')
 
     await act(async () => {
-      fireEvent.click(screen.getByTestId('txr-list-run'))
+      fireEvent.click(screen.getByTestId('txr-run-bar-run'))
       await Promise.resolve()
     })
     // The create chain is all microtasks (the engine answer + the
@@ -829,7 +829,7 @@ describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST
     await selectRow('dynforest')
 
     await act(async () => {
-      fireEvent.click(screen.getByTestId('txr-list-run'))
+      fireEvent.click(screen.getByTestId('txr-run-bar-run'))
       await Promise.resolve()
     })
     await settle(0)
@@ -839,7 +839,7 @@ describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST
       'direct-on is no longer in the method catalogue — it was removed from the selection.',
     )
     // The named row left the selection; the other stays.
-    expect(screen.getByTestId('txr-list-selected-count').textContent).toBe('1 method selected')
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('1 method selected')
     expect(api.listRuns).not.toHaveBeenCalled()
   })
 
@@ -855,7 +855,7 @@ describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST
     // names a stale method, so the run was not created and the choice is
     // kept for the retry.
     await act(async () => {
-      fireEvent.click(screen.getByTestId('txr-list-run'))
+      fireEvent.click(screen.getByTestId('txr-run-bar-run'))
       await Promise.resolve()
     })
     await settle(0)
@@ -863,7 +863,7 @@ describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST
     expect(screen.getByTestId('txr-run-create-error').textContent).toBe(
       RUN_METHODS_GONE_LINE,
     )
-    expect(screen.getByTestId('txr-list-selected-count').textContent).toBe('1 method selected')
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('1 method selected')
   })
 
   it('a 409 RUN_ALREADY_ACTIVE resolves through listRuns to the active run runningPath (DEC-18)', async () => {
@@ -884,7 +884,7 @@ describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST
     await chooseOnly('direct-on')
 
     await act(async () => {
-      fireEvent.click(screen.getByTestId('txr-list-run'))
+      fireEvent.click(screen.getByTestId('txr-run-bar-run'))
       await Promise.resolve()
     })
     await settle(0)
@@ -905,7 +905,7 @@ describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST
     await chooseOnly('direct-on')
 
     await act(async () => {
-      fireEvent.click(screen.getByTestId('txr-list-run'))
+      fireEvent.click(screen.getByTestId('txr-run-bar-run'))
       await Promise.resolve()
     })
     await settle(0)
@@ -923,13 +923,13 @@ describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST
     seedStore()
     renderPage()
     await settle()
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('txr-method-preset-none'))
-      await Promise.resolve()
-    })
+    // The ITEM-2 bar disables Run when nothing is selected (that state is
+    // its own pin); the engine-400 surface is reached through a selection
+    // the engine then rejects — a stale selection between render and click.
+    await chooseOnly('direct-on')
 
     await act(async () => {
-      fireEvent.click(screen.getByTestId('txr-list-run'))
+      fireEvent.click(screen.getByTestId('txr-run-bar-run'))
       await Promise.resolve()
     })
     await settle(0)
@@ -937,7 +937,7 @@ describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST
     expect(screen.getByTestId('txr-run-create-error').textContent).toBe(
       'EMPTY_METHODS: choose at least one method',
     )
-    // The empty run attempt never navigates; the rows keep their values.
+    // The rejected run never navigates; the rows keep their values.
     expect(screen.getByTestId('route-location').textContent).toBe('/choose-methods')
     expect(screen.getByTestId('txr-method-card-direct-on')).toBeTruthy()
   })
@@ -952,7 +952,7 @@ describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST
     expect(screen.queryByTestId('txr-list')).toBeNull()
     // The page is NOT flipped to the empty state (the inputs are there).
     expect(screen.queryByTestId('txr-run-empty')).toBeNull()
-    expect(screen.getByTestId('txr-run-slots')).toBeTruthy()
+    expect(screen.getByTestId('txr-run-summary')).toBeTruthy()
   })
 })
 
@@ -966,7 +966,7 @@ describe('ChooseMethodsPage keep-copies (TEST-RUN-36)', () => {
     await chooseOnly('direct-on')
 
     await act(async () => {
-      fireEvent.click(screen.getByTestId('txr-list-run'))
+      fireEvent.click(screen.getByTestId('txr-run-bar-run'))
       await Promise.resolve()
     })
     await settle(0)
@@ -985,12 +985,191 @@ describe('ChooseMethodsPage keep-copies (TEST-RUN-36)', () => {
     await chooseOnly('direct-on')
 
     await act(async () => {
-      fireEvent.click(screen.getByTestId('txr-list-run'))
+      fireEvent.click(screen.getByTestId('txr-run-bar-run'))
       await Promise.resolve()
     })
     await settle(0)
     await settle(0)
     expect(api.createRun).toHaveBeenCalledTimes(1)
     expect(api.createRun.mock.calls[0][0].input.keep_copies).toBe(true)
+  })
+})
+
+describe('ChooseMethodsPage ITEM-2 — the summary line, the settings sentence and the eligibility recompute', () => {
+  it('renders the compact files summary with the marker names and the Details full list', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore()
+    renderPage()
+    await settle()
+
+    // The plan's one line over the fixture's own facts (18 patients · 7
+    // events · 1 marker — the fixture ldh column — draws 0..28).
+    expect(screen.getByTestId('txr-run-summary-line').textContent).toBe(
+      '18 patients · 7 events · 1 marker · draws from day 0 to 28 (3 different days)',
+    )
+    expect(screen.getByTestId('txr-run-summary-markers').textContent).toBe('Markers: ldh')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-run-summary-details'))
+      await Promise.resolve()
+    })
+    expect(screen.getByTestId('txr-run-summary-details-measurements').textContent).toContain(
+      'draws at day 0, 14, 28',
+    )
+    expect(screen.getByTestId('txr-run-summary-details-patients').textContent).toContain(
+      '18 patients · 7 events',
+    )
+  })
+
+  it('the settings card title and the live sentence match the selected values', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore()
+    renderPage()
+    await settle()
+
+    expect(screen.getByTestId('txr-run-settings-title').textContent).toBe(
+      'What do you want to predict?',
+    )
+    expect(screen.getByTestId('txr-run-settings-sentence').textContent).toBe(
+      'Progression or death within 238 days, from the blood draws up to day 84.',
+    )
+
+    // Change the outcome and the horizon: the sentence is the selection's.
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByTestId('txr-run-settings-endpoint-opt-os'), {
+        button: 0,
+        pointerType: 'mouse',
+      })
+      fireEvent.click(screen.getByTestId('txr-run-settings-endpoint-opt-os'))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByTestId('txr-run-settings-look-ahead-opt-365'), {
+        button: 0,
+        pointerType: 'mouse',
+      })
+      fireEvent.click(screen.getByTestId('txr-run-settings-look-ahead-opt-365'))
+      await Promise.resolve()
+    })
+    expect(screen.getByTestId('txr-run-settings-sentence').textContent).toBe(
+      'Death within 365 days, from the blood draws up to day 84.',
+    )
+  })
+
+  it('the eligibility request carries the settings (decision day + extra inputs), and a change refetches with the re-check state', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore()
+    renderPage()
+    await settle()
+
+    // The screen's inventory: the validation facts with the settings'
+    // decision day (84 — the intake's fresh answer) and the covariates off.
+    const firstCall = api.eligibility.mock.calls[0][0]
+    expect(firstCall.inventory.decision_day).toBe(84)
+    expect(firstCall.inventory.covariates).toEqual([])
+
+    // A decision-day change recomputes: the inventory key changed, so the
+    // adapter refetches and the re-check line is visible while in flight.
+    let resolveSecond!: (value: unknown) => void
+    api.eligibility.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          resolveSecond = resolve
+        }),
+    )
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByTestId('txr-run-settings-decision-day-opt-28'), {
+        button: 0,
+        pointerType: 'mouse',
+      })
+      fireEvent.click(screen.getByTestId('txr-run-settings-decision-day-opt-28'))
+      await Promise.resolve()
+    })
+    expect(screen.getByTestId('txr-method-refreshing')).toBeTruthy()
+    await act(async () => {
+      resolveSecond(eligibility())
+      await Promise.resolve()
+    })
+    await settle()
+    expect(screen.queryByTestId('txr-method-refreshing')).toBeNull()
+    const lastCall = api.eligibility.mock.calls[api.eligibility.mock.calls.length - 1][0]
+    expect(lastCall.inventory.decision_day).toBe(28)
+  })
+
+  it('a method that stops being eligible is unticked with the toast; the still-eligible stay', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    // The recommendation ticks both runnable methods; the SECOND answer (a
+    // decision-day change) marks direct-on as cannot-run — the eligibility
+    // churn the plan's untick message names.
+    api.eligibility
+      .mockResolvedValueOnce(eligibility())
+      .mockResolvedValueOnce({
+        ...eligibility(),
+        methods: eligibility().methods.map(method =>
+          method.id === 'direct-on'
+            ? { ...method, status: 'cannot_run', coverage: { eligible: 0, total: 18, fraction: 0 }, reasons: [{ code: 'DECISION_DAY_UNMET' }] }
+            : method,
+        ),
+      })
+    const { Toaster } = await import('@ziee/kit')
+    seedStore()
+    render(
+      <MemoryRouter initialEntries={['/choose-methods']}>
+        <Toaster />
+        <ChooseMethodsPage />
+        <LocationProbe />
+      </MemoryRouter>,
+    )
+    await settle()
+    await settle(250)
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('2 methods selected')
+
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByTestId('txr-run-settings-decision-day-opt-28'), {
+        button: 0,
+        pointerType: 'mouse',
+      })
+      fireEvent.click(screen.getByTestId('txr-run-settings-decision-day-opt-28'))
+      await Promise.resolve()
+    })
+    await settle()
+    await settle(250)
+    // direct-on left the selection; dynforest stayed.
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('1 method selected')
+    expect(screen.getByText('1 method no longer fits these settings')).toBeTruthy()
+  })
+
+  it('the run bar is disabled with the reason when nothing is selected', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore()
+    renderPage()
+    await settle()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-method-preset-none'))
+      await Promise.resolve()
+    })
+    expect(screen.getByTestId('txr-run-bar-run').getAttribute('disabled')).not.toBeNull()
+    expect(screen.getByTestId('txr-run-bar-empty-reason').textContent).toBe(
+      'Select at least one method',
+    )
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('0 methods selected')
+  })
+
+  it('More settings opens in place: CPUs, the lanes, the estimate fact and the fixed-seed fact', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore()
+    renderPage()
+    await settle()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-run-settings-more'))
+      await Promise.resolve()
+    })
+    expect(screen.getByTestId('txr-run-settings-cpus')).toBeTruthy()
+    expect(screen.getByTestId('txr-run-settings-at-a-time')).toBeTruthy()
+    expect(screen.getByTestId('txr-run-settings-estimate-explained').textContent).toContain(
+      'scaled to your file',
+    )
+    expect(screen.getByTestId('txr-run-settings-seed-fact').textContent).toContain('fixed seed')
   })
 })

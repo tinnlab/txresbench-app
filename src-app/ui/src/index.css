@@ -578,3 +578,43 @@ html.dark .os-theme-dark {
   left: 12px !important;
   top: 12px !important;
 }
+
+/* qa-fixes3 ITEM-2 (d): the choose-methods page at phone width. The ITEM-2
+ * plan's phone layout: the files summary and the settings are COLLAPSIBLE
+ * cards (collapsed by default — their own inline styles implement the
+ * state; the page padding below gives the collapsed cards their room), the
+ * method row stacks its checkbox, title, chips and estimate as separate
+ * lines without clipping, the run bar is a compact two-line sticky bar and
+ * touch targets are at least 44 px. Desktop is untouched (the inline
+ * styles carry it). */
+@media (max-width: 640px) {
+  .txr-run-page {
+    padding: 20px 16px !important;
+  }
+  .txr-run-page .txr-method-card {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    min-height: 44px;
+  }
+  .txr-run-page .txr-method-card .txr-list-checkbox {
+    align-self: flex-start;
+  }
+  .txr-run-page .txr-method-preset,
+  .txr-run-page .txr-method-family {
+    min-height: 44px;
+  }
+  .txr-run-page .txr-run-bar {
+    padding: 8px 16px !important;
+    gap: 6px 12px !important;
+  }
+  .txr-run-page .txr-run-bar .txr-run-bar-action {
+    flex: 1 1 100% !important;
+    margin-left: 0 !important;
+    justify-content: space-between;
+  }
+  .txr-run-page .txr-run-bar .txr-run-bar-action button,
+  .txr-run-page .txr-run-bar .txr-run-bar-action label {
+    min-height: 44px;
+  }
+}

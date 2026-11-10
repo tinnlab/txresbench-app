@@ -344,3 +344,32 @@ describe('the zero-runnable state', () => {
     expect(settings).toBe(1)
   })
 })
+
+describe('ITEM-2 — the recompute state and the tab order', () => {
+  it('a settings change (refreshing with cards on screen) shows the re-check line, never the skeleton', () => {
+    render(
+      <TxrMethodPicker
+        cards={CARDS}
+        loading={true}
+        refreshing={true}
+        error={null}
+        onRetry={() => {}}
+        selected={new Set()}
+        onSelectionChange={() => {}}
+        onChangeFiles={() => {}}
+        onChangeSettings={() => {}}
+      />,
+    )
+    expect(screen.getByTestId('txr-method-refreshing')).toBeTruthy()
+    expect(screen.queryByTestId('txr-method-loading')).toBeNull()
+    expect(screen.getByTestId('txr-method-picker')).toBeTruthy()
+  })
+
+  it('the presets row precedes the toolbar (the ITEM-2 keyboard order: presets, then search)', () => {
+    renderPicker(CARDS)
+    const presets = screen.getByTestId('txr-method-presets')
+    const toolbar = screen.getByTestId('txr-method-toolbar')
+    const position = presets.compareDocumentPosition(toolbar)
+    expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+})

@@ -231,8 +231,9 @@ describe('TxrChangeFilesDialog (E change-files, TEST-RUN-14)', () => {
     const root = path.resolve(process.cwd(), 'src/modules/txrrun')
     const files = [
       'components/TxrChangeFilesDialog.tsx',
-      'components/TxrSlotSummary.tsx',
+      'components/TxrFilesSummary.tsx',
       'lib/slotSummary.ts',
+      'lib/filesSummary.ts',
       'pages/ChooseMethodsPage.tsx',
     ]
     for (const file of files) {

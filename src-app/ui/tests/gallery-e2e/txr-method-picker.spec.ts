@@ -34,7 +34,7 @@ async function openE(
   await page.goto(`${GALLERY}${surface}&theme=${theme}`, { waitUntil: 'domcontentloaded' })
   // The gallery's first real load pays the app transform (the dev server
   // compiles on demand); the fixture's own byte checks wait past it.
-  await expect(page.getByTestId('txr-run-slots')).toBeVisible({ timeout: 120_000 })
+  await expect(page.getByTestId('txr-run-summary')).toBeVisible({ timeout: 120_000 })
 }
 
 /** The page's vertical scroll containers (computed overflow-y is auto/scroll). */
@@ -167,4 +167,141 @@ test.describe('text and chip contrast >= 4.5:1 in both themes', () => {
       }
     })
   }
+})
+
+test.describe('ITEM-2 — the settings sentence, the recompute + untick toast (the re-check story)', () => {
+  test('the sentence matches the selection; changing the decision day re-checks, unticks and toasts', async ({
+    page,
+  }) => {
+    await openE(page, { width: 1440, height: 900 }, 'txr-run-e-recheck')
+
+    // The settings card's live sentence (the plan's words, the fixture's
+    // values: decision day 56, horizon 238).
+    await expect(page.getByTestId('txr-run-settings-sentence')).toHaveText(
+      'Progression or death within 238 days, from the blood draws up to day 56.',
+    )
+    // The small set: all six runnable, the recommendation ticks them.
+    await expect(page.getByTestId('txr-run-bar-count')).toHaveText('6 methods selected')
+    await expect(page.getByTestId('txr-run-bar-time')).toContainText('3 at a time')
+
+    // Pick day 28: the story's eligibility changes (fx-prob-one becomes
+    // cannot-run), the page re-checks with the re-check line, unticks the
+    // method and shows the toast (the kit Toaster, mounted by the gallery's
+    // ThemeProvider).
+    await page.getByTestId('txr-run-settings-decision-day-opt-28').click()
+    await expect(page.getByTestId('txr-run-bar-count')).toHaveText('5 methods selected', {
+      timeout: 30_000,
+    })
+    await expect(page.locator('[data-sonner-toast]')).toContainText(
+      '1 method no longer fits these settings',
+    )
+    // The unticked method left the ready list and sits in the can't-run
+    // section, counted honestly.
+    await expect(page.getByTestId('txr-method-card-fx-prob-one')).toHaveCount(0)
+    await expect(page.getByTestId('txr-method-cannot-heading')).toHaveText(
+      "1 method can't run on this data",
+    )
+  })
+})
+
+test.describe('ITEM-2 — the run bar never overlaps the last row', () => {
+  test('at the end of the page the bar sits below the last row (1440x900)', async ({ page }) => {
+    await openE(page, { width: 1440, height: 900 }, 'txr-run-e-small')
+    await expect(page.getByTestId('txr-method-picker')).toBeVisible()
+
+    // Scroll the page's one scroll container to its end, then compare the
+    // viewport boxes of the last row and the bar.
+    await page
+      .getByTestId('txr-run')
+      .evaluate(el => {
+        const scroll = el.querySelector('div') // PAGE_MAIN (the one scroll container)
+        if (scroll !== null) scroll.scrollTop = scroll.scrollHeight
+      })
+    const rows = page.locator('[data-testid^="txr-method-card-"]')
+    const lastRow = rows.last()
+    await lastRow.scrollIntoViewIfNeeded()
+    const rowBox = await lastRow.boundingBox()
+    const barBox = await page.getByTestId('txr-run-bar').boundingBox()
+    expect(rowBox).not.toBeNull()
+    expect(barBox).not.toBeNull()
+    expect(barBox!.y, 'bar must start below the last row').toBeGreaterThanOrEqual(
+      rowBox!.y + rowBox!.height - 1,
+    )
+  })
+})
+
+test.describe('ITEM-2 — phone (390x844): nothing clipped, 44 px touch targets', () => {
+  test.use({ viewport: { width: 390, height: 844 } })
+
+  test('every interactive element fits inside the viewport width', async ({ page }) => {
+    await openE(page, { width: 390, height: 844 }, 'txr-run-e-small')
+    await expect(page.getByTestId('txr-method-picker')).toBeVisible()
+
+    const targets = [
+      'txr-run-summary',
+      'txr-run-summary-line',
+      'txr-run-settings',
+      'txr-run-settings-sentence',
+      'txr-method-presets',
+      'txr-method-search',
+      'txr-method-card-fx-call-one',
+      'txr-method-title-fx-call-one',
+      'txr-run-bar',
+      'txr-run-bar-count',
+    ]
+    for (const id of targets) {
+      const el = page.getByTestId(id)
+      await el.scrollIntoViewIfNeeded()
+      const box = await el.boundingBox()
+      expect(box, `${id} must be mounted`).not.toBeNull()
+      expect(box!.x, `${id} left edge`).toBeGreaterThanOrEqual(-1)
+      expect(box!.x + box!.width, `${id} right edge at 390`).toBeLessThanOrEqual(391)
+    }
+  })
+
+  test('the bar Run button and the rows are at least 44 px tall', async ({ page }) => {
+    await openE(page, { width: 390, height: 844 }, 'txr-run-e-small')
+    await expect(page.getByTestId('txr-method-picker')).toBeVisible()
+    const run = page.getByTestId('txr-run-bar-run')
+    await run.scrollIntoViewIfNeeded()
+    const runBox = await run.boundingBox()
+    expect(runBox).not.toBeNull()
+    expect(runBox!.height, 'Run button height').toBeGreaterThanOrEqual(44)
+    const row = page.getByTestId('txr-method-card-fx-call-one')
+    const rowBox = await row.boundingBox()
+    expect(rowBox).not.toBeNull()
+    expect(rowBox!.height, 'row height').toBeGreaterThanOrEqual(44)
+  })
+})
+
+test.describe('ITEM-2 — keyboard-only completion: summary, settings, presets, search, list, run bar', () => {
+  test('the tab order walks the page in the plan\'s order', async ({ page }) => {
+    await openE(page, { width: 1440, height: 900 }, 'txr-run-e-small')
+    await expect(page.getByTestId('txr-method-picker')).toBeVisible()
+
+    // The active element's page group, resolved in the page (the plan's six
+    // stops, in DOM order).
+    const groupOf = (): string | null => {
+      const el = document.activeElement as Element | null
+      if (el === null) return null
+      const find = (id: string): boolean =>
+        el.closest(`[data-testid^="${id}"]`) !== null || el.matches(`[data-testid^="${id}"]`)
+      if (find('txr-run-summary')) return 'summary'
+      if (find('txr-run-settings')) return 'settings'
+      if (find('txr-method-preset-')) return 'presets'
+      if (find('txr-method-search')) return 'search'
+      if (find('txr-method-card-')) return 'list'
+      if (find('txr-run-bar')) return 'bar'
+      return null
+    }
+
+    const seen: string[] = []
+    for (let i = 0; i < 30; i += 1) {
+      await page.keyboard.press('Tab')
+      const group = await page.evaluate(groupOf)
+      if (group !== null && seen[seen.length - 1] !== group) seen.push(group)
+      if (group === 'bar') break
+    }
+    expect(seen).toEqual(['summary', 'settings', 'presets', 'search', 'list', 'bar'])
+  })
 })

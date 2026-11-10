@@ -117,7 +117,7 @@ async function selectMethod(page: Page, methodId: string): Promise<void> {
   await expect(checkbox).toBeVisible({ timeout: 120_000 })
   await expect(checkbox).toBeEnabled()
   await checkbox.click()
-  await expect(page.getByTestId('txr-list-selected-count')).toContainText('1 method selected', {
+  await expect(page.getByTestId('txr-run-bar-count')).toContainText('1 method selected', {
     timeout: 15_000,
   })
 }
@@ -282,14 +282,14 @@ test.describe('txr-run — the real backend (TEST-RUN-28/29)', () => {
       timeout: 120_000,
     })
     await expect(page.getByTestId('txr-run-settings-error')).toHaveCount(0)
-    await expect(page.getByTestId('txr-list-bottom-bar')).toBeVisible()
+    await expect(page.getByTestId('txr-run-bar')).toBeVisible()
     await expect(page.getByTestId('txr-method-picker')).toBeVisible()
     await expect(page.getByTestId('txr-method-preset-recommended')).toHaveAttribute(
       'aria-pressed',
       'true',
     )
     await page.getByTestId('txr-method-preset-none').click()
-    await expect(page.getByTestId('txr-list-selected-count')).toContainText('0 methods selected')
+    await expect(page.getByTestId('txr-run-bar-count')).toContainText('0 methods selected')
 
     // One runnable row — the engine's own verdict over the example files
     // (can_run, env-bearing: the drive takes it; the env phase's outcome is
@@ -298,7 +298,7 @@ test.describe('txr-run — the real backend (TEST-RUN-28/29)', () => {
 
     // Run → the module's own `runningPath` (the URL is the engine's id —
     // a 202 summary id, never a fixed literal).
-    await page.getByTestId('txr-list-run').click()
+    await page.getByTestId('txr-run-bar-run').click()
     await page.waitForURL(
       url => /^\/analysis\/[^/]+\/running$/.test(url.pathname),
       { timeout: 120_000 },

@@ -73,29 +73,39 @@ const E_TOTAL_TEXT = 'about 14 minutes in total'
 const RESEARCH_NOTICE = "For research. Not for deciding a patient's treatment."
 
 test.describe('txr-run-e — choose the methods and settings (TEST-RUN-24, qa-fixes3 ITEM-1)', () => {
-  test('the page: slots, settings, the picker (ready-only, recommended ticked), the estimate bar', async ({
+  test('the page: files summary, settings, the picker (ready-only, recommended ticked), the run bar', async ({
     page,
   }) => {
     await page.goto(`${GALLERY}txr-run-e`)
 
-    // ── the shell: the step line + the board title, then the slot lines ──
+    // ── the shell: the step line + the board title, then the ONE compact
+    //    summary line (ITEM-2 a: the long multi-chip strip is gone) ──
     await expect(page.getByText('Step 4 of 4')).toBeVisible()
     await expect(
       page.getByRole('heading', { name: /^Choose the methods and settings$/ }),
     ).toBeVisible()
-    await expect(page.getByTestId('txr-run-slots')).toBeVisible()
-    const patients = page.getByTestId('txr-run-slots-patients')
-    await expect(patients).toContainText('Patients')
-    await expect(patients).toContainText('fixture-patients.csv')
-    const measurements = page.getByTestId('txr-run-slots-measurements')
-    await expect(measurements).toContainText('Measurements')
-    await expect(measurements).toContainText('fixture-measurements.csv')
-    await expect(page.getByTestId('txr-run-slots-predict')).toHaveCount(0)
+    const summary = page.getByTestId('txr-run-summary')
+    await expect(summary).toBeVisible()
+    await expect(page.getByTestId('txr-run-summary-line')).toContainText('·')
+    await expect(page.getByTestId('txr-run-summary-markers')).toContainText('Markers:')
+    await page.getByTestId('txr-run-summary-details').click()
+    await expect(page.getByTestId('txr-run-summary-details-patients')).toContainText(
+      'fixture-patients.csv',
+    )
+    await expect(page.getByTestId('txr-run-summary-details-measurements')).toContainText(
+      'fixture-measurements.csv',
+    )
     await expect(page.getByTestId('txr-run-change-files')).toBeVisible()
 
-    // ── the four settings rows (the board's labels + the option sets) ──
+    // ── the settings card: the ITEM-2 title + live sentence + the rows ──
     const settings = page.getByTestId('txr-run-settings')
     await expect(settings).toBeVisible()
+    await expect(page.getByTestId('txr-run-settings-title')).toHaveText(
+      'What do you want to predict?',
+    )
+    await expect(page.getByTestId('txr-run-settings-sentence')).toHaveText(
+      'Progression or death within 238 days, from the blood draws up to day 56.',
+    )
     for (const label of ['Predict', 'Decision day', 'Look ahead to', 'Extra inputs', 'More settings']) {
       await expect(settings).toContainText(label)
     }
@@ -130,9 +140,9 @@ test.describe('txr-run-e — choose the methods and settings (TEST-RUN-24, qa-fi
       "12 methods can't run on this data",
     )
 
-    // ── the recommended set is ticked on arrival; the bar reads it ──
-    await expect(page.getByTestId('txr-list-selected-count')).toHaveText('8 methods selected')
-    await expect(page.getByTestId('txr-list-bottom-bar')).toContainText(RESEARCH_NOTICE)
+    // ── the recommended set is ticked on arrival; the ITEM-2 run bar reads it ──
+    await expect(page.getByTestId('txr-run-bar-count')).toHaveText('8 methods selected')
+    await expect(page.getByTestId('txr-run-bar-notice')).toHaveText(RESEARCH_NOTICE)
 
     // ── the in-place About disclosure shows the fixture method facts ──
     await page.getByTestId('txr-method-about-toggle-direct-on').click()
@@ -162,7 +172,7 @@ test.describe('txr-run-e-empty / txr-run-e-error — the DEC-16 states (TEST-RUN
   }) => {
     await page.goto(`${GALLERY}txr-run-e-error`)
 
-    await expect(page.getByTestId('txr-run-slots')).toBeVisible()
+    await expect(page.getByTestId('txr-run-summary')).toBeVisible()
     await expect(page.getByTestId('txr-method-error')).toBeVisible()
     await expect(page.getByTestId('txr-method-retry')).toBeVisible()
     await expect(page.getByTestId('txr-method-card-direct-on')).toHaveCount(0)
@@ -348,7 +358,7 @@ test.describe('txr-run-e-narrow-390 / txr-run-f-narrow-390 — the mobile width 
     page,
   }) => {
     await page.goto(`${GALLERY}txr-run-e-narrow-390`)
-    await expect(page.getByTestId('txr-run-slots')).toBeVisible()
+    await expect(page.getByTestId('txr-run-summary')).toBeVisible()
     await expect(page.getByTestId('txr-method-picker')).toBeVisible()
     let overflow = await page.evaluate(
       () =>

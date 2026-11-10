@@ -57,7 +57,7 @@ export const QUICK_START: readonly QuickStartCard[] = [
     id: 'learn',
     eyebrow: 'Most flexible',
     title: 'Learn from my data',
-    text: 'Train the methods on your own patients with known outcomes, then predict new patients. Select as many methods as you like.',
+    text: 'Train the methods on your own patients with known outcomes, then predict new patients. One card sets what to predict; the list shows which methods can run and how long they take.',
     screen: 'Screen B — Your study',
     route: '/study',
     cta: 'Add my data',
@@ -171,7 +171,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
               {
                 kind: 'bullets',
                 items: [
-                  '"Run at a time" sets how many methods run side by side; a lower number uses less memory and CPU.',
+                  '"More settings" sets how many methods run side by side and how many CPUs; a lower number uses less memory and CPU.',
                   '"Save the trained models" keeps each trained method for later runs.',
                   'When a method finishes, its predictions appear: "See the results".',
                 ],
@@ -319,20 +319,21 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     blocks: [
       {
         kind: 'paragraph',
-        text: 'On step 4 you pick the published methods to run. Each row shows the method\'s name and publication, its group, an estimated time, and whether it can run on your file. The methods are grouped into four families: response call, response probability, static risk and dynamic risk.',
+        text: 'On step 4 you first see one line about your files — how many patients and events, which markers, and the range of draw days — then the "What do you want to predict?" card, where the four settings carry one line of plain help each. The list shows the published methods that can run on your data and file: each row is the method\'s short name, its one-sentence summary, its family and language, an estimated time, and — when the benchmark has one — its score. The methods are grouped into four families: response call, response probability, static risk and dynamic risk.',
       },
       {
         kind: 'bullets',
         items: [
-          'The estimate is the benchmark\'s measured runtime scaled to your file — about 150 patients and 4 CPUs are the reference, so more patients or fewer CPUs lengthen the estimate. The bottom bar sums your selection; the estimate lines say they are estimates.',
-          'With "Run at a time" you choose how many methods run side by side; a lower number uses less memory and CPU. "Save the trained models" keeps each trained method so you can reuse it without re-training.',
-          'A method that cannot run is never silent: its row is greyed out with the reason — a marker missing from your file, not enough draws, extra inputs your file lacks, an outcome column your file lacks, or units that do not match.',
+          'The estimate is the benchmark\'s measured runtime scaled to your file — about 150 patients and 4 CPUs are the reference, so more patients or fewer CPUs lengthen the estimate. The run bar sums your selection; the estimate lines say they are estimates. "More settings" explains this and sets the CPUs and how many methods run at once.',
+          '"Save the trained models" in the run bar keeps each trained method so you can use it later without re-training. The analyses always run with one fixed seed, so the same settings give the same numbers.',
+          'Methods that cannot run are never silent — they sit in a collapsed section at the bottom, one chip per reason: no published environment, a marker the file does not have (the chip names it), an outcome the file does not have, not enough draws per patient, or extra inputs the file lacks. Each expands into the rows with the reason and the one-line fix.',
+          'When a setting changes, the list re-checks your files and settings: the methods that still fit keep their tick, and the ones that no longer fit are unticked with a note naming how many.',
         ],
       },
       {
         kind: 'callout',
         tone: 'tip',
-        text: 'The notice under the list is part of the app: predictions are for research, not for deciding a patient\'s treatment.',
+        text: 'The notice under the list is part of the app: predictions are for research, not for deciding a patient\'s treatment. The Run button stays disabled, with "Select at least one method" beside it, until you tick a method.',
       },
     ],
   },

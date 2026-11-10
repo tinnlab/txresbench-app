@@ -11,23 +11,22 @@ import type { IntakeSnapshot } from '@/modules/txrintake'
 import { buildTxrRunInput, useTxrIntakeStore } from '@/modules/txrintake'
 import {
   countSelected,
-  formatTotalTime,
   recommendedSelection,
-  TxrListBottomBar,
   TxrMethodPicker,
   useListEstimate,
   useMethodRows,
 } from '@/modules/txrlist'
-import { Alert, Button, Skeleton } from '@ziee/kit'
+import { Alert, Button, message, Skeleton } from '@ziee/kit'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
-import { RESEARCH_NOTICE } from '../lib/format'
 import {
   droppedNotice,
   RUN_ALREADY_ACTIVE_LINE,
   RUN_METHODS_GONE_LINE,
   staleMethodIds,
 } from '../lib/runErrors'
-import { buildSlotSummaries, runSetupMissing } from '../lib/slotSummary'
+import { runSetupMissing } from '../lib/slotSummary'
+import { buildFilesSummary } from '../lib/filesSummary'
+import { formatRunBarTime } from '../lib/runBar'
 import { mergeRunSettings, type RunSettings } from '../lib/settings'
 import { buildRunRequest } from '../lib/runRequest'
 import { buildCovariates } from '../lib/covariates'
@@ -37,13 +36,15 @@ import { runningPath } from '../routes'
 import { TxrChangeFilesDialog } from '../components/TxrChangeFilesDialog'
 import { TxrRunEmptyState } from '../components/TxrRunEmptyState'
 import { TxrSettingsBlock } from '../components/TxrSettingsBlock'
-import { TxrSlotSummary } from '../components/TxrSlotSummary'
+import { TxrFilesSummary } from '../components/TxrFilesSummary'
+import { TxrRunBar } from '../components/TxrRunBar'
 import type { TxrMethodCard } from '@/modules/txrlist'
 
 /**
  * Screen E — Choose the methods and settings (qa-fixes3 ITEM-1 redesign,
- * part 1: structure, defaults, rows; ITEM-2 takes the settings summary +
- * run bar + phone):
+ * part 1: structure, defaults, rows; ITEM-2: the settings card's title and
+ * live sentence, the compact files summary, the new run bar and the phone
+ * layout):
  *
  * - the page is ONE document that scrolls (`PAGE_MAIN` is the only vertical
  *   scroll container — the old nested ~330 px list box is gone);
@@ -55,9 +56,13 @@ import type { TxrMethodCard } from '@/modules/txrlist'
  *   at most 3 per family — `recommendedSelection`); the user's own tick or
  *   a preset stops the auto-selection for the rest of the screen's life
  *   (a settings change then keeps the user's selection — ITEM-2's
- *   eligibility-preserving rule builds on this);
- * - the estimate-driven bottom bar stays the boards' shared
- *   `TxrListBottomBar` (ITEM-2 replaces it with the new run bar design);
+ *   eligibility-preserving rule: the selection keeps the still-eligible,
+ *   the newly-ineligible are unticked with the toast);
+ * - the eligibility request reflects the SETTINGS the screen shows (the
+ *   decision day + the extra-inputs switch are the verdicts' own inputs),
+ *   so a change re-checks with the picker's visible re-check line;
+ * - the sticky run bar is ITEM-2's own `TxrRunBar` (the boards' shared
+ *   `TxrListBottomBar` stays for the D/I model screens);
  * - the create path is unchanged: `buildRunRequest` → `Txr.createRun`, the
  *   202 → `runningPath`, the 404/409 resolutions, the one-create-in-flight
  *   guard (see the ITEM-8 notes carried in the git history).
@@ -171,9 +176,10 @@ function diffPatch(next: RunSettings, current: RunSettings): Partial<RunSettings
 
 /** The picker's frame: the inventory-dependent hooks (the one adapter fed by
  *  the validation's inventory — a null inventory never fabricates a request
- *  object) plus the ONE-TIME recommended seeding. The joined cards are
- *  reported up so the page can count the bar's selection against the real
- *  runnable set (a stale key is never counted). */
+ *  object) plus the ONE-TIME recommended seeding and the ITEM-2
+ *  eligibility-preserving rule. The joined cards are reported up so the page
+ *  can count the bar's selection against the real runnable set (a stale key
+ *  is never counted). */
 function TxrMethodPickerFrame({
   inventory,
   selected,
@@ -195,9 +201,29 @@ function TxrMethodPickerFrame({
   // change recomputes eligibility but never overrides a human choice.
   const touched = useRef(false)
   const seeded = useRef(false)
+  // The effect below is keyed on `cards` only (the adapter's one event); the
+  // CURRENT selection is read through a ref so the prune is never stale.
+  const selectedRef = useRef(selected)
+  selectedRef.current = selected
 
   useEffect(() => {
     onCards(cards)
+    // ITEM-2: a settings change re-checks eligibility; the selection keeps
+    // the methods that still fit, and the ones that stopped being eligible
+    // are UNTICKED with the toast (the plan's words). This runs before the
+    // seed, so the first-load recommendation never fires it.
+    const disabled = new Set(cards.filter(card => card.run.disabled).map(card => card.key))
+    const current = selectedRef.current
+    const dropped = [...current].filter(key => disabled.has(key))
+    if (dropped.length > 0 && cards.length > 0) {
+      const next = new Set([...current].filter(key => !disabled.has(key)))
+      onSelectionChange(next)
+      message.warning(
+        dropped.length === 1
+          ? '1 method no longer fits these settings'
+          : `${dropped.length} methods no longer fit these settings`,
+      )
+    }
     if (touched.current || seeded.current || cards.length === 0) return
     seeded.current = true
     onSelectionChange(new Set(recommendedSelection(cards)))
@@ -219,6 +245,7 @@ function TxrMethodPickerFrame({
     <TxrMethodPicker
       cards={cards}
       loading={loading}
+      refreshing={loading}
       error={error}
       onRetry={refetch}
       selected={selected}
@@ -276,6 +303,35 @@ export function ChooseMethodsPage() {
   }, [runConfig.engine])
 
   const inventory = validation?.inventory ?? null
+  // ITEM-2 (a): the ONE compact summary (the line + marker names + the
+  // Details list) — the builder's facts are the store's own (DEC-13).
+  const filesSummary = useMemo(
+    () =>
+      buildFilesSummary({
+        mode,
+        patients,
+        measurements,
+        predictMeasurements,
+        validation,
+      }),
+    [mode, patients, measurements, predictMeasurements, validation],
+  )
+  // ITEM-2 (b): the eligibility request reflects the SETTINGS the screen
+  // shows — the decision day and the extra-inputs switch are the two
+  // settings the verdicts read (the wire's own fields), so a change here
+  // changes the inventory's content key and the adapter refetches (the
+  // visible re-check state) while the picker keeps the last cards.
+  const settingsInventory = useMemo(
+    () =>
+      inventory === null
+        ? null
+        : {
+            ...inventory,
+            decision_day: settings.decision_day,
+            covariates: settings.covariates ? inventory.covariates : [],
+          },
+    [inventory, settings.decision_day, settings.covariates],
+  )
   const [cards, setCards] = useState<TxrMethodCard[]>([])
   const estimate = useListEstimate([...selected], {
     patients: inventory?.patients ?? 0,
@@ -350,7 +406,7 @@ export function ChooseMethodsPage() {
   const missing = runSetupMissing({ mode, patients, measurements, predictMeasurements })
   if (missing !== null) {
     return (
-      <main data-testid="txr-run" style={PAGE_OUTER}>
+      <main data-testid="txr-run" className="txr-run-page" style={PAGE_OUTER}>
         <div style={PAGE_MAIN}>
           <div style={STEP_LINE}>Step 4 of 4</div>
           <h1 style={TITLE}>Choose the methods and settings</h1>
@@ -361,7 +417,7 @@ export function ChooseMethodsPage() {
   }
 
   return (
-    <main data-testid="txr-run" style={PAGE_OUTER}>
+    <main data-testid="txr-run" className="txr-run-page" style={PAGE_OUTER}>
       <div style={PAGE_MAIN}>
         <div style={STEP_LINE}>Step 4 of 4</div>
         <h1 style={TITLE}>Choose the methods and settings</h1>
@@ -370,8 +426,10 @@ export function ChooseMethodsPage() {
           each learns from your {inventory !== null ? inventory.patients : 0}{' '}
           patients, then predicts.
         </p>
-        <TxrSlotSummary
-          slots={buildSlotSummaries({ mode, patients, measurements, predictMeasurements, validation })}
+        <TxrFilesSummary
+          line={filesSummary.line}
+          markerNames={filesSummary.markerNames}
+          details={filesSummary.details}
           onChangeFiles={() => setChangeOpen(true)}
         />
         <div ref={settingsAnchor}>
@@ -409,9 +467,9 @@ export function ChooseMethodsPage() {
         {runNotice !== null ? (
           <Alert tone="warning" data-testid="txr-run-create-notice" title={runNotice} />
         ) : null}
-        {inventory !== null ? (
+        {settingsInventory !== null ? (
           <TxrMethodPickerFrame
-            inventory={inventory}
+            inventory={settingsInventory}
             selected={selected}
             onSelectionChange={setSelected}
             onCards={setCards}
@@ -425,23 +483,18 @@ export function ChooseMethodsPage() {
         )}
       </div>
       {inventory !== null ? (
-        <TxrListBottomBar
-          itemLabel="method"
+        <TxrRunBar
           selectedCount={countSelected(selected, cards)}
-          totalTimeText={formatTotalTime(estimate.scheduleSeconds)}
-          atATime={{
-            value: settings.at_a_time,
-            onChange: value => change({ ...settings, at_a_time: value }),
-          }}
+          timeText={formatRunBarTime(estimate.scheduleSeconds, settings.at_a_time, settings.cpus)}
+          atATime={settings.at_a_time}
           saveModels={{
             checked: settings.save_models,
             onChange: value => change({ ...settings, save_models: value }),
           }}
-          notice={RESEARCH_NOTICE}
-          onRun={(opts) => {
+          onRun={opts => {
             // The bar reports the OPTIONS; the keys are the selection minus
-            // the cards this page can see are disabled (the shared rule set
-            // the TxrSelectList computes internally on the D/I screens).
+            // the cards this page can see are disabled (the rule set the
+            // shared selection helpers compute on the D/I screens).
             const disabled = new Set(cards.filter(card => card.run.disabled).map(card => card.key))
             const keys = [...selected].filter(key => !disabled.has(key))
             void createRun(keys, opts)
