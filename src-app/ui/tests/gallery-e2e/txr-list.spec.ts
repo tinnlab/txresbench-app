@@ -108,14 +108,17 @@ test.describe('txr-list-e — the redesigned method picker (TEST-UL-12, qa-fixes
     ]) {
       expect(row, `row direct-on must carry ${needle!}`).toContain(needle!)
     }
-    // The id is the monospace byte, not a theme font.
+    // The id is the monospace byte, not a theme font. The redesigned row
+    // renders the id in a `<span>` (the same line as the title) — the scan
+    // matches any element, span or div, so a later markup change does not
+    // mute the pin.
     const nameFont = await page
       .getByTestId('txr-method-card-direct-on')
       .evaluate(el => {
-        const div = Array.from(el.querySelectorAll('div')).find(d =>
+        const mono = Array.from(el.querySelectorAll('*')).find(d =>
           getComputedStyle(d).fontFamily.includes('Source Code Pro'),
         )
-        return div === undefined ? null : getComputedStyle(div).fontFamily
+        return mono === undefined ? null : getComputedStyle(mono).fontFamily
       })
     expect(nameFont).toContain('Source Code Pro')
 
@@ -131,7 +134,11 @@ test.describe('txr-list-e — the redesigned method picker (TEST-UL-12, qa-fixes
         els
           .map(el => el.getAttribute('data-testid'))
           .filter(
-            t => t !== null && !t.includes('header') && !t.includes('-select-all'),
+            t =>
+              t !== null &&
+              !t.includes('header') &&
+              !t.includes('-select-all') &&
+              !t.includes('-more'),
           ),
       )
     expect(sectionOrder).toEqual([
