@@ -377,6 +377,12 @@ describe('txrhelp module (TEST-HELP-4)', () => {
     const sanctionedTests = new Set([
       'src-app/ui/tests/gallery-e2e/txr-help.spec.ts',
       'src-app/ui/tests/gallery-e2e/txr-run.spec.ts',
+      // The qa-fixes3 ITEM-1 spec (its own DRIFT-1): the measured browser
+      // tier of the redesign — the one-scroll-document, the under-1,500 px
+      // page, the no-horizontal-overflow sweep and the resolved-colour
+      // contrast floor in both themes (the E-story assertions ride the
+      // sanctioned txr-run / txr-list specs).
+      'src-app/ui/tests/gallery-e2e/txr-method-picker.spec.ts',
       'src-app/ui/tests/e2e/txrrun/run.spec.ts',
       'src-app/ui/tests/gallery-e2e/txr-results.spec.ts',
       'src-app/ui/tests/e2e/txr-results/results.spec.ts',
