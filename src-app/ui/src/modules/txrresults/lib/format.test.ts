@@ -31,6 +31,7 @@ import {
   SHARED_TOP_NONE,
   SHARED_TOP_TAIL,
   compareCardTitle,
+  formatChanceMissingNote,
   formatConstantNote,
   formatCounts,
   formatCoverage,
@@ -311,6 +312,34 @@ describe('qa-fixes ITEM-4 — the names, legend and plain-voice notes (RES-03/04
     )
     expect(formatConstantNote([{ constantValue: null }, { constantValue: null }])).toBeNull()
     expect(formatConstantNote([])).toBeNull()
+  })
+
+  it('says plainly when a finished method has no chance column (qa-fixes2 R2-10 — the "6 of 6" header vs "All 5" table)', () => {
+    const finished = [{ methodId: 'ctdna-clearance', label: 'ctdna-clearance' }]
+    const five = ['cfmedip-ctdna-clearance-three-group', 'cox-baseline-delta', 'ctdna-anytime-detectability', 'ctdna-week4-rise-or-emergence', 'landmark-cox-current'].map(id => ({ methodId: id }))
+    expect(
+      formatChanceMissingNote(
+        [...finished, ...five.map(m => ({ methodId: m.methodId, label: m.methodId }))],
+        five,
+      ),
+    ).toBe(
+      'Showing the 5 of 6 finished methods that give chances; ctdna-clearance finished without a recorded chance column and is not shown.',
+    )
+    // Every finished method carries a column → no note.
+    expect(formatChanceMissingNote(five.map(m => ({ methodId: m.methodId, label: m.methodId })), five)).toBeNull()
+    // Several missing methods read the plural.
+    expect(
+      formatChanceMissingNote(
+        [
+          { methodId: 'a', label: 'a' },
+          { methodId: 'b', label: 'b' },
+          { methodId: 'c', label: 'c' },
+        ],
+        [{ methodId: 'c' }],
+      ),
+    ).toBe(
+      'Showing the 1 of 3 finished methods that give chances; a, b finished without a recorded chance column and are not shown.',
+    )
   })
 
   it('formats the coverage line (RES-11) and the prob-source sentence (RES-11/05)', () => {

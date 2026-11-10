@@ -262,6 +262,12 @@ describe('txrresults module (TEST-UR-13)', () => {
     // validate.rs — the board's "N progressions or deaths" is the EVENTS
     // count, never with_primary_outcome; F1) and the A04 "no unit-family
     // agreement" wording reads plainly (units.rs again, F5e).
+    // The qa-fixes2 ITEM-6 server half (its DRIFT-1): the R2-3 measured-time
+    // calibration — the timing-samples migration + the repository
+    // record/read, the method_catalogue calibration module, and the
+    // estimate/eligibility/routes/orchestrator calibration wiring (the plan's
+    // own "server side" wording), plus the method_catalogue module
+    // registration.
     expect(
       touched.filter(
         p =>
@@ -270,7 +276,12 @@ describe('txrresults module (TEST-UR-13)', () => {
           p !== 'src-app/server/src/modules/method_catalogue/eligibility.rs' &&
           p !== 'src-app/server/src/modules/method_catalogue/estimate.rs' &&
           p !== 'src-app/server/src/modules/method_catalogue/routes.rs' &&
+          p !== 'src-app/server/src/modules/method_catalogue/mod.rs' &&
+          p !== 'src-app/server/src/modules/method_catalogue/calibration.rs' &&
           p !== 'src-app/server/src/modules/execution_engine/orchestrator.rs' &&
+          p !== 'src-app/server/src/modules/execution_engine/repository.rs' &&
+          p !==
+            'src-app/server/src/modules/execution_engine/migrations/202610260011_txr_timing_samples.sql' &&
           p !== 'src-app/server/src/modules/model_store/types.rs' &&
           p !== 'src-app/server/src/modules/pretrained_catalogue/types.rs' &&
           p !== 'src-app/server/tests/method_catalogue/api_test.rs' &&

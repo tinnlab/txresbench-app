@@ -103,10 +103,24 @@ const TITLE_WORD: Record<TxrRunStatus, string> = {
  * The board's F title with the count from the run's rows ("Running 6
  * methods"; one method reads singular — the board's own title words) and
  * the status word (RP-1; `null` status = the board's running words).
+ *
+ * qa-fixes2 R2-1: a TERMINAL run's title counts what actually happened,
+ * not what was queued — "Finished 4 of 6 methods" (a run with 6 rows of
+ * which 4 finished, 1 stopped, 1 skipped) never reads "Finished 6
+ * methods" while its table shows 4 done rows; the same shape carries the
+ * failed/stopped words. `finished` is the terminal-state count (null
+ * while the run is live or when the caller has nothing more precise).
  */
-export function formatRunTitle(count: number, status: TxrRunStatus | null = null): string {
+export function formatRunTitle(
+  total: number,
+  status: TxrRunStatus | null = null,
+  finished: number | null = null,
+): string {
   const word = TITLE_WORD[status ?? 'running']
-  return `${word} ${count} ${count === 1 ? 'method' : 'methods'}`
+  if (finished !== null && (status === 'finished' || status === 'failed' || status === 'stopped')) {
+    return `${word} ${finished} of ${total} ${total === 1 ? 'method' : 'methods'}`
+  }
+  return `${word} ${total} ${total === 1 ? 'method' : 'methods'}`
 }
 
 export interface TxrRunHeaderProps {
@@ -114,8 +128,13 @@ export interface TxrRunHeaderProps {
   title: string
   /** "about N minutes left" (or null — the run has no estimate; omit the segment). */
   timeLeft: string | null
-  /** "M min S s" (or null — no elapsed fact yet; omit the segment). */
+  /** The elapsed segment, PRECOMPOSED — "1 min 40 s elapsed" (live) or
+   *  "took 1 min 40 s" (a terminal run, qa-fixes2 R2-1 — the header joins
+   *  segments, it never words a fact). */
   elapsed: string | null
+  /** The estimate's honesty word ("measured estimate" / "rough estimate";
+   *  null — no quality fact; omit the segment). */
+  estimateWord: string | null
   /** The run's at-a-time value (null — the run carries none; omit the line). */
   atATime: number | null
   /** The detected CPU count (null — omit the "on M CPUs" segment). */
@@ -133,6 +152,7 @@ export function TxrRunHeader({
   title,
   timeLeft,
   elapsed,
+  estimateWord,
   atATime,
   cpus,
   predictionsReady,
@@ -142,8 +162,10 @@ export function TxrRunHeader({
   // The board's time line ("about N minutes left · M min S s elapsed"): each
   // segment stands alone when the other fact is missing; no segment renders
   // when neither fact exists (never a fabricated zero or a bare separator).
+  // The estimate's honesty word (qa-fixes2 R2-3) rides at the END so the
+  // board's two leading segments keep their exact bytes.
   const timeLine =
-    [timeLeft, elapsed === null ? null : `${elapsed} elapsed`]
+    [timeLeft, elapsed, estimateWord]
       .filter((part): part is string => part !== null)
       .join(' · ') || null
   const concurrency =

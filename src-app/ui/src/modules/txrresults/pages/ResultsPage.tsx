@@ -16,7 +16,7 @@ import { TxrOutcomeTabs } from '../components/TxrOutcomeTabs'
 import { TxrMethodFilterBar } from '../components/TxrMethodFilterBar'
 import { TxrHeatmapTable } from '../components/TxrHeatmapTable'
 import { TxrLogDialog } from '../components/TxrLogDialog'
-import { formatConstantNote, formatMixedOutcomeNote } from '../lib/format'
+import { formatChanceMissingNote, formatConstantNote, formatMixedOutcomeNote } from '../lib/format'
 
 /**
  * Screen G — the run's predictions (board `BusyResults.dc.html`): the
@@ -215,6 +215,23 @@ export function ResultsPage() {
     () => (view ? formatConstantNote(view.columns) : null),
     [view],
   )
+  // R2-10 (qa-fixes2): when a finished method has no prediction column (the
+  // engine found no recorded chance column for it), the header's true
+  // "N of M methods finished" counts more than the table shows — the note
+  // names the gap plainly ("Showing the 5 of 6 finished methods that give
+  // chances; …"), never a silently dropped column next to an "All 5" filter.
+  const chanceNote = useMemo(
+    () =>
+      run !== null && predictions !== null
+        ? formatChanceMissingNote(
+            run.methods
+              .filter(m => m.state === 'finished')
+              .map(m => ({ methodId: m.method_id, label: m.label })),
+            allColumns,
+          )
+        : null,
+    [run, predictions, allColumns],
+  )
   const mixedNote = useMemo(
     () =>
       view
@@ -351,6 +368,11 @@ export function ResultsPage() {
         />
       </div>
       <TxrHeatmapTable view={view} onShowAll={() => TxrResults.setPatientLimit(-1)} />
+      {chanceNote !== null ? (
+        <p data-testid="txr-results-chance-note" style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-text-2)' }}>
+          {chanceNote}
+        </p>
+      ) : null}
       {mixedNote !== null ? (
         <p data-testid="txr-results-mixed-note" style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-text-2)' }}>
           {mixedNote}

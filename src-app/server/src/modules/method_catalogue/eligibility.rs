@@ -90,6 +90,7 @@ use std::sync::OnceLock;
 
 use regex::Regex;
 
+use crate::modules::method_catalogue::calibration;
 use crate::modules::method_catalogue::estimate::host_cpus;
 use crate::modules::method_catalogue::types::{
     Catalogue, CovariateMode, Coverage, EligibilityRequest, EligibilityResponse,
@@ -402,9 +403,25 @@ pub fn eligibility(req: &EligibilityRequest) -> EligibilityResponse {
 /// triggers — DEC-2). Production consumers call [`eligibility`] or
 /// [`eligibility_for_runtime`], never this directly.
 pub fn eligibility_for(cat: &Catalogue, req: &EligibilityRequest) -> EligibilityResponse {
+    eligibility_for_calibrated(cat, req, &calibration::TimingCalibration::empty())
+}
+
+/// The PURE engine with the app's measured-time calibration applied
+/// (qa-fixes2 ITEM-6, R2-3): the E-screen rows' `estimated_seconds` come
+/// from the calibrated reference base ([`calibration::calibrated_estimate_seconds_for`])
+/// — the same seconds the estimate endpoint and the run's own estimate use,
+/// so the row times, the bottom bar and the running header can never drift
+/// apart. An empty calibration is byte-identical to [`eligibility_for`].
+pub fn eligibility_for_calibrated(
+    cat: &Catalogue,
+    req: &EligibilityRequest,
+    calibration: &calibration::TimingCalibration,
+) -> EligibilityResponse {
     match req {
         EligibilityRequest::Preview { preview } => preview_eligibility(cat, preview),
-        EligibilityRequest::Inventory { inventory } => inventory_eligibility(cat, inventory),
+        EligibilityRequest::Inventory { inventory } => {
+            inventory_eligibility(cat, inventory, calibration)
+        }
     }
 }
 
@@ -414,7 +431,18 @@ pub fn eligibility_for_runtime(
     cat: &Catalogue,
     req: &EligibilityRequest,
 ) -> EligibilityResponse {
-    with_runtime_env(eligibility_for(cat, req))
+    eligibility_for_runtime_calibrated(cat, req, &calibration::TimingCalibration::empty())
+}
+
+/// The runtime stage with the calibration applied (the eligibility route's
+/// seat: the handler loads the calibration snapshot and passes it in — the
+/// engine itself stays DB-free).
+pub fn eligibility_for_runtime_calibrated(
+    cat: &Catalogue,
+    req: &EligibilityRequest,
+    calibration: &calibration::TimingCalibration,
+) -> EligibilityResponse {
+    with_runtime_env(eligibility_for_calibrated(cat, req, calibration))
 }
 
 /// The RUNTIME-ENV stage (CM-1's fix): a catalogue method with no published
@@ -553,14 +581,16 @@ fn preview_eligibility(cat: &Catalogue, req: &PreviewEligibilityRequest) -> Elig
 }
 
 /// The inventory path (screens C/N/E — the consumer that holds the file posts
-/// the validated inventory).
+/// the validated inventory), with the measured-time calibration applied to
+/// the rows' `estimated_seconds`/`estimate_quality`.
 fn inventory_eligibility(
     cat: &Catalogue,
     inv: &InventoryEligibilityRequest,
+    calibration: &calibration::TimingCalibration,
 ) -> EligibilityResponse {
     let mut methods = Vec::with_capacity(cat.methods.len());
     for m in &cat.methods {
-        methods.push(inventory_method(cat, inv, m));
+        methods.push(inventory_method(cat, inv, m, calibration));
     }
     finish(methods)
 }
@@ -594,6 +624,7 @@ fn inventory_method(
     cat: &Catalogue,
     inv: &InventoryEligibilityRequest,
     m: &Method,
+    calibration: &calibration::TimingCalibration,
 ) -> MethodEligibility {
     let mut reasons: Vec<Reason> = Vec::new();
     let mut missing_markers: Vec<MissingMarker> = Vec::new();
@@ -779,9 +810,16 @@ fn inventory_method(
         min_draws,
         // The row's time is the run's time: the same effective CPU count the
         // run will use (Auto = the host's detected CPUs — CM-7's one source;
-        // the estimate endpoint's omission path resolves the same count).
-        estimated_seconds: estimate_seconds_for(m, inv.patients, host_cpus()),
-        estimate_quality: estimate_quality_for(m),
+        // the estimate endpoint's omission path resolves the same count) and
+        // the app's measured-time calibration (R2-3 — a method the app has
+        // already run estimates with its own measured per-fold seconds).
+        estimated_seconds: calibration::calibrated_estimate_seconds_for(
+            m,
+            inv.patients,
+            host_cpus(),
+            calibration,
+        ),
+        estimate_quality: calibration::calibrated_estimate_quality_for(m, calibration),
     }
 }
 

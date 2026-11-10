@@ -1,6 +1,10 @@
 //! ITEM-4 — the time-estimate engine (PROV-MC-6/7): per-method seconds via the
 //! DEC-7 shape and the run-N-at-a-time schedule total (the bottom-bar "about X
-//! minutes in total").
+//! minutes in total"). qa-fixes2 ITEM-6 (R2-3) layers the measured-time
+//! calibration on it: [`super::calibration`] provides the app's own measured
+//! per-fold seconds, and [`estimate_for_calibrated`] applies them — the
+//! formula and the LPT schedule are unchanged, only each method's reference
+//! base is the calibrated one when the app has measured the method.
 //!
 //! ## The estimate model (DEC-7)
 //!
@@ -67,7 +71,7 @@
 
 use std::fmt;
 
-use crate::modules::method_catalogue::eligibility::{estimate_quality_for, estimate_seconds_for};
+use crate::modules::method_catalogue::calibration::{self, TimingCalibration};
 use crate::modules::method_catalogue::types::{
     Catalogue, EstimateRequest, EstimateResponse, Method, MethodEstimate, DEFAULT_ESTIMATE_CPUS,
 };
@@ -157,6 +161,20 @@ pub fn estimate_for(
     cat: &Catalogue,
     req: &EstimateRequest,
 ) -> Result<EstimateResponse, EstimateError> {
+    estimate_for_calibrated(cat, req, &TimingCalibration::empty())
+}
+
+/// The pure core with the app's measured-time calibration applied
+/// (qa-fixes2 ITEM-6, R2-3): each method's seconds come from the
+/// calibrated reference base ([`calibration::calibrated_estimate_seconds_for`])
+/// and its quality reflects whether the app measured it
+/// ([`calibration::calibrated_estimate_quality_for`]). An empty calibration
+/// is byte-identical to [`estimate_for`] — the pre-calibration pins hold.
+pub fn estimate_for_calibrated(
+    cat: &Catalogue,
+    req: &EstimateRequest,
+    calibration: &TimingCalibration,
+) -> Result<EstimateResponse, EstimateError> {
     let cpus = validate_estimate_request(req)?;
     // Resolve the requested methods in order; the FIRST failure is reported
     // (deterministic: the same request always names the same problem).
@@ -178,8 +196,13 @@ pub fn estimate_for(
         .iter()
         .map(|m| MethodEstimate {
             id: m.id.clone(),
-            estimated_seconds: estimate_seconds_for(m, req.patients, cpus),
-            estimate_quality: estimate_quality_for(m),
+            estimated_seconds: calibration::calibrated_estimate_seconds_for(
+                m,
+                req.patients,
+                cpus,
+                calibration,
+            ),
+            estimate_quality: calibration::calibrated_estimate_quality_for(m, calibration),
         })
         .collect();
     let seconds: Vec<f64> = per_method.iter().map(|m| m.estimated_seconds).collect();
@@ -232,6 +255,17 @@ pub fn estimate_for_runtime(
     cat: &Catalogue,
     req: &EstimateRequest,
 ) -> Result<EstimateResponse, EstimateError> {
+    estimate_for_runtime_calibrated(cat, req, &TimingCalibration::empty())
+}
+
+/// The runtime stage with the app's measured-time calibration applied (the
+/// estimate routes' seat: the calibration snapshot is loaded by the handler
+/// and passed in — the engine itself stays DB-free).
+pub fn estimate_for_runtime_calibrated(
+    cat: &Catalogue,
+    req: &EstimateRequest,
+    calibration: &TimingCalibration,
+) -> Result<EstimateResponse, EstimateError> {
     // Structural validation first (see the shared validator), then name the
     // REAL method problem, in request order (the pure core's own
     // first-failure-wins convention): an id the catalogue does not know is
@@ -250,7 +284,7 @@ pub fn estimate_for_runtime(
             });
         }
     }
-    estimate_for(cat, req)
+    estimate_for_calibrated(cat, req, calibration)
 }
 
 /// The greedy LPT makespan: per-method seconds sorted descending, each placed

@@ -415,6 +415,29 @@ export function formatConstantNote(
 }
 
 /**
+ * The missing-chance note (qa-fixes2 R2-10): the table is built from the
+ * engine's prediction columns, and a finished method with no recorded
+ * chance column is absent from them — the header's "N of M methods
+ * finished" (a true run fact) then counts more than the table shows.
+ * The note is the report's option A ("say plainly"): "Showing the 5 of 6
+ * finished methods that give chances; ctdna-clearance finished without a
+ * recorded chance column and is not shown." Null when every finished
+ * method carries a column.
+ */
+export function formatChanceMissingNote(
+  finished: ReadonlyArray<{ methodId: string; label: string }>,
+  columns: ReadonlyArray<{ methodId: string }>,
+): string | null {
+  const withColumn = new Set(columns.map(c => c.methodId))
+  const missing = finished.filter(m => !withColumn.has(m.methodId))
+  if (missing.length === 0) return null
+  const names = missing.map(m => m.label || m.methodId).join(', ')
+  const remaining = finished.length - missing.length
+  const verb = missing.length === 1 ? 'is' : 'are'
+  return `Showing the ${remaining} of ${finished.length} finished methods that give chances; ${names} finished without a recorded chance column and ${verb} not shown.`
+}
+
+/**
  * The H method-facts card's coverage line (qa-fixes RES-11): "Scored for 68
  * of 94 patients" — the coverage record counts null when the column carries
  * none.

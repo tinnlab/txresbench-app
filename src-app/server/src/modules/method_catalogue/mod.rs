@@ -16,10 +16,16 @@
 //!   [`catalogue::marker_vocabulary`], plus the matching/estimate engine
 //!   functions ([`eligibility`] — the data.py rule port + the eligibility
 //!   engine, ITEM-3; [`estimate`] — the time-estimate engine, ITEM-4);
+//! - the measured-time calibration [`calibration`] (qa-fixes2 ITEM-6,
+//!   R2-3): the estimate engine scales its per-fold bases with THIS app's
+//!   own measured durations, loaded by the consumers as a pure snapshot —
+//!   the engine itself stays DB-free; the calibration is an input, like the
+//!   catalogue;
 //! - the typed request/response contract [`types`] (PROV-MC-1..6), which the
 //!   five HTTP endpoints (method list, method detail, marker vocabulary,
 //!   eligibility, estimate) are layered on in this module's `routes` submodule.
 
+pub mod calibration;
 pub mod catalogue;
 pub mod eligibility;
 pub mod estimate;

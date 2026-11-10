@@ -2755,9 +2755,86 @@ pub async fn set_at_a_time_run(
         drive.set_at_a_time(at_a_time);
     }
     repo.update_run_at_a_time(run_id, at_a_time).await?;
+    // qa-fixes2 ITEM-6 (R2-2): the lane change REPLACES the run's stored
+    // estimate — same create-time inputs (the run's queued method set, its
+    // patient count and CPU count), the new lane count, the same measured-
+    // time calibration — so the F header's time-left follows the control
+    // instead of keeping the create-time schedule. A recompute failure
+    // leaves the old estimate (a display fact, never a run error).
+    recompute_run_estimate(&repo, &row, at_a_time).await;
     repo.get_run_summary(run_id)
         .await?
         .ok_or_else(|| AppError::internal_error("run row vanished after lane change"))
+}
+
+/// The lane-change estimate recompute: the run's stored estimate is replaced
+/// with the schedule at the new lane count (the same estimate-model
+/// semantics as create — the F header keeps subtracting the elapsed from
+/// it). The calibration snapshot applies like at create, so a lane change
+/// also picks up any measurement recorded since the run started.
+async fn recompute_run_estimate(
+    repo: &TxrRepository,
+    row: &RunRow,
+    at_a_time: u32,
+) {
+    let cpus = row.cpus.map(|c| c.max(1) as u32).unwrap_or_else(crate::modules::method_catalogue::estimate::host_cpus);
+    let Ok(input_summary) = serde_json::from_value::<super::types::TxrRunInputSummary>(row.input_summary.clone()) else {
+        tracing::warn!(run_id = %row.id, "execution engine: lane-change estimate skipped — unreadable input summary");
+        return;
+    };
+    let Some(patients) = input_summary.patients else {
+        return; // no cohort fact — nothing to scale (same as create-time None)
+    };
+    let Ok(method_rows) = repo.methods_for_run(row.id).await else {
+        tracing::warn!(run_id = %row.id, "execution engine: lane-change estimate skipped — unreadable rows");
+        return;
+    };
+    // The create-time method set: the queued (not `cannot_run`) plans. The
+    // run's terminal rows stay in the set — the estimate model is the whole
+    // schedule at this lane count, and the header subtracts the elapsed.
+    let method_ids: Vec<String> = method_rows
+        .iter()
+        .filter(|m| !matches!(m.state(), Ok(super::types::TxrMethodState::CannotRun)))
+        .map(|m| m.method_id.clone())
+        .collect();
+    if method_ids.is_empty() {
+        return;
+    }
+    let calibration = load_timing_calibration(repo).await;
+    let req = EstimateRequest {
+        method_ids,
+        patients,
+        cpus: Some(cpus),
+        at_a_time: at_a_time.max(1),
+    };
+    let resp = match estimate::estimate_for_runtime_calibrated(
+        crate::modules::method_catalogue::catalogue::catalogue(),
+        &req,
+        &calibration,
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(run_id = %row.id, error = %e, "execution engine: lane-change estimate failed");
+            return;
+        }
+    };
+    let quality = resp.methods.iter().fold(TimingQuality::Measured, |q, m| {
+        if q == TimingQuality::Measured && m.estimate_quality == TimingQuality::Estimate {
+            TimingQuality::Estimate
+        } else {
+            q
+        }
+    });
+    if let Err(e) = repo
+        .update_run_estimate(row.id, &super::types::TxrRunEstimate {
+            total_seconds: resp.total_seconds,
+            schedule_seconds: resp.schedule_seconds,
+            estimate_quality: quality,
+        })
+        .await
+    {
+        tracing::warn!(run_id = %row.id, error = %e, "execution engine: lane-change estimate store failed");
+    }
 }
 
 async fn start_run_inner(
@@ -2810,7 +2887,10 @@ async fn start_run_inner(
     // store): the F header's "about 7 minutes left" is a create-time fact —
     // computed once here, never re-derived (the estimate provider's response
     // shape; a compute failure is logged and stays NULL, never a run error).
-    let estimate = compute_estimate(&req, &prepared, cpus);
+    // The measured-time calibration snapshot is loaded per create (R2-3) —
+    // fail-open, an empty calibration is the uncalibrated engine.
+    let calibration = load_timing_calibration(&repo).await;
+    let estimate = compute_estimate(&req, &prepared, cpus, &calibration);
 
     // The row is persisted in `preparing` (the first visible state — a 202
     // reader never sees a run that is not there; `creating` is the instant
@@ -2966,17 +3046,37 @@ fn selected_count(req: &CreateRunRequest) -> usize {
     }
 }
 
+/// The measured-time calibration snapshot (qa-fixes2 ITEM-6, R2-3): the
+/// estimate's per-method bases come from THIS app's recorded durations. The
+/// load fails OPEN — the estimate is a display fact, never a run error; an
+/// empty calibration is byte-identical to the uncalibrated engine.
+async fn load_timing_calibration(
+    repo: &TxrRepository,
+) -> crate::modules::method_catalogue::calibration::TimingCalibration {
+    match repo.timing_samples().await {
+        Ok(samples) => crate::modules::method_catalogue::calibration::TimingCalibration::from_samples(&samples),
+        Err(e) => {
+            tracing::warn!(error = %e, "execution engine: timing calibration read failed; estimating uncalibrated");
+            crate::modules::method_catalogue::calibration::TimingCalibration::empty()
+        }
+    }
+}
+
 /// The create-time estimate facts (CONS-EE-9b's "the engine stores it on the
 /// run" — the F header's "about 7 minutes left"): the ITEM-4 provider over the
 /// run's QUEUED (not `cannot_run`) plans, the run's patient count, and the
-/// run's own cpus/at_a_time. A provider failure or an empty queued set is
-/// logged and yields `None` — the estimate is a display fact, NEVER a run
-/// error (DRIFT-1 ITEM-9 #6: stored at create, not finalize — the header
-/// needs it while the run is still running).
+/// run's own cpus/at_a_time — with the app's measured-time calibration
+/// applied (qa-fixes2 ITEM-6, R2-3: the estimate was 2-7 times too high; a
+/// method the app has already measured estimates with its own median per-fold
+/// seconds). A provider failure or an empty queued set is logged and yields
+/// `None` — the estimate is a display fact, NEVER a run error (DRIFT-1
+/// ITEM-9 #6: stored at create, not finalize — the header needs it while the
+/// run is still running).
 fn compute_estimate(
     req: &CreateRunRequest,
     prepared: &PreparedRun,
     cpus: u32,
+    calibration: &crate::modules::method_catalogue::calibration::TimingCalibration,
 ) -> Option<TxrRunEstimate> {
     // Reuse plans carry model_ids as their method_id, but the estimate engine
     // resolves CATALOGUE ids — the plan's `label` is the catalogue method id
@@ -2992,12 +3092,16 @@ fn compute_estimate(
         super::types::TxrRunMode::Reuse => prepared.predict.as_ref()?.patients.len() as u32,
     };
     let at_a_time = req.config.at_a_time.max(1);
-    let resp = match estimate::estimate(&EstimateRequest {
-        method_ids,
-        patients,
-        cpus: Some(cpus),
-        at_a_time,
-    }) {
+    let resp = match estimate::estimate_for_runtime_calibrated(
+        crate::modules::method_catalogue::catalogue::catalogue(),
+        &EstimateRequest {
+            method_ids,
+            patients,
+            cpus: Some(cpus),
+            at_a_time,
+        },
+        calibration,
+    ) {
         Ok(r) => r,
         Err(e) => {
             tracing::warn!(error = %e, "execution engine: run estimate failed");
@@ -3907,6 +4011,25 @@ async fn run_method_via_lanes(drive: Arc<RunDrive>, prepared: Arc<PreparedRun>, 
             let elapsed = started
                 .map(|s| (Utc::now() - s).num_seconds().max(0) as u64)
                 .unwrap_or(0);
+            // qa-fixes2 ITEM-6 (R2-3): a finished TRAIN-mode method records
+            // its measured seconds for the estimate calibration — the next
+            // run's per-method estimate uses this app's own median. A reuse
+            // run measures the predict half alone (no fit) and is excluded;
+            // a record write failure is a warn, never a method failure (the
+            // calibration is a display fact).
+            if outcome.state == TxrMethodState::Finished && prepared.train.is_some() {
+                if let Some(ms) = outcome.duration_ms {
+                    let sample = crate::modules::method_catalogue::calibration::TimingSample {
+                        method_id: method_id.clone(),
+                        measured_ms: ms,
+                        patients: prepared.train.as_ref().map(|t| t.patients.len() as u32).unwrap_or(0),
+                        cpus: drive.cpus,
+                    };
+                    if let Err(e) = drive.repo.record_timing_sample(&sample, drive.run_id).await {
+                        tracing::warn!(%method_id, error = %e, "execution engine: timing sample record failed");
+                    }
+                }
+            }
             let patch = MethodPatch {
                 state: Some(outcome.state),
                 reason: outcome.reason.clone(),
@@ -4056,16 +4179,24 @@ async fn ensure_method_env(
             ),
         )
         .await;
-    let patch = MethodPatch {
-        state: Some(TxrMethodState::Downloading),
+    // qa-fixes2 ITEM-6 (R2-4): the downloading state is a fact about a
+    // FETCH, not about the env phase — a cache-hit phase (the layer is
+    // already verified; `bytes_downloaded` stays 0) must not render a
+    // "downloading" row and count it in the strip. The row's START still
+    // marks the env phase's beginning (`started_at` — the Time column's
+    // live-elapsed anchor), and the state patch is deferred until the
+    // 500 ms poll sees bytes flowing (or a download in flight); the row
+    // stays `waiting` (its pre-lane state — a cache hit turns `running` as
+    // before).
+    let start_patch = MethodPatch {
         phase: Some(TxrPhase::Env),
         started_at: Some(Utc::now()),
         ..Default::default()
     };
-    if let Err(e) = drive.patch(&plan.method_id, patch).await {
-        tracing::warn!(method_id = %plan.method_id, error = %e, "execution engine: downloading patch failed");
+    if let Err(e) = drive.patch(&plan.method_id, start_patch).await {
+        tracing::warn!(method_id = %plan.method_id, error = %e, "execution engine: env start patch failed");
     }
-
+    let mut downloading_patched = false;
     let env_ensure = drive.env.clone();
     let env_poll = drive.env.clone();
     let base_r = base.clone();
@@ -4102,6 +4233,22 @@ async fn ensure_method_env(
             }
             _ = tokio::time::sleep(ENV_POLL_INTERVAL) => {
                 let st = env_poll.status(&layer_id);
+                // The deferred downloading patch (see above): only a real
+                // fetch counts. The row's `phase` follows the state; the
+                // progress frames carry the env phase either way.
+                if !downloading_patched
+                    && (st.bytes_downloaded > 0
+                        || st.state == crate::modules::sandbox::method_env::MethodEnvState::Downloading)
+                {
+                    downloading_patched = true;
+                    let patch = MethodPatch {
+                        state: Some(TxrMethodState::Downloading),
+                        ..Default::default()
+                    };
+                    if let Err(e) = drive.patch(&plan.method_id, patch).await {
+                        tracing::warn!(method_id = %plan.method_id, error = %e, "execution engine: downloading patch failed");
+                    }
+                }
                 if st.bytes_downloaded != last_bytes || st.state != last_state {
                     let changed = st.bytes_downloaded.saturating_sub(last_bytes);
                     last_bytes = st.bytes_downloaded;
@@ -5223,6 +5370,32 @@ mod tests {
             Some(entry.size_bytes as i64),
             "the manifest size is the denominator"
         );
+    }
+
+    #[tokio::test]
+    async fn a_finished_train_method_records_its_timing_sample() {
+        // qa-fixes2 ITEM-6 (R2-3): the estimate calibration memory — a
+        // finished train-mode method's duration + the run's patient count and
+        // CPU count land in `txr_timing_samples` (a reuse run never records:
+        // it predicts alone and would skew the per-fold base).
+        let _g = rootfs::scoped_data_root(test_data_dir("timing-sample"));
+        let pool = merged_pool().await;
+        let runtime = Arc::new(RunRuntime::new());
+        let env = Arc::new(FakeEnv::new(Duration::from_secs(5)));
+        let executor = Arc::new(FakeExecutor::new(Duration::from_millis(30)));
+        let req = run_request(&["landmark-cox-current"], 1, true);
+        let summary = start_run(pool.clone(), runtime, env, executor, owner(), req)
+            .await
+            .expect("create");
+        let repo = TxrRepository::new(pool.clone());
+        let _ = wait_terminal(&repo, summary.id).await;
+        let samples = repo.timing_samples().await.expect("samples read");
+        assert_eq!(samples.len(), 1, "one finished method = one sample: {samples:?}");
+        let s = &samples[0];
+        assert_eq!(s.method_id, "landmark-cox-current");
+        assert!(s.measured_ms > 0, "the run was measured: {}", s.measured_ms);
+        assert!(s.patients > 0);
+        assert!(s.cpus >= 1);
     }
 
     #[tokio::test]

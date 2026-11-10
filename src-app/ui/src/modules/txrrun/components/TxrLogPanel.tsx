@@ -40,13 +40,14 @@
  * box; the pre scrolls inside it — RP-4's 22,590 px blank expanse is the
  * unbound layout, not the data).
  */
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { Button, message, Select, Switch } from '@ziee/kit'
 import type { TxrRunLogLine } from '@/api-client/types'
 import {
   filterLogLines,
   formatLogText,
+  isTechnicalLogNoise,
   LOG_EMPTY_ALL,
   LOG_EMPTY_METHOD,
   type TxrLogMethodRef,
@@ -172,9 +173,17 @@ export function TxrLogPanel({
   onBackfill,
 }: TxrLogPanelProps) {
   const preRef = useRef<HTMLPreElement>(null)
+  // R2-5: the setlocale / R start-up noise is HIDDEN by default — a log that
+  // opens with one warning per method hides the run's own lines. The switch
+  // is the panel's presentation preference (the lines stay in the store; the
+  // copy button copies the VIEW, so "Show technical output" on makes the
+  // paste include them too).
+  const [showTechnical, setShowTechnical] = useState(false)
 
   const filtered = filterLogLines(lines, filter)
-  const rendered = filtered.slice(-LOG_PANEL_RENDER_CAP)
+  const visible = showTechnical ? filtered : filtered.filter(l => !isTechnicalLogNoise(l))
+  const hiddenTechnical = filtered.length - visible.length
+  const rendered = visible.slice(-LOG_PANEL_RENDER_CAP)
   const text = rendered.length > 0 ? formatLogText(rendered, methods) : null
 
   // Backfill history on open and on a method switch (the store's loadLogs
@@ -239,9 +248,23 @@ export function TxrLogPanel({
       {total > 0 ? (
         <div data-testid="txr-run-log-count" style={COUNT}>
           Showing {rendered.length} of {total} lines
+          {!showTechnical && hiddenTechnical > 0 ? (
+            <span data-testid="txr-run-log-technical-count">
+              {' · '}
+              {hiddenTechnical} technical lines hidden
+            </span>
+          ) : null}
         </div>
       ) : null}
       <div data-testid="txr-run-log-controls" style={FOOTER}>
+        <Switch
+          data-testid="txr-run-log-technical"
+          aria-label="Show technical output"
+          checked={showTechnical}
+          onCheckedChange={setShowTechnical}
+        />
+        <span>Show technical output</span>
+        <span style={SPACER} />
         <Switch
           data-testid="txr-run-log-follow"
           aria-label="Follow the newest line"

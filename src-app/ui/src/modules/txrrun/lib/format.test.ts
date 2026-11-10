@@ -34,12 +34,14 @@ import {
   STATE_LABEL,
   STATE_TONE,
   bucketOf,
+  estimateQualityWord,
   formatBytes,
   formatLogLine,
   formatProgress,
   formatRowTime,
   formatSecs,
   formatTimeLeft,
+  isTechnicalLogNoise,
   methodLabelOf,
 } from './format'
 
@@ -149,9 +151,10 @@ describe('formatSecs (TEST-RUN-04)', () => {
     expect(formatSecs(112)).toBe('1 min 52 s')
   })
 
-  it('reads under a minute for any sub-minute span', () => {
-    expect(formatSecs(12)).toBe('under a minute')
-    expect(formatSecs(59)).toBe('under a minute')
+  it('reads a sub-minute span as its whole seconds (qa-fixes2 R2-2/R2-4 — "under a minute" never moved on a sub-minute run)', () => {
+    expect(formatSecs(12)).toBe('12 s')
+    expect(formatSecs(59)).toBe('59 s')
+    expect(formatSecs(3)).toBe('3 s')
   })
 
   it('reads whole minutes as the minutes only, and null/negative spans as the placeholder', () => {
@@ -264,8 +267,36 @@ describe('formatRowTime + methodLabelOf (qa-fixes RES-01 null-vs-undefined)', ()
   it('a skipped row never reads a done line (it never ran) and a stopped row reads its elapsed (RP-7)', () => {
     expect(formatRowTime(row('skipped', { duration_ms: 90_000 }))).toBe('')
     expect(formatRowTime(row('skipped', { elapsed_secs: 12 }))).toBe('')
-    expect(formatRowTime(row('stopped', { elapsed_secs: 47 }))).toBe('under a minute')
+    expect(formatRowTime(row('stopped', { elapsed_secs: 47 }))).toBe('47 s')
     expect(formatRowTime(row('stopped', { elapsed_secs: null as unknown as number }))).toBe('')
+  })
+
+  it('a running/downloading row reads its LIVE elapsed from the page clock against the row start (qa-fixes2 R2-4)', () => {
+    const start = '2026-11-06T00:00:40Z'
+    const nowMs = Date.parse('2026-11-06T00:01:30Z')
+    expect(formatRowTime(row('running', { started_at: start }), nowMs)).toBe('50 s')
+    expect(formatRowTime(row('downloading', { started_at: start }), nowMs)).toBe('50 s')
+    // No clock (or no anchor): the engine's last snapshot, or nothing.
+    expect(formatRowTime(row('running', { started_at: start }))).toBe('')
+    expect(formatRowTime(row('running', { elapsed_secs: 21 }))).toBe('21 s')
+    // A clock BEFORE the start (skew must not print a negative).
+    expect(formatRowTime(row('running', { started_at: start }), nowMs - 120_000)).toBe('')
+  })
+
+  it('hides the "0 of 0 MB" detail — nothing downloaded is no download line (qa-fixes2 R2-4)', () => {
+    expect(
+      formatProgress(
+        row('downloading', { bytes_downloaded: 0, bytes_total: 4096 }),
+        null,
+      ),
+    ).toBe('')
+    expect(formatProgress(row('downloading', { bytes_downloaded: 0 }), null)).toBe('')
+    expect(
+      formatProgress(
+        row('downloading', { bytes_downloaded: 160 * MB, bytes_total: 250 * MB }),
+        null,
+      ),
+    ).toBe('160 of 250 MB')
   })
 
   it('a null log-line method id is an engine-level line — never a "[null]" bracket', () => {
@@ -283,6 +314,33 @@ describe('formatRowTime + methodLabelOf (qa-fixes RES-01 null-vs-undefined)', ()
     expect(
       methodLabelOf({ ...engineLine, method_id: 'method-a' }, methods),
     ).toBe('method-a')
+  })
+})
+
+describe('estimateQualityWord (qa-fixes2 R2-3)', () => {
+  it('spells the estimate\'s provenance honestly, and nothing when the run has no quality fact', () => {
+    expect(estimateQualityWord('measured')).toBe('measured estimate')
+    expect(estimateQualityWord('estimate')).toBe('rough estimate')
+    expect(estimateQualityWord(null)).toBeNull()
+    expect(estimateQualityWord(undefined)).toBeNull()
+  })
+})
+
+describe('isTechnicalLogNoise (qa-fixes2 R2-5)', () => {
+  const line = (content: string): TxrRunLogLine => ({
+    seq: 1,
+    content,
+    stream: 'stderr',
+    created_at: '2026-11-06T05:00:00Z',
+  })
+
+  it('names the setlocale / R start-up lines as technical output — never the run\'s own lines', () => {
+    expect(isTechnicalLogNoise(line('/bin/bash: warning: setlocale: LC_ALL: cannot change locale (C.UTF-8)'))).toBe(true)
+    expect(isTechnicalLogNoise(line('During startup - Warning messages:'))).toBe(true)
+    expect(isTechnicalLogNoise(line('1: Setting LC_CTYPE failed, using "C"'))).toBe(true)
+    expect(isTechnicalLogNoise(line('7: Setting LC_MEASUREMENT failed'))).toBe(true)
+    expect(isTechnicalLogNoise(line('cox-baseline-delta done in 12s'))).toBe(false)
+    expect(isTechnicalLogNoise(line('fitting the model'))).toBe(false)
   })
 })
 

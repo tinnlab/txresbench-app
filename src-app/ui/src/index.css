@@ -222,10 +222,22 @@ html.dark .os-theme-dark {
   }
   .txr-run-table tr.txr-run-row td::before {
     content: attr(data-label);
-    flex: 0 0 68px;
+    flex: 0 0 76px;
     font-size: 12px;
     font-weight: 600;
     color: var(--txr-muted);
+  }
+  /* qa-fixes2 R2-9: the stacked card's cells align on ONE value column —
+     the Time cell's desktop right-alignment (and its label column vs the
+     longer "Progress") broke the read: every value starts at the same x
+     after a uniform label column, and the Action link starts at the same x
+     too (the desktop inline right-align is overridden for the stacked
+     layout only). */
+  .txr-run-table tr.txr-run-row td[data-label='Time'] {
+    text-align: left !important;
+  }
+  .txr-run-table tr.txr-run-row td[data-label='Actions'] {
+    align-items: flex-start !important;
   }
 }
 @media (min-width: 641px) {

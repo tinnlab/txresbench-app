@@ -61,11 +61,12 @@ function renderRow(
     rowError?: string | null
     onAction?: ReturnType<typeof vi.fn<(action: TxrRunRowAction) => void>>
   } = {},
+  nowMs: number | null = null,
 ) {
   const utils = render(
     <table>
       <tbody>
-        <TxrRunRow row={r} progress={p} rowError={rowError} onAction={onAction} />
+        <TxrRunRow row={r} progress={p} rowError={rowError} onAction={onAction} nowMs={nowMs} />
       </tbody>
     </table>,
   )
@@ -113,6 +114,19 @@ describe('TxrRunRow — the per-state row facts (TEST-RUN-20)', () => {
     expect(onAction).toHaveBeenCalledWith({ kind: 'stop', methodId: 'method-a' })
   })
 
+  it('reads a working row\'s LIVE elapsed from the page clock (qa-fixes2 R2-4 — the Time column was empty during the run)', () => {
+    const start = '2026-11-06T00:00:40Z'
+    const nowMs = Date.parse('2026-11-06T00:01:30Z')
+    const { rowEl } = renderRow(row('running', { started_at: start, elapsed_secs: 5 }), {}, nowMs)
+    expect(within(rowEl).getByTestId('txr-run-time-method-a').textContent).toBe('50 s')
+  })
+
+  it('a downloading row with no bytes yet reads no "0 of 0 MB" detail (qa-fixes2 R2-4)', () => {
+    const { rowEl } = renderRow(row('downloading', { bytes_downloaded: 0, bytes_total: 4096 }))
+    expect(within(rowEl).queryByTestId('txr-run-detail-method-a')).toBeNull()
+    expect(within(rowEl).getByTestId('txr-run-state-method-a').textContent).toBe('downloading')
+  })
+
   it('renders a finished row: the done-line from duration_ms, a full bar, View result', () => {
     const { rowEl, onAction } = renderRow(row('finished', { duration_ms: 112000 }))
     expect(within(rowEl).getByTestId('txr-run-state-method-a').textContent).toBe('finished')
@@ -143,8 +157,9 @@ describe('TxrRunRow — the per-state row facts (TEST-RUN-20)', () => {
       expect(within(rowEl).getByTestId('txr-run-bar-method-a').style.width).toBe(
         state === 'failed' ? '100%' : '0%',
       )
-      // The row's own elapsed, in the board's duration words (sub-minute → "under a minute").
-      expect(within(rowEl).getByTestId('txr-run-time-method-a').textContent).toBe('under a minute')
+      // The row's own elapsed, in the board's duration words (sub-minute
+      // reads its seconds — qa-fixes2 R2-4).
+      expect(within(rowEl).getByTestId('txr-run-time-method-a').textContent).toBe('5 s')
       const action = within(rowEl).getByTestId('txr-run-action-method-a')
       expect(action.textContent).toBe('Show log')
       fireEvent.click(action)
@@ -171,7 +186,7 @@ describe('TxrRunRow — the per-state row facts (TEST-RUN-20)', () => {
       // in …" on a row that never started is a lie).
       expect(
         within(rowEl).queryByTestId('txr-run-time-method-a')?.textContent ?? null,
-      ).toBe(state === 'stopped' ? 'under a minute' : null)
+      ).toBe(state === 'stopped' ? '47 s' : null)
       // The bar keeps the progress the row reached (none in this fixture —
       // never a fabricated 100 for a row that did not complete).
       expect(within(rowEl).getByTestId('txr-run-bar-method-a').style.width).toBe('0%')

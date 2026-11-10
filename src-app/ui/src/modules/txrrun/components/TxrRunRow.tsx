@@ -142,14 +142,17 @@ export interface TxrRunRowProps {
   progress: TxrRunProgressFrame | null
   /** The row's action error (a stop/skip the engine refused) — disables the action. */
   rowError: string | null
+  /** The page's wall clock — the live Time column reads it against the row's
+   *  `started_at` (R2-4; null falls back to the engine's last snapshot). */
+  nowMs?: number | null
   /** Reports the per-state action; the host executes (store calls + navigation). */
   onAction: (action: TxrRunRowAction) => void
 }
 
-export function TxrRunRow({ row, progress, rowError, onAction }: TxrRunRowProps) {
+export function TxrRunRow({ row, progress, rowError, nowMs = null, onAction }: TxrRunRowProps) {
   const action = ROW_ACTIONS[row.state]
   const detail = formatProgress(row, progress)
-  const time = formatRowTime(row)
+  const time = formatRowTime(row, nowMs)
   const bar = formatBarValue(row, progress)
   const failed = row.state === 'failed' || row.state === 'cannot_run'
   return (
@@ -185,7 +188,7 @@ export function TxrRunRow({ row, progress, rowError, onAction }: TxrRunRowProps)
       <td data-label="Time" style={TIME_LOOK}>
         {time !== '' ? <span data-testid={`txr-run-time-${row.method_id}`}>{time}</span> : null}
       </td>
-      <td style={ACTION_LOOK}>
+      <td data-label="Actions" style={ACTION_LOOK}>
         <Button
           data-testid={`txr-run-action-${row.method_id}`}
           variant="link"

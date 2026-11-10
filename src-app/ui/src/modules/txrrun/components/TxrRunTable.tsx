@@ -126,6 +126,10 @@ export interface TxrRunTableProps {
   terminal: boolean
   /** Stop all's failure line (the run-level action error). */
   actionError: string | null
+  /** The page's wall clock (null while the run has no elapsed anchor) — the
+   *  rows' live elapsed reads it against each row's `started_at` (R2-4; the
+   *  page's one-second tick re-renders the rows). */
+  nowMs?: number | null
 }
 
 export function TxrRunTable({
@@ -140,6 +144,7 @@ export function TxrRunTable({
   stopping,
   terminal,
   actionError,
+  nowMs = null,
 }: TxrRunTableProps) {
   return (
     <section data-testid="txr-run-table-section" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -179,6 +184,7 @@ export function TxrRunTable({
                   progress={perMethod[row.method_id]?.progress ?? null}
                   rowError={rowErrors[row.method_id] ?? null}
                   onAction={onAction}
+                  nowMs={nowMs}
                 />
               ))
             )}
