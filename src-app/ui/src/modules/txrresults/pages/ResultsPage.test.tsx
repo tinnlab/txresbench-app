@@ -249,6 +249,7 @@ function renderPage() {
       <Routes>
         <Route path="/analysis/:runId/results" element={<ResultsPage />} />
         <Route path="/" element={<div data-testid="test-home" />} />
+        <Route path="/history" element={<div data-testid="test-history" />} />
       </Routes>
       <LocationProbe />
     </MemoryRouter>,
@@ -398,6 +399,27 @@ describe('ResultsPage (TEST-UR-6 — store wiring, states, actions)', () => {
     expect(block.textContent).toContain('see the log for the reason')
   })
 
+
+  it('presents a FINISHED run with nothing finished as the failure state (qa-fixes2 R2-02 — the engine status is "finished", the methods all failed)', async () => {
+    const run = runFixture()
+    run.status = 'finished'
+    run.methods = run.methods.map(m => ({
+      ...m,
+      state: 'failed' as const,
+      reason: { code: 'ENV_UNREADY', detail: 'oras is not installed' },
+    }))
+    run.counts = { ...run.counts, finished: 0, failed: run.methods.length, running: 0, cannot_run: 0 }
+    api.getRun.mockResolvedValue(run)
+    api.getPredictions.mockRejectedValueOnce(httpError(409))
+    const view = await renderLoaded()
+    await waitFor(() => expect(view.getByTestId('txr-results-run-failed')).toBeTruthy())
+    const block = view.getByTestId('txr-results-run-failed')
+    expect(block.textContent).toContain('This run failed')
+    expect(block.textContent).toContain('oras is not installed')
+    // The failure state's way out (RES-02's "no link to History").
+    fireEvent.click(view.getByTestId('txr-results-failed-show-history'))
+    await waitFor(() => expect(view.getByTestId('test-history')).toBeTruthy())
+  })
   it('renders the not-found state on 404 and its New analysis CTA navigates home', async () => {
     api.getRun.mockRejectedValueOnce(httpError(404))
     const view = renderPage()

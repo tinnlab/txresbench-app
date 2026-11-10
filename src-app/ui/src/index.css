@@ -34,6 +34,15 @@
    collapses to CONTENT height — most visibly the workbench IDE (a fixed multi-pane surface), which then
    only fills its content instead of the viewport. Relaxed under `.scroll-native` (mobile native scroll). */
 @layer base {
+  html {
+    /* R2-01 (qa-fixes2): the app face at BODY level, not only on the shell
+       div. The kit's Dialog/Drawer portal their content to document.body —
+       outside the `.txr-shell` subtree that used to be the only place the
+       face was declared — so every dialog fell back to the browser's
+       DejaVu-like default. This rule feeds the whole document; the shell's
+       own inline declaration (same byte) is kept as its local truth. */
+    font-family: 'Source Sans 3', system-ui, sans-serif;
+  }
   #root {
     height: 100dvh;
     width: 100dvw;
@@ -270,7 +279,14 @@ html.dark .os-theme-dark {
   }
   .txr-models-j-table {
     display: block;
-    min-width: 0;
+    /* R2-05 (qa-fixes2): the table's own inline min-width is the board's
+     * 960 px desktop byte — a stylesheet `min-width: 0` alone lost to it,
+     * so the "stacked" phone cards were still 960 px wide inside the
+     * scroll box (the clipped "Use Export Rename Dele" was this: the
+     * actions fit ONE 960-wide row and the box scrolled instead of the
+     * cards wrapping). The `!important` beats the inline byte; on desktop
+     * the rule is not active and the 960 min stays. */
+    min-width: 0 !important;
   }
   .txr-models-j-table thead {
     display: none;
@@ -290,15 +306,26 @@ html.dark .os-theme-dark {
   .txr-models-j-table > tbody > tr td {
     display: flex;
     align-items: baseline;
+    /* qa-fixes2 R2-05: the Actions row (Use / Export / Rename / Delete) must
+     * WRAP, not clip its last button (the report's "Use Export Rename Dele"),
+     * and the subline must be able to shrink so the set name breaks instead
+     * of pushing the card past the frame. */
+    flex-wrap: wrap;
     gap: 10px;
     padding: 3px 14px;
     border-bottom: none;
+    min-width: 0;
     white-space: normal !important;
     text-align: left !important;
   }
   .txr-models-j-table > tbody > tr th {
     white-space: normal !important;
     word-break: break-word;
+  }
+  .txr-models-j-table > tbody > tr th .txr-models-j-subline {
+    min-width: 0;
+    word-break: break-word;
+    overflow-wrap: anywhere;
   }
   .txr-models-j-table > tbody > tr td::before {
     content: attr(data-label);
@@ -393,6 +420,16 @@ html.dark .os-theme-dark {
   }
   .txr-results-page aside {
     min-width: 0 !important;
+  }
+  /* qa-fixes2 R2-07: on a phone the H aside landed BELOW the 94-row table
+   * (the two-column row wraps), so the compare card a reviewer needed was
+   * under 90 rows of scroll. The aside (compare picker + card + method
+   * facts) comes FIRST at phone width. */
+  .txr-results-page .txr-h-aside {
+    order: -1 !important;
+  }
+  .txr-results-page .txr-compare-picker > button {
+    white-space: normal !important;
   }
   .txr-intake-page .txr-intake-pills > button {
     white-space: normal !important;

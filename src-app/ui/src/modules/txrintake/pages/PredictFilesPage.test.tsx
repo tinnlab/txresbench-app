@@ -412,6 +412,31 @@ describe("ITEM-6 P1/F4 — the aside's bullets and items, the pick guard", () =>
     expect(units.textContent).toContain(': add the unit column so we can check')
   })
 
+  // R2-12 (qa-fixes2): the aside's lead named "pretrained models" on the
+  // saved-models flow too — the board's byte is the pretrained path's; a
+  // reuse flow reads its own words (the two screens differ only here).
+  it('the aside lead names saved models for intent reuse (R2-12)', () => {
+    renderPredict()
+    expect(
+      screen.getByText(
+        'After you add the file we check which pretrained models can run on it. These are the draws most models use:',
+      ),
+    ).toBeTruthy()
+    cleanup()
+    store().setIntent('reuse')
+    renderPredict()
+    expect(
+      screen.queryByText(
+        'After you add the file we check which pretrained models can run on it. These are the draws most models use:',
+      ),
+    ).toBeNull()
+    expect(
+      screen.getByText(
+        'After you add the file we check which of your saved models can run on it. These are the draws most models use:',
+      ),
+    ).toBeTruthy()
+  })
+
   it('a wrong file type is refused with the plain sentence on the N card too (F4)', async () => {
     renderPredict()
     pickFile('txr-intake-file-drop-measurements', 'notes.txt', 'not a table')

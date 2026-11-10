@@ -182,6 +182,31 @@ export function statusLabel(bucket: TxrHistoryBucket): { text: string; tone: str
 }
 
 /**
+ * The bucket the K card PRESENTS (qa-fixes2 R2-02): the provider's
+ * `finished` covers any run whose scheduler ran to the end — including a
+ * run where NOTHING finished (every method failed or could not run). That
+ * run is not "Done" on the board's palette: the engine's own
+ * `predictions_ready` (= `counts.finished > 0`, TEST-EE-9) is the truth
+ * the row already carries — `can_reopen`/`can_download` — so a
+ * `finished` run with no finished method presents as `failed` (with the
+ * provider's reason, the row's `reason` already carries the first terminal
+ * method's). The wire bucket stays the provider's (DEC-4's map); this is
+ * the CONSUMER's display map — the K module's own documented seam.
+ *
+ * The filter nuance is recorded (DRIFT-1 ITEM-7): the provider's
+ * `status=` filter still selects on the engine status, so "Stopped or
+ * failed" does not include these finished-with-nothing runs — the
+ * display-vs-filter divergence is the provider's to unify.
+ */
+export function displayBucketOf(item: {
+  bucket: TxrHistoryBucket
+  can_reopen: boolean
+}): TxrHistoryBucket {
+  if (item.bucket === 'finished' && !item.can_reopen) return 'failed'
+  return item.bucket
+}
+
+/**
  * The K mode chip (the ui-list chip palette, DEC-9): a run that learned
  * reads the accent "Learned and predicted", a run that reused reads the
  * neutral "Saved model". The chip's hexes live with the component (the

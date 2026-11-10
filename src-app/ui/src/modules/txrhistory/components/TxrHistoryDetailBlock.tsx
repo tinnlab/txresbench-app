@@ -107,23 +107,21 @@ export function formatMethodDuration(secs: number | null | undefined): string | 
   return `${minutes} min`
 }
 
-/** The settings line's memory segment: bytes → the board's whole GB ("16
- *  GB", one decimal only when needed); null for an absent counter. */
-export function formatGigabytes(bytes: number | undefined | null): string | null {
-  if (bytes === undefined || bytes === null || !Number.isFinite(bytes) || bytes < 0) return null
-  const gb = Math.round((bytes / (1024 * 1024 * 1024)) * 10) / 10
-  const text = Number.isInteger(gb) ? String(gb) : gb.toFixed(1)
-  return `${text} GB`
-}
-
 /**
  * The Settings line: the board's comma sentence, each segment omitted
  * when its fact is absent (optional facts never fabricated). The absent
  * tests are `!= null` — the provider's `Option` fields serialize their
  * absent value as JSON `null`, while the generated types render them
  * optional-only (the RES-01 null-vs-undefined rule; an absent
- * `seed`/`cpus`/`memory_total_bytes` must OMIT the segment, never print
- * "seed null" / "null CPUs").
+ * `seed`/`cpus` must OMIT the segment, never print "seed null" /
+ * "null CPUs").
+ *
+ * The host-memory segment is GONE (qa-fixes2 R2-09): the record's
+ * `memory_total_bytes` is the MACHINE's RAM read at run start (DEC-12's
+ * display-only fact) — a "3 TB" settings line next to the run's own
+ * settings is a nonsense fact, and the API config carries no memory
+ * field. A run setting it never was; the board's "16 GB" example is a
+ * design byte, not a contract.
  */
 export function settingsLine(settings: TxrHistoryDetail['settings']): string {
   const segments: string[] = [
@@ -135,8 +133,6 @@ export function settingsLine(settings: TxrHistoryDetail['settings']): string {
   if (settings.cpus != null) {
     segments.push(`${settings.cpus} ${settings.cpus === 1 ? 'CPU' : 'CPUs'}`)
   }
-  const memory = formatGigabytes(settings.memory_total_bytes)
-  if (memory !== null) segments.push(memory)
   return segments.join(', ')
 }
 

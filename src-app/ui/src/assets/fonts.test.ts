@@ -87,6 +87,24 @@ describe('the local font bundle (TEST-QF-7, X1)', () => {
     expect(index).toContain('@import "./assets/txr-theme.css";')
   })
 
+  it('declares the app face at the document base, so portaled chrome inherits it (R2-01)', () => {
+    // The kit Dialog/Drawer portal their content to document.body — outside
+    // the `.txr-shell` subtree that declared the old inline face — so dialogs
+    // rendered in the browser's DejaVu-like fallback next to Source Sans
+    // pages (the qa-fixes2 R2-01 defect). The base layer must carry the same
+    // first family the shell declares (one face everywhere).
+    const index = readFileSync(join(UI, 'src', 'index.css'), 'utf8')
+    expect(index).toMatch(
+      /@layer base\s*\{[\s\S]{0,900}?font-family:\s*'Source Sans 3', system-ui, sans-serif;/,
+    )
+    // The shell's own declaration stays the same face (one truth, two sites).
+    const shell = readFileSync(
+      join(UI, 'src', 'modules', 'txrshell', 'TxrLayout.tsx'),
+      'utf8',
+    )
+    expect(shell).toContain("fontFamily: \"'Source Sans 3', system-ui, sans-serif\"")
+  })
+
   it('the build check is wired into the vite build and behaves on fixture dists', () => {
     expect(existsSync(CHECK)).toBe(true)
     const vite = readFileSync(join(UI, 'vite.config.ts'), 'utf8')

@@ -327,7 +327,10 @@ describe('txrmodels module (TEST-MOD-01)', () => {
           p !== 'src-app/server/src/modules/file_validator/mod.rs' &&
           p !== 'src-app/server/src/modules/file_validator/catalog.rs' &&
           p !== 'src-app/server/tests/file_validator/rules_test.rs' &&
-          p !== 'src-app/server/tests/model_store/api_test.rs',
+          p !== 'src-app/server/tests/model_store/api_test.rs' &&
+          // qa-fixes2 ITEM-7 (R2-04): the K row's `predicted` doc grows
+          // the distinct-patient meaning — history_store/types.rs.
+          p !== 'src-app/server/src/modules/history_store/types.rs',
       ),
     ).toEqual([])
     // TEN sanctioned exceptions (the DRIFT-1 #8 class + the `/history` +

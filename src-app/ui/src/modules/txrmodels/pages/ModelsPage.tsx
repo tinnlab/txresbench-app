@@ -490,7 +490,11 @@ export function ModelsPage() {
                       style={{ ...ROW_HEADER, borderBottom: 'none' }}
                     >
                       {model.name}
-                      {subline.length > 0 ? <div style={SUBLINE}>{subline}</div> : null}
+                      {subline.length > 0 ? (
+                        <div className="txr-models-j-subline" style={SUBLINE}>
+                          {subline}
+                        </div>
+                      ) : null}
                     </th>
                     <td data-label="Method" style={lastTd}>
                       <span style={MONO}>{model.method_id}</span>

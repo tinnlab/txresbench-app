@@ -156,6 +156,13 @@ const FOOTNOTE: CSSProperties = { fontSize: 13, color: 'var(--txr-muted)' }
 /** The not-ready state's line (no validated file — never a half list). */
 const EMPTY_LINE = 'Add the patients\u2019 measurements you want to predict first.'
 
+/** The not-ready state's note: which models this screen lists (R2-08 — the
+ *  saved-models screen and this one used to render byte-identical empty
+ *  states; the pretrained path's list is the benchmark's published
+ *  catalogue, and the note says so before the file gate). */
+const EMPTY_NOTE =
+  'The published models of the benchmark are listed here once the file checks out: each shows where it was learned and how well it transferred to other cohorts.'
+
 /** The not-ready state's CTA — the step that unlocks this one (RES-20: the
  *  old "Go to the start" landed on the landing page, not the predict-files
  *  step the flow needs next). */
@@ -640,6 +647,9 @@ export function PretrainedModelsPage() {
             }}
           >
             <p style={CHECK_LINE}>{EMPTY_LINE}</p>
+            <p data-testid="txr-models-d-empty-note" style={CHECK_LINE}>
+              {EMPTY_NOTE}
+            </p>
             <Button
               data-testid="txr-models-d-empty-cta"
               variant="outline"

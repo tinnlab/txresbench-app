@@ -653,6 +653,13 @@ describe('PretrainedModelsPage — TEST-MOD-09 (screen D)', () => {
     expect(screen.getByTestId('txr-models-d-empty').textContent).toContain(
       'Add the patients\u2019 measurements you want to predict first.',
     )
+    // R2-08: the pretrained empty state names WHICH models this screen
+    // lists — the saved-models screen and this one used to render the
+    // identical empty block, so a pretrained direct visit had no clue it
+    // was not the saved-models screen.
+    expect(screen.getByTestId('txr-models-d-empty-note').textContent).toContain(
+      'The published models of the benchmark are listed here once the file checks out',
+    )
     // RES-20: a direct visit is not ON step 4 (the flow has not reached
     // it) and counts nothing — the step line and the "…" totals are gone.
     expect(screen.queryByText('Step 4 of 4')).toBeNull()

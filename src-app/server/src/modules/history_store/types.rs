@@ -161,7 +161,8 @@ pub struct TxrHistoryItem {
     pub file_names: Vec<String>,
     /// `input_summary.patients` (train mode's "learned from N patients").
     pub learned_from: Option<u32>,
-    /// `input_summary.predict_patients` (the "predicted N" figure).
+    /// `input_summary.predict_patients` (the "predicted N" figure —
+    /// the predict side's distinct patient count, qa-fixes2 R2-04).
     pub predicted: Option<u32>,
     /// `input_summary.markers` (distinct resolved marker facts).
     pub markers: u32,

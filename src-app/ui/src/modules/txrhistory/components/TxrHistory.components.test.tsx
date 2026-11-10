@@ -30,7 +30,6 @@ import { TxrHistoryList } from './TxrHistoryList'
 import { TxrHistoryCard } from './TxrHistoryCard'
 import {
   TxrHistoryDetailBlock,
-  formatGigabytes,
   formatMethodDuration,
   madeFactsOf,
   methodRow,
@@ -439,10 +438,11 @@ describe('TxrHistoryCard (TEST-HIST-7 — the collapsed row and the expanded blo
     expect(chip.textContent).toBe('Saved model')
     expect(colorHex(chip.style.background)).toBe('var(--txr-success-soft)')
     expect(colorHex(chip.style.color)).toBe('var(--txr-success-ink)')
-    // The reuse subtitle: no method segment (the title names the model),
-    // the capital-P Predicted line + the endpoint line.
+    // The reuse subtitle: the consumed models' NAMES (R2-04 — the raw
+    // method ids were the model uuids), the capital-P Predicted line +
+    // the endpoint line.
     expect(view.getByTestId('txr-history-subtitle-run-1').textContent).toBe(
-      'Predicted 12 patients · progression, death by day 180',
+      'Model one · Predicted 12 patients · progression, death by day 180',
     )
   })
 
@@ -492,10 +492,13 @@ describe('TxrHistoryDetailBlock + the composition helpers (TEST-HIST-7 — the f
     // Your files + the copies note (copies kept).
     expect(block.textContent).toContain('patients.csv, new_measurements.csv')
     expect(block.textContent).toContain('Copies are kept with this run so it can be repeated.')
-    // Settings: the board's comma sentence from the fixture facts.
+    // Settings: the board's comma sentence from the fixture facts. The
+    // host-memory segment is gone (qa-fixes2 R2-09: the run record carries
+    // no memory setting — the old "16 GB" was the machine's RAM).
     expect(block.textContent).toContain(
-      'landmark 42, horizon 180, covariates on, seed 7, 4 CPUs, 16 GB',
+      'landmark 42, horizon 180, covariates on, seed 7, 4 CPUs',
     )
+    expect(block.textContent).not.toContain('GB')
     // Methods: "<label> <version> (<duration>)" — the compact row words.
     expect(block.textContent).toContain('method-a 1.0.0 (2 min)')
     expect(block.textContent).toContain('method-b 2.1.0 (2 min)')
@@ -590,17 +593,15 @@ describe('TxrHistoryDetailBlock + the composition helpers (TEST-HIST-7 — the f
     expect(view.getByTestId('txr-history-detail-run-1').textContent).not.toContain('GB')
   })
 
-  it('the composition helpers: durations, gigabytes, settings, method rows, made facts', () => {
+  it('the composition helpers: durations, settings, method rows, made facts', () => {
     expect(formatMethodDuration(120)).toBe('2 min')
     expect(formatMethodDuration(95)).toBe('2 min')
     expect(formatMethodDuration(45)).toBe('under a minute')
+    expect(formatMethodDuration(42)).toBe('under a minute')
     expect(formatMethodDuration(undefined)).toBeNull()
-    expect(formatGigabytes(16 * 1024 * 1024 * 1024)).toBe('16 GB')
-    expect(formatGigabytes(1.5 * 1024 * 1024 * 1024)).toBe('1.5 GB')
-    expect(formatGigabytes(undefined)).toBeNull()
     expect(
       settingsLine(detail('run-1').settings),
-    ).toBe('landmark 42, horizon 180, covariates on, seed 7, 4 CPUs, 16 GB')
+    ).toBe('landmark 42, horizon 180, covariates on, seed 7, 4 CPUs')
     expect(methodRow(detail('run-1').methods[0])).toBe('method-a 1.0.0 (2 min)')
     expect(
       methodRow({ ...detail('run-1').methods[0], elapsed_secs: undefined }),
@@ -665,7 +666,7 @@ describe('TxrHistoryDetailBlock + the composition helpers (TEST-HIST-7 — the f
       },
     }).settings
     expect(settingsLine(settings)).toBe(
-      'landmark 42, horizon 180, covariates on, seed 7, 4 CPUs, 16 GB',
+      'landmark 42, horizon 180, covariates on, seed 7, 4 CPUs',
     )
     const nullOptionals: TxrHistoryDetail['settings'] = {
       ...settings,
@@ -953,6 +954,53 @@ describe('TxrHistoryLogDialog (TEST-HIST-7 — the terminal snapshot)', () => {
   it('logTextOf joins the line contents the way a log file reads', () => {
     expect(logTextOf([logLine(1, 'a'), logLine(2, 'b')])).toBe('a\nb')
     expect(logTextOf([])).toBe('')
+  })
+
+  it('hides the start-up noise by default and reveals it behind Show technical output (R2-10)', async () => {
+    const view = render(
+      <TxrHistoryLogDialog
+        {...logProps({
+          lines: [
+            logLine(1, 'run line'),
+            { seq: 2, content: 'setlocale: LC_ALL is not a valid locale', stream: 'stderr', created_at: '2026-11-01T05:00:00Z' },
+          ],
+          total: 2,
+        })}
+      />,
+    )
+    // The noisy line is hidden; the count states the bound honestly.
+    expect(view.getByTestId('txr-history-log-lines').textContent).toBe('run line')
+    expect(view.getByTestId('txr-history-log-count').textContent).toContain('Showing 1 of 2 lines')
+    expect(view.getByTestId('txr-history-log-count').textContent).toContain(
+      '1 technical lines hidden',
+    )
+    // The switch reveals it (and the copy follows the visible view).
+    const writeText = vi.fn(() => Promise.resolve())
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    const toggle = view.getByTestId('txr-history-log-technical')
+    expect(toggle.getAttribute('aria-checked')).toBe('false')
+    fireEvent.click(toggle)
+    expect(view.getByTestId('txr-history-log-lines').textContent).toContain('setlocale')
+    fireEvent.click(view.getByTestId('txr-history-log-copy'))
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith(
+        'run line\nsetlocale: LC_ALL is not a valid locale',
+      ),
+    )
+  })
+
+  it('keeping the selected method id in the options: a select never renders empty (R2-10)', async () => {
+    // The dialog can open on a method id the presentational list does not
+    // carry — the empty option set was the report's blank dropdown.
+    const view = render(
+      <TxrHistoryLogDialog
+        {...logProps({ methods: [{ id: 'method-b', version: '2.1.0' }] })}
+        methodId="method-a"
+      />,
+    )
+    expect(view.getByTestId('txr-history-log-dialog').textContent).toContain('Log: method-a')
+    const trigger = document.querySelector<HTMLElement>('[data-testid="txr-history-log-filter"]')!
+    expect(trigger.textContent).toContain('method-a')
   })
 })
 

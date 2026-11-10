@@ -82,9 +82,9 @@ use super::repository::{produced_models, MethodRow, TxrRepository};
 use super::runtime::RunRuntime;
 use super::types::{
     CreateRunRequest, RunConfig, TxrAppConfig, TxrAtATimeRequest, TxrCoverage, TxrDeleteQuery,
-    TxrPredictionMethod, TxrPredictionsResponse, TxrProbSource, TxrRunDetail, TxrRunEvent,
-    TxrRunListQuery, TxrRunListResponse, TxrRunLogsResponse, TxrRunMethodFrame, TxrRunOutcome,
-    TxrRunPredictionFrame, TxrRunStatus, TxrRunStatusFrame, TxrRunSummary, TxrTask,
+    TxrEndpoint, TxrPredictionMethod, TxrPredictionsResponse, TxrProbSource, TxrRunDetail,
+    TxrRunEvent, TxrRunListQuery, TxrRunListResponse, TxrRunLogsResponse, TxrRunMethodFrame,
+    TxrRunOutcome, TxrRunPredictionFrame, TxrRunStatus, TxrRunStatusFrame, TxrRunSummary, TxrTask,
 };
 
 /// The module-held state the routes need beyond the framework's pool
@@ -1046,13 +1046,36 @@ fn assemble_predictions(
 /// The per-patient average over the methods' non-null values (DEC-11 — the
 /// G board's "per-patient average" column; null when no method scored the
 /// patient).
-fn average_column(patients: &[String], methods: &[TxrPredictionMethod]) -> Vec<Option<f64>> {
+///
+/// qa-fixes2 R2-06: the average covers the RUN'S OWN outcome only — the
+/// endpoint's task (the default tab's column set) — never a mixed-outcome
+/// mean (the round-1 API included the response-task column in a
+/// progression run's average, so the wire number disagreed with the
+/// screen's default tab); a no-chance column is naturally inert (its
+/// values are all null, so it never contributes to a mean — R2-03's
+/// "drop empty columns").
+fn average_column(
+    patients: &[String],
+    methods: &[TxrPredictionMethod],
+    endpoint: TxrEndpoint,
+) -> Vec<Option<f64>> {
+    let endpoint_task = |m: &TxrPredictionMethod| -> bool {
+        match (endpoint, m.task) {
+            // The run's endpoint is the default outcome tab: pfs reads the
+            // progression family, os reads the death family; a response
+            // method belongs to its own tab, never to the run average.
+            (TxrEndpoint::Pfs, TxrTask::Pfs) => true,
+            (TxrEndpoint::Os, TxrTask::Os) => true,
+            _ => false,
+        }
+    };
     patients
         .iter()
         .enumerate()
         .map(|(i, _)| {
             let vals: Vec<f64> = methods
                 .iter()
+                .filter(|m| endpoint_task(m))
                 .filter_map(|m| m.probabilities.get(i).copied().flatten())
                 .collect();
             if vals.is_empty() {
@@ -1106,7 +1129,7 @@ async fn get_predictions(
         )
         .to_api_error());
     }
-    let average = average_column(&patients, &methods);
+    let average = average_column(&patients, &methods, config.endpoint);
     Ok((
         StatusCode::OK,
         Json(TxrPredictionsResponse {
@@ -1419,7 +1442,7 @@ mod tests {
         assert_eq!(methods[1].prob_source, TxrProbSource::Recalibrated);
         // The average over non-null values: P1 = (0.9+0.2)/2, P2 none,
         // P3 = (0.5+0.4)/2.
-        let average = average_column(&patients, &methods);
+        let average = average_column(&patients, &methods, TxrEndpoint::Pfs);
         assert_eq!(average[0], Some(0.55));
         assert_eq!(average[1], None);
         assert_eq!(average[2], Some(0.45));
@@ -1431,6 +1454,36 @@ mod tests {
         assert_eq!(lines[2], "P2,,,m-a: fewer than 3 draws by day 56");
         assert_eq!(lines[3], "P3,0.500000,0.400000,");
         let _ = std::fs::remove_dir_all(&run_dir);
+    }
+
+    /// qa-fixes2 R2-06: the wire average is the RUN's endpoint average —
+    /// a mixed run's response-task column never joins the progression
+    /// mean, and a no-chance column (all-null) is inert. The pins are
+    /// the round-1 mismatch's exact shape (INS-A-002: 6-method mean incl.
+    /// the response column vs the 5-method mean the default tab shows).
+    #[test]
+    fn predictions_average_covers_the_run_endpoint_task_only() {
+        let patients = vec!["P1".to_string(), "P2".to_string()];
+        let method = |id: &str, task: TxrTask, vals: Vec<Option<f64>>| TxrPredictionMethod {
+            method_id: id.to_string(),
+            label: id.to_string(),
+            group: "g".to_string(),
+            group_label: "G".to_string(),
+            task,
+            prob_source: TxrProbSource::Native,
+            coverage: TxrCoverage { scored: 2, eligible: 2, fraction: 1.0 },
+            probabilities: vals,
+            notes: vec![None, None],
+        };
+        let methods = vec![
+            method("m1", TxrTask::Pfs, vec![Some(0.82), Some(0.93)]),
+            method("m2", TxrTask::Response, vec![Some(0.86), Some(0.80)]),
+            method("m3", TxrTask::Pfs, vec![None, None]),
+        ];
+        let average = average_column(&patients, &methods, TxrEndpoint::Pfs);
+        assert_eq!(average, vec![Some(0.82), Some(0.93)]);
+        let os_average = average_column(&patients, &methods, TxrEndpoint::Os);
+        assert_eq!(os_average, vec![None, None]);
     }
 
     #[test]

@@ -472,8 +472,12 @@ export function PredictFilesPage() {
       <aside style={ASIDE} data-testid="txr-intake-aside">
         <div style={ASIDE_EYEBROW}>What the models look for</div>
         <p style={ASIDE_PARA}>
-          After you add the file we check which pretrained models can run on it. These are the
-          draws most models use:
+          {/* R2-12: the aside's lead must name the path the Continue takes —
+              the board's "pretrained models" byte is the pretrained path's;
+              a saved-model flow reads its own words. */}
+          {intent === 'reuse'
+            ? 'After you add the file we check which of your saved models can run on it. These are the draws most models use:'
+            : 'After you add the file we check which pretrained models can run on it. These are the draws most models use:'}
         </p>
         <ul style={ASIDE_LIST}>
           <li style={ASIDE_ITEM}>

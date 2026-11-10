@@ -561,6 +561,8 @@ pub struct TxrRunCounts {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct TxrRunInputSummary {
     pub patients: Option<u32>,
+    /// The predict side's DISTINCT patient count (qa-fixes2 R2-04 — the
+    /// validator's measurements summary; never the row count).
     pub predict_patients: Option<u32>,
     pub markers: u32,
     pub events: Option<u32>,

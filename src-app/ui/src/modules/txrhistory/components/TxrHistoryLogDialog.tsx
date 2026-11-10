@@ -17,10 +17,11 @@
  * interactions — the TxrLogPanel ownership precedent); the copy is the
  * dialog's own pure client behaviour (the sibling's audit line).
  */
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
-import { Button, Dialog, message, Select } from '@ziee/kit'
+import { Button, Dialog, message, Select, Switch } from '@ziee/kit'
 import type { TxrRunLogLine } from '@/api-client/types'
+import { isTechnicalLogNoise } from '@/modules/txrrun/lib/format'
 
 const MONO_FONT = "'Source Code Pro', ui-monospace, monospace"
 
@@ -52,6 +53,9 @@ const RUN_TITLE = 'Run log'
 
 /** The method-filter select's "All methods" option label. */
 const ALL_METHODS = 'All methods'
+
+/** The visible filter label (the running screen's panel byte — R2-10). */
+const FILTER_LABEL: CSSProperties = { fontSize: 12.5, color: 'var(--txr-muted)' }
 
 /** The log text — the lines' content joined the way a log file reads. */
 export function logTextOf(lines: readonly TxrRunLogLine[]): string {
@@ -89,7 +93,14 @@ export function TxrHistoryLogDialog({
   onMethodChange,
 }: TxrHistoryLogDialogProps) {
   const preRef = useRef<HTMLPreElement>(null)
-  const text = logTextOf(lines)
+  // R2-10: the setlocale / R start-up noise is hidden by default (the
+  // running screen's panel rule — a log that opens with one warning per
+  // method hides the run's own lines); the switch is presentation state,
+  // the lines stay the store's, and Copy copies the VISIBLE view.
+  const [showTechnical, setShowTechnical] = useState(false)
+  const filtered = lines.filter(l => (showTechnical ? true : !isTechnicalLogNoise(l)))
+  const hiddenTechnical = lines.length - filtered.length
+  const text = logTextOf(filtered)
 
   const copyLog = (): void => {
     if (text.length === 0) return
@@ -116,7 +127,7 @@ export function TxrHistoryLogDialog({
             data-testid="txr-history-log-copy"
             variant="outline"
             onClick={copyLog}
-            disabled={lines.length === 0}
+            disabled={filtered.length === 0}
           >
             Copy the log
           </Button>
@@ -125,12 +136,22 @@ export function TxrHistoryLogDialog({
     >
       <div style={BODY} data-testid="txr-history-log-dialog-body">
         <div style={FILTER_ROW}>
+          <span style={FILTER_LABEL}>Show the log of</span>
           <Select
             data-testid="txr-history-log-filter"
-            aria-label="Show log for"
+            aria-label="Show the log of"
             size="sm"
             options={[
               { value: '', label: ALL_METHODS },
+              // R2-10: the selected method is ALWAYS an option — the dialog
+              // can open on a method id the run's compact list does not
+              // carry (the detail's rich rows ARE the method set; the
+              // presentational list is the compact refs), and a select whose
+              // value is not among its options renders EMPTY (the report's
+              // unlabeled blank dropdown).
+              ...(methodId !== null && !methods.some(m => m.id === methodId)
+                ? [{ value: methodId, label: methodId }]
+                : []),
               ...methods.map(method => ({ value: method.id, label: method.id })),
             ]}
             value={methodId ?? ''}
@@ -142,9 +163,24 @@ export function TxrHistoryLogDialog({
         </pre>
         {total > 0 ? (
           <div data-testid="txr-history-log-count" style={COUNT}>
-            Showing {lines.length} of {total} lines
+            Showing {filtered.length} of {total} lines
+            {!showTechnical && hiddenTechnical > 0 ? (
+              <span data-testid="txr-history-log-technical-count">
+                {' · '}
+                {hiddenTechnical} technical lines hidden
+              </span>
+            ) : null}
           </div>
         ) : null}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+          <Switch
+            data-testid="txr-history-log-technical"
+            aria-label="Show technical output"
+            checked={showTechnical}
+            onCheckedChange={setShowTechnical}
+          />
+          <span>Show technical output</span>
+        </div>
       </div>
     </Dialog>
   )

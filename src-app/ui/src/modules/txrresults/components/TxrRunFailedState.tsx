@@ -8,9 +8,11 @@
  * action per row (the engine's log lines are the remaining evidence).
  *
  * Copy facts:
- * - the title reads the run's own terminal word: "This run failed" /
- *   "This run was stopped" (the engine's `status` — one word, never a
- *   third vocabulary);
+ * - the title reads the failure honestly: "This run failed" / "This run
+ *   was stopped" — a genuinely stopped run is stopped, everything else is
+ *   a failure (qa-fixes2 R2-02: a `finished` run with no finished method
+ *   presents the failure state, never a "was stopped" the user did not
+ *   do);
  * - the lead sentence states honestly that no method finished (the 409
  *   empty state's fact — a stopped run was stopped before its first
  *   finished method, a failed run failed them all), with the board's
@@ -100,19 +102,24 @@ export interface TxrRunFailedStateProps {
   run: TxrRunDetail
   /** "Show the log" for the method (the page opens the store's log dialog). */
   onShowLog: (methodId: string) => void
+  /** "See it in History" (the page navigates — RES-02's way out). */
+  onShowHistory: () => void
 }
 
-export function TxrRunFailedState({ run, onShowLog }: TxrRunFailedStateProps) {
-  const failed = run.status === 'failed'
+export function TxrRunFailedState({ run, onShowLog, onShowHistory }: TxrRunFailedStateProps) {
+  // The honest terminal word: only a genuinely STOPPED run reads "was
+  // stopped"; a `finished` run with nothing finished is a failure (R2-02 —
+  // the engine's `finished` status covers the scheduler racing to the end
+  // while every method failed or could not run).
+  const stopped = run.status === 'stopped'
   // The block's rows are the run's terminal-error methods ONLY: the
   // `cannot_run` rows are the banner's own (a would-be duplicate), and a
   // method a terminal run never started has no reason to show here.
   const rows = run.methods.filter(m => m.state === 'failed' || m.state === 'stopped')
-  if (rows.length === 0) return null
-  const title = failed ? 'This run failed' : 'This run was stopped'
-  const lead = failed
-    ? 'No method finished, so there are no predictions to show. The run stays in History with its log.'
-    : 'The run was stopped before its first method finished, so there are no predictions to show. What it did finish stays in History with its log.'
+  const title = stopped ? 'This run was stopped' : 'This run failed'
+  const lead = stopped
+    ? 'The run was stopped before its first method finished, so there are no predictions to show. What it did finish stays in History with its log.'
+    : 'No method finished, so there are no predictions to show. The run stays in History with its log.'
   return (
     <div data-testid="txr-results-run-failed" style={BOX}>
       <h2 style={TITLE}>{title}</h2>
@@ -133,6 +140,20 @@ export function TxrRunFailedState({ run, onShowLog }: TxrRunFailedStateProps) {
           </Button>
         </div>
       ))}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <Button
+          data-testid="txr-results-failed-show-history"
+          variant="link"
+          className="p-0"
+          style={SHOW_LOG}
+          onClick={onShowHistory}
+        >
+          See it in History
+        </Button>
+        <span style={{ fontSize: 13, color: 'var(--txr-muted)' }}>
+          The log lines and the reasons above stay with the run.
+        </span>
+      </div>
     </div>
   )
 }

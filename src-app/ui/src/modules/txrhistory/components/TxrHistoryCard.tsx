@@ -15,10 +15,12 @@
  *   pair ("learned from N patients, predicted M"), decision day and the
  *   endpoint line, joined " · ", each segment omitted when the run
  *   recorded no such fact; a REUSE run's subtitle is the board's own
- *   short shape — the capital-P "Predicted N patients" line + the
- *   endpoint line, with no method or decision-day segment (its title
- *   names the consumed model); a stopped/failed row shows the REASON
- *   line (the ITEM-3 `reasonLine`, the provider's detail verbatim, in
+ *   short shape — the consumed models' names (R2-04: the row's raw
+ *   method ids are the model uuids; `models_used[].model_name` carries
+ *   the names) + the capital-P "Predicted N patients" line + the
+ *   endpoint line, with no decision-day segment (its title names the
+ *   consumed set); a stopped/failed row shows the REASON line (the
+ *   ITEM-3 `reasonLine`, the provider's detail verbatim, in
  *   the failure red — the board's failed row) INSTEAD of the facts
  *   line;
  * - the mode chip is the ui-list palette ('accent' / 'neutral' — the
@@ -35,7 +37,7 @@
 import type { CSSProperties } from 'react'
 import { Button, Skeleton } from '@ziee/kit'
 import type { TxrHistoryDetail, TxrHistoryItem } from '@/api-client/types'
-import { endpointLabel, formatDate, modeChip, reasonLine, statusLabel } from '../lib/format'
+import { endpointLabel, displayBucketOf, formatDate, modeChip, reasonLine, statusLabel } from '../lib/format'
 import { titleFor } from '../lib/title'
 import type { TxrChipTone } from '../types'
 import { TxrHistoryDetailBlock } from './TxrHistoryDetailBlock'
@@ -101,18 +103,34 @@ const LOADING_BLOCK: CSSProperties = {
  * provider's detail verbatim, in the failure red).
  */
 export function subtitleFor(item: TxrHistoryItem): string | null {
-  const reason = reasonLine(item.bucket, item.reason)
+  // R2-02: the displayed bucket decides the reason line — a `finished` run
+  // with no finished method presents as `failed` and reads its reason.
+  const reason = reasonLine(displayBucketOf(item), item.reason)
   if (reason !== null) return reason
   const segments: string[] = []
-  if (item.methods.length > 1) {
-    segments.push(item.methods.map(method => method.id).join(', '))
-  }
   if (item.mode === 'reuse') {
+    // R2-04: a reuse row's methods are the consumed MODELS — the raw
+    // method ids were model uuids (`methods[].id`); the record's
+    // `models_used[].model_name` names them (the run methods' own labels
+    // are the saved models' names). One line, then the facts.
+    const modelNames: string[] = []
+    for (const model of item.models_used) {
+      if (model.model_name.trim().length === 0) continue
+      if (!modelNames.includes(model.model_name)) modelNames.push(model.model_name)
+    }
+    if (modelNames.length > 0) {
+      segments.push(modelNames.join(', '))
+    } else if (item.methods.length > 1) {
+      segments.push(item.methods.map(method => method.id).join(', '))
+    }
     if (item.predicted != null) {
       segments.push(`Predicted ${item.predicted} ${item.predicted === 1 ? 'patient' : 'patients'}`)
     }
     segments.push(endpointLabel(item.endpoint, item.look_ahead_day))
     return segments.join(' · ')
+  }
+  if (item.methods.length > 1) {
+    segments.push(item.methods.map(method => method.id).join(', '))
   }
   const learned =
     item.learned_from != null
@@ -164,9 +182,10 @@ export function TxrHistoryCard({
   onOpenSet,
 }: TxrHistoryCardProps) {
   const chip = modeChip(item.mode)
-  const status = statusLabel(item.bucket)
+  const bucket = displayBucketOf(item)
+  const status = statusLabel(bucket)
   const subtitle = subtitleFor(item)
-  const failed = item.bucket === 'failed' || item.bucket === 'stopped'
+  const failed = bucket === 'failed' || bucket === 'stopped'
   const openDetail = expanded && detail !== null && detail.id === item.id
   const rowStyle: CSSProperties = {
     borderWidth: expanded ? 2 : 1,

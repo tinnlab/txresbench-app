@@ -3137,11 +3137,11 @@ fn input_summary(req: &CreateRunRequest, prepared: &PreparedRun) -> TxrRunInputS
     });
     TxrRunInputSummary {
         patients: req.input.patients.as_ref().map(|p| p.rows.len() as u32),
-        predict_patients: req
-            .input
-            .predict_measurements
-            .as_ref()
-            .map(|p| p.rows.len() as u32),
+        // qa-fixes2 R2-04: the predict-side PATIENT count — the validator's
+        // distinct-patient fact (`measurements.patients`), never the row
+        // count. The K row's "Predicted N patients" was printing 630 for a
+        // 94-patient / 630-row file (the wire field's old meaning).
+        predict_patients: prepared.predict_patient_count,
         markers,
         events,
         file_names: super::types::TxrRunFileNames {
@@ -3202,6 +3202,9 @@ pub struct PreparedRun {
     pub train: Option<Arc<CanonicalBundle>>,
     pub predict: Option<Arc<CanonicalBundle>>,
     pub predict_patients: Option<Arc<[CanonicalPatient]>>,
+    /// The predict side's distinct patient count (qa-fixes2 R2-04 — the
+    /// validator's measurements summary, never the row count).
+    pub predict_patient_count: Option<u32>,
     pub plans: Vec<MethodPlan>,
     pub markers: usize,
 }
@@ -3307,20 +3310,32 @@ fn prepare_run(
                 &input.mapping,
                 config.decision_day,
             );
-            Some(Arc::new(
-                bundle::canonical_bundle(&pvreq).map_err(validation_error_to_app)?,
+            // The predict-side bundle AND its forensic facts come from ONE
+            // validation pass (the same pure pass the FILES request got).
+            let pv = validate::validate(&pvreq).map_err(validation_error_to_app)?;
+            let predict_patients = Some(pv.measurements.patients);
+            Some((
+                Arc::new(bundle::canonical_bundle(&pvreq).map_err(validation_error_to_app)?),
+                predict_patients,
             ))
         }
         _ => None,
     };
-    let (train_canonical, predict_canonical) = if mode == ValidationMode::Files {
-        (files_canonical, predict_extra)
+    let (train_canonical, predict_canonical, predict_patient_count) = if mode == ValidationMode::Files {
+        (
+            files_canonical,
+            predict_extra.as_ref().map(|(b, _)| b.clone()),
+            predict_extra.as_ref().and_then(|(_, p)| *p),
+        )
     } else {
+        // Predict-only reuse: the run's one table set is the predict side —
+        // its validation's distinct-patient count is the 'predicted N' fact.
         (
             None,
             Some(Arc::new(
                 bundle::canonical_bundle(&vreq).map_err(validation_error_to_app)?,
             )),
+            Some(validated.measurements.patients),
         )
     };
 
@@ -3341,6 +3356,10 @@ fn prepare_run(
         train: train_canonical,
         predict: predict_canonical,
         predict_patients,
+        // qa-fixes2 R2-04: the predict side's distinct patient count (the
+        // validator's measurements summary) — the K row's "Predicted N
+        // patients" fact; None when the run has no predict file.
+        predict_patient_count,
         plans,
         markers: marker_count,
     })
@@ -5029,6 +5048,53 @@ mod tests {
             "task-less method is compatible with the file's outcomes (owner rule 2026-10-20) \
              but has no published environment — the cannot-run reason is the env entry, never \
              a task mismatch"
+        );
+    }
+
+    // qa-fixes2 R2-04: GET /runs/<id> history's "Predicted N patients" was
+    // the predict table's ROW count (630 rows for a 94-patient file). The
+    // fact is now the validator's distinct-patient count.
+    #[test]
+    fn predict_patient_count_is_the_validators_distinct_patients_not_the_row_count() {
+        let measurements = measurements_table(); // 6 patients × 18 rows
+        let input = TxrRunInput {
+            patients: None,
+            measurements: measurements.clone(),
+            predict_measurements: Some(measurements.clone()),
+            joins: Vec::new(),
+            mapping: Vec::new(),
+            keep_copies: true,
+        };
+        let config = RunConfig {
+            at_a_time: 2,
+            decision_day: 56.0,
+            look_ahead_day: 238.0,
+            ..Default::default()
+        };
+        let prepared = prepare_run(
+            &input,
+            &config,
+            TxrRunMode::Reuse,
+            &["landmark-cox-current".to_string()],
+            &[],
+        )
+        .expect("the predict-only file validates");
+        assert_eq!(
+            prepared.predict_patient_count,
+            Some(6),
+            "6 patients across 18 rows — the fact is the validator's distinct count"
+        );
+        let req = CreateRunRequest {
+            mode: TxrRunMode::Reuse,
+            input,
+            config,
+            method_ids: vec!["landmark-cox-current".to_string()],
+            model_ids: Vec::new(),
+        };
+        assert_eq!(
+            input_summary(&req, &prepared).predict_patients,
+            Some(6),
+            "the history row's 'Predicted N patients' reads the distinct count"
         );
     }
 

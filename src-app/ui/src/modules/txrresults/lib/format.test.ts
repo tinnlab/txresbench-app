@@ -33,6 +33,7 @@ import {
   compareCardTitle,
   formatChanceMissingNote,
   formatConstantNote,
+  formatNoChanceNote,
   formatCounts,
   formatCoverage,
   formatDecisionDay,
@@ -48,6 +49,7 @@ import {
   formatSubtitle,
   formatTaskLabel,
   formatTook,
+  txrRunFailed,
 } from './format'
 
 describe('formatTook (the subtitle duration)', () => {
@@ -355,5 +357,69 @@ describe('qa-fixes ITEM-4 — the names, legend and plain-voice notes (RES-03/04
     expect(formatProbSourceLine(null)).toBe(
       'No chances are shown: this predict-only reuse has no training data to convert the scores into chances.',
     )
+  })
+})
+
+describe('txrRunFailed (R2-02/RES-02 failed-run truth)', () => {
+  it('treats failed and stopped as failed regardless of method states', () => {
+    expect(txrRunFailed({ status: 'failed', methods: [{ state: 'finished' }] })).toBe(true)
+    expect(txrRunFailed({ status: 'stopped', methods: [{ state: 'finished' }] })).toBe(true)
+    expect(txrRunFailed({ status: 'failed', methods: [{ state: 'failed' }] })).toBe(true)
+  })
+
+  it('treats a finished run with no finished method as failed (the engine rule)', () => {
+    expect(
+      txrRunFailed({ status: 'finished', methods: [{ state: 'failed' }, { state: 'cancelled' }] }),
+    ).toBe(true)
+    expect(txrRunFailed({ status: 'finished', methods: [] })).toBe(true)
+  })
+
+  it('treats a finished run with at least one finished method as a run', () => {
+    expect(
+      txrRunFailed({
+        status: 'finished',
+        methods: [{ state: 'failed' }, { state: 'finished' }],
+      }),
+    ).toBe(false)
+  })
+
+  it('treats non-terminal statuses as not failed (running/pending)', () => {
+    expect(txrRunFailed({ status: 'running', methods: [] })).toBe(false)
+    expect(txrRunFailed({ status: 'pending', methods: [] })).toBe(false)
+  })
+})
+
+describe('formatNoChanceNote (R2-03 no-chance wall of blanks)', () => {
+  it('names the single no-chance column with the prob-source words', () => {
+    expect(
+      formatNoChanceNote([
+        { label: 'Model A', probSource: 'native' },
+        { label: 'Model B', probSource: null },
+      ]),
+    ).toBe(
+      'No chances are shown for Model B: this predict-only reuse has no training data to convert the scores into chances.',
+    )
+  })
+
+  it('names several columns, plural', () => {
+    expect(
+      formatNoChanceNote([
+        { label: 'Model A', probSource: null },
+        { label: 'Model B', probSource: null },
+        { label: 'Model C', probSource: 'recalibrated' },
+      ]),
+    ).toBe(
+      'No chances are shown for Model A, Model B: this predict-only reuse has no training data to convert the scores into chances.',
+    )
+  })
+
+  it('is null when every column carries chances', () => {
+    expect(
+      formatNoChanceNote([
+        { label: 'Model A', probSource: 'native' },
+        { label: 'Model B', probSource: 'recalibrated' },
+      ]),
+    ).toBeNull()
+    expect(formatNoChanceNote([])).toBeNull()
   })
 })

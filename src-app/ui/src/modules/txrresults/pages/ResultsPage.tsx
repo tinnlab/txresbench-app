@@ -16,7 +16,7 @@ import { TxrOutcomeTabs } from '../components/TxrOutcomeTabs'
 import { TxrMethodFilterBar } from '../components/TxrMethodFilterBar'
 import { TxrHeatmapTable } from '../components/TxrHeatmapTable'
 import { TxrLogDialog } from '../components/TxrLogDialog'
-import { formatChanceMissingNote, formatConstantNote, formatMixedOutcomeNote } from '../lib/format'
+import { formatChanceMissingNote, formatConstantNote, formatMixedOutcomeNote, formatNoChanceNote, txrRunFailed } from '../lib/format'
 
 /**
  * Screen G — the run's predictions (board `BusyResults.dc.html`): the
@@ -245,6 +245,13 @@ export function ResultsPage() {
         : null,
     [view, allColumns, outcomeTab, horizon, labelDay],
   )
+  // R2-03: a finished method with no chances (prob_source none — the
+  // predict-only reuse case) fills its column with "–"; the note names the
+  // columns and says why (the method page's own words).
+  const noChanceNote = useMemo(
+    () => (view ? formatNoChanceNote(view.columns) : null),
+    [view],
+  )
 
   if (runError === 'not-found') {
     return (
@@ -287,10 +294,13 @@ export function ResultsPage() {
 
   const cannotRun = run.methods.filter(m => m.state === 'cannot_run')
   // A terminal failed/stopped run with no predictions is the honest
-  // failure state (RES-02): its reasons render below the header, and the
-  // header omits the segments that read like a completed run (nothing was
-  // learned — the counts + decision day stay, they are recorded facts).
-  const runFailed = run.status === 'failed' || run.status === 'stopped'
+  // failure state (RES-02 + qa-fixes2 R2-02): the engine's `finished`
+  // status also covers a run where NOTHING finished (`predictions_ready`
+  // is false exactly then) — `txrRunFailed` is that truth. The reasons
+  // render below the header, and the header omits the segments that read
+  // like a completed run (nothing was learned — the counts + decision day
+  // stay, they are recorded facts).
+  const runFailed = txrRunFailed(run)
 
   // The 409 empty-heatmap state: header (counts + banners) + a disabled
   // download, NO table, NO spinner loop — the SSE's `prediction` frame
@@ -308,7 +318,7 @@ export function ResultsPage() {
           }
         />
         {runFailed ? (
-          <TxrRunFailedState run={run} onShowLog={methodId => TxrResults.openLog(methodId)} />
+          <TxrRunFailedState run={run} onShowLog={methodId => TxrResults.openLog(methodId)} onShowHistory={() => navigate('/history')} />
         ) : null}
         <TxrCannotRunBanner
           methods={cannotRun}
@@ -371,6 +381,11 @@ export function ResultsPage() {
       {chanceNote !== null ? (
         <p data-testid="txr-results-chance-note" style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-text-2)' }}>
           {chanceNote}
+        </p>
+      ) : null}
+      {noChanceNote !== null ? (
+        <p data-testid="txr-results-no-chance-note" style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-text-2)' }}>
+          {noChanceNote}
         </p>
       ) : null}
       {mixedNote !== null ? (

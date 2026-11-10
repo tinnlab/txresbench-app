@@ -438,6 +438,40 @@ test.describe('txr-results-h-compare — the two-method compare view (TEST-UR-14
     await expect(page.getByTestId('txr-results-save-models')).toHaveText('Save the models (2)')
     await expect(page.getByTestId('txr-results-save-one-model')).toHaveCount(0)
   })
+
+  test('R2-07: the picker chooses the compared pair — the card and the filter follow', async ({
+    page,
+  }) => {
+    await page.goto(`${GALLERY}txr-results-h-compare`)
+
+    // The pair is NAMED (the old card silently compared the first two).
+    const pickerA = page.getByTestId('txr-compare-picker-a')
+    const pickerB = page.getByTestId('txr-compare-picker-b')
+    await expect(pickerA).toBeVisible()
+    await expect(pickerA).toContainText('landmark-cox-current')
+    await expect(pickerB).toContainText('cox-cutpoint-risk')
+
+    // Pick B's column into the A select: the swap rule keeps the pair
+    // distinct, the card retitles and its differ sentence reverses the
+    // two percents (the report reads the picked pair, never the columns).
+    await pickerA.click()
+    const option = page.locator(
+      '[role="option"][data-testid="txr-compare-picker-a-opt-cox-cutpoint-risk"]',
+    )
+    await expect(option).toBeVisible()
+    await option.click()
+
+    await expect(page.getByTestId('txr-compare-card-title')).toHaveText(
+      'How cox-cutpoint-risk and landmark-cox-current compare',
+    )
+    await expect(page.getByTestId('txr-compare-card')).toContainText(
+      'They differ most for S0014 (64% and 49%), S0017 (38% and 52%) and S0011 (59% and 46%).',
+    )
+    // The divergent filter follows the pair: the same patient set diverges
+    // (the pair's diff window is symmetric), sorted by the FIRST of the pair.
+    await page.getByTestId('txr-compare-divergent-toggle').click()
+    await expect(page.getByTestId('txr-bars-footer')).toContainText('Showing 6 of 6.')
+  })
 })
 
 test.describe('txr-results-h-few — a single-method run (TEST-UR-14)', () => {
