@@ -419,6 +419,13 @@ describe('txrhelp module (TEST-HELP-4)', () => {
       'src-app/ui/tests/gallery-e2e/txr-list.spec.ts',
       'src-app/ui/tests/e2e/txrmodels/txr-models-full.spec.ts',
       'src-app/ui/tests/e2e/txrhistory/txr-history-full.spec.ts',
+      // The qa-fixes2 ITEM-7 pins in the txr-history gallery spec
+      // (R2-09's Settings-line omission, the R2-10 dialog label/switch)
+      // plus THIS item's re-verification pins (its own DRIFT-1 ITEM-8):
+      // the narrow story's real-390 viewport (the pane measured the 1280
+      // page — the media rules answer the window) and the R2-01 font pin
+      // (the portalled confirm dialog carries the app face).
+      'src-app/ui/tests/gallery-e2e/txr-history.spec.ts',
     ])
     expect(testsTouched.length).toBeLessThanOrEqual(sanctionedTests.size)
     for (const file of testsTouched) {

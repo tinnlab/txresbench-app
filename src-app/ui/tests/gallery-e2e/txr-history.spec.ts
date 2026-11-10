@@ -582,6 +582,11 @@ test.describe('txr-history-log-dialog — the terminal snapshot (TEST-HIST-13)',
 })
 
 test.describe('txr-history-narrow-390 — the mobile width (TEST-HIST-14)', () => {
+  // qa-fixes2 ITEM-7 recorded that this story measured the 1280 page (the
+  // pane was 390 but the page's phone media rules answer the WINDOW width) —
+  // ITEM-8's fix is the real 390 viewport, the models story's rule. The pane
+  // stays (the story's bounded frame); the window IS the phone now.
+  test.use({ viewport: { width: 390, height: 844 } })
   test('no horizontal overflow, the toolbar stacks, the footer links reachable', async ({
     page,
   }) => {
@@ -638,5 +643,13 @@ test.describe('txr-history-narrow-390 — the mobile width (TEST-HIST-14)', () =
     // The dialog's confirm channel opens over the narrow pane intact.
     await clearAll.click()
     await expect(page.getByTestId('txr-history-confirm-clear-files')).toBeVisible()
+    // R2-01 (qa-fixes2 ITEM-7): the kit Dialog portals its content to
+    // document.body — outside the shell subtree that used to declare the app
+    // face, so every dialog fell back to the browser default. The face at the
+    // html base layer means the portalled dialog inherits the app's stack.
+    const dialogFont = await page
+      .getByTestId('txr-history-confirm-clear-files')
+      .evaluate(el => getComputedStyle(el).fontFamily)
+    expect(dialogFont, 'the portalled dialog carries the app face').toContain('Source Sans 3')
   })
 })

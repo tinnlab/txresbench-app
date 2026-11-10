@@ -35,8 +35,14 @@ async function pick(trigger: HTMLElement, value: string): Promise<void> {
     fireEvent.click(trigger)
     await Promise.resolve()
   })
+  // The option under the OPEN popup only: base-ui keeps the closing popup
+  // mounted through its exit transition (data-closed), and the first-open
+  // dropdown of a previous pick can still be ending — an unscoped
+  // querySelector would click a stale option of a closed popup and the
+  // swap test would see zero onChange calls (re-verification finding:
+  // order-dependent under a loaded box + a preceding jsdom file).
   const option = document.querySelector<HTMLElement>(
-    `[role="option"][data-testid$="-opt-${value}"]`,
+    '[data-open] [role="option"][data-testid$="-opt-' + value + '"]',
   )!
   expect(option).not.toBeNull()
   await act(async () => {

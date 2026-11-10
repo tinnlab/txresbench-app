@@ -8851,7 +8851,7 @@
         "tags": [
           "method-catalogue"
         ],
-        "description": "Per-method eligibility verdicts (can_run / can_run_some / cannot_run) with structured reason codes, missing markers/groups and per-patient coverage aggregates. A method with no published environment available is cannot_run + ENV_IMAGE_MISSING (total_no_env counts them). The body is a tagged union: `preview` (screen-B schedule answers) or `inventory` (the file validator's inventory).",
+        "description": "Per-method eligibility verdicts (can_run / can_run_some / cannot_run) with structured reason codes, missing markers/groups and per-patient coverage aggregates. A method with no published environment available is cannot_run + ENV_IMAGE_MISSING (total_no_env counts them). The body is a tagged union: `preview` (screen-B schedule answers) or `inventory` (the file validator's inventory). The inventory rows' `estimated_seconds` are calibrated with the app's own measured run durations when such exist (the same seconds the estimate endpoint and the run's stored estimate use).",
         "operationId": "MethodCatalogue.eligibility",
         "requestBody": {
           "description": "The eligibility request body — a tagged union carrying exactly one of the two\n request kinds (`{\"preview\": …}` or `{\"inventory\": …}`).",
@@ -8920,7 +8920,7 @@
         "tags": [
           "method-catalogue"
         ],
-        "description": "Per-method estimated seconds (base per-fold seconds scaled by patients and CPUs — 150 reference patients; an absent `cpus` uses the run's own detected count), the plain sum, and the greedy longest-processing-time schedule total over `at_a_time` lanes (the run-N-at-a-time bar). Validation order: cpus/at_a_time (a posted 0 rejected) first, then method resolution — the first failure wins; a method with no published environment is METHOD_NOT_RUNNABLE.",
+        "description": "Per-method estimated seconds (base per-fold seconds scaled by patients and CPUs — 150 reference patients; an absent `cpus` uses the run's own detected count), the plain sum, and the greedy longest-processing-time schedule total over `at_a_time` lanes (the run-N-at-a-time bar). A method the app has measured itself estimates with its own median measured per-fold seconds (quality `measured`), the generated facts otherwise — the honest estimate-vs-measured label. Validation order: cpus/at_a_time (a posted 0 rejected) first, then method resolution — the first failure wins; a method with no published environment is METHOD_NOT_RUNNABLE.",
         "operationId": "MethodCatalogue.estimate",
         "requestBody": {
           "description": "The estimate request: which methods, on how many patients, on how many\n CPUs, running `at_a_time` lanes.",
@@ -25872,7 +25872,7 @@
             }
           },
           "predicted": {
-            "description": "`input_summary.predict_patients` (the \"predicted N\" figure).",
+            "description": "`input_summary.predict_patients` (the \"predicted N\" figure —\n the predict side's distinct patient count, qa-fixes2 R2-04).",
             "type": [
               "integer",
               "null"
@@ -26934,6 +26934,7 @@
             "minimum": 0
           },
           "predict_patients": {
+            "description": "The predict side's DISTINCT patient count (qa-fixes2 R2-04 — the\n validator's measurements summary; never the row count).",
             "type": [
               "integer",
               "null"

@@ -6206,7 +6206,10 @@ export interface TxrHistoryItem {
    *  seam); `[]` in train mode, never a fabricated name.
    */
   models_used: TxrHistoryModelRef[]
-  /** `input_summary.predict_patients` (the "predicted N" figure). */
+  /**
+   * `input_summary.predict_patients` (the "predicted N" figure —
+   *  the predict side's distinct patient count, qa-fixes2 R2-04).
+   */
   predicted?: number
   /**
    * The first terminal method's reason (earliest failed → cannot_run →
@@ -6612,6 +6615,10 @@ export interface TxrRunInputSummary {
   file_names: TxrRunFileNames
   markers: number
   patients?: number
+  /**
+   * The predict side's DISTINCT patient count (qa-fixes2 R2-04 — the
+   *  validator's measurements summary; never the row count).
+   */
   predict_patients?: number
 }
 

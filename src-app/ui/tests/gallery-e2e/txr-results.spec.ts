@@ -19,6 +19,9 @@ import { expect, test, type Locator } from '@playwright/test'
  *     `prediction` frame adds the 12th column live (no navigation);
  *     `txr-results-g-cannot`: the banner names the method + reason and
  *     "Show the log" opens the dialog with the fixture lines;
+ *     `txr-results-g-nochance`: R2-03 (the named no-chance note over a
+ *     predict-only reuse's blank column) + R2-11 (one-method tabs hide the
+ *     Average column);
  *     `txr-results-h` / `txr-results-h-compare`: method + outcome tabs, bar
  *     table, compare-card sentences, the divergent toggle, the chance dialog
  *     and the saved-in line; `txr-results-narrow-390`: no horizontal page
@@ -335,6 +338,50 @@ test.describe('txr-results-g-cannot — a method that could not run (TEST-UR-14)
   })
 })
 
+test.describe('txr-results-g-nochance — a finished method with no chances (R2-03, R2-11)', () => {
+  test('the no-chance note names the column; one-method tabs hide the Average', async ({
+    page,
+  }) => {
+    await page.goto(`${GALLERY}txr-results-g-nochance`)
+
+    const heatmap = page.getByTestId('txr-heatmap')
+    await expect(heatmap).toBeVisible()
+
+    // ── R2-03: a finished method whose column carries no chances (a
+    //    predict-only reuse — the engine recorded scores, never converted
+    //    them) is a wall of blanks THE NOTE EXPLAINS — naming the column with
+    //    the method page's own words. ──
+    const note = page.getByTestId('txr-results-no-chance-note')
+    await expect(note).toBeVisible()
+    await expect(note).toHaveText(
+      'No chances are shown for ctdna-clearance-time-pattern: this predict-only reuse has no training data to convert the scores into chances.',
+    )
+    // The no-chance column's cell is a plain blank (no chance to render),
+    // and the row still shows its patient id.
+    await expect(page.getByTestId('txr-heatmap-cell-ctdna-clearance-time-pattern').first()).toHaveText(
+      '',
+    )
+    await expect(page.getByTestId('txr-heatmap-row-S0001')).toContainText('S0001')
+
+    // ── R2-11: the pfs tab is ONE method column, so the Average column is
+    //    redundant (the column's value IS the average) and gone: one header
+    //    cell + the patient header, no Average header, no average cell. ──
+    await expect(heatmap.locator('[data-testid^="txr-heatmap-header-"]')).toHaveCount(1)
+    await expect(page.getByTestId('txr-heatmap-header-ctdna-clearance-time-pattern')).toBeVisible()
+    const rowCells = page.getByTestId('txr-heatmap-row-S0001').locator('td')
+    await expect(rowCells).toHaveCount(1)
+
+    // ── the response tab: its own one-method column, the note gone (the
+    //    chances ARE there), still no Average — and a real chance renders. ──
+    await page.getByTestId('txr-results-outcome-tab-response').click()
+    await expect(note).toHaveCount(0)
+    await expect(heatmap.locator('[data-testid^="txr-heatmap-header-"]')).toHaveCount(1)
+    await expect(page.getByTestId('txr-heatmap-header-ctdna-clearance')).toBeVisible()
+    await expect(page.getByTestId('txr-heatmap-row-S0001').locator('td')).toHaveCount(1)
+    await expect(page.getByTestId('txr-heatmap-cell-ctdna-clearance').first()).toHaveText(/^\d+%$/)
+  })
+})
+
 test.describe('txr-results-h — one-method view + the web-mode reveal gate (TEST-UR-14/15/16)', () => {
   test('method tablist, bars sorted by the first method, aside, saved-in path without a button', async ({
     page,
@@ -519,6 +566,10 @@ test.describe('txr-results-empty / txr-results-not-found — the DEC-18 states (
 })
 
 test.describe('txr-results-narrow-390 — the mobile width (TEST-UR-14)', () => {
+  // qa-fixes2 ITEM-7 recorded that the previous narrow pins measured the
+  // 1280 page (the story had no pane and no emulated window — the media
+  // rules answer the WINDOW width) — ITEM-8's fix is the real 390 viewport.
+  test.use({ viewport: { width: 390, height: 844 } })
   test('no horizontal page overflow; the header actions stay inside the viewport', async ({
     page,
   }) => {

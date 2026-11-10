@@ -385,7 +385,7 @@ export function TxrHeatmapTable({ view, onShowAll }: TxrHeatmapTableProps) {
   const windowed = heatmapWindowOf(scrollTop, rows.length)
   const visibleRows = rows.slice(windowed.start, windowed.end)
   // R2-11: the Average column is redundant when ONE method column is shown
-  // (its per-patient value IS the average); it stays on the two-or-more
+  // (its per-patient value IS the average); it remains on the two-or-more
   // column tables the board's "Average" exists for.
   const showAverage = columns.length > 1
   const colCount = columns.length + (showAverage ? 2 : 1)
