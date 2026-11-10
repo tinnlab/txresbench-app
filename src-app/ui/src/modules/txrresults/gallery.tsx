@@ -25,6 +25,9 @@
  *   dialog (the mixed-task run: two outcome tabs).
  * - `txr-results-g-partial`: the "Choose methods…" picker state (the
  *   empty-pick marker).
+ * - `txr-results-g-nochance`: the predict-only-reuse shape (qa-fixes2
+ *   R2-03/R2-11) — a finished method with `prob_source: none` (the named
+ *   no-chance note) and one-method outcome tabs (no Average column).
  * - `txr-results-h` / `txr-results-h-compare`: the Results board's one-method
  *   view and two-method compare view (the bar table, the compare card, the
  *   aside, the saved-in line — the H row window from the board).
@@ -52,6 +55,7 @@ import {
   TXR_RUN_CANNOT,
   TXR_RUN_H,
   TXR_RUN_HFEW,
+  TXR_RUN_NOCHANCE,
   TXR_RUN_RUNNING,
   TXR_RUNS,
   TXR_CSV,
@@ -166,6 +170,14 @@ export const gallery: ModuleGallery = {
       path: '/analysis/:runId/results',
       initialPath: `/analysis/run-partial/results`,
       component: PartialStory,
+    },
+    {
+      slug: 'txr-results-g-nochance',
+      title: 'Results — a finished method with no chances (R2-03/R2-11)',
+      note: 'qa-fixes2 ITEM-7\'s re-verification shape: a predict-only reuse run whose pfs method finished with no chances (prob_source none) — the wall of blanks with the note naming the column — and one-method outcome tabs (the Average column is redundant when the column IS the average and is gone). Two tabs, one column each.',
+      path: '/analysis/:runId/results',
+      initialPath: `/analysis/${TXR_RUN_NOCHANCE.id}/results`,
+      component: ResultsStory,
     },
     {
       slug: 'txr-results-h',

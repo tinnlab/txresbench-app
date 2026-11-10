@@ -631,7 +631,7 @@ pub enum ReasonCode {
     /// The method carries no runnable env image.
     #[serde(rename = "NOT_RUNNABLE")]
     NotRunnable,
-    /// The method has no published environment image for this computer (the
+    /// The method has no published environment image available (the
     /// app's env manifest carries no host-arch entry) — the run would fail at
     /// start, so the verdict names it in advance and the run row carries the
     /// SAME code (one vocabulary, CONS-EE-10; the catalogue still lists the
@@ -760,8 +760,8 @@ pub struct EligibilityResponse {
     pub total_cannot: u32,
     /// The `cannot_run` methods whose reason is
     /// [`ReasonCode::EnvImageMissing`] — the count of catalogue methods the
-    /// app cannot actually start (no published environment on this
-    /// computer), so the list header can say how many exist while still
+    /// app cannot actually start (no published environment available), so the
+    /// list header can say how many exist while still
     /// listing them.
     pub total_no_env: u32,
 }
@@ -802,7 +802,7 @@ pub struct MethodEstimate {
 
 /// The estimate response: per-method seconds, the plain sum, and the
 /// longest-processing-time schedule total over the `at_a_time` lanes (the
-/// bottom-bar "about X minutes in total on this computer"). `cpus` is the
+/// bottom-bar "about X minutes in total"). `cpus` is the
 /// count actually used (the posted value, or the run's own resolution —
 /// [`estimate::host_cpus`] — when omitted), so the consumer can show the
 /// number the estimate was scaled to.

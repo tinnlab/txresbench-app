@@ -3,7 +3,7 @@
  * the PROV-PC-6 / CONS-UM-20 download manager; ITEM-6).
  *
  * Screen D owns the pre-Run availability guarantee: a selected card whose
- * asset is not on this computer must be downloaded + verified before the
+ * asset is not downloaded yet must be downloaded + verified before the
  * run can be created. The list row is the SHARED component's board row (no
  * per-row slot), so the download life is rendered by the HOST as this
  * widget — one per card with a download entry, in the D page's downloads

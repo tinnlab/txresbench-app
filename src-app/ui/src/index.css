@@ -34,6 +34,15 @@
    collapses to CONTENT height — most visibly the workbench IDE (a fixed multi-pane surface), which then
    only fills its content instead of the viewport. Relaxed under `.scroll-native` (mobile native scroll). */
 @layer base {
+  html {
+    /* R2-01 (qa-fixes2): the app face at BODY level, not only on the shell
+       div. The kit's Dialog/Drawer portal their content to document.body —
+       outside the `.txr-shell` subtree that used to be the only place the
+       face was declared — so every dialog fell back to the browser's
+       DejaVu-like default. This rule feeds the whole document; the shell's
+       own inline declaration (same byte) is kept as its local truth. */
+    font-family: 'Source Sans 3', system-ui, sans-serif;
+  }
   #root {
     height: 100dvh;
     width: 100dvw;
@@ -109,6 +118,27 @@ html.dark .os-theme-dark {
   z-index: 49;
 }
 
+/* qa-fixes2 ITEM-4 (R2-G3): the shell header's focus ring is ONE ring.
+ * The header links (brand + the four NavLinks) painted the browser's
+ * default 1 px outline next to the kit Button's 3 px shadow ring (the
+ * theme switch beside Help) — two different focus styles side by side.
+ * The links come TO the controls' ring (the ITEM-1/ITEM-3 drift's
+ * direction), i.e. the exact ring the kit Button paints and the Help
+ * accordion triggers use: no default outline, a 3 px `--ring` shadow at
+ * 50 %, following the control's own border-radius (the links use 6 px,
+ * the same radius the kit Button's ring follows). `:focus-visible`, never
+ * `:focus` — a mouse click on a link leaves no ring; the keyboard byte is
+ * what changes. */
+.txr-shell-brand,
+.txr-nav-link {
+  border-radius: 6px;
+}
+.txr-shell-brand:focus-visible,
+.txr-nav-link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent);
+}
+
 /* QA-fixes ITEM-7 (X2): the shell header at phone width. The board's header
  * is desktop-only: at 390 px the tagline wrapped to six lines and clipped,
  * and the nav pushed History/Help off-screen (the measured 526/817 px page
@@ -131,6 +161,14 @@ html.dark .os-theme-dark {
   }
   .txr-shell-actions {
     flex: 1 1 100% !important;
+  }
+  /* qa-fixes2 ITEM-1: the theme switch at phone width. The stacked header row
+   * is the shell's own; the switch keeps its icon and collapses its state
+   * label (the same yield rule as the tagline — the icon carries the state,
+   * the tooltip/accessible name the action). The switch itself stays on
+   * screen; the four destinations' on-screen sweep is above. */
+  .txr-theme-toggle .txr-theme-toggle-label {
+    display: none;
   }
 }
 
@@ -193,10 +231,22 @@ html.dark .os-theme-dark {
   }
   .txr-run-table tr.txr-run-row td::before {
     content: attr(data-label);
-    flex: 0 0 68px;
+    flex: 0 0 76px;
     font-size: 12px;
     font-weight: 600;
     color: var(--txr-muted);
+  }
+  /* qa-fixes2 R2-9: the stacked card's cells align on ONE value column —
+     the Time cell's desktop right-alignment (and its label column vs the
+     longer "Progress") broke the read: every value starts at the same x
+     after a uniform label column, and the Action link starts at the same x
+     too (the desktop inline right-align is overridden for the stacked
+     layout only). */
+  .txr-run-table tr.txr-run-row td[data-label='Time'] {
+    text-align: left !important;
+  }
+  .txr-run-table tr.txr-run-row td[data-label='Actions'] {
+    align-items: flex-start !important;
   }
 }
 @media (min-width: 641px) {
@@ -229,7 +279,14 @@ html.dark .os-theme-dark {
   }
   .txr-models-j-table {
     display: block;
-    min-width: 0;
+    /* R2-05 (qa-fixes2): the table's own inline min-width is the board's
+     * 960 px desktop byte — a stylesheet `min-width: 0` alone lost to it,
+     * so the "stacked" phone cards were still 960 px wide inside the
+     * scroll box (the clipped "Use Export Rename Dele" was this: the
+     * actions fit ONE 960-wide row and the box scrolled instead of the
+     * cards wrapping). The `!important` beats the inline byte; on desktop
+     * the rule is not active and the 960 min stays. */
+    min-width: 0 !important;
   }
   .txr-models-j-table thead {
     display: none;
@@ -249,15 +306,26 @@ html.dark .os-theme-dark {
   .txr-models-j-table > tbody > tr td {
     display: flex;
     align-items: baseline;
+    /* qa-fixes2 R2-05: the Actions row (Use / Export / Rename / Delete) must
+     * WRAP, not clip its last button (the report's "Use Export Rename Dele"),
+     * and the subline must be able to shrink so the set name breaks instead
+     * of pushing the card past the frame. */
+    flex-wrap: wrap;
     gap: 10px;
     padding: 3px 14px;
     border-bottom: none;
+    min-width: 0;
     white-space: normal !important;
     text-align: left !important;
   }
   .txr-models-j-table > tbody > tr th {
     white-space: normal !important;
     word-break: break-word;
+  }
+  .txr-models-j-table > tbody > tr th .txr-models-j-subline {
+    min-width: 0;
+    word-break: break-word;
+    overflow-wrap: anywhere;
   }
   .txr-models-j-table > tbody > tr td::before {
     content: attr(data-label);
@@ -289,6 +357,13 @@ html.dark .os-theme-dark {
   .txr-intake-page .txr-intake-role-table td {
     white-space: normal !important;
     word-break: break-word;
+  }
+  /* R2-2: the required/optional cell must never break MID-WORD ("requi /
+     red") — the F10 fix let every cell wrap and split the one word the
+     column holds; the tag keeps its nowrap while the names and the
+     description columns wrap. */
+  .txr-intake-page .txr-intake-role-table td:nth-child(2) {
+    white-space: nowrap !important;
   }
   .txr-intake-page .txr-intake-role-table td:first-child {
     min-width: 96px !important;
@@ -346,6 +421,16 @@ html.dark .os-theme-dark {
   .txr-results-page aside {
     min-width: 0 !important;
   }
+  /* qa-fixes2 R2-07: on a phone the H aside landed BELOW the 94-row table
+   * (the two-column row wraps), so the compare card a reviewer needed was
+   * under 90 rows of scroll. The aside (compare picker + card + method
+   * facts) comes FIRST at phone width. */
+  .txr-results-page .txr-h-aside {
+    order: -1 !important;
+  }
+  .txr-results-page .txr-compare-picker > button {
+    white-space: normal !important;
+  }
   .txr-intake-page .txr-intake-pills > button {
     white-space: normal !important;
     height: auto !important;
@@ -390,4 +475,106 @@ html.dark .os-theme-dark {
   .txr-run-list-frame {
     min-height: 800px !important;
   }
+}
+
+/* qa-fixes2 ITEM-3: the Help page layout (the txrhelp redesign). The board's
+ * content screens are desktop-only; the measured cases are 1440x900,
+ * 1024x768, 768x1024 and 390x844. Desktop (>=1024 px): a two-column grid,
+ * left rail 240 px (sticky, scrolls independently, the current section
+ * highlighted, never overlapping the article) + a content column capped at
+ * 760 px (60-75 char lines), the grid centred in the window. Under 1024 px:
+ * no rail — a "Contents" disclosure at the top (collapsed, own state in the
+ * component) and a floating "Back to top"; nothing wider than the viewport.
+ * Print: the rail, the search and the back-to-top control hide, the content
+ * column takes the full page width. The component carries the static bytes
+ * inline; these rules are the responsive/print half (a media query cannot
+ * touch an inline style — the header's device repeated for this page). */
+.txr-help-grid {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  column-gap: 48px;
+  align-items: start;
+  max-width: 1048px;
+  margin: 0 auto;
+}
+.txr-help-rail {
+  position: sticky;
+  top: 20px;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.txr-help-column {
+  min-width: 0;
+  max-width: 760px;
+}
+/* The rail and the "Contents" disclosure are rendered CONDITIONALLY by the
+ * page (the rail from 1024 px up) — the media rule below only reflows the
+ * grid to one column under 1024 px; a CSS-hidden rail would still be
+ * focusable and in the accessibility tree. */
+@media (max-width: 1023px) {
+  .txr-help-grid {
+    display: block;
+  }
+  .txr-help-column {
+    max-width: none;
+  }
+}
+@media print {
+  .txr-help-rail,
+  .txr-help-search,
+  .txr-help-backtop,
+  .txr-help-contents-toggle {
+    display: none !important;
+  }
+  .txr-help-grid {
+    display: block;
+  }
+  .txr-help-column {
+    max-width: none;
+  }
+}
+
+/* qa-fixes2 ITEM-3: the Help page's accordion triggers (kit Collapsible
+ * triggers — Base UI buttons, so the focus ring is applied here, the same
+ * ring the kit Button paints: a 3 px `--ring` shadow at 50 %, no default
+ * outline). The trigger is a full-row button with the code chip + title;
+ * the chevron comes from the row order in the component. */
+.txr-help-accordion-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  box-sizing: border-box;
+}
+.txr-help-accordion-trigger:focus-visible {
+  outline: none;
+  border-radius: 6px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent);
+}
+/* The phone layout of the Help page: the stepper and the quick-start row
+ * stack under 640 px (the board's phone breakpoint; the grid's own
+ * two-column switch is at 1024 px in the layout block above). Nothing may
+ * be wider than the viewport — the file tables already scroll inside their
+ * own boxes. */
+@media (max-width: 640px) {
+  [data-testid='txr-help-stepper'] {
+    grid-template-columns: 1fr !important;
+  }
+  [data-testid='txr-help-quickstart'] {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* qa-fixes2 ITEM-3: the Help page's skip link — off-screen until it takes
+ * focus (the component parks it at left:-9999; focus brings it into view). */
+.txr-help-skip-link:focus {
+  left: 12px !important;
+  top: 12px !important;
 }

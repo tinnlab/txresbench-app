@@ -88,8 +88,10 @@ describe('option labels (TEST-INT-13)', () => {
 
 describe('panel copy (TEST-INT-13)', () => {
   it('the count copy is a live-data template, never a hardcoded number', () => {
-    expect(fitHeading({ total: 39, canRun: 22 })).toBe('22 of 39 methods fit')
-    expect(leftOutHeading({ cannot: 13 })).toBe('13 methods are left out')
+    // R2-1: the heading's count is the answer-caused left-out (the
+    // environment fact has its own line — see preview.test.ts).
+    expect(fitHeading({ total: 39, fit: 26 })).toBe('26 of 39 methods fit')
+    expect(leftOutHeading({ leftOut: 13 })).toBe('13 methods are left out')
     expect(someFitLine({ some: 4 })).toBe('4 can run for some patients')
   })
 

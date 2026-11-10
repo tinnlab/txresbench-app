@@ -4,18 +4,19 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useStore } from 'zustand'
 import { Button, ErrorState, Skeleton } from '@ziee/kit'
 import type { TxrRunDetail } from '@/api-client/types'
+import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import type { TxrOutcomeKey } from '../types'
 import { TxrResults, useTxrResultsStore } from '../stores/Results.store'
 import { buildColumns, viewOf } from '../lib/heatmap'
 import { downloadPredictionsCsv } from '../index'
-import { TxrResultsHeader, subtitleFactsOf } from '../components/TxrResultsHeader'
+import { formatPredictionsTitle, TxrResultsHeader, subtitleFactsOf } from '../components/TxrResultsHeader'
 import { TxrCannotRunBanner } from '../components/TxrCannotRunBanner'
 import { TxrRunFailedState } from '../components/TxrRunFailedState'
 import { TxrOutcomeTabs } from '../components/TxrOutcomeTabs'
 import { TxrMethodFilterBar } from '../components/TxrMethodFilterBar'
 import { TxrHeatmapTable } from '../components/TxrHeatmapTable'
 import { TxrLogDialog } from '../components/TxrLogDialog'
-import { formatConstantNote, formatMixedOutcomeNote } from '../lib/format'
+import { formatChanceMissingNote, formatConstantNote, formatMixedOutcomeNote, formatNoChanceNote, txrRunFailed } from '../lib/format'
 
 /**
  * Screen G — the run's predictions (board `BusyResults.dc.html`): the
@@ -151,6 +152,13 @@ export function ResultsPage() {
     patientLimit,
   } = state
   const [downloadFailed, setDownloadFailed] = useState(false)
+  // R2-G1: the tab/title byte is the page's own h1 (the header's
+  // "Predictions for N patients"; "Predictions" while the run loads). A run
+  // record carries no name field, so the title is the page's own words, not
+  // an invented run name (the report's "Predictions - TxResBench" byte).
+  useDocumentTitle(
+    predictions === null ? 'Predictions' : formatPredictionsTitle(predictions.patients.length),
+  )
 
   // Load on mount + on a run-id change; the store resets first and drops
   // the previous run's in-flight work (no cross-run bleed, DEC-3).
@@ -207,6 +215,23 @@ export function ResultsPage() {
     () => (view ? formatConstantNote(view.columns) : null),
     [view],
   )
+  // R2-10 (qa-fixes2): when a finished method has no prediction column (the
+  // engine found no recorded chance column for it), the header's true
+  // "N of M methods finished" counts more than the table shows — the note
+  // names the gap plainly ("Showing the 5 of 6 finished methods that give
+  // chances; …"), never a silently dropped column next to an "All 5" filter.
+  const chanceNote = useMemo(
+    () =>
+      run !== null && predictions !== null
+        ? formatChanceMissingNote(
+            run.methods
+              .filter(m => m.state === 'finished')
+              .map(m => ({ methodId: m.method_id, label: m.label })),
+            allColumns,
+          )
+        : null,
+    [run, predictions, allColumns],
+  )
   const mixedNote = useMemo(
     () =>
       view
@@ -219,6 +244,13 @@ export function ResultsPage() {
           )
         : null,
     [view, allColumns, outcomeTab, horizon, labelDay],
+  )
+  // R2-03: a finished method with no chances (prob_source none — the
+  // predict-only reuse case) fills its column with "–"; the note names the
+  // columns and says why (the method page's own words).
+  const noChanceNote = useMemo(
+    () => (view ? formatNoChanceNote(view.columns) : null),
+    [view],
   )
 
   if (runError === 'not-found') {
@@ -262,10 +294,13 @@ export function ResultsPage() {
 
   const cannotRun = run.methods.filter(m => m.state === 'cannot_run')
   // A terminal failed/stopped run with no predictions is the honest
-  // failure state (RES-02): its reasons render below the header, and the
-  // header omits the segments that read like a completed run (nothing was
-  // learned — the counts + decision day stay, they are recorded facts).
-  const runFailed = run.status === 'failed' || run.status === 'stopped'
+  // failure state (RES-02 + qa-fixes2 R2-02): the engine's `finished`
+  // status also covers a run where NOTHING finished (`predictions_ready`
+  // is false exactly then) — `txrRunFailed` is that truth. The reasons
+  // render below the header, and the header omits the segments that read
+  // like a completed run (nothing was learned — the counts + decision day
+  // stay, they are recorded facts).
+  const runFailed = txrRunFailed(run)
 
   // The 409 empty-heatmap state: header (counts + banners) + a disabled
   // download, NO table, NO spinner loop — the SSE's `prediction` frame
@@ -283,7 +318,7 @@ export function ResultsPage() {
           }
         />
         {runFailed ? (
-          <TxrRunFailedState run={run} onShowLog={methodId => TxrResults.openLog(methodId)} />
+          <TxrRunFailedState run={run} onShowLog={methodId => TxrResults.openLog(methodId)} onShowHistory={() => navigate('/history')} />
         ) : null}
         <TxrCannotRunBanner
           methods={cannotRun}
@@ -343,6 +378,16 @@ export function ResultsPage() {
         />
       </div>
       <TxrHeatmapTable view={view} onShowAll={() => TxrResults.setPatientLimit(-1)} />
+      {chanceNote !== null ? (
+        <p data-testid="txr-results-chance-note" style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-text-2)' }}>
+          {chanceNote}
+        </p>
+      ) : null}
+      {noChanceNote !== null ? (
+        <p data-testid="txr-results-no-chance-note" style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-text-2)' }}>
+          {noChanceNote}
+        </p>
+      ) : null}
       {mixedNote !== null ? (
         <p data-testid="txr-results-mixed-note" style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-text-2)' }}>
           {mixedNote}

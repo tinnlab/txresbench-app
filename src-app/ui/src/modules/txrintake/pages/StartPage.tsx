@@ -5,6 +5,7 @@ import { Button } from '@ziee/kit'
 import { ApiClient } from '@/api-client'
 import { parseCsvText } from '@/lib/txr-files/csv'
 import type { FileTableKind, ParsedTable } from '@/lib/txr-files/types'
+import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { TxrIntake } from '../stores/TxrIntake.store'
 import { useRunnableMethodCount } from '../data/useRunnableMethodCount'
 import type { IntakeIntent, LoadedFile } from '../types'
@@ -233,6 +234,8 @@ export function StartPage() {
   const { count } = useRunnableMethodCount()
   const [exampleBusy, setExampleBusy] = useState(false)
   const [exampleError, setExampleError] = useState<string | null>(null)
+  // R2-G1: the tab/title byte is the page's own h1.
+  useDocumentTitle('What do you want to do?')
 
   /** The card path picker: set the intent, then start the flow it leads to. */
   const pickPath = useCallback(
@@ -282,8 +285,7 @@ export function StartPage() {
         <div style={STEP_LINE}>Step 1 of 4</div>
         <h1 style={TITLE}>What do you want to do?</h1>
         <p style={INTRO}>
-          Everything runs on this computer. Pick the way that fits what you have; you can change
-          your mind later.
+          Pick the way that fits what you have; you can change your mind later.
         </p>
       </div>
 

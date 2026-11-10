@@ -321,15 +321,26 @@ describe('PredictFilesPage (screen N, ITEM-7)', () => {
 
     const status = screen.getByTestId('txr-intake-file-status-measurements')
     expect(within(status).getByText('1 problem in 2 rows')).toBeTruthy()
-    // The ITEM-4 code link is appended to the provider's line.
+    // R2-4: while the vocabulary suggestion is pending the problem list is
+    // hidden (the question is the action); declining it brings the plain
+    // line back (R2-3: the message byte, no appended code).
+    expect(within(status).queryByTestId('txr-intake-file-problems-measurements')).toBeNull()
+    fireEvent.click(screen.getByTestId('txr-intake-vocab-decline-cea'))
+    await waitFor(() => {
+      expect(within(status).getByTestId('txr-intake-file-problems-measurements')).toBeTruthy()
+    })
     expect(
-      within(status).getAllByRole('listitem')[0].textContent,
+      screen
+        .getByTestId('txr-intake-file-problems-measurements')
+        .querySelector(':scope > li')?.textContent,
     ).toContain('Row 4: week 4 is not a number in the day column')
     expect(continueButton().disabled).toBe(true)
 
     fireEvent.click(within(status).getByText('Fix and choose the file again'))
     expect(store().predictMeasurements).toBeNull()
-    expect(api.validate).toHaveBeenCalledTimes(1)
+    // The decline above re-validated once (rejectVocab nulls the validation);
+    // removeFile does not re-validate a bare slot.
+    expect(api.validate).toHaveBeenCalledTimes(2)
     expect(screen.getByText('Drop the measurements file here')).toBeTruthy()
     expect(screen.queryByTestId('txr-intake-file-status-measurements')).toBeNull()
   })
@@ -377,18 +388,53 @@ describe('PredictFilesPage (screen N, ITEM-7)', () => {
   })
 })
 
-describe("ITEM-6 P1/F4 — the aside's bullets and two-line items, the pick guard", () => {
-  it('the aside list keeps the board dots and the bold lead-in on its own line (P1)', () => {
+describe("ITEM-6 P1/F4 — the aside's bullets and items, the pick guard", () => {
+  it('the aside list keeps the board dots and the lead-in runs INLINE with its fact (P1)', () => {
     renderPredict()
     const list = screen.getByText('Before treatment').closest('ul') as HTMLElement
     expect(list.style.listStyle).toBe('disc')
+    // P1 (qa-fixes2): the old <br/> made the bold lead-in a block, so
+    // "Markers" ended its line and ": ctDNA, LDH, …" started the next — the
+    // report's broken colon. The board's own bytes are one line per item:
+    // the <b> is followed by the fact IN THE SAME line.
     const item = screen.getByText('(day 0): needed by almost all models')
-    // The board's bold lead-in is its own element on its own line (the
-    // <br/> follows it), then the fact.
     expect(item.firstElementChild?.tagName).toBe('B')
     expect(item.firstElementChild?.textContent).toBe('Before treatment')
-    expect(item.firstElementChild?.nextElementSibling?.tagName).toBe('BR')
+    expect(item.firstElementChild?.nextElementSibling).toBeNull()
     expect(item.textContent).toContain('(day 0): needed by almost all models')
+    const markers = screen.getByText((_, element) =>
+      element?.textContent?.startsWith('Markers: ctDNA, LDH, blood counts') === true,
+    ) as HTMLElement
+    expect(markers.textContent).toContain(': ctDNA, LDH, blood counts and tumour markers')
+    const units = screen.getByText((_, element) =>
+      element?.textContent?.startsWith('Units: add the unit column') === true,
+    ) as HTMLElement
+    expect(units.textContent).toContain(': add the unit column so we can check')
+  })
+
+  // R2-12 (qa-fixes2): the aside's lead named "pretrained models" on the
+  // saved-models flow too — the board's byte is the pretrained path's; a
+  // reuse flow reads its own words (the two screens differ only here).
+  it('the aside lead names saved models for intent reuse (R2-12)', () => {
+    renderPredict()
+    expect(
+      screen.getByText(
+        'After you add the file we check which pretrained models can run on it. These are the draws most models use:',
+      ),
+    ).toBeTruthy()
+    cleanup()
+    store().setIntent('reuse')
+    renderPredict()
+    expect(
+      screen.queryByText(
+        'After you add the file we check which pretrained models can run on it. These are the draws most models use:',
+      ),
+    ).toBeNull()
+    expect(
+      screen.getByText(
+        'After you add the file we check which of your saved models can run on it. These are the draws most models use:',
+      ),
+    ).toBeTruthy()
   })
 
   it('a wrong file type is refused with the plain sentence on the N card too (F4)', async () => {

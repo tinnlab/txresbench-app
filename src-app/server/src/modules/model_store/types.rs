@@ -156,7 +156,7 @@ pub struct SaveModelsRequest {
     #[serde(default)]
     pub keep_training_files: bool,
     /// Also write `<data_root>/models/exports/<set-name-slug>-<id8>.txr`
-    /// (the L board's "Also save as a file to move to another computer").
+    /// (the "Also save as a file" checkbox).
     #[serde(default)]
     pub also_export: bool,
     /// The source file's name the save dialog showed (e.g. `patients.csv`);

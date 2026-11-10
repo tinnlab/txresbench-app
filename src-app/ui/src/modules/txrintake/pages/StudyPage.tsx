@@ -3,6 +3,7 @@ import type { CSSProperties } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useStore } from 'zustand'
 import { Button, Checkbox, Select, Skeleton } from '@ziee/kit'
+import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { useTxrIntakeStore } from '../stores/TxrIntake.store'
 import { useMarkers } from '../data/useMarkers'
 import { useStudyPreview } from '../data/useStudyPreview'
@@ -17,7 +18,8 @@ import {
   leftOutHeading,
   someFitLine,
 } from '../lib/format'
-import { descriptiveSentence } from '../lib/preview'
+import { descriptiveSentence, hasStudyAnswers, PREVIEW_ANSWER_INVITE } from '../lib/preview'
+import { formatNoEnvLine } from '@/modules/txrlist/lib/format'
 import type { DiseaseId, OutcomeId, TreatmentId } from '../types'
 
 /**
@@ -211,6 +213,9 @@ const PANEL_SOME_LINE: CSSProperties = {
 
 const PANEL_ERROR: CSSProperties = { margin: 0, color: 'var(--txr-danger)', fontSize: 13.5 }
 
+/** The environment honesty line (CM-1's plain-voice rule, R2-1's separation). */
+const PANEL_NO_ENV: CSSProperties = { margin: 0, fontSize: 12.5, color: 'var(--txr-warning)' }
+
 /** The "What you will upload" box (board: bordered white card). */
 const UPLOAD_BOX: CSSProperties = {
   padding: '14px 16px',
@@ -282,6 +287,8 @@ export function StudyPage() {
   const patchParameters = useStore(useTxrIntakeStore, s => s.patchParameters)
   const { groups, loading: groupsLoading, error: groupsError } = useMarkers()
   const panel = useStudyPreview(study, groups)
+  // R2-G1: the tab/title byte is the page's own h1.
+  useDocumentTitle('Tell us about your study')
   const [showAllExcluded, setShowAllExcluded] = useState(false)
 
   /** One checkbox toggle: the answer map grows/shrinks explicitly (DEC-5). */
@@ -310,6 +317,11 @@ export function StudyPage() {
   const excluded = panel.excluded
   const shownExcluded = showAllExcluded ? excluded : excluded.slice(0, EXCLUDED_LIST_LIMIT)
   const hasMoreExcluded = excluded.length > EXCLUDED_LIST_LIMIT
+  // R2-1: with NOTHING answered the panel says what to do, not a count — the
+  // old page reported "N of M methods fit" from a request the user never
+  // composed (all groups false + the default schedule); the count answers
+  // only after the first answer exists.
+  const answered = hasStudyAnswers(study)
 
   return (
     <div
@@ -472,22 +484,36 @@ export function StudyPage() {
 
         <aside style={PANEL_COLUMN} data-testid="txr-intake-panel">
           <div>
-            <div style={PANEL_COUNT} data-testid="txr-intake-panel-fit-count">
-              {panel.fit !== null ? (
-                <span style={{ fontWeight: 600 }}>{panel.fit.canRun}</span>
-              ) : (
-                <span style={{ fontWeight: 600, color: 'var(--txr-muted)' }}>…</span>
-              )}
-              <span style={PANEL_SUFFIX}>
-                {panel.fit !== null ? ` of ${panel.fit.total} methods fit` : ' methods fit'}
-              </span>
-            </div>
-            <p style={PANEL_SENTENCE} data-testid="txr-intake-panel-sentence">
-              {descriptiveSentence(study)}
-            </p>
+            {answered ? (
+              <>
+                <div style={PANEL_COUNT} data-testid="txr-intake-panel-fit-count">
+                  {panel.fit !== null ? (
+                    <span style={{ fontWeight: 600 }}>{panel.fit.fit}</span>
+                  ) : (
+                    <span style={{ fontWeight: 600, color: 'var(--txr-muted)' }}>…</span>
+                  )}
+                  <span style={PANEL_SUFFIX}>
+                    {panel.fit !== null ? ` of ${panel.fit.total} methods fit` : ' methods fit'}
+                  </span>
+                </div>
+                <p style={PANEL_SENTENCE} data-testid="txr-intake-panel-sentence">
+                  {descriptiveSentence(study)}
+                </p>
+              </>
+            ) : (
+              <p style={PANEL_SENTENCE} data-testid="txr-intake-panel-sentence">
+                {PREVIEW_ANSWER_INVITE}
+              </p>
+            )}
           </div>
 
-          {panel.fit !== null && panel.fit.some > 0 ? (
+          {answered && panel.fit !== null && panel.fit.noEnv > 0 ? (
+            <p data-testid="txr-intake-panel-no-env" style={PANEL_NO_ENV}>
+              {formatNoEnvLine(panel.fit.noEnv, panel.fit.total)}
+            </p>
+          ) : null}
+
+          {answered && panel.fit !== null && panel.fit.some > 0 ? (
             <p style={PANEL_SOME_LINE} data-testid="txr-intake-panel-some">
               {someFitLine(panel.fit)}
             </p>
@@ -519,7 +545,9 @@ export function StudyPage() {
             <div style={EXCLUDED_HEADING}>
               {panel.fit !== null ? leftOutHeading(panel.fit) : 'Methods are left out'}
             </div>
-            {panel.fit !== null ? (
+            {!answered ? (
+              <div style={{ color: 'var(--txr-muted)', fontSize: 13.5 }}>…</div>
+            ) : panel.fit !== null ? (
               shownExcluded.length > 0 ? (
                 <ul style={EXCLUDED_LIST}>
                   {shownExcluded.map(method => (

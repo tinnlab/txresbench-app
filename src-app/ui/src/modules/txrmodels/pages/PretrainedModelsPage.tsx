@@ -68,6 +68,7 @@ import {
   TxrSelectList,
 } from '@/modules/txrlist'
 import { predictFilesPath, runningPath } from '@/modules/txrrun'
+import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { modelsPath } from '../routes'
 import { Alert, Button } from '@ziee/kit'
 import { usePretrained } from '../data/usePretrained'
@@ -155,6 +156,13 @@ const FOOTNOTE: CSSProperties = { fontSize: 13, color: 'var(--txr-muted)' }
 /** The not-ready state's line (no validated file — never a half list). */
 const EMPTY_LINE = 'Add the patients\u2019 measurements you want to predict first.'
 
+/** The not-ready state's note: which models this screen lists (R2-08 — the
+ *  saved-models screen and this one used to render byte-identical empty
+ *  states; the pretrained path's list is the benchmark's published
+ *  catalogue, and the note says so before the file gate). */
+const EMPTY_NOTE =
+  'The published models of the benchmark are listed here once the file checks out: each shows where it was learned and how well it transferred to other cohorts.'
+
 /** The not-ready state's CTA — the step that unlocks this one (RES-20: the
  *  old "Go to the start" landed on the landing page, not the predict-files
  *  step the flow needs next). */
@@ -217,7 +225,7 @@ function checkedLine(raw: {
 }
 
 /** Can the card be run WITHOUT a live download? An entry commits a
- *  provider state once (ready = verified on this computer); without an
+ *  provider state once (ready = verified present); without an
  *  entry the card's own list state decides (installed / bundled / ready —
  *  a bundled or downloaded+verified asset is installed at Run time). */
 function cardRunnable(
@@ -312,6 +320,8 @@ export function PretrainedModelsPage() {
   const atATime = useStore(useTxrModelsStore, s => s.atATime)
   const downloadState = useStore(useTxrModelsStore, s => s.downloadState)
   const dialog = useStore(useTxrModelsStore, s => s.dialog)
+  // R2-G1: the tab/title byte is the page's own h1.
+  useDocumentTitle('Choose the models to run')
 
   const { cards, loading: cardsLoading, error: cardsError, refetch } = usePretrained()
   const {
@@ -433,7 +443,7 @@ export function PretrainedModelsPage() {
   )
 
   /** The selection write: the shared list's controlled next-set, plus the
-   *  D auto-download — a card whose asset is not on this computer starts
+   *  D auto-download — a card whose asset is not downloaded yet starts
    *  its download when CHECKED (models.md: "larger ones are downloaded
    *  when selected"); a live/failed/verified download is never restarted
    *  (the store's idempotent start + the entry states are the guards). */
@@ -580,7 +590,7 @@ export function PretrainedModelsPage() {
               <p style={CHECK_LINE}>
                 The benchmark&rsquo;s published models arrive with its releases and appear here.
                 Until then, models you trained yourself are in Your models &mdash; from your own
-                analyses, or opened from another computer.
+                analyses, or opened from a file.
               </p>
               <Button
                 data-testid="txr-models-d-no-catalogue-cta"
@@ -637,6 +647,9 @@ export function PretrainedModelsPage() {
             }}
           >
             <p style={CHECK_LINE}>{EMPTY_LINE}</p>
+            <p data-testid="txr-models-d-empty-note" style={CHECK_LINE}>
+              {EMPTY_NOTE}
+            </p>
             <Button
               data-testid="txr-models-d-empty-cta"
               variant="outline"

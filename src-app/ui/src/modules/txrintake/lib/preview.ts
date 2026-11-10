@@ -10,17 +10,27 @@
  *   provider's shape), the schedule answers verbatim, and `last_draw_day`
  *   defaulting to `56` when unanswered (ONE value, three uses: the B panel,
  *   the C/N validation parameters, the E run default).
- * - `fitCounts` — `{total, canRun, some, cannot}` from the response (the
- *   board's fit / left-out split, computed, never hardcoded).
+ * - `fitCounts` — `{total, fit, some, leftOut, noEnv}` from the response:
+ *   the board's fit / left-out split with the environment fact STRIPPED
+ *   (R2-1: a method without a published environment is a deployment fact,
+ *   not a study answer — `noEnv` is its own count, `leftOut` counts the
+ *   answer causes only, and `fit` is the board's inclusive headline count
+ *   whose arithmetic is pinned by the tests).
+ * - `hasStudyAnswers` — the B panel's gate (R2-1): with nothing answered
+ *   the panel shows the invite line and the hook sends no unanswered
+ *   request (the old panel reported a count from all-groups-false +
+ *   default schedule before the user said anything).
  * - `descriptiveSentence` — the panel headline under the count: the board's
  *   literal template, data-filled ("for colorectal cancer, risk by a day,
  *   with ctDNA, blood counts and LDH"). Answers-not-given render no clause;
  *   nothing here ever renders a count.
  * - `excludedMethods` — the "N methods are left out" list: the `cannot_run`
- *   verdicts in response order, one reason line per method through the
- *   CONS-UI-INTAKE-9 formatters (the injected txrlist surface), with the
- *   module's own lines for the two cases the shared E-vocabulary cannot
- *   render on B (see `excludedReasonLine`).
+ *   verdicts with an ANSWER cause (the ENV_IMAGE_MISSING verdicts are the
+ *   panel's separate env line — 300 identical "no published environment"
+ *   rows would drown the reasons, R2-5's spirit), in response order, one
+ *   reason line per method through the CONS-UI-INTAKE-9 formatters (the
+ *   injected txrlist surface), with the module's own lines for the cases
+ *   the shared E-vocabulary cannot render on B (see `excludedReasonLine`).
  */
 
 import type {
@@ -78,22 +88,59 @@ export function buildStudyPreviewRequest(
 export interface FitCounts {
   /** The catalogue size the panel's "of M" reads. */
   total: number
-  /** `total_fit` — methods that can run. */
-  canRun: number
+  /**
+   * The board's fit count — methods that FIT THE STUDY ANSWERS (R2-1):
+   * the runnable ones plus the env-absent methods whose ONLY reason is the
+   * environment (their study verdict is nothing but "can't start yet"; the
+   * env line right below states that fact). The board's own arithmetic is
+   * inclusive here (some-fit methods are inside the headline count and
+   * `some` is the subset note beneath it).
+   */
+  fit: number
   /** `total_some` — methods that can run for some patients. */
   some: number
-  /** `total_cannot` — the "left out" count. */
-  cannot: number
+  /**
+   * The answer-caused left-out count (`total_cannot − total_no_env`): the
+   * methods whose ANSWERS exclude them. Never polluted by the environment
+   * fact (R2-1: a method with no published environment was reported as
+   * "doesn't fit with these answers" — the env line is its own fact).
+   */
+  leftOut: number
+  /** `total_no_env` — methods with no published environment (the env line). */
+  noEnv: number
 }
 
-/** Derive the panel's count split from the provider's response. */
+/**
+ * Derive the panel's count split from the provider's response. The
+ * per-method classification is exact: an env-absent method carries
+ * `ENV_IMAGE_MISSING` (pushed first by the runtime stage) and
+ * `total_no_env` counts exactly those; among the rest, `cannot_run` means
+ * the answers exclude it; everything else fits. `fit` counts the
+ * answer-fitting env-absent methods too (`reasons.length === 1`) — they
+ * answer the study question with the env line's "can't start" as the
+ * separate fact.
+ */
 export function fitCounts(response: EligibilityResponse): FitCounts {
+  const noEnv = response.total_no_env
+  const leftOut = response.total_cannot - noEnv
+  const envOnlyAnswerFit = response.methods.filter(
+    method => hasEnvReason(method) && method.reasons.length === 1,
+  ).length
   return {
     total: response.methods.length,
-    canRun: response.total_fit,
+    fit: response.methods.length - leftOut - noEnv + envOnlyAnswerFit,
     some: response.total_some,
-    cannot: response.total_cannot,
+    leftOut,
+    noEnv,
   }
+}
+
+/** Whether a method's first cause is the environment (the runtime stage's
+ *  `cantRun` reclassification — the reason is pushed FIRST by
+ *  `with_runtime_env`, so a mixed method reads as "no published
+ *  environment", the fact that keeps it from starting). */
+function hasEnvReason(method: MethodEligibility): boolean {
+  return method.reasons.some(reason => reason.code === 'ENV_IMAGE_MISSING')
 }
 
 /** One excluded-method row (the id + the one reason line the list shows). */
@@ -151,6 +198,30 @@ export function toRunStatus(status: EligibilityResponse['methods'][number]['stat
 }
 
 /**
+ * The gate R2-1 adds to screen B: whether ANY study answer exists. The
+ * store's birth state is all-null; the first answer (a disease, an outcome
+ * pill, a marker-group checkbox, a schedule choice) flips it. With nothing
+ * answered the panel renders the invite line and the hook issues NO
+ * request — the old page reported "N of M methods fit" from an all-false /
+ * default-schedule body the user never composed (the review's (c)).
+ */
+export function hasStudyAnswers(answers: StudyAnswers): boolean {
+  return (
+    answers.disease !== null ||
+    answers.treatment !== null ||
+    answers.outcome !== null ||
+    answers.markerGroups !== null ||
+    answers.beforeTreatment !== null ||
+    answers.drawsDuringTreatment !== null ||
+    answers.lastDrawDay !== null
+  )
+}
+
+/** The panel's line before the first answer (R2-1: the honest no-count state). */
+export const PREVIEW_ANSWER_INVITE =
+  'Answer the questions above to see which methods fit your study.'
+
+/**
  * The CONS-UI-INTAKE-9 formatter surface `excludedMethods` receives — the
  * real txrlist functions, injected so the pure lib stays testable with the
  * same bytes the page binds. The fallback for B lives HERE (`PREVIEW_REASON_FALLBACK`),
@@ -185,6 +256,7 @@ const PREVIEW_SHARED_CODES: ReadonlySet<string> = new Set([
   'COVARIATE_REQUIRED_UNMET',
   'UNIT_MISMATCH',
   'NOT_RUNNABLE',
+  'ENV_IMAGE_MISSING',
   'TASK_INCOMPATIBLE',
   'RESPONSE_LABEL_MISSING',
   'SURVIVAL_OUTCOME_MISSING',
@@ -220,20 +292,26 @@ export function excludedReasonLine(
 }
 
 /**
- * The "N methods are left out" list: every `cannot_run` verdict in the
- * response's order (the provider emits deterministic order), one reason line
- * per method. `can_run_some` methods are NOT in it — B labels the heads
- * "N of M fit" and "N are left out", and a method that can run for some
- * patients is neither; the preview can also mark one `can_run_some` with NO
- * reason at all (the "sometimes before-treatment" case), which the board's
- * every-row-has-a-reason list cannot render. The board's visible clip + the
- * truthful "Show all N" affordance live in the page (`EXCLUDED_LIST_LIMIT`).
+ * The "N methods are left out" list: every `cannot_run` verdict with an
+ * ANSWER cause in the response's order (the provider emits deterministic
+ * order), one reason line per method. The ENV_IMAGE_MISSING verdicts are
+ * NOT in it — R2-1 separates the environment fact: those methods read the
+ * panel's "N of M methods have no published environment and can't start"
+ * line (their row reason would be the one sentence repeated hundreds of
+ * times, the wall the R2-5 fix removes from the file cards) and the
+ * choose-methods screen lists them one by one. `can_run_some` methods are
+ * NOT in it either — B labels the heads "N of M fit" and "N are left out",
+ * and a method that can run for some patients is neither; the preview can
+ * also mark one `can_run_some` with NO reason at all (the "sometimes
+ * before-treatment" case), which the board's every-row-has-a-reason list
+ * cannot render. The board's visible clip + the truthful "Show all N"
+ * affordance live in the page (`EXCLUDED_LIST_LIMIT`).
  */
 export function excludedMethods(
   response: EligibilityResponse,
   formatters: TxrPreviewFormatters,
 ): ExcludedMethod[] {
   return response.methods
-    .filter(method => method.status === 'cannot_run')
+    .filter(method => method.status === 'cannot_run' && !hasEnvReason(method))
     .map(method => ({ id: method.id, reasonText: excludedReasonLine(method, formatters) }))
 }

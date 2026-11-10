@@ -177,7 +177,7 @@ describe('TxrSaveModelsDialog (TEST-MOD-13)', () => {
       'rm-8 could not run, so it has no model to save.',
     )
     expect(screen.getByTestId('txr-models-save-warning').textContent).toBe(
-      '2 models (rm-4, rm-5) keep parts of the training data inside them. They stay on this computer; check before you copy or share their files.',
+      '2 models (rm-4, rm-5) keep parts of the training data inside them. They stay in the saved model files; check before you copy or share them.',
     )
   })
 

@@ -4,8 +4,15 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useStore } from 'zustand'
 import { methodResultsPath, resultsPath } from '@/modules/txrresults/routes'
 import { Alert, Button, Result, Skeleton } from '@ziee/kit'
+import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import type { TxrRunBucket } from '../types'
-import { bucketOf, formatSecs, formatTimeLeft, LEAVE_AND_CONTINUE_NOTE } from '../lib/format'
+import {
+  bucketOf,
+  estimateQualityWord,
+  formatSecs,
+  formatTimeLeft,
+  LEAVE_AND_CONTINUE_NOTE,
+} from '../lib/format'
 import { historyPath } from '../routes'
 import { TxrRun, useTxrRun } from '../stores/TxrRun.store'
 import { TxrCountsStrip } from '../components/TxrCountsStrip'
@@ -244,7 +251,24 @@ export function RunningPage() {
   // render nothing from these, and the branch guards run afterwards.
   const runStatus = run?.status ?? null
   const terminal = runStatus !== null && TERMINAL_RUN_STATUSES.has(runStatus)
-  const title = formatRunTitle(run?.methods.length ?? 0, runStatus)
+  const finishedCount = useMemo(
+    () => (run?.methods ?? []).filter(m => m.state === 'finished').length,
+    [run],
+  )
+  // R2-1: a terminal run's title counts what happened, not what was queued
+  // ("Finished 4 of 6 methods" next to 4 done rows — never "Finished 6
+  // methods" while stopped/skipped rows sit in the table; old-run shape
+  // "6 finished of 209 selected").
+  const title = formatRunTitle(
+    run?.methods.length ?? 0,
+    runStatus,
+    terminal ? finishedCount : null,
+  )
+  // R2-G1: the tab/title byte is the page's own h1 once the run is known
+  // ("Running N methods", "Finished N methods"…); before that the status
+  // word alone ("Running …"). A run record carries no name field, so the
+  // title is derived exactly like the page heading — never invented.
+  useDocumentTitle(run === null ? 'Running' : title)
 
   // The LIVE elapsed (RP-2): the run's own snapshot at load (the detail's
   // `elapsed_secs`; the `started_at` anchor for a run whose snapshot had no
@@ -283,13 +307,20 @@ export function RunningPage() {
     if (terminal) return run.elapsed_secs ?? null
     return elapsedAnchor === null ? null : elapsedAnchor + elapsedTick
   }, [run, terminal, elapsedAnchor, elapsedTick])
-  const timeLeft = formatTimeLeft(run?.estimate ?? null, liveElapsedSecs)
-  const elapsed = liveElapsedSecs === null ? null : formatSecs(liveElapsedSecs)
+  // R2-1/R2-2: the time-left segment belongs to a LIVE run only — a terminal
+  // run's header reads "took 17 s" (the elapsed segment's terminal word),
+  // never the stale "about 2 minutes left" of the estimate the run started
+  // with. The live elapsed now reads real seconds ("12 s"), so the line
+  // moves on a sub-minute run instead of freezing at "under a minute".
+  const timeLeft = terminal ? null : formatTimeLeft(run?.estimate ?? null, liveElapsedSecs)
+  const elapsed =
+    liveElapsedSecs === null
+      ? null
+      : terminal
+        ? `took ${formatSecs(liveElapsedSecs)}`
+        : `${formatSecs(liveElapsedSecs)} elapsed`
+  const estimateWord = estimateQualityWord(run?.estimate?.estimate_quality ?? null)
 
-  const finishedCount = useMemo(
-    () => (run?.methods ?? []).filter(m => m.state === 'finished').length,
-    [run],
-  )
   const predictionsReady = (run?.predictions_ready ?? false) || finishedCount > 0
   const bucketCounts = useMemo(() => {
     const methods = run?.methods ?? []
@@ -392,7 +423,8 @@ export function RunningPage() {
           title={title}
           timeLeft={timeLeft}
           elapsed={elapsed}
-          atATime={run.config.at_a_time ?? null}
+          estimateWord={estimateWord}
+          atATime={state.atATime ?? run.config.at_a_time ?? null}
           cpus={run.cpus ?? null}
           predictionsReady={predictionsReady}
           runId={run.id}
@@ -415,6 +447,14 @@ export function RunningPage() {
             </Button>
           ))}
           <span style={{ flexGrow: 1 }} />
+          {tab === 'working' ? (
+            <span
+              data-testid="txr-run-tab-working-definition"
+              style={{ fontSize: 12.5, color: 'var(--txr-muted)' }}
+            >
+              {TABS.find(t => t.id === 'working')?.definition}
+            </span>
+          ) : null}
           {!state.logOpen ? (
             <Button
               data-testid="txr-run-log-open"
@@ -441,6 +481,7 @@ export function RunningPage() {
           stopping={state.stopping}
           terminal={terminal}
           actionError={state.actionError}
+          nowMs={liveElapsedSecs === null ? null : Date.now()}
         />
         {!terminal ? (
           <div data-testid="txr-run-leave-note" style={LEAVE_NOTE}>

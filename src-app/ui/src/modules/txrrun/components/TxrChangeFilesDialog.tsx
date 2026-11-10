@@ -3,7 +3,7 @@
  * DEC-9, PROV-UI-RUN-4; the provider's declared host surface,
  * PROV-UI-INTAKE-5 / EXAMPLE-INT-8).
  *
- * The dialog keeps the E context (the user stays on Step 4) and hosts the
+ * The dialog keeps the E context (the user stays at Step 4) and hosts the
  * intake's `TxrFileCard` per slot the run's mode needs — the patients +
  * measurements cards in the train-mode flow, the one predict-measurements
  * card in the predict flow — with the `TxrIntake` store actions bound

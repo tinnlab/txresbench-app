@@ -74,7 +74,7 @@ const KEEP_TRAINING_LABEL = 'Also keep a copy of my training files'
 
 /** The keep-training-files subline (the board's words without the design
  *  example size — INV-4). */
-const KEEP_TRAINING_HINT = 'So this run can be repeated. Stays on this computer.'
+const KEEP_TRAINING_HINT = 'So this run can be repeated. Delete the set to remove the copies.'
 
 /** The no-model-to-save line (D15's honest state). */
 const NO_MODEL_LINE = 'This method has no model to save.'

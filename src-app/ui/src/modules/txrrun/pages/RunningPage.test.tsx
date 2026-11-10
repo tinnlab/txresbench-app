@@ -248,7 +248,7 @@ describe('RunningPage — the run id and the header facts (TEST-RUN-23)', () => 
     // second or two on a slow host — the assertion reads the run's own
     // snapshot figures within the live tick's tolerance.
     const line = (await screen.findByTestId('txr-run-time-line')).textContent ?? ''
-    expect(line).toMatch(/^about 2 minutes left · 1 min 4\d s elapsed$/)
+    expect(line).toMatch(/^about 2 minutes left · 1 min 4\d s elapsed · rough estimate$/)
     expect(screen.getByTestId('txr-run-concurrency').textContent).toBe(
       '3 run at a time on 4 CPUs',
     )
@@ -269,7 +269,7 @@ describe('RunningPage — the run id and the header facts (TEST-RUN-23)', () => 
     })
     await vi.waitFor(() => {
       const text = screen.getByTestId('txr-run-time-line').textContent ?? ''
-      const match = text.match(/^about 2 minutes left · (\d+) min (\d+) s elapsed$/)
+      const match = text.match(/^about 2 minutes left · (\d+) min (\d+) s elapsed · rough estimate$/)
       expect(match).not.toBeNull()
       expect(Number(match![1]) * 60 + Number(match![2])).toBeGreaterThanOrEqual(105)
     })
@@ -421,7 +421,9 @@ describe('RunningPage — the terminal run (qa-fixes ITEM-3 RP-1)', () => {
     getRun.mockResolvedValue(detail)
     renderAt('run-1')
     const title = await screen.findByTestId('txr-run-title')
-    expect(title.textContent).toBe('Finished 6 methods')
+    // qa-fixes2 R2-1: the terminal title counts what finished (1 of the 6
+    // fixture rows) — never "Finished 6 methods" with 5 rows still working.
+    expect(title.textContent).toBe('Finished 1 of 6 methods')
     expect(state().run?.status).toBe('finished')
     // The page did NOT navigate away (a direct load of a terminal run is
     // the terminal snapshot's own surface; the leave-and-continue note is a
@@ -435,9 +437,11 @@ describe('RunningPage — the terminal run (qa-fixes ITEM-3 RP-1)', () => {
     ).getAllByRole('tab')) {
       expect(option.getAttribute('aria-disabled')).toBe('true')
     }
-    // The final elapsed is the engine's own snapshot (no client ticking).
+    // R2-1/R2-2: a terminal run's time line reads the elapsed it TOOK — no
+    // stale "about N minutes left", and the estimate's honesty word rides
+    // the end (the fixture's estimate is the rough kind).
     expect(screen.getByTestId('txr-run-time-line').textContent).toBe(
-      'about 2 minutes left · 1 min 40 s elapsed',
+      'took 1 min 40 s · rough estimate',
     )
   })
 })

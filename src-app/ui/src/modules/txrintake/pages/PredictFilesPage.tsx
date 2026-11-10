@@ -5,6 +5,7 @@ import { Button } from '@ziee/kit'
 import { ApiClient } from '@/api-client'
 import type { FileTableKind } from '@/api-client/types'
 import { useStore } from 'zustand'
+import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { TxrIntake, useTxrIntakeStore } from '../stores/TxrIntake.store'
 import {
   cardProblems,
@@ -122,7 +123,9 @@ const ASIDE_LIST: CSSProperties = {
   color: 'var(--txr-text-2)',
 }
 
-/** One aside item: the board's bold lead-in on its own line, then the fact. */
+/** One aside item: the board's bold lead-in runs INLINE with its fact (P1:
+ *  the old `<br/>` made the lead-in a block, so "Markers" ended its line
+ *  and ": ctDNA, LDH, …" started the next — the report's broken colon). */
 const ASIDE_ITEM: CSSProperties = { margin: '2px 0' }
 
 /** The board's "Not sure what you have?" note (the study clause is a link). */
@@ -211,6 +214,8 @@ export function PredictFilesPage() {
   const mapping = useStore(useTxrIntakeStore, s => s.mapping)
   const parameters = useStore(useTxrIntakeStore, s => s.parameters)
   const validation = useStore(useTxrIntakeStore, s => s.validation)
+  // R2-G1: the tab/title byte is the page's own h1.
+  useDocumentTitle('Add the patients to predict')
   // The J "Use" handoff (RES-21): the id + display label ride the URL (the
   // J "?set=" view precedent) so this screen can name the chosen model —
   // the reuse flow said nothing about WHICH model was picked between the
@@ -408,7 +413,7 @@ export function PredictFilesPage() {
           <div style={STEP_LINE}>Step 3 of 4</div>
           <h1 style={TITLE}>Add the patients to predict</h1>
           <p style={INTRO}>
-            Only their blood measurements. Read on this computer only, never uploaded. Match the
+            Only their blood measurements. Used only for the analyses you start. Match the
             example; we check the file as soon as you choose it.
           </p>
         </div>
@@ -467,30 +472,27 @@ export function PredictFilesPage() {
       <aside style={ASIDE} data-testid="txr-intake-aside">
         <div style={ASIDE_EYEBROW}>What the models look for</div>
         <p style={ASIDE_PARA}>
-          After you add the file we check which pretrained models can run on it. These are the
-          draws most models use:
+          {/* R2-12: the aside's lead must name the path the Continue takes —
+              the board's "pretrained models" byte is the pretrained path's;
+              a saved-model flow reads its own words. */}
+          {intent === 'reuse'
+            ? 'After you add the file we check which of your saved models can run on it. These are the draws most models use:'
+            : 'After you add the file we check which pretrained models can run on it. These are the draws most models use:'}
         </p>
         <ul style={ASIDE_LIST}>
           <li style={ASIDE_ITEM}>
-            <b>Before treatment</b>
-            <br />
-            (day 0): needed by almost all models
+            <b>Before treatment</b> (day 0): needed by almost all models
           </li>
           <li style={ASIDE_ITEM}>
-            <b>Early on treatment</b>
-            <br />
-            (about day 14 to 28): needed by the models that look at change
+            <b>Early on treatment</b> (about day 14 to 28): needed by the models that look at
+            change
           </li>
           <li style={ASIDE_ITEM}>
-            <b>Markers</b>
-            <br />
-            : ctDNA, LDH, blood counts and tumour markers are the most used. The more you measured,
-            the more models can run
+            <b>Markers</b>: ctDNA, LDH, blood counts and tumour markers are the most used. The
+            more you measured, the more models can run
           </li>
           <li style={ASIDE_ITEM}>
-            <b>Units</b>
-            <br />
-            : add the unit column so we can check that the scale matches the model
+            <b>Units</b>: add the unit column so we can check that the scale matches the model
           </li>
         </ul>
         <div style={ASIDE_NOTE}>

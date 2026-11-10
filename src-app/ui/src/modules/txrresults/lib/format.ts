@@ -396,7 +396,7 @@ export function formatMixedOutcomeNote(
 
 /**
  * The constant-column note (qa-fixes RES-03): "N methods gave the same chance
- * (0%) for every patient." — the screen never leaves a wall of identical
+ * (0%) for every patient." — the screen never shows a wall of identical
  * percents unexplained. The values are the columns' common 0–1 values as the
  * display's whole percents, distinct and ascending; null when nothing is
  * constant.
@@ -412,6 +412,29 @@ export function formatConstantNote(
   const valueText = values.length === 1 ? values[0] : values.join(' and ')
   const verb = constants.length === 1 ? 'method gave' : 'methods gave'
   return `${constants.length} ${verb} the same chance (${valueText}) for every patient.`
+}
+
+/**
+ * The missing-chance note (qa-fixes2 R2-10): the table is built from the
+ * engine's prediction columns, and a finished method with no recorded
+ * chance column is absent from them — the header's "N of M methods
+ * finished" (a true run fact) then counts more than the table shows.
+ * The note is the report's option A ("say plainly"): "Showing the 5 of 6
+ * finished methods that give chances; ctdna-clearance finished without a
+ * recorded chance column and is not shown." Null when every finished
+ * method carries a column.
+ */
+export function formatChanceMissingNote(
+  finished: ReadonlyArray<{ methodId: string; label: string }>,
+  columns: ReadonlyArray<{ methodId: string }>,
+): string | null {
+  const withColumn = new Set(columns.map(c => c.methodId))
+  const missing = finished.filter(m => !withColumn.has(m.methodId))
+  if (missing.length === 0) return null
+  const names = missing.map(m => m.label || m.methodId).join(', ')
+  const remaining = finished.length - missing.length
+  const verb = missing.length === 1 ? 'is' : 'are'
+  return `Showing the ${remaining} of ${finished.length} finished methods that give chances; ${names} finished without a recorded chance column and ${verb} not shown.`
 }
 
 /**
@@ -441,4 +464,46 @@ export function formatProbSourceLine(
     case null:
       return 'No chances are shown: this predict-only reuse has no training data to convert the scores into chances.'
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// qa-fixes2 R2-02/RES-02 — the terminal-failed-run truth (status + methods)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Whether the run's results should present the failure state (qa-fixes2
+ * R2-02 / round-1 RES-02 — still broken because the engine's `finished`
+ * status covers a run whose scheduler ran to the end while EVERY method
+ * failed or could not run). The honest condition is the engine's own
+ * `predictions_ready` rule (`counts.finished > 0`, TEST-EE-9): a terminal
+ * run with no finished method has no predictions and is presented as the
+ * failure the method rows record — the run's own terminal word for
+ * `failed`/`stopped`, the "nothing finished" fact for `finished`.
+ */
+export function txrRunFailed(run: {
+  status: string
+  methods: ReadonlyArray<{ state: string }>
+}): boolean {
+  if (run.status === 'failed' || run.status === 'stopped') return true
+  if (run.status === 'finished') {
+    return !run.methods.some(m => m.state === 'finished')
+  }
+  return false
+}
+
+/**
+ * The no-chance note (qa-fixes2 R2-03): a finished method whose column
+ * carries no chances (the engine's `prob_source: none` — a predict-only
+ * reuse has no training data to fit the conversion) renders a wall of
+ * blank cells with no explanation. The note names the columns plainly,
+ * with the SAME words as the method page's prob-source line; null when
+ * the view has no such column.
+ */
+export function formatNoChanceNote(
+  columns: ReadonlyArray<{ label: string; probSource: 'native' | 'recalibrated' | null }>,
+): string | null {
+  const noChance = columns.filter(c => c.probSource === null)
+  if (noChance.length === 0) return null
+  const names = noChance.map(c => c.label).join(', ')
+  return `No chances are shown for ${names}: this predict-only reuse has no training data to convert the scores into chances.`
 }

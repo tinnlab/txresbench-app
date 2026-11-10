@@ -6,8 +6,8 @@
  * `Pretrained.dc.html` and `Saved.dc.html` — the duration rows ("12 s",
  * "under 1 min", "about 5 min"), the coverage lines ("all 151 patients" /
  * "120 of 151 patients"), the three run headlines, the per-code "what is
- * missing" reason lines, the total line ("about 14 minutes in total on
- * this computer"), and the plurals ("Run 5 methods" / "Run 3 models").
+ * missing" reason lines, the total line ("about 14 minutes in total"),
+ * and the plurals ("Run 5 methods" / "Run 3 models").
  *
  * The formatters are pure: structure goes in (the eligibility response's
  * structured facts), board copy comes out (DEC-5 — the server sends
@@ -23,7 +23,7 @@
  *
  * Board rules that shape this file:
  * - the row time is the SHORT form ("about 5 min"); the bottom-bar total
- *   is the LONG form ("about 5 minutes in total on this computer") — the
+ *   is the LONG form ("about 5 minutes in total") — the
  *   boards consistently spell the two differently;
  * - the FLOW.md shorthand "partly" is never used (DEC-12); the three
  *   statuses are "Can run" / "Can run for some patients" / "Cannot run";
@@ -152,8 +152,8 @@ export function formatMissingItem(missing: ReadonlyArray<{ display_name?: string
  * - `COVARIATE_MISSING` / `COVARIATE_REQUIRED_UNMET` → "needs extra
  *   inputs your file lacks";
  * - `NOT_RUNNABLE` → "not available with this build";
- * - `ENV_IMAGE_MISSING` → "no published environment for this computer"
- *   (CM-1's plain reason — the method can never start on this machine);
+ * - `ENV_IMAGE_MISSING` → "no published environment available"
+ *   (CM-1's plain reason — the method cannot start without one);
  * - `TASK_INCOMPATIBLE` → "needs an outcome column your file lacks";
  * - `RESPONSE_LABEL_MISSING` → "needs a response label in your file";
  * - `SURVIVAL_OUTCOME_MISSING` → "needs survival times in your file";
@@ -197,7 +197,7 @@ export function formatReasonLine(
     case 'NOT_RUNNABLE':
       return 'not available with this build'
     case 'ENV_IMAGE_MISSING':
-      return 'no published environment for this computer'
+      return 'no published environment available'
     case 'TASK_INCOMPATIBLE':
       return 'needs an outcome column your file lacks'
     case 'RESPONSE_LABEL_MISSING':
@@ -218,17 +218,28 @@ export function formatReasonLine(
 }
 
 /**
- * The bottom-bar total (board wording: "about 14 minutes in total on this
- * computer"). `null` (loading, or an empty selection) renders the board
+ * The bottom-bar total (board wording: "about 14 minutes in total").
+ * `null` (loading, or an empty selection) renders the board
  * loading ellipsis "…"; anything under a minute renders the short form
- * "under 1 minute in total on this computer" rather than "about 0
+ * "under 1 minute in total" rather than "about 0
  * minutes".
  */
 export function formatTotalTime(seconds: number | null): string {
   if (seconds === null) return '…'
-  if (seconds < 60) return 'under 1 minute in total on this computer'
+  if (seconds < 60) return 'under 1 minute in total'
   const minutes = Math.round(seconds / 60)
-  return `about ${minutes} ${minutes === 1 ? 'minute' : 'minutes'} in total on this computer`
+  return `about ${minutes} ${minutes === 1 ? 'minute' : 'minutes'} in total`
+}
+
+/**
+ * The no-environment honesty line (CM-1, one vocabulary for the method list
+ * AND the screen-B panel): "N of M methods have no published environment and
+ * can't start." The count is `total_no_env` — the catalogue methods with no
+ * published environment (the list still shows them; the statement is the
+ * deployment fact, stated plainly, never a raw code).
+ */
+export function formatNoEnvLine(noEnv: number, total: number): string {
+  return `${noEnv} of ${total} methods have no published environment and can't start.`
 }
 
 /** The itemLabel plural: "method" → "methods" (the singular for n === 1). */

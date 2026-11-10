@@ -8851,7 +8851,7 @@
         "tags": [
           "method-catalogue"
         ],
-        "description": "Per-method eligibility verdicts (can_run / can_run_some / cannot_run) with structured reason codes, missing markers/groups and per-patient coverage aggregates. A method with no published environment on this computer is cannot_run + ENV_IMAGE_MISSING (total_no_env counts them). The body is a tagged union: `preview` (screen-B schedule answers) or `inventory` (the file validator's inventory).",
+        "description": "Per-method eligibility verdicts (can_run / can_run_some / cannot_run) with structured reason codes, missing markers/groups and per-patient coverage aggregates. A method with no published environment available is cannot_run + ENV_IMAGE_MISSING (total_no_env counts them). The body is a tagged union: `preview` (screen-B schedule answers) or `inventory` (the file validator's inventory). The inventory rows' `estimated_seconds` are calibrated with the app's own measured run durations when such exist (the same seconds the estimate endpoint and the run's stored estimate use).",
         "operationId": "MethodCatalogue.eligibility",
         "requestBody": {
           "description": "The eligibility request body — a tagged union carrying exactly one of the two\n request kinds (`{\"preview\": …}` or `{\"inventory\": …}`).",
@@ -8920,7 +8920,7 @@
         "tags": [
           "method-catalogue"
         ],
-        "description": "Per-method estimated seconds (base per-fold seconds scaled by patients and CPUs — 150 reference patients; an absent `cpus` uses the run's own detected count), the plain sum, and the greedy longest-processing-time schedule total over `at_a_time` lanes (the run-N-at-a-time bar). Validation order: cpus/at_a_time (a posted 0 rejected) first, then method resolution — the first failure wins; a method with no published environment is METHOD_NOT_RUNNABLE.",
+        "description": "Per-method estimated seconds (base per-fold seconds scaled by patients and CPUs — 150 reference patients; an absent `cpus` uses the run's own detected count), the plain sum, and the greedy longest-processing-time schedule total over `at_a_time` lanes (the run-N-at-a-time bar). A method the app has measured itself estimates with its own median measured per-fold seconds (quality `measured`), the generated facts otherwise — the honest estimate-vs-measured label. Validation order: cpus/at_a_time (a posted 0 rejected) first, then method resolution — the first failure wins; a method with no published environment is METHOD_NOT_RUNNABLE.",
         "operationId": "MethodCatalogue.estimate",
         "requestBody": {
           "description": "The estimate request: which methods, on how many patients, on how many\n CPUs, running `at_a_time` lanes.",
@@ -8958,7 +8958,7 @@
             }
           },
           "200": {
-            "description": "The estimate response: per-method seconds, the plain sum, and the\n longest-processing-time schedule total over the `at_a_time` lanes (the\n bottom-bar \"about X minutes in total on this computer\"). `cpus` is the\n count actually used (the posted value, or the run's own resolution —\n [`estimate::host_cpus`] — when omitted), so the consumer can show the\n number the estimate was scaled to.",
+            "description": "The estimate response: per-method seconds, the plain sum, and the\n longest-processing-time schedule total over the `at_a_time` lanes (the\n bottom-bar \"about X minutes in total\"). `cpus` is the\n count actually used (the posted value, or the run's own resolution —\n [`estimate::host_cpus`] — when omitted), so the consumer can show the\n number the estimate was scaled to.",
             "content": {
               "application/json": {
                 "schema": {
@@ -17123,7 +17123,7 @@
             "minimum": 0
           },
           "total_no_env": {
-            "description": "The `cannot_run` methods whose reason is\n [`ReasonCode::EnvImageMissing`] — the count of catalogue methods the\n app cannot actually start (no published environment on this\n computer), so the list header can say how many exist while still\n listing them.",
+            "description": "The `cannot_run` methods whose reason is\n [`ReasonCode::EnvImageMissing`] — the count of catalogue methods the\n app cannot actually start (no published environment available), so the\n list header can say how many exist while still\n listing them.",
             "type": "integer",
             "format": "uint32",
             "minimum": 0
@@ -17262,7 +17262,7 @@
         ]
       },
       "EstimateResponse": {
-        "description": "The estimate response: per-method seconds, the plain sum, and the\n longest-processing-time schedule total over the `at_a_time` lanes (the\n bottom-bar \"about X minutes in total on this computer\"). `cpus` is the\n count actually used (the posted value, or the run's own resolution —\n [`estimate::host_cpus`] — when omitted), so the consumer can show the\n number the estimate was scaled to.",
+        "description": "The estimate response: per-method seconds, the plain sum, and the\n longest-processing-time schedule total over the `at_a_time` lanes (the\n bottom-bar \"about X minutes in total\"). `cpus` is the\n count actually used (the posted value, or the run's own resolution —\n [`estimate::host_cpus`] — when omitted), so the consumer can show the\n number the estimate was scaled to.",
         "type": "object",
         "properties": {
           "at_a_time": {
@@ -23778,7 +23778,7 @@
             "const": "NOT_RUNNABLE"
           },
           {
-            "description": "The method has no published environment image for this computer (the\n app's env manifest carries no host-arch entry) — the run would fail at\n start, so the verdict names it in advance and the run row carries the\n SAME code (one vocabulary, CONS-EE-10; the catalogue still lists the\n method — the environment is the missing half).",
+            "description": "The method has no published environment image available (the\n app's env manifest carries no host-arch entry) — the run would fail at\n start, so the verdict names it in advance and the run row carries the\n SAME code (one vocabulary, CONS-EE-10; the catalogue still lists the\n method — the environment is the missing half).",
             "type": "string",
             "const": "ENV_IMAGE_MISSING"
           },
@@ -24615,7 +24615,7 @@
         "type": "object",
         "properties": {
           "also_export": {
-            "description": "Also write `<data_root>/models/exports/<set-name-slug>-<id8>.txr`\n (the L board's \"Also save as a file to move to another computer\").",
+            "description": "Also write `<data_root>/models/exports/<set-name-slug>-<id8>.txr`\n (the \"Also save as a file\" checkbox).",
             "type": "boolean",
             "default": false
           },
@@ -25872,7 +25872,7 @@
             }
           },
           "predicted": {
-            "description": "`input_summary.predict_patients` (the \"predicted N\" figure).",
+            "description": "`input_summary.predict_patients` (the \"predicted N\" figure —\n the predict side's distinct patient count, qa-fixes2 R2-04).",
             "type": [
               "integer",
               "null"
@@ -26934,6 +26934,7 @@
             "minimum": 0
           },
           "predict_patients": {
+            "description": "The predict side's DISTINCT patient count (qa-fixes2 R2-04 — the\n validator's measurements summary; never the row count).",
             "type": [
               "integer",
               "null"

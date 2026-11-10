@@ -760,6 +760,76 @@ impl TxrRepository {
         Ok(())
     }
 
+    /// The mid-run estimate replacement (qa-fixes2 ITEM-6, R2-2): the lane
+    /// change recomputes the schedule at the new `at_a_time`, so the run's
+    /// stored estimate always matches its current setting (the F header's
+    /// time-left follows the control instead of keeping the create-time
+    /// schedule).
+    pub async fn update_run_estimate(
+        &self,
+        id: Uuid,
+        estimate: &TxrRunEstimate,
+    ) -> Result<(), AppError> {
+        let estimate_json = json_value(estimate, "TxrRunEstimate")?;
+        sqlx::query!(
+            "UPDATE txr_runs SET estimate = $2 WHERE id = $1",
+            id,
+            estimate_json,
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(AppError::database_error)?;
+        Ok(())
+    }
+
+    /// Record one measured method run (qa-fixes2 ITEM-6, R2-3) — the
+    /// estimate engine's calibration memory: a finished train-mode method's
+    /// `duration_ms` + the run's own facts (`patients`, `cpus`), normalized
+    /// into the DEC-7 reference shape by the calibration module.
+    pub async fn record_timing_sample(
+        &self,
+        sample: &crate::modules::method_catalogue::calibration::TimingSample,
+        run_id: Uuid,
+    ) -> Result<(), AppError> {
+        let measured_ms = sample.measured_ms as i64;
+        let patients = sample.patients as i64;
+        let cpus = sample.cpus as i64;
+        sqlx::query!(
+            r#"INSERT INTO txr_timing_samples (method_id, run_id, measured_ms, patients, cpus)
+               VALUES ($1, $2, $3, $4, $5)"#,
+            sample.method_id,
+            run_id,
+            measured_ms,
+            patients,
+            cpus,
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(AppError::database_error)?;
+        Ok(())
+    }
+
+    /// Every recorded timing sample (the whole calibration snapshot — the
+    /// estimate routes + the run start load it once per request and pass the
+    /// pure `TimingCalibration` into the engines).
+    pub async fn timing_samples(
+        &self,
+    ) -> Result<Vec<crate::modules::method_catalogue::calibration::TimingSample>, AppError> {
+        let rows = sqlx::query!("SELECT method_id, measured_ms, patients, cpus FROM txr_timing_samples")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(AppError::database_error)?;
+        Ok(rows
+            .into_iter()
+            .map(|r| crate::modules::method_catalogue::calibration::TimingSample {
+                method_id: r.method_id,
+                measured_ms: r.measured_ms as u64,
+                patients: r.patients as u32,
+                cpus: r.cpus as u32,
+            })
+            .collect())
+    }
+
     /// Every run's id + dir (the clear-all route's prune surface — the rows
     /// cascade on delete, the FOLDERS are this list).
     pub async fn all_run_dirs(&self) -> Result<Vec<(Uuid, String)>, AppError> {

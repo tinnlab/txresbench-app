@@ -523,7 +523,7 @@ describe('PretrainedModelsPage — TEST-MOD-09 (screen D)', () => {
     await settle(0)
     expect(screen.getByTestId('txr-list-selected-count').textContent).toBe('2 models selected')
     expect(screen.getByTestId('txr-list-total-time').textContent).toBe(
-      'about 2 minutes in total on this computer',
+      'about 2 minutes in total',
     )
     expect(screen.getByTestId('txr-list-run').textContent).toBe('Run 2 models')
 
@@ -652,6 +652,13 @@ describe('PretrainedModelsPage — TEST-MOD-09 (screen D)', () => {
     expect(screen.getByTestId('txr-models-d-empty')).toBeTruthy()
     expect(screen.getByTestId('txr-models-d-empty').textContent).toContain(
       'Add the patients\u2019 measurements you want to predict first.',
+    )
+    // R2-08: the pretrained empty state names WHICH models this screen
+    // lists — the saved-models screen and this one used to render the
+    // identical empty block, so a pretrained direct visit had no clue it
+    // was not the saved-models screen.
+    expect(screen.getByTestId('txr-models-d-empty-note').textContent).toContain(
+      'The published models of the benchmark are listed here once the file checks out',
     )
     // RES-20: a direct visit is not ON step 4 (the flow has not reached
     // it) and counts nothing — the step line and the "…" totals are gone.

@@ -82,7 +82,7 @@ export const NOT_SAVED_TEXT = "your patients' tables."
  */
 export const TRAINING_WARNING_KEEP = 'keep parts of the training data inside them.'
 export const TRAINING_WARNING_STAYS =
-  'They stay on this computer; check before you copy or share their files.'
+  'They stay in the saved model files; check before you copy or share them.'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // `formatPredicts` — the J "Predicts" column (Models.dc.html)
@@ -159,7 +159,7 @@ function parseDate(value: string | null | undefined): Date | null {
  * (`provenance === 'run'` — the run's creation date), "opened 14 Oct 2026"
  * for a row that came into the inventory from outside (`imported` — the
  * board's verb — or `pretrained`, an installed catalogue model with no
- * training on this machine). A missing or unparseable instant → the
+ * local training). A missing or unparseable instant → the
  * `UNRECORDED` constant, never an empty entry.
  */
 export function formatMade(
@@ -310,14 +310,14 @@ export function formatBytes(bytes: number | null | undefined): string {
  * the dynamic count + name list composed here:
  *
  * `"2 models (dynforest, flirti) keep parts of the training data inside
- * them. They stay on this computer; check before you copy or share their
- * files."`
+ * them. They stay in the saved model files; check before you copy or share
+ * them."`
  *
  * An empty list → `""` (the dialog renders no warning line — never a
  * "0 models" sentence). The board shows the plural case only; the singular
  * reading agrees the verb and pronouns ("1 model (… ) keeps parts of the
- * training data inside it. It stays on this computer; check before you
- * copy or share its files."). The caller passes exactly the models whose
+ * training data inside it. It stays in the saved model file; check before
+ * you copy or share it."). The caller passes exactly the models whose
  * `embeds_training_data` fact is true, in the run's method order (never an
  * invented warning — DEC-15).
  */
@@ -326,7 +326,7 @@ export function formatTrainingDataWarning(modelNames: ReadonlyArray<string>): st
   const count = names.length
   if (count === 0) return ''
   if (count === 1) {
-    return `1 model (${names[0]}) keeps parts of the training data inside it. It stays on this computer; check before you copy or share its files.`
+    return `1 model (${names[0]}) keeps parts of the training data inside it. It stays in the saved model file; check before you copy or share it.`
   }
   return `${count} models (${names.join(', ')}) ${TRAINING_WARNING_KEEP} ${TRAINING_WARNING_STAYS}`
 }

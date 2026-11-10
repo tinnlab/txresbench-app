@@ -48,25 +48,45 @@
 use aide::axum::routing::{get_with, post_with};
 use aide::axum::ApiRouter;
 use aide::transform::TransformOperation;
-use axum::extract::{Path, Query};
+use axum::extract::{Extension, Path, Query};
 use axum::http::StatusCode;
 use axum::Json;
 use schemars::JsonSchema;
 use serde::Deserialize;
+use sqlx::SqlitePool;
 
 use ziee_core::{ApiResult, AppError};
 
+use crate::modules::execution_engine::repository::TxrRepository;
 use crate::modules::permissions::{with_permission, RequirePermissions};
 use crate::modules::project::ProjectsUse;
 
 use super::catalogue;
-use super::eligibility::eligibility_for_runtime;
-use super::estimate::estimate_for_runtime;
+use super::calibration::TimingCalibration;
+use super::eligibility::eligibility_for_runtime_calibrated;
+use super::estimate::estimate_for_runtime_calibrated;
 use super::types::{
     Catalogue, EligibilityRequest, EligibilityResponse, EstimateRequest, EstimateResponse,
     MarkerVocabularyResponse, Method, MethodDetail, MethodGroup, MethodListResponse,
     MethodSummary,
 };
+
+/**
+ * The measured-time calibration snapshot (qa-fixes2 ITEM-6, R2-3): the
+ * estimate's per-method bases are scaled with THIS app's own recorded
+ * durations. The load FAILS OPEN — the estimate is a display fact, never a
+ * run error; an empty calibration is byte-identical to the uncalibrated
+ * engine.
+ */
+async fn load_calibration(pool: &SqlitePool) -> TimingCalibration {
+    match TxrRepository::new(pool.clone()).timing_samples().await {
+        Ok(samples) => TimingCalibration::from_samples(&samples),
+        Err(e) => {
+            tracing::warn!(error = %e, "method catalogue: timing calibration read failed; estimating uncalibrated");
+            TimingCalibration::empty()
+        }
+    }
+}
 
 /// The module's route set (registered by `register_routes`; no root-level
 /// catch-all — the `/api` prefix + permission mouting stay the framework's).
@@ -218,15 +238,17 @@ fn get_marker_vocabulary_docs(op: TransformOperation) -> TransformOperation {
 
 /// `POST /api/methods/eligibility` — the per-method verdicts against a file
 /// inventory (screens C/N/E) or an early schedule preview (screen B), plus
-/// the runtime-env stage: a catalogue method with no published environment on
-/// this computer is `cannot_run` + `ENV_IMAGE_MISSING` (the count of them is
+/// the runtime-env stage: a catalogue method with no published environment is
+/// `cannot_run` + `ENV_IMAGE_MISSING` (the count of them is
 /// `total_no_env` — the catalogue still lists them).
 async fn post_eligibility(
     _auth: RequirePermissions<(ProjectsUse,)>,
+    Extension(pool): Extension<SqlitePool>,
     Json(body): Json<EligibilityRequest>,
 ) -> ApiResult<Json<EligibilityResponse>> {
+    let calibration = load_calibration(&pool).await;
     let response = tokio::task::spawn_blocking(move || {
-        eligibility_for_runtime(catalogue::catalogue(), &body)
+        eligibility_for_runtime_calibrated(catalogue::catalogue(), &body, &calibration)
     })
     .await
     .map_err(|e| {
@@ -237,7 +259,7 @@ async fn post_eligibility(
 
 fn post_eligibility_docs(op: TransformOperation) -> TransformOperation {
     with_permission::<(ProjectsUse,)>(op)
-        .description("Per-method eligibility verdicts (can_run / can_run_some / cannot_run) with structured reason codes, missing markers/groups and per-patient coverage aggregates. A method with no published environment on this computer is cannot_run + ENV_IMAGE_MISSING (total_no_env counts them). The body is a tagged union: `preview` (screen-B schedule answers) or `inventory` (the file validator's inventory).")
+        .description("Per-method eligibility verdicts (can_run / can_run_some / cannot_run) with structured reason codes, missing markers/groups and per-patient coverage aggregates. A method with no published environment available is cannot_run + ENV_IMAGE_MISSING (total_no_env counts them). The body is a tagged union: `preview` (screen-B schedule answers) or `inventory` (the file validator's inventory). The inventory rows' `estimated_seconds` are calibrated with the app's own measured run durations when such exist (the same seconds the estimate endpoint and the run's stored estimate use).")
         .id("MethodCatalogue.eligibility")
         .tag("method-catalogue")
         .response::<200, Json<EligibilityResponse>>()
@@ -255,10 +277,12 @@ fn post_eligibility_docs(op: TransformOperation) -> TransformOperation {
 /// method with no published environment is refused (`METHOD_NOT_RUNNABLE`).
 async fn post_estimate(
     _auth: RequirePermissions<(ProjectsUse,)>,
+    Extension(pool): Extension<SqlitePool>,
     Json(body): Json<EstimateRequest>,
 ) -> ApiResult<Json<EstimateResponse>> {
+    let calibration = load_calibration(&pool).await;
     let response = tokio::task::spawn_blocking(move || {
-        estimate_for_runtime(catalogue::catalogue(), &body)
+        estimate_for_runtime_calibrated(catalogue::catalogue(), &body, &calibration)
     })
     .await
     .map_err(|e| {
@@ -270,7 +294,7 @@ async fn post_estimate(
 
 fn post_estimate_docs(op: TransformOperation) -> TransformOperation {
     with_permission::<(ProjectsUse,)>(op)
-        .description("Per-method estimated seconds (base per-fold seconds scaled by patients and CPUs — 150 reference patients; an absent `cpus` uses the run's own detected count), the plain sum, and the greedy longest-processing-time schedule total over `at_a_time` lanes (the run-N-at-a-time bar). Validation order: cpus/at_a_time (a posted 0 rejected) first, then method resolution — the first failure wins; a method with no published environment is METHOD_NOT_RUNNABLE.")
+        .description("Per-method estimated seconds (base per-fold seconds scaled by patients and CPUs — 150 reference patients; an absent `cpus` uses the run's own detected count), the plain sum, and the greedy longest-processing-time schedule total over `at_a_time` lanes (the run-N-at-a-time bar). A method the app has measured itself estimates with its own median measured per-fold seconds (quality `measured`), the generated facts otherwise — the honest estimate-vs-measured label. Validation order: cpus/at_a_time (a posted 0 rejected) first, then method resolution — the first failure wins; a method with no published environment is METHOD_NOT_RUNNABLE.")
         .id("MethodCatalogue.estimate")
         .tag("method-catalogue")
         .response::<200, Json<EstimateResponse>>()

@@ -475,6 +475,52 @@ describe('MethodResultsPage (TEST-UR-7 — the H screen)', () => {
     )
   })
 
+  it('the compare picker drives the card and the divergent filter (R2-07 — the card was always the first two)', async () => {
+    const view = await renderLoaded()
+    // The default pair is the first two columns, named in the two selects.
+    expect(view.getByTestId('txr-compare-picker-a').textContent).toContain('lm-cox-a')
+    expect(view.getByTestId('txr-compare-picker-b').textContent).toContain('rsf-b')
+    // Picking the other select's column swaps (the pair is never A == B):
+    // the card, the report and the divergent table all follow the pair.
+    await act(async () => {
+      fireEvent.pointerDown(view.getByTestId('txr-compare-picker-a'), {
+        button: 0,
+        pointerType: 'mouse',
+      })
+      fireEvent.click(view.getByTestId('txr-compare-picker-a'))
+      await Promise.resolve()
+    })
+    const option = document.querySelector<HTMLElement>(
+      '[role="option"][data-testid="txr-compare-picker-a-opt-rsf-b"]',
+    )!
+    expect(option).not.toBeNull()
+    await act(async () => {
+      fireEvent.pointerDown(option, { button: 0, pointerType: 'mouse' })
+      fireEvent.mouseDown(option, { button: 0 })
+      fireEvent.click(option)
+      await Promise.resolve()
+    })
+    await waitFor(() => {
+      expect(view.getByTestId('txr-compare-card').textContent).toContain(
+        'How rsf-b and lm-cox-a compare',
+      )
+      // The swapped pair reverses the two percents the card names.
+      expect(view.getByTestId('txr-compare-card').textContent).toContain(
+        'They differ most for S0005 (57% and 35%)',
+      )
+    })
+    fireEvent.click(view.getByTestId('txr-compare-divergent-toggle'))
+    await waitFor(() => {
+      // The divergent rows are now sorted by the FIRST of the pair (rsf-b):
+      // S0005 (0.84) before S0004 (0.52) — the old first-two order was the
+      // other way around.
+      const rows = Array.from(
+        view.container.querySelectorAll('[data-testid^="txr-bars-row-"]'),
+      ).map(el => el.getAttribute('data-testid'))
+      expect(rows).toEqual(['txr-bars-row-S0005', 'txr-bars-row-S0004'])
+    })
+  })
+
   it('the outcome tabs switch the column set through the page (pfs → response single column)', async () => {
     const view = await renderLoaded()
     const responseTab = view.getByTestId('txr-results-outcome-tab-response')

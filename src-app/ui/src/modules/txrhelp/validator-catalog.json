@@ -1,0 +1,170 @@
+[
+  {
+    "code": "R01",
+    "rule_id": "R01_tables_present",
+    "severity": "error",
+    "applicability": "not_applicable"
+  },
+  {
+    "code": "R02",
+    "rule_id": "R02_required_columns",
+    "severity": "error",
+    "applicability": "reported"
+  },
+  {
+    "code": "R03",
+    "rule_id": "R03_column_types",
+    "severity": "error",
+    "applicability": "reported"
+  },
+  {
+    "code": "R04",
+    "rule_id": "R04_nullability",
+    "severity": "error",
+    "applicability": "reported"
+  },
+  {
+    "code": "R05",
+    "rule_id": "R05_allowed_values",
+    "severity": "error",
+    "applicability": "reported"
+  },
+  {
+    "code": "R06",
+    "rule_id": "R06_ranges",
+    "severity": "error",
+    "applicability": "reported"
+  },
+  {
+    "code": "R07",
+    "rule_id": "R07_unique_keys",
+    "severity": "error",
+    "applicability": "reported"
+  },
+  {
+    "code": "R08",
+    "rule_id": "R08_values_patient_exists",
+    "severity": "error",
+    "applicability": "reported"
+  },
+  {
+    "code": "R09",
+    "rule_id": "R09_values_sample_exists",
+    "severity": "error",
+    "applicability": "holds_by_construction"
+  },
+  {
+    "code": "R10",
+    "rule_id": "R10_feature_described",
+    "severity": "error",
+    "applicability": "holds_by_construction"
+  },
+  {
+    "code": "R11",
+    "rule_id": "R11_day_agreement",
+    "severity": "error",
+    "applicability": "holds_by_construction"
+  },
+  {
+    "code": "R12",
+    "rule_id": "R12_single_time_unit",
+    "severity": "error",
+    "applicability": "reported"
+  },
+  {
+    "code": "R13",
+    "rule_id": "R13_nondetect_companions",
+    "severity": "error",
+    "applicability": "reported"
+  },
+  {
+    "code": "R14",
+    "rule_id": "R14_outcome_available",
+    "severity": "warning",
+    "applicability": "reported"
+  },
+  {
+    "code": "R15",
+    "rule_id": "R15_samples_patient_exists",
+    "severity": "error",
+    "applicability": "reported"
+  },
+  {
+    "code": "R16",
+    "rule_id": "R16_value_sample_same_patient",
+    "severity": "error",
+    "applicability": "holds_by_construction"
+  },
+  {
+    "code": "R17",
+    "rule_id": "R17_unknown_day_iff_null",
+    "severity": "error",
+    "applicability": "holds_by_construction"
+  },
+  {
+    "code": "R18",
+    "rule_id": "R18_event_has_time",
+    "severity": "error",
+    "applicability": "reported"
+  },
+  {
+    "code": "R19",
+    "rule_id": "R19_outcome_time_positive",
+    "severity": "warning",
+    "applicability": "reported"
+  },
+  {
+    "code": "R20",
+    "rule_id": "R20_day_range",
+    "severity": "warning",
+    "applicability": "reported"
+  },
+  {
+    "code": "R21",
+    "rule_id": "R21_preview_consistent",
+    "severity": "error",
+    "applicability": "not_applicable"
+  },
+  {
+    "code": "A01",
+    "rule_id": null,
+    "severity": "error",
+    "applicability": "reported"
+  },
+  {
+    "code": "A02",
+    "rule_id": null,
+    "severity": "error",
+    "applicability": "reported"
+  },
+  {
+    "code": "A03",
+    "rule_id": null,
+    "severity": "warning",
+    "applicability": "reported"
+  },
+  {
+    "code": "A04",
+    "rule_id": null,
+    "severity": "error_or_warning",
+    "applicability": "reported"
+  },
+  {
+    "code": "A05",
+    "rule_id": null,
+    "severity": "warning",
+    "applicability": "reported"
+  },
+  {
+    "code": "A06",
+    "rule_id": null,
+    "severity": "warning",
+    "applicability": "reported"
+  },
+  {
+    "code": "A07",
+    "rule_id": null,
+    "severity": "warning",
+    "applicability": "reported"
+  }
+]

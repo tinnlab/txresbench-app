@@ -89,8 +89,9 @@ const ROW1_TOOK = '2 minutes 55 seconds (estimated 4 minutes)'
 const ROW1_METHODS =
   'landmark-cox-current 1.0 (2 min), cox-cutpoint-risk 1.0 (1 min), relchange-threshold 0.9 (under a minute)'
 
-/** The board row-1 settings line (the fixture's detail settings). */
-const ROW1_SETTINGS = 'landmark 60, horizon 210, covariates on, seed 7, 4 CPUs, 16 GB'
+/** The board row-1 settings line (the fixture's detail settings — R2-09:
+ *  the invented memory figure is gone; the run config has no memory field). */
+const ROW1_SETTINGS = 'landmark 60, horizon 210, covariates on, seed 7, 4 CPUs'
 
 /** The DEC-6 settings-again body (the copy-cleared run's detail settings). */
 const DEC6_BODY = {
@@ -167,12 +168,15 @@ test.describe('txr-history-populated — the family list + the expanded block (T
     )
     await expect(page.getByTestId(`txr-history-status-${FAMILY[0]}`)).toHaveText('Done')
 
-    // The reuse row: the capital-P subtitle shape, no methods/decision-day
-    // segment, the saved-model chip.
+    // The reuse row: R2-04 — the consumed models' NAMES (the record's
+    // `models_used[].model_name`, never the model ids' raw uuids) + the
+    // capital-P "Predicted N patients" (the distinct-patient count, never
+    // the row count) + the endpoint line; no methods/decision-day segment,
+    // the saved-model chip.
     const row3 = page.getByTestId(`txr-history-row-${FAMILY[2]}`)
     await expect(row3).toContainText('Model Cohort A, day 60 on march_new.csv')
     await expect(page.getByTestId(`txr-history-subtitle-${FAMILY[2]}`)).toHaveText(
-      'Predicted 9 patients · progression, death by day 210',
+      'cohort-a-day-60 · Predicted 9 patients · progression, death by day 210',
     )
     await expect(page.getByTestId(`txr-history-chip-${FAMILY[2]}`)).toHaveText('Saved model')
 
@@ -300,11 +304,16 @@ test.describe('txr-history-detail-expanded — the reuse block (TEST-HIST-11)', 
     await expect(detail).toContainText('relchange-threshold 0.9 (under a minute)')
 
     // The reuse run's settings line (the fixture's detail settings:
-    // covariates off, the machine's CPU/memory facts, no decision-day
-    // tricks — the at-a-time count is not a settings segment).
+    // covariates off, the machine's CPU facts, no decision-day tricks —
+    // the at-a-time count is not a settings segment). R2-09: the memory
+    // figure is GONE — the run config has no memory field, so the old
+    // "16 GB" was a fabricated fact; the line reads only the config's own
+    // segments.
     await expect(detail).toContainText('covariates off')
     await expect(detail).toContainText('4 CPUs')
     await expect(detail).toContainText('seed 7')
+    await expect(detail).not.toContainText('16 GB')
+    await expect(detail).not.toContainText('GB')
     // No produced models → the Made row omits entirely.
     await expect(detail.getByText('Made')).toHaveCount(0)
 
@@ -541,6 +550,14 @@ test.describe('txr-history-log-dialog — the terminal snapshot (TEST-HIST-13)',
     await page.getByTestId(`txr-history-log-${FAMILY[0]}`).click()
 
     await expect(page.getByTestId('txr-history-log-dialog')).toBeVisible()
+    // R2-10: the dialog names its content ("Show the log of") — the old
+    // dialog opened with an unlabeled empty dropdown and no accessible name.
+    await expect(page.getByTestId('txr-history-log-dialog')).toContainText(
+      'Show the log of',
+    )
+    await expect(page.getByTestId('txr-history-log-dialog')).toContainText(
+      'Show technical output',
+    )
     await expect(page.getByTestId('txr-history-log-count')).toHaveText('Showing 6 of 6 lines')
     const lines = page.getByTestId('txr-history-log-lines')
     await expect(lines).toContainText('[landmark-cox-current] environment ready')
@@ -565,6 +582,11 @@ test.describe('txr-history-log-dialog — the terminal snapshot (TEST-HIST-13)',
 })
 
 test.describe('txr-history-narrow-390 — the mobile width (TEST-HIST-14)', () => {
+  // qa-fixes2 ITEM-7 recorded that this story measured the 1280 page (the
+  // pane was 390 but the page's phone media rules answer the WINDOW width) —
+  // ITEM-8's fix is the real 390 viewport, the models story's rule. The pane
+  // stays (the story's bounded frame); the window IS the phone now.
+  test.use({ viewport: { width: 390, height: 844 } })
   test('no horizontal overflow, the toolbar stacks, the footer links reachable', async ({
     page,
   }) => {
@@ -621,5 +643,13 @@ test.describe('txr-history-narrow-390 — the mobile width (TEST-HIST-14)', () =
     // The dialog's confirm channel opens over the narrow pane intact.
     await clearAll.click()
     await expect(page.getByTestId('txr-history-confirm-clear-files')).toBeVisible()
+    // R2-01 (qa-fixes2 ITEM-7): the kit Dialog portals its content to
+    // document.body — outside the shell subtree that used to declare the app
+    // face, so every dialog fell back to the browser default. The face at the
+    // html base layer means the portalled dialog inherits the app's stack.
+    const dialogFont = await page
+      .getByTestId('txr-history-confirm-clear-files')
+      .evaluate(el => getComputedStyle(el).fontFamily)
+    expect(dialogFont, 'the portalled dialog carries the app face').toContain('Source Sans 3')
   })
 })

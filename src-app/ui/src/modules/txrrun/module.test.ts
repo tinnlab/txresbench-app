@@ -196,7 +196,12 @@ describe('txrrun module (TEST-RUN-01)', () => {
           p !== 'scripts/dev-registry/make_real_inputs.test.py' &&
           p !== 'scripts/file-validator/gen_material.py' &&
           p !== 'scripts/file-validator/fixtures/expected/examples/patients.csv' &&
-          p !== 'scripts/file-validator/fixtures/expected/examples/measurements.csv',
+          p !== 'scripts/file-validator/fixtures/expected/examples/measurements.csv' &&
+          p !== 'scripts/file-validator/gen_help_catalog.sh' &&
+          // qa-fixes2 ITEM-2 (location-neutral copy): the notice generator's
+          // header reword — "the TxResBench application", not "desktop
+          // application" (the generated THIRD-PARTY-NOTICES.md follows).
+          p !== 'scripts/third-party.py' ,
       ),
     ).toEqual([])
     // qa-fixes ITEM-7 (X1): the built-CSS url check — one script file
@@ -224,6 +229,22 @@ describe('txrrun module (TEST-RUN-01)', () => {
           p !== 'src-app/ui/src/modules/txrshell/TxrLayout.tsx' &&
           p !== 'src-app/ui/src/modules/txrshell/TxrLayout.test.tsx' &&
           p !== 'src-app/ui/src/modules/txrshell/gallery.tsx' &&
+          // qa-fixes2 ITEM-1 (the theme switch): the new toggle component + its unit test.
+          p !== 'src-app/ui/src/modules/txrshell/TxrThemeToggle.tsx' &&
+          p !== 'src-app/ui/src/modules/txrshell/TxrThemeToggle.test.tsx' &&
+          // qa-fixes2 ITEM-2 (the location-neutral copy guard): its test file
+          // + allow-list, the item's own new txrshell files.
+          p !== 'src-app/ui/src/modules/txrshell/lib/copyGuard.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/copyGuard.allowlist.json' &&
+          // qa-fixes2 ITEM-4 (global + shell): the title hook + its unit
+          // test, the not-found screen + its unit test, the TxrLayout
+          // brand-link class (the header ring unification's hook) and the
+          // shell's catch-all route (module.tsx is sanctioned above).
+          p !== 'src-app/ui/src/modules/txrshell/lib/document-title.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/document-title.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/pages/NotFoundPage.tsx' &&
+          p !== 'src-app/ui/src/modules/txrshell/pages/NotFoundPage.test.tsx' &&
+
     // qa-fixes ITEM-7 (X3): the session guard's loading/failure
     // surface is tokenized with the pages (its own ink was a
     // hard-coded light hex — a light flash before the app loads).
@@ -249,6 +270,12 @@ describe('txrrun module (TEST-RUN-01)', () => {
     // validate.rs — the board's "N progressions or deaths" is the EVENTS
     // count, never with_primary_outcome; F1) and the A04 "no unit-family
     // agreement" wording reads plainly (units.rs again, F5e).
+    // The qa-fixes2 ITEM-6 server half (its DRIFT-1): the R2-3 measured-time
+    // calibration — the timing-samples migration + the repository
+    // record/read, the method_catalogue calibration module, and the
+    // estimate/eligibility/routes/orchestrator calibration wiring (the plan's
+    // own "server side" wording), plus the method_catalogue module
+    // registration.
     expect(
       touched.filter(
         p =>
@@ -257,7 +284,12 @@ describe('txrrun module (TEST-RUN-01)', () => {
           p !== 'src-app/server/src/modules/method_catalogue/eligibility.rs' &&
           p !== 'src-app/server/src/modules/method_catalogue/estimate.rs' &&
           p !== 'src-app/server/src/modules/method_catalogue/routes.rs' &&
+          p !== 'src-app/server/src/modules/method_catalogue/mod.rs' &&
+          p !== 'src-app/server/src/modules/method_catalogue/calibration.rs' &&
           p !== 'src-app/server/src/modules/execution_engine/orchestrator.rs' &&
+          p !== 'src-app/server/src/modules/execution_engine/repository.rs' &&
+          p !==
+            'src-app/server/src/modules/execution_engine/migrations/202610260011_txr_timing_samples.sql' &&
           p !== 'src-app/server/src/modules/model_store/types.rs' &&
           p !== 'src-app/server/src/modules/pretrained_catalogue/types.rs' &&
           p !== 'src-app/server/tests/method_catalogue/api_test.rs' &&
@@ -271,7 +303,14 @@ describe('txrrun module (TEST-RUN-01)', () => {
           p !== 'src-app/server/src/modules/file_validator/types.rs' &&
           p !== 'src-app/server/src/modules/file_validator/validate.rs' &&
           p !== 'src-app/server/src/modules/file_validator/units.rs' &&
-          p !== 'src-app/server/tests/model_store/api_test.rs',
+          p !== 'src-app/server/src/modules/file_validator/rules.rs' &&
+          p !== 'src-app/server/src/modules/file_validator/mod.rs' &&
+          p !== 'src-app/server/src/modules/file_validator/catalog.rs' &&
+          p !== 'src-app/server/tests/file_validator/rules_test.rs' &&
+          p !== 'src-app/server/tests/model_store/api_test.rs' &&
+          // qa-fixes2 ITEM-7 (R2-04): the K row's `predicted` doc grows
+          // the distinct-patient meaning — history_store/types.rs.
+          p !== 'src-app/server/src/modules/history_store/types.rs',
       ),
     ).toEqual([])
     // The ITEM-13 provider-file exception (DRIFT-1 #3) — the ui-list
@@ -321,6 +360,22 @@ describe('txrrun module (TEST-RUN-01)', () => {
           p !== 'src-app/ui/src/modules/txrshell/TxrLayout.tsx' &&
           p !== 'src-app/ui/src/modules/txrshell/TxrLayout.test.tsx' &&
           p !== 'src-app/ui/src/modules/txrshell/gallery.tsx' &&
+          // qa-fixes2 ITEM-1 (the theme switch): the new toggle component + its unit test.
+          p !== 'src-app/ui/src/modules/txrshell/TxrThemeToggle.tsx' &&
+          p !== 'src-app/ui/src/modules/txrshell/TxrThemeToggle.test.tsx' &&
+          // qa-fixes2 ITEM-2 (the location-neutral copy guard): its test file
+          // + allow-list, the item's own new txrshell files.
+          p !== 'src-app/ui/src/modules/txrshell/lib/copyGuard.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/copyGuard.allowlist.json' &&
+          // qa-fixes2 ITEM-4 (global + shell): the title hook + its unit
+          // test, the not-found screen + its unit test, the TxrLayout
+          // brand-link class (the header ring unification's hook) and the
+          // shell's catch-all route (module.tsx is sanctioned above).
+          p !== 'src-app/ui/src/modules/txrshell/lib/document-title.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/document-title.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/pages/NotFoundPage.tsx' &&
+          p !== 'src-app/ui/src/modules/txrshell/pages/NotFoundPage.test.tsx' &&
+
           p !== 'src-app/ui/src/modules/session/SessionGuard.tsx',
       ),
     ).toEqual([])

@@ -1,0 +1,45 @@
+{
+  "why": "One entry per line of a scanned file that legitimately carries a banned phrase. Every entry MUST be a developer-facing code comment or doc prose (rule (e) of the qa-fixes2 ITEM-2 plan: technical wording about the host in developer-facing comments may stay). A user-visible string is never allow-listed. The entry's `line` is the trimmed line; the second guard test verifies every entry still matches the tree, so a reworded phrase cannot leave a dead entry behind.",
+  "entries": [
+    {
+      "file": "src-app/ui/src/modules/txrintake/gallery.tsx",
+      "line": "* four stories rendered offline, one seeded surface per board state, entirely",
+      "reason": "Dev-only gallery harness comment (the story seeds the real store without a backend); not user-visible."
+    },
+    {
+      "file": "src-app/ui/src/modules/txrlist/gallery.tsx",
+      "line": "* rendered offline, one seeded surface per board state.",
+      "reason": "Dev-only gallery harness comment (the story seeds the real store without a backend); not user-visible."
+    },
+    {
+      "file": "src-app/ui/openapi/openapi.json",
+      "line": "\"description\": \"Refresh the catalogue (live → last-good disk → keep the current layer). The response carries the origin actually in use; a failed refresh is silent — offline is a valid state and never an error (INV-8).\",",
+      "reason": "Framework dataset-catalogue API doc: a technical statement about the refresh state machine's no-network fallback (INV-8), developer/API-facing, rule (e) — not TxResBench user copy."
+    },
+    {
+      "file": "src-app/ui/openapi/openapi.json",
+      "line": "\"description\": \"The refresh response: the origin actually in use + the catalogue facts of\\n the layer chosen (a failed refresh is silent — offline is a valid state —\\n so the response never carries an error).\",",
+      "reason": "Framework dataset-catalogue API doc: the same INV-8 technical fallback statement, developer/API-facing, rule (e)."
+    },
+    {
+      "file": "src-app/ui/openapi/openapi.json",
+      "line": "\"description\": \"The installer ships the file when true (INV-8 — the offline path).\",",
+      "reason": "Framework dataset-catalogue API doc: the bundled-asset machine path (INV-8), developer/API-facing, rule (e)."
+    },
+    {
+      "file": "src-app/ui/openapi/openapi.json",
+      "line": "\"description\": \"The refresh response: the origin actually in use + the catalogue facts of\\n the layer chosen (a failed refresh is silent — offline is a valid state —\\n so the response never carries an error).\",",
+      "reason": "The same INV-8 fallback statement in the second component section — duplicate of the entry above (the schema is emitted twice)."
+    },
+    {
+      "file": "src-app/ui/src/api-client/types.ts",
+      "line": "/** The installer ships the file when true (INV-8 — the offline path). */",
+      "reason": "Generated copy of the framework dataset-catalogue doc above (INV-8 bundled-asset path), developer-facing, rule (e)."
+    },
+    {
+      "file": "src-app/ui/src/api-client/types.ts",
+      "line": "*  the layer chosen (a failed refresh is silent — offline is a valid state —",
+      "reason": "Generated copy of the framework dataset-catalogue doc above (INV-8 fallback), developer-facing, rule (e)."
+    }
+  ]
+}

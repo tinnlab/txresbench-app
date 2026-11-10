@@ -56,7 +56,7 @@ const ACTIONS: CSSProperties = { display: 'flex', gap: 10, flexWrap: 'wrap' }
 const PRIMARY_BUTTON: CSSProperties = { padding: '9px 16px', fontWeight: 700 }
 
 /** The title: board-plural, with the 1-patient singular (formatCounts' rule). */
-function formatPredictionsTitle(patientCount: number): string {
+export function formatPredictionsTitle(patientCount: number): string {
   return `Predictions for ${patientCount} ${patientCount === 1 ? 'patient' : 'patients'}`
 }
 

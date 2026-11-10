@@ -212,7 +212,7 @@ function eBar(
 ): TxrSelectListProps['bottomBar'] {
   return {
     selectedCount: 5,
-    totalTimeText: 'about 14 minutes in total on this computer',
+    totalTimeText: 'about 14 minutes in total',
     atATime: { value: 3, onChange: vi.fn() },
     saveModels: { checked: true, onChange: vi.fn() },
     notice: "For research. Not for deciding a patient's treatment.",
@@ -249,7 +249,7 @@ describe('TxrSelectList bottom bar (TEST-UL-6 — INV-3, the boards\' bar)', () 
       '5 methods selected',
     )
     expect(document.querySelector('[data-testid="txr-list-total-time"]')!.textContent).toContain(
-      'about 14 minutes in total on this computer',
+      'about 14 minutes in total',
     )
     expect(document.querySelector('[data-testid="txr-list-total-time"]')!.textContent).toContain(
       'run',
@@ -274,7 +274,7 @@ describe('TxrSelectList bottom bar (TEST-UL-6 — INV-3, the boards\' bar)', () 
           itemLabel: 'model',
           bottomBar: {
             selectedCount: 3,
-            totalTimeText: 'about 2 minutes in total on this computer',
+            totalTimeText: 'about 2 minutes in total',
             onRun: vi.fn(),
           },
         })}

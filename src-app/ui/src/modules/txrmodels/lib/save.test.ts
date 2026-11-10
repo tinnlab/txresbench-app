@@ -114,7 +114,7 @@ describe('the L checklist helpers (TEST-MOD-08, DEC-15)', () => {
     const names = trainingDataModelNames(models)
     expect(names).toEqual(['m-big', 'm-unknown'])
     expect(formatTrainingDataWarning(names)).toBe(
-      '2 models (m-big, m-unknown) keep parts of the training data inside them. They stay on this computer; check before you copy or share their files.',
+      '2 models (m-big, m-unknown) keep parts of the training data inside them. They stay in the saved model files; check before you copy or share them.',
     )
     expect(formatTrainingDataWarning(trainingDataModelNames([]))).toBe('')
   })

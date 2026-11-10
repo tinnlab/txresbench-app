@@ -17,13 +17,16 @@ import type { CSSProperties } from 'react'
 import { Upload } from '@ziee/kit'
 import type { FileTableKind } from '@/api-client/types'
 
-/** The zone (board bytes; the red dashed border is the design's emphasis). */
+/** The zone (board bytes). The dashed border is the NEUTRAL border token,
+ *  not the danger red (F11): the zone only exists before a file is chosen,
+ *  so a red "something is wrong" border never had anything to signal — it
+ *  drew a false error on every empty card. */
 const DROPZONE: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   gap: 16,
   padding: '14px 16px',
-  border: '2px dashed var(--txr-danger)',
+  border: '2px dashed var(--txr-border)',
   borderRadius: 10,
   background: 'var(--txr-bg)',
   width: '100%',

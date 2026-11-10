@@ -62,7 +62,7 @@ export function onlySmallModels(models: ReadonlyArray<TxrSaveableModel>): string
 }
 
 /** "Select none" — the L checklist's empty selection (a named helper so
- *  the dialog's action stays one word; the RTL pins the call). */
+ *  the dialog's action is one word; the RTL pins the call). */
 export function selectNone(): string[] {
   return []
 }

@@ -89,6 +89,20 @@ test.describe('txr-results — the real backend (TEST-UR-17)', () => {
     await expect(page.getByTestId('txr-results-download')).toBeDisabled()
     await expect(page.getByTestId('txr-results-subtitle')).toContainText('0 of 1 method finished')
 
+    // ── R2-02 (qa-fixes2): the terminal run with nothing finished is the
+    //    FAILURE the method rows record — never a silent "0 of N" page with a
+    //    disabled Download (RES-02's blank page). The engine's `finished`
+    //    status reaches here with `predictions_ready` false, and the page
+    //    says so, with the run kept in History (the way out). ──
+    const failedBox = page.getByTestId('txr-results-run-failed')
+    await expect(failedBox).toBeVisible()
+    await expect(failedBox).toContainText('This run failed')
+    await expect(failedBox).toContainText('No method finished, so there are no predictions to show')
+    await expect(page.getByTestId('txr-results-failed-show-history')).toBeVisible()
+    // The cannot_run row is the banner's own — never duplicated inside the
+    // failure box (the box lists failed/stopped methods only).
+    await expect(page.getByTestId(`txr-results-run-failed-${CANNOT_RUN_METHOD}`)).toHaveCount(0)
+
     // ── "Show the log": the dialog opens for the method (the affordance is
     //    real). The engine's log surface for a PRE-classified cannot_run
     //    method carries the run-level lines only (measured: no per-method

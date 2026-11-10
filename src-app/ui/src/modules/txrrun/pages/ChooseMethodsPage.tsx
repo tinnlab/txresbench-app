@@ -12,12 +12,14 @@ import type { IntakeSnapshot } from '@/modules/txrintake'
 import { buildTxrRunInput, useTxrIntakeStore } from '@/modules/txrintake'
 import {
   countSelected,
+  formatNoEnvLine,
   formatTotalTime,
   TxrSelectList,
   useListEstimate,
   useMethodRows,
 } from '@/modules/txrlist'
 import { Alert, Button, Skeleton } from '@ziee/kit'
+import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { RESEARCH_NOTICE } from '../lib/format'
 import {
   droppedNotice,
@@ -178,12 +180,10 @@ const PENDING_REFRESH_LINE = 'Re-check your files to see what can run.'
 /** The no-env honesty line (CM-1): the count of catalogue methods with no
  *  published environment, stated before the rows — the board has no such
  *  line (every board method can start), so the copy follows the app's
- *  plain-voice rule, never a raw code. */
+ *  plain-voice rule, never a raw code. Shared with the screen-B panel
+ *  (R2-1's separation — the same sentence, one vocabulary
+ *  `txrlist/lib/format`). */
 const NO_ENV_LINE: CSSProperties = { margin: 0, fontSize: 12.5, color: 'var(--txr-warning)' }
-
-export function noEnvLine(noEnv: number, total: number): string {
-  return `${noEnv} of ${total} methods have no published environment on this computer and can't start.`
-}
 
 /** The run statuses DEC-18 calls "active" (the one-active-run 409's target). */
 const ACTIVE_RUN_STATUSES: ReadonlySet<TxrRunStatus> = new Set([
@@ -319,7 +319,7 @@ function TxrMethodListFrame({
     <div data-testid="txr-run-list" className="txr-run-list-frame" style={LIST_FRAME}>
       {noEnvCount > 0 ? (
         <p data-testid="txr-run-no-env-line" style={NO_ENV_LINE}>
-          {noEnvLine(noEnvCount, rows.length)}
+          {formatNoEnvLine(noEnvCount, rows.length)}
         </p>
       ) : null}
       <TxrSelectList
@@ -373,6 +373,8 @@ export function ChooseMethodsPage() {
   const [runError, setRunError] = useState<string | null>(null)
   const [runNotice, setRunNotice] = useState<string | null>(null)
   const creating = useRef(false)
+  // R2-G1: the tab/title byte is the page's own h1.
+  useDocumentTitle('Choose the methods and settings')
   const mode = useStore(useTxrIntakeStore, s => s.mode)
   const patients = useStore(useTxrIntakeStore, s => s.patients)
   const measurements = useStore(useTxrIntakeStore, s => s.measurements)

@@ -572,3 +572,38 @@ describe('TxrHeatmapTable qa-fixes ITEM-4 (RES-03/06/07/08)', () => {
     expect(cell.textContent).toBe('\u2013')
   })
 })
+
+// ── qa-fixes2 ITEM-7 (R2-11) — no redundant Average column for a single method ──
+
+describe('TxrHeatmapTable qa-fixes2 ITEM-7 (R2-11 — Average only for 2+ methods)', () => {
+  it('hides the Average column when one method column is shown (the per-patient value IS the average)', () => {
+    const columns = [methodCol(0, 'Dynamic risk')]
+    const rows: GivenRow[] = [
+      { patientId: 'S0000', cells: [0.33], average: 33 },
+      { patientId: 'S0001', cells: [0.52], average: 52 },
+    ]
+    render(<TxrHeatmapTable view={viewFixture(columns, rows)} onShowAll={() => {}} />)
+    expect(screen.queryByRole('columnheader', { name: /Average/ })).toBeNull()
+    const row = screen.getByTestId('txr-heatmap-row-S0000')
+    // Patient header, then the single method cell — no average cell in between.
+    const cells = within(row).getAllByRole('cell')
+    expect(cells.map(c => c.textContent)).toEqual(['33%'])
+    // The header band: the corner (Patient) plus the one method header.
+    const headers = screen.getAllByRole('columnheader')
+    expect(headers.map(h => h.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
+      'Patient',
+      'method-1Dynamic risk',
+    ])
+  })
+
+  it('keeps the Average column for two or more methods (the board shape)', () => {
+    const columns = [methodCol(0, 'Dynamic risk'), methodCol(1, 'Static risk')]
+    const rows: GivenRow[] = [{ patientId: 'S0000', cells: [0.33, 0.52], average: 42 }]
+    render(<TxrHeatmapTable view={viewFixture(columns, rows)} onShowAll={() => {}} />)
+    expect(
+      screen.getByRole('columnheader', { name: 'Average (methods shown)' }),
+    ).not.toBeNull()
+    const cells = within(screen.getByTestId('txr-heatmap-row-S0000')).getAllByRole('cell')
+    expect(cells.map(c => c.textContent)).toEqual(['42%', '33%', '52%'])
+  })
+})

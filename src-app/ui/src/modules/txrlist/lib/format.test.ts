@@ -145,7 +145,7 @@ describe('formatReasonLine', () => {
       'not available with this build',
     )
     expect(formatReasonLine('cannot', SOME('ENV_IMAGE_MISSING'), COVERAGE(38, 38), minDraws, [])).toBe(
-      'no published environment for this computer',
+      'no published environment available',
     )
     expect(formatReasonLine('cannot', SOME('TASK_INCOMPATIBLE'), COVERAGE(38, 38), minDraws, [])).toBe(
       'needs an outcome column your file lacks',
@@ -239,14 +239,14 @@ describe('formatReasonLine', () => {
 describe('formatTotalTime', () => {
   it('shows the ellipsis while loading and the board total line otherwise', () => {
     expect(formatTotalTime(null)).toBe('…')
-    expect(formatTotalTime(840)).toBe('about 14 minutes in total on this computer')
-    expect(formatTotalTime(300)).toBe('about 5 minutes in total on this computer')
-    expect(formatTotalTime(300 + 840)).toBe('about 19 minutes in total on this computer')
+    expect(formatTotalTime(840)).toBe('about 14 minutes in total')
+    expect(formatTotalTime(300)).toBe('about 5 minutes in total')
+    expect(formatTotalTime(300 + 840)).toBe('about 19 minutes in total')
   })
 
   it('uses the short total form under a minute', () => {
-    expect(formatTotalTime(45)).toBe('under 1 minute in total on this computer')
-    expect(formatTotalTime(60)).toBe('about 1 minute in total on this computer')
+    expect(formatTotalTime(45)).toBe('under 1 minute in total')
+    expect(formatTotalTime(60)).toBe('about 1 minute in total')
   })
 })
 

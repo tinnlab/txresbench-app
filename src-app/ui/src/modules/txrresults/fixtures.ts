@@ -142,6 +142,23 @@ export const TXR_HFEW_SPECS: FxMethodSpec[] = [
   { methodId: 'cox-cutpoint-risk', group: 'static-risk', groupLabel: 'Static risk', task: 'pfs', probSource: 'recalibrated' },
 ]
 
+/** The no-chance story's finished method: a predict-only reuse (qa-fixes2
+ *  R2-03) — the engine recorded scores, never chances (`prob_source: none`,
+ *  no training data to fit the conversion), so the column is a wall of
+ *  blanks the results page must explain by name. */
+export const TXR_NOCHANCE_SPEC: FxMethodSpec = {
+  methodId: 'ctdna-clearance-time-pattern',
+  group: 'dynamic-risk',
+  groupLabel: 'Dynamic risk',
+  task: 'pfs',
+  probSource: 'none',
+}
+
+/** The no-chance story's second finished method — its own one-column outcome
+ *  tab (the R2-11 single-column-tab shape: the Average is redundant when the
+ *  column's value IS the average). */
+export const TXR_NOCHANCE_OTHER_SPEC: FxMethodSpec = TXR_G_SPECS[10]
+
 /** The cannot-run fixture banner method (the board's cannot-run row). */
 export const TXR_CANNOT_SPEC: FxMethodSpec = {
   methodId: 'cox-ctdna-status-rfs',
@@ -271,6 +288,52 @@ export function fxHfewPredictions(runId: string): TxrPredictionsResponse {
     methods,
     average: wireArray(patients.map((_, i) => meanOf(methods.map((_, m) => fxHChance(i + 1, m))))),
     generated_at: '2026-09-03T09:10:00Z',
+  }
+}
+
+/** The no-chance column (R2-03): the predict-only reuse's column with NO
+ *  probability (the engine recorded scores it never converted) — every cell
+ *  null, no abstain note (the cells are plain blanks; the page's note names
+ *  the column and says why). */
+function fxNoChanceColumn(
+  spec: FxMethodSpec,
+  patients: string[],
+): TxrPredictionsResponse['methods'][number] {
+  const none: Array<number | null> = patients.map(() => null)
+  const noneNotes: Array<string | null> = patients.map(() => null)
+  return {
+    method_id: spec.methodId,
+    label: spec.methodId,
+    group: spec.group,
+    group_label: spec.groupLabel,
+    task: spec.task,
+    prob_source: 'none',
+    coverage: { scored: patients.length, eligible: patients.length, fraction: 1 },
+    probabilities: wireArray(none),
+    notes: wireArray(noneNotes),
+  }
+}
+
+/** The predictions of the no-chance story: one column per task, each tab
+ *  exactly one method — the pfs tab the no-chance column, the response tab
+ *  the fixture spread's second column. The response-level average is null
+ *  throughout (the only pfs column carries no values; the tabs' one-column
+ *  tables never render an Average anyway — R2-11). */
+export function fxNochancePredictions(runId: string): TxrPredictionsResponse {
+  const patients = fxPatients(TXR_HFEW_PATIENTS)
+  const methods = [
+    fxNoChanceColumn(TXR_NOCHANCE_SPEC, patients),
+    fxColumn(TXR_NOCHANCE_OTHER_SPEC, 0, patients, fxChance),
+  ]
+  const none: Array<number | null> = patients.map(() => null)
+  return {
+    run_id: runId,
+    endpoint: 'pfs',
+    horizon: TXR_HORIZON,
+    patients,
+    methods,
+    average: wireArray(none),
+    generated_at: '2026-09-03T09:20:00Z',
   }
 }
 
@@ -454,6 +517,26 @@ export const TXR_RUN_HFEW: TxrRunDetail = runDetail({
   models: TXR_HFEW_SPECS.map(spec => modelOf(spec.methodId, TXR_TRAINED_ON)),
 })
 
+/** The no-chance run: a predict-only REUSE (R2-03/R2-11) — two finished
+ *  methods on two tasks, one column per outcome tab, NO produced models (a
+ *  reuse consumes saved models; the run's own record produces none) and the
+ *  pfs method's chances absent (`prob_source: none`). */
+export const TXR_RUN_NOCHANCE: TxrRunDetail = runDetail({
+  id: 'run-nochance',
+  dir: 'Documents/TxResBench/analysis-fx-1008',
+  status: 'finished',
+  elapsed_secs: 90,
+  finished_at: '2026-09-03T09:21:30Z',
+  mode: 'reuse',
+  models: [],
+  log_lines: 0,
+  outcome: { endpoint: 'pfs', horizon: TXR_HORIZON, task_is_mixed: true },
+  methods: [
+    methodRow(TXR_NOCHANCE_SPEC, 'finished', { coverage: { scored: TXR_HFEW_PATIENTS, eligible: TXR_HFEW_PATIENTS, fraction: 1 } }),
+    methodRow(TXR_NOCHANCE_OTHER_SPEC, 'finished', { coverage: { scored: TXR_HFEW_PATIENTS, eligible: TXR_HFEW_PATIENTS, fraction: 1 } }),
+  ],
+})
+
 /** The empty run: no finished method (the 409 PREDICTIONS_UNAVAILABLE state). */
 export const TXR_RUN_EMPTY: TxrRunDetail = runDetail({
   id: 'run-empty',
@@ -477,6 +560,7 @@ export const TXR_RUNS: Record<string, TxrRunDetail> = {
   [TXR_RUN_CANNOT.id]: TXR_RUN_CANNOT,
   [TXR_RUN_H.id]: TXR_RUN_H,
   [TXR_RUN_HFEW.id]: TXR_RUN_HFEW,
+  [TXR_RUN_NOCHANCE.id]: TXR_RUN_NOCHANCE,
   [TXR_RUN_EMPTY.id]: TXR_RUN_EMPTY,
 }
 
@@ -488,6 +572,7 @@ export const TXR_PREDICTIONS: Record<string, TxrPredictionsResponse> = {
   [TXR_RUN_CANNOT.id]: fxCannotPredictions(TXR_RUN_CANNOT.id),
   [TXR_RUN_H.id]: fxHPredictions(TXR_RUN_H.id),
   [TXR_RUN_HFEW.id]: fxHfewPredictions(TXR_RUN_HFEW.id),
+  [TXR_RUN_NOCHANCE.id]: fxNochancePredictions(TXR_RUN_NOCHANCE.id),
 }
 
 /** The grown twin of the running story: the 12th column is present. */
@@ -606,6 +691,9 @@ const FRAMES_CANNOT: TxrFixtureFrame[] = [statusFrame('finished'), logFrame(cann
 const FRAMES_H: TxrFixtureFrame[] = [statusFrame('finished'), logFrame(TXR_LOGS_H[1])]
 const FRAMES_HFEW: TxrFixtureFrame[] = [statusFrame('finished'), logFrame(TXR_LOGS_H[0])]
 
+/** The no-chance story's replay: the terminal status only (no log lines). */
+const FRAMES_NOCHANCE: TxrFixtureFrame[] = [statusFrame('finished')]
+
 /** The empty story's replay: the running status, nothing finished. */
 const FRAMES_EMPTY: TxrFixtureFrame[] = [statusFrame('running')]
 
@@ -626,6 +714,8 @@ export function txrStreamFrames(runId: string): TxrFixtureFrame[] {
       return FRAMES_H
     case TXR_RUN_HFEW.id:
       return FRAMES_HFEW
+    case TXR_RUN_NOCHANCE.id:
+      return FRAMES_NOCHANCE
     case TXR_RUN_EMPTY.id:
       return FRAMES_EMPTY
     default:

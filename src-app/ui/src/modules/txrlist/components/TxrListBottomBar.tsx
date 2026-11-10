@@ -9,7 +9,7 @@
  * - the bar is the board's sticky line — `var(--txr-surface-dim)`, `1px var(--txr-border)` top
  *   border, `14px 36px` padding, 18px gaps;
  * - "5 methods selected" is bold; the total line is the board's long form
- *   ("about 14 minutes in total on this computer") — `formatTotalTime`'s,
+ *   ("about 14 minutes in total") — `formatTotalTime`'s,
  *   passed in by the host — and the at-a-time segment is the board's
  *   "run <select> at a time" with the select's options 1–4 (the
  *   BusyRunning board's own option set);

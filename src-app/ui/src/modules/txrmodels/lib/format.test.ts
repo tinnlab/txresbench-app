@@ -176,13 +176,13 @@ describe('formatBytes — the sizes (TEST-MOD-03)', () => {
 describe('the training-data warning sentence (SaveModels.dc.html)', () => {
   it('composes the board line with the count and the run\'s method order', () => {
     expect(formatTrainingDataWarning(['dynforest', 'flirti'])).toBe(
-      '2 models (dynforest, flirti) keep parts of the training data inside them. They stay on this computer; check before you copy or share their files.',
+      '2 models (dynforest, flirti) keep parts of the training data inside them. They stay in the saved model files; check before you copy or share them.',
     )
   })
 
   it('agrees the singular reading for a single training-data-keeping model', () => {
     expect(formatTrainingDataWarning(['dynforest'])).toBe(
-      '1 model (dynforest) keeps parts of the training data inside it. It stays on this computer; check before you copy or share its files.',
+      '1 model (dynforest) keeps parts of the training data inside it. It stays in the saved model file; check before you copy or share it.',
     )
   })
 
@@ -260,7 +260,7 @@ describe('the board copy constants (ITEM-2)', () => {
     expect(NOT_SAVED_TEXT).toBe("your patients' tables.")
     expect(TRAINING_WARNING_KEEP).toBe('keep parts of the training data inside them.')
     expect(TRAINING_WARNING_STAYS).toBe(
-      'They stay on this computer; check before you copy or share their files.',
+      'They stay in the saved model files; check before you copy or share them.',
     )
   })
 })

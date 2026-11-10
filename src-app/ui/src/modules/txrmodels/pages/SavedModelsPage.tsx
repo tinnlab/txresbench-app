@@ -1,6 +1,6 @@
 /**
  * Screen I — Choose the saved models to run (board `Saved.dc.html`; ITEM-7,
- * PROV-UI-MODELS-5): the models kept on this computer, grouped by the
+ * PROV-UI-MODELS-5): the kept models, grouped by the
  * training run that made them (INV-2), checked against the uploaded
  * predict file (PROV-MS-9's verdicts over the ONE intake inventory,
  * DEC-6), hosted in the SHARED `TxrSelectList` (INV-1 — another host,
@@ -76,6 +76,7 @@ import { buildTxrRunInput, useTxrIntakeStore } from '@/modules/txrintake'
 import { countSelected, formatTotalTime, TxrSelectList } from '@/modules/txrlist'
 import { predictFilesPath, runningPath } from '@/modules/txrrun'
 import { Alert, Button } from '@ziee/kit'
+import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { useAnalysisOutcome } from '../data/useAnalysisOutcome'
 import { buildSavedRows, buildSavedSections } from '../lib/rows'
 import {
@@ -251,6 +252,8 @@ export function SavedModelsPage() {
   const searchText = useStore(useTxrModelsStore, s => s.search)
   const atATime = useStore(useTxrModelsStore, s => s.atATime)
   const dialog = useStore(useTxrModelsStore, s => s.dialog)
+  // R2-G1: the tab/title byte is the page's own h1.
+  useDocumentTitle('Choose the saved models to run')
 
   // The store's inventory mirror (ONE object — the intake's, DEC-6): the
   // mount call reads the intake store's validation, and a validation

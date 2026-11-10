@@ -61,7 +61,7 @@
 //! | R07 unique keys | `patient_id` unique; `(patient_id, day, marker)` unique (the derived-sample x feature key); `feature` unique |
 //! | R08 values→patients FK | a measurement row whose patient is not in the patients table (files mode only — predict mode has no patients side) |
 //! | R09 values→samples FK | by construction (derived) |
-//! | R10 values→features FK | every measurement marker is described in the features table |
+//! | R10 values→features FK | by construction (derived: the feature list is folded from the measurement rows themselves, so a value row's marker is always a described feature — a spelling variant the user has not joined is its own feature, see A03) |
 //! | R11 day agreement | by construction (derived) |
 //! | R12 single time unit | the app's columns are days; a present `time_unit` column must read `days` (anything else is R12) |
 //! | R13 companion features | `<F>__detected` values in {0,1}, `<F>__lod` values ≥ 0, base `<F>` described |
@@ -822,7 +822,9 @@ fn join_rows(rows: &[u32]) -> String {
 /// R08 + R15 + R09 + R10 — the foreign-key family of the derived shape:
 /// measurements → patients (R08, per value row), derived samples → patients
 /// (R15, per sample), measurements → derived samples (R09, by construction)
-/// and measurements → features (R10, per value row). R08/R15 only exist in
+/// and measurements → features (R10, per value row — the feature list is
+/// folded from the same rows, so also by construction; the check still runs
+/// and stays silent, the registry's written proof). R08/R15 only exist in
 /// files mode (predict mode has no patients side).
 pub fn check_foreign_keys(model: &CanonicalModel) -> Vec<FileProblem> {
     let mut out = Vec::new();
@@ -1414,7 +1416,9 @@ pub const RULES: [RuleDeclaration; 21] = [
         rule_id: "R10_feature_described",
         kind: Some(RuleKind::ForeignKey),
         severity: ProblemSeverity::Error,
-        applicability: RuleApplicability::Implemented,
+        applicability: RuleApplicability::HoldsByConstruction(
+            "the feature list is folded from the measurement rows themselves (one feature per distinct marker spelling, `inspect::feature_rows`), so a value row's marker is always a described feature — a by-construction property of the app's derived shape, the written proof of the R09/R11/R16/R17 class",
+        ),
     },
     RuleDeclaration {
         code: ProblemCode::R11DayAgreement,
@@ -1506,6 +1510,86 @@ pub const RULES: [RuleDeclaration; 21] = [
 /// The declarations, in id order (the registry's one accessor).
 pub fn rule_declarations() -> &'static [RuleDeclaration] {
     &RULES
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The app-only code declarations (A01–A07) — the same registry shape as the
+// tidy rules, for the app's own conditions (DEC-7). The Help page's
+// troubleshooting list is generated from RULES + APP_RULES through
+// `catalog::catalog()` — one table, so a code, a severity or an applicability
+// change in the validator is a catalogue change, never a silent drift.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// One app-only code's declaration: the code, the severity (or severities)
+/// it is reported with and the applicability verdict — the same record as a
+/// tidy rule declaration, with no benchmark `rule_id` (these conditions have
+/// no tidy-2.0 id; A04 reports BOTH severities: mixed units is the ERROR
+/// (`units::unit_mixed_problem`), a scale that differs or cannot be classed
+/// is the WARNING (`unit_mismatch_problem` / `unit_unclassified_problem`)).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppRuleDeclaration {
+    pub code: ProblemCode,
+    /// `Some(severity)` when the code is reported with exactly one severity;
+    /// `None` for the DUAL code (A04) whose report severity depends on the
+    /// condition the message describes.
+    pub severity: Option<ProblemSeverity>,
+    /// True when the code is emitted with BOTH severities (A04: mixed units
+    /// error, scale mismatch warning) — the catalogue's
+    /// `error_or_warning` verdict.
+    pub dual_severity: bool,
+    pub applicability: RuleApplicability,
+}
+
+/// All seven app-only codes, in id order (A01–A07), each with its declared
+/// severity and applicability — the closed set next to `RULES`.
+pub const APP_RULES: [AppRuleDeclaration; 7] = [
+    AppRuleDeclaration {
+        code: ProblemCode::A01NoRecognizableHeader,
+        severity: Some(ProblemSeverity::Error),
+        dual_severity: false,
+        applicability: RuleApplicability::Implemented,
+    },
+    AppRuleDeclaration {
+        code: ProblemCode::A02RequiredColumnNotFound,
+        severity: Some(ProblemSeverity::Error),
+        dual_severity: false,
+        applicability: RuleApplicability::Implemented,
+    },
+    AppRuleDeclaration {
+        code: ProblemCode::A03SpellingVariantGroup,
+        severity: Some(ProblemSeverity::Warning),
+        dual_severity: false,
+        applicability: RuleApplicability::Implemented,
+    },
+    AppRuleDeclaration {
+        code: ProblemCode::A04UnitDiffers,
+        severity: None,
+        dual_severity: true,
+        applicability: RuleApplicability::Implemented,
+    },
+    AppRuleDeclaration {
+        code: ProblemCode::A05VocabularyCandidatesTruncated,
+        severity: Some(ProblemSeverity::Warning),
+        dual_severity: false,
+        applicability: RuleApplicability::Implemented,
+    },
+    AppRuleDeclaration {
+        code: ProblemCode::A06LargeFileNotice,
+        severity: Some(ProblemSeverity::Warning),
+        dual_severity: false,
+        applicability: RuleApplicability::Implemented,
+    },
+    AppRuleDeclaration {
+        code: ProblemCode::A07UnitAbsent,
+        severity: Some(ProblemSeverity::Warning),
+        dual_severity: false,
+        applicability: RuleApplicability::Implemented,
+    },
+];
+
+/// The app-only declarations, in id order (the registry's one accessor).
+pub fn app_rule_declarations() -> &'static [AppRuleDeclaration] {
+    &APP_RULES
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -122,8 +122,12 @@ test.describe('txr-intake-b — the live "N of M fit" panel (TEST-INT-14)', () =
     await page.goto(`${GALLERY}txr-intake-b`)
 
     // The panel lands after the hooks' (instant-ish) cassette responses.
-    await expect(page.getByTestId('txr-intake-panel-fit-count')).toContainText('22')
+    // R2-1: the headline is the board's inclusive fit (22 can + 4 some =
+    // 26) — the answers' count, never polluted by the env overlay (the
+    // cassette carries no env-missing methods).
+    await expect(page.getByTestId('txr-intake-panel-fit-count')).toContainText('26')
     await expect(page.getByTestId('txr-intake-panel-fit-count')).toContainText('of 39 methods fit')
+    await expect(page.getByTestId('txr-intake-panel-no-env')).toHaveCount(0)
 
     // The descriptive line (board template, data-filled from the seeded answers).
     await expect(page.getByTestId('txr-intake-panel-sentence')).toHaveText(
@@ -157,7 +161,7 @@ test.describe('txr-intake-b — the live "N of M fit" panel (TEST-INT-14)', () =
 
     // ── "This updates as you answer": checking ctDNA re-runs the eligibility ──
     await page.getByTestId('txr-intake-study-group-ctdna').click()
-    await expect(page.getByTestId('txr-intake-panel-fit-count')).toContainText('25')
+    await expect(page.getByTestId('txr-intake-panel-fit-count')).toContainText('28')
     await expect(page.getByTestId('txr-intake-panel-sentence')).toHaveText(
       'for colorectal cancer, risk by a day, with ctDNA. This updates as you answer.',
     )
@@ -196,19 +200,24 @@ test.describe('txr-intake-c — the shared file-card flow (TEST-INT-15)', () => 
       fixtures.measurements,
     )
 
-    // The card's problem box: "5 problems in 120 rows" + one line per row.
+    // The card's problem box: "5 problems in 120 rows" — R2-4: while the
+    // join/vocabulary questions are pending they are the action, so the
+    // problem LIST is hidden (the box heading stays) and the offers come
+    // first.
     const measurementsStatus = page.getByTestId('txr-intake-file-status-measurements')
     await expect(measurementsStatus).toContainText('5 problems in 120 rows')
-    const problems = page.getByTestId('txr-intake-file-problems-measurements')
-    await expect(problems).toContainText('Row 14: week 4 is not a number in the day column')
-    await expect(problems).toContainText('Row 88: P0187 is not in the patients table')
-    await expect(problems).toContainText('Row 91: P0187 is not in the patients table')
-    await expect(problems.getByRole('listitem')).toHaveCount(5)
+    await expect(
+      measurementsStatus.getByTestId('txr-intake-file-problems-measurements'),
+    ).toHaveCount(0)
 
-    // The A03 join question is its own offer row (never a problem line).
+    // The A03 join question is its own offer row (never a problem line) and
+    // sits ABOVE the status box.
     const joinOffer = page.getByTestId('txr-intake-join-offer-ldh')
     await expect(joinOffer).toBeVisible()
     await expect(joinOffer).toContainText('Marker "ldh" and "LDH" look the same: join them?')
+    const offerBox = await joinOffer.boundingBox()
+    const statusBox = await measurementsStatus.boundingBox()
+    expect(offerBox!.y, 'the offer must render above the status box').toBeLessThan(statusBox!.y)
 
     // The patients card stays green (its file is clean) — the cross-table
     // rows belong to the measurements card.
@@ -219,11 +228,25 @@ test.describe('txr-intake-c — the shared file-card flow (TEST-INT-15)', () => 
     // The error problems block Continue (DEC-10).
     await expect(page.getByTestId('txr-intake-continue')).toBeDisabled()
 
-    // 3. Accept the join → re-validation → the A03 offer row disappears
-    //    (the errors stay — Continue stays disabled).
+    // 3. Accept the join → re-validation → the A03 offer row disappears, but
+    //    the CEA vocabulary question is still pending, so the problem LIST
+    //    stays hidden (R2-4: the pending question is the action) — decline
+    //    it, and the list returns (R2-5: the P0187 rows are one grouped line
+    //    with the board's "Rows 88 to 91:" bytes; the errors stay — Continue
+    //    stays disabled).
     await joinOffer.getByRole('button', { name: 'Join them' }).click()
     await expect(page.getByTestId('txr-intake-join-offer-ldh')).toHaveCount(0)
-    await expect(page.getByTestId('txr-intake-file-problems-measurements').getByRole('listitem')).toHaveCount(5)
+    const vocabOffer = page.getByTestId('txr-intake-vocab-offer-cea')
+    await expect(vocabOffer).toBeVisible()
+    await expect(
+      page.getByTestId('txr-intake-file-problems-measurements'),
+    ).toHaveCount(0)
+    await vocabOffer.getByRole('button', { name: 'Not this one' }).click()
+    await expect(page.getByTestId('txr-intake-vocab-offer-cea')).toHaveCount(0)
+    const problems = page.getByTestId('txr-intake-file-problems-measurements')
+    await expect(problems).toContainText('Row 14: week 4 is not a number in the day column')
+    await expect(problems).toContainText('Rows 88 to 91: P0187 is not in the patients table')
+    await expect(problems.locator(':scope > li')).toHaveCount(3) // 2 grouped lines + the codes disclosure
     await expect(page.getByTestId('txr-intake-continue')).toBeDisabled()
 
     // 4. The fixed twin: "Fix and choose the file again" → drop the corrected
@@ -359,7 +382,7 @@ test.describe('txr-intake-narrow-390 — the three screens at 390 px (TEST-INT-1
 
     // B — the questions + the panel stack inside 390 with no sideways push.
     const bBox = await assertBoxFits('b')
-    await expect(bBox.getByTestId('txr-intake-panel-fit-count')).toContainText('22')
+    await expect(bBox.getByTestId('txr-intake-panel-fit-count')).toContainText('26')
     const bContinue = bBox.getByTestId('txr-intake-study-continue')
     await bContinue.scrollIntoViewIfNeeded()
     await expect(bContinue).toBeInViewport()

@@ -289,4 +289,32 @@ describe('TxrLogPanel (TEST-RUN-22)', () => {
     expect(props.onOpenChange).toHaveBeenCalledTimes(1)
     expect(props.onOpenChange).toHaveBeenCalledWith(false)
   })
+
+  it('hides the setlocale / R start-up noise by default and reveals it behind "Show technical output" (qa-fixes2 R2-5)', async () => {
+    const lines = [
+      line(1, 'dynforest', '/bin/bash: warning: setlocale: LC_ALL: cannot change locale (C.UTF-8)', '2026-11-06T10:02:10Z'),
+      line(2, 'dynforest', 'During startup - Warning messages:', '2026-11-06T10:02:11Z'),
+      line(3, 'dynforest', '1: Setting LC_CTYPE failed, using "C"', '2026-11-06T10:02:11Z'),
+      line(4, 'dynforest', 'fitting on 151 patients', '2026-11-06T10:02:12Z'),
+    ]
+    cleanup()
+    render(<TxrLogPanel {...makeProps({ lines, total: 4 })} />)
+    const pre = screen.getByTestId('txr-run-log-lines')
+    expect(pre.textContent).toContain('fitting on 151 patients')
+    expect(pre.textContent).not.toContain('setlocale')
+    expect(pre.textContent).not.toContain('Setting LC_CTYPE')
+    expect(screen.getByTestId('txr-run-log-count').textContent).toBe(
+      'Showing 1 of 4 lines · 3 technical lines hidden',
+    )
+
+    // The switch is a kit Switch — the panel's own presentation state.
+    const technical = screen.getByTestId('txr-run-log-technical')
+    await act(async () => {
+      technical.click()
+      await Promise.resolve()
+    })
+    expect(screen.getByTestId('txr-run-log-lines').textContent).toContain('setlocale')
+    expect(screen.getByTestId('txr-run-log-lines').textContent).toContain('Setting LC_CTYPE')
+    expect(screen.getByTestId('txr-run-log-count').textContent).toBe('Showing 4 of 4 lines')
+  })
 })

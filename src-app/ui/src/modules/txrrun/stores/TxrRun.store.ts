@@ -574,11 +574,27 @@ const TxrRunDef = defineStore('TxrRun', {
       setAtATime: async (n: number): Promise<void> => {
         const runId = get().runId
         if (!runId) return
+        const gen = generation
         const previous = get().atATime
         set({ atATime: n, atATimeError: null })
         try {
           const summary = await ApiClient.Txr.setAtATime({ id: runId, at_a_time: n })
           set({ atATime: summary.config?.at_a_time ?? n, atATimeError: null })
+          // qa-fixes2 R2-2: the lane change REPLACES the run's stored
+          // estimate — the engine recomputes the schedule at the new lane
+          // count, so the header's time-left follows the change instead of
+          // keeping the create-time schedule. One detail refetch patches
+          // only the estimate (the snapshot's rows may lag the SSE; the
+          // stream keeps patching on top of it, and the row facts here
+          // would only regress the live view otherwise).
+          try {
+            const detail = await ApiClient.Txr.getRun({ id: runId })
+            if (gen === generation) {
+              set(s => (s.run && detail.estimate !== undefined ? { run: { ...s.run, estimate: detail.estimate } } : s))
+            }
+          } catch {
+            /* the old estimate stays — a display fact, never a run error */
+          }
         } catch {
           set({
             atATime: get().run?.config?.at_a_time ?? previous,

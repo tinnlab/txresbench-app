@@ -5,7 +5,7 @@
  * from the run's rows, the time-left/elapsed line (each segment omitted
  * when unknown, the board's "·"-joined sentence), the concurrency line
  * ("N run at a time on M CPUs" — the memory segment is absent per DEC-4/
- * OWNER-1, "on this computer" when the run detected no CPU count), the
+ * OWNER-1, the bare "N run at a time" when the run detected no CPU count), the
  * "See the results" link (exactly when the run is results-readable —
  * DEC-12's effective readiness; target via `txrresults`' own
  * `resultsPath(runId)` builder, never a URL literal) and the research-use
@@ -30,7 +30,8 @@ function propsOf(overrides: Partial<TxrRunHeaderProps> = {}): TxrRunHeaderProps 
   return {
     title: 'Running 6 methods',
     timeLeft: 'about 2 minutes left',
-    elapsed: '1 min 40 s',
+    elapsed: '1 min 40 s elapsed',
+    estimateWord: 'measured estimate',
     atATime: 3,
     cpus: 4,
     predictionsReady: false,
@@ -68,8 +69,35 @@ describe('TxrRunHeader (F header, TEST-RUN-18)', () => {
     expect(screen.getByTestId('txr-run-title').textContent).toBe('Finished 6 methods')
   })
 
+  it('a terminal run\'s title counts what happened, not what was queued (qa-fixes2 R2-1)', () => {
+    expect(formatRunTitle(6, 'finished', 4)).toBe('Finished 4 of 6 methods')
+    expect(formatRunTitle(6, 'finished', 6)).toBe('Finished 6 of 6 methods')
+    expect(formatRunTitle(1, 'finished', 1)).toBe('Finished 1 of 1 method')
+    expect(formatRunTitle(209, 'finished', 6)).toBe('Finished 6 of 209 methods')
+    expect(formatRunTitle(6, 'stopped', 3)).toBe('Stopped 3 of 6 methods')
+    expect(formatRunTitle(6, 'failed', 0)).toBe('Failed 0 of 6 methods')
+    // A live run has no terminal count — the board's plain count stays.
+    expect(formatRunTitle(6, 'running', 4)).toBe('Running 6 methods')
+    renderHeader({ title: formatRunTitle(6, 'finished', 4) })
+    expect(screen.getByTestId('txr-run-title').textContent).toBe('Finished 4 of 6 methods')
+  })
+
   it('renders the time line with both segments when both facts are known', () => {
     renderHeader()
+    expect(screen.getByTestId('txr-run-time-line').textContent).toBe(
+      'about 2 minutes left · 1 min 40 s elapsed · measured estimate',
+    )
+  })
+
+  it('spells the estimate\'s provenance honestly (qa-fixes2 R2-3) and omits the word when there is no quality fact', () => {
+    cleanup()
+    renderHeader({ estimateWord: 'rough estimate' })
+    expect(screen.getByTestId('txr-run-time-line').textContent).toBe(
+      'about 2 minutes left · 1 min 40 s elapsed · rough estimate',
+    )
+
+    cleanup()
+    renderHeader({ estimateWord: null })
     expect(screen.getByTestId('txr-run-time-line').textContent).toBe(
       'about 2 minutes left · 1 min 40 s elapsed',
     )
@@ -78,15 +106,19 @@ describe('TxrRunHeader (F header, TEST-RUN-18)', () => {
   it('omits each time segment when its fact is unknown (never a bare separator)', () => {
     cleanup()
     renderHeader({ timeLeft: null })
-    expect(screen.getByTestId('txr-run-time-line').textContent).toBe('1 min 40 s elapsed')
+    expect(screen.getByTestId('txr-run-time-line').textContent).toBe(
+      '1 min 40 s elapsed · measured estimate',
+    )
+
+    cleanup()
+    renderHeader({ timeLeft: null, elapsed: null, estimateWord: null })
+    expect(screen.queryByTestId('txr-run-time-line')).toBeNull()
 
     cleanup()
     renderHeader({ elapsed: null })
-    expect(screen.getByTestId('txr-run-time-line').textContent).toBe('about 2 minutes left')
-
-    cleanup()
-    renderHeader({ timeLeft: null, elapsed: null })
-    expect(screen.queryByTestId('txr-run-time-line')).toBeNull()
+    expect(screen.getByTestId('txr-run-time-line').textContent).toBe(
+      'about 2 minutes left · measured estimate',
+    )
   })
 
   it('renders the concurrency line from the run\'s at-a-time and CPU facts', () => {
@@ -98,7 +130,7 @@ describe('TxrRunHeader (F header, TEST-RUN-18)', () => {
     cleanup()
     renderHeader({ cpus: null })
     expect(screen.getByTestId('txr-run-concurrency').textContent).toBe(
-      '3 run at a time on this computer',
+      '3 run at a time',
     )
 
     cleanup()

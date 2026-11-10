@@ -36,6 +36,7 @@ import {
   TXR_RUN_EMPTY,
   TXR_RUN_G,
   TXR_RUN_H,
+  TXR_RUN_NOCHANCE,
   TXR_RUN_RUNNING,
   TXR_PREDICTIONS,
   TXR_PREDICTIONS_GROWN,
@@ -200,6 +201,21 @@ describe('txrresults fixtures (TEST-UR-11)', () => {
     const predictions = TXR_PREDICTIONS[TXR_RUN_HFEW.id]
     expect(predictions.methods).toHaveLength(1)
     expect(TXR_RUN_HFEW.models).toHaveLength(1)
+  })
+
+  it('carries the no-chance shape (R2-03/R2-11): a none-source column + one-method tabs', () => {
+    const run = TXR_RUN_NOCHANCE
+    expect(run.mode).toBe('reuse')
+    expect(run.models).toHaveLength(0)
+    const predictions = TXR_PREDICTIONS[run.id]
+    // The pfs method's column has NO chances: prob_source none, every
+    // probability null (the results page's named-no-chance-note material) —
+    // and one column per task, so each outcome tab is a single-method tab.
+    const pfs = predictions.methods.find(m => m.task === 'pfs')!
+    expect(pfs.prob_source).toBe('none')
+    expect((pfs.probabilities as Array<number | null>).every(v => v === null)).toBe(true)
+    expect(predictions.methods.map(m => m.task)).toEqual(['pfs', 'response'])
+    expect(run.methods.filter(m => m.state === 'finished')).toHaveLength(2)
   })
 
   it('builds the CSV from the fixture method columns (the byte passthrough material)', () => {

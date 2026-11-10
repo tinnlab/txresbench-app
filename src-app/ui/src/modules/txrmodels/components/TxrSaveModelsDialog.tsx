@@ -12,7 +12,7 @@
  *
  * The board's structure, verbatim where the data allows:
  *
- * - the title + the lead ("Keep them on this computer to predict new
+ * - the title + the lead ("Keep them to predict new
  *   patients later, without the training data.");
  * - "Name of this set" (the module store's `draftName` — the one draft
  *   field the dialogs share) + the "Made from patients.csv, N patients,
@@ -31,8 +31,7 @@
  *   copy — the "Adds about 4 MB" example size and the
  *   Documents/TxResBench/ example path are DESIGN EXAMPLES, INV-4: the
  *   dialog renders the board's sentence without them; the real folder is
- *   the J screen's `models_dir`) and "Also save as a file to move to
- *   another computer";
+ *   the J screen's `models_dir`) and "Also save as a file";
  * - Cancel / Save N models. Save is refused (disabled) while the name is
  *   empty or no model is selected; a server rejection (409 SET_NAME_TAKEN
  *   / 404 RUN_NOT_FOUND) surfaces inline with the engine's message — the
@@ -86,7 +85,7 @@ const TITLE = 'Save the models'
 
 /** The lead paragraph (the board's words, verbatim). */
 const DESCRIPTION =
-  'Keep them on this computer to predict new patients later, without the training data.'
+  'Keep them to predict new patients later, without the training data.'
 
 /** The set-name field label (the board's words). */
 const NAME_LABEL = 'Name of this set'
@@ -446,7 +445,7 @@ export function TxrSaveModelsDialog({
                   Also keep a copy of my training files, so this run can be repeated
                 </span>
                 <span data-testid="txr-models-save-keep-training-hint" style={SUBLINE}>
-                  They stay on this computer.
+                  They are kept with the set. Delete the set to remove them.
                 </span>
               </span>
             </label>
@@ -457,7 +456,7 @@ export function TxrSaveModelsDialog({
                 onCheckedChange={setAlsoExport}
               />
               <span data-testid="txr-models-save-also-export-label" style={{ fontSize: 13 }}>
-                Also save as a file to move to another computer
+                Also save as a file
               </span>
             </label>
           </div>

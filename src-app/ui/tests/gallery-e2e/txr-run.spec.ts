@@ -67,7 +67,7 @@ const E_FIRST_FIVE_KEYS = [
 ]
 
 /** The exact long-form total the fixture's LPT makespan serves (the txrlist cassette). */
-const E_TOTAL_TEXT = 'about 14 minutes in total on this computer'
+const E_TOTAL_TEXT = 'about 14 minutes in total'
 
 /** The board's research-use notice (DEC-11, both run screens). */
 const RESEARCH_NOTICE = "For research. Not for deciding a patient's treatment."
@@ -224,7 +224,7 @@ test.describe('txr-run-f — live frames drive the screen (TEST-RUN-25)', () => 
     await expect(page.getByTestId('txr-run-counts-failed')).toHaveText('1 failed')
     await expect(page.getByTestId('txr-run-action-direct-on')).toHaveText('View result')
     // A running row's time column reads its elapsed (the board's per-row time).
-    await expect(page.getByTestId('txr-run-time-dynforest')).toHaveText('under a minute')
+    await expect(page.getByTestId('txr-run-time-dynforest')).toHaveText('41 s')
 
     // ── the prediction frame lights the results affordance ──
     await expect(page.getByTestId('txr-run-see-results')).toBeVisible({ timeout: 30_000 })
@@ -336,7 +336,7 @@ test.describe('txr-run-f-finished — the terminal snapshot (TEST-RUN-25)', () =
   }) => {
     await page.goto(`${GALLERY}txr-run-f-finished`)
 
-    await expect(page.getByTestId('txr-run-title')).toHaveText('Finished 6 methods')
+    await expect(page.getByTestId('txr-run-title')).toHaveText('Finished 6 of 6 methods')
     await expect(page.getByTestId('txr-run-counts-finished')).toHaveText('6 finished')
     await expect(rowCount(page)).toHaveCount(6)
     await expect(page.getByTestId('txr-run-see-results')).toBeVisible()

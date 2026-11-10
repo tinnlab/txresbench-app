@@ -92,25 +92,26 @@ test.describe('txr-history — the real backend (TEST-HIST-15)', () => {
     await page.goto('/history')
 
     // The real run's card in the newest-first list: the record's file
-    // names in the title, the one method, the finished status, the train
-    // chip — the engine's own facts, never a mock.
+    // names in the title, the one method, the honest failure status + the
+    // provider's reason (R2-02 — the engine's `finished` status reaches
+    // this row with nothing finished: `can_reopen` mirrors
+    // `predictions_ready`, false here, so the row presents as failed, with
+    // the first terminal reason's detail verbatim), the train chip.
     const row = page.getByTestId(`txr-history-row-${runId}`)
     await expect(row).toBeVisible({ timeout: 90_000 })
     const rowText = await runRowTitle(page, runId)
     expect(rowText).toContain('patients.csv')
     expect(rowText).toContain('values.csv')
-    await expect(page.getByTestId(`txr-history-status-${runId}`)).toHaveText('Done')
+    await expect(page.getByTestId(`txr-history-status-${runId}`)).toHaveText('Failed')
     await expect(page.getByTestId(`txr-history-chip-${runId}`)).toHaveText(
       'Learned and predicted',
     )
+    // The failed row's subtitle is the reason line (the provider's detail
+    // verbatim, in the failure red) — the facts line is the board's case
+    // for a run that ends otherwise.
+    await expect(page.getByTestId(`txr-history-subtitle-${runId}`)).toContainText('Failed:')
     await expect(page.getByTestId(`txr-history-subtitle-${runId}`)).toContainText(
-      'learned from 20 patients',
-    )
-    await expect(page.getByTestId(`txr-history-subtitle-${runId}`)).toContainText(
-      'decision day 56',
-    )
-    await expect(page.getByTestId(`txr-history-subtitle-${runId}`)).toContainText(
-      'progression, death by day 238',
+      'no published environment',
     )
 
     // Expand: ONE getHistory against the real record — the Settings row's

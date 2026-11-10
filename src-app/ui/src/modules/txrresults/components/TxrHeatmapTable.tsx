@@ -300,13 +300,23 @@ function SpacerRow({ height, colCount }: { height: number; colCount: number }) {
   )
 }
 
-function HeatmapRow({ row, columns }: { row: TxrHeatmapRow; columns: TxrHeatmapView['columns'] }) {
+function HeatmapRow({
+  row,
+  columns,
+  showAverage,
+}: {
+  row: TxrHeatmapRow
+  columns: TxrHeatmapView['columns']
+  showAverage: boolean
+}) {
   return (
     <tr data-testid={`txr-heatmap-row-${row.patientId}`} style={ROW}>
       <th scope="row" style={PATIENT_COLUMN_STYLE}>
         {row.patientId}
       </th>
-      <td style={AVERAGE_COLUMN_STYLE}>{row.average !== null ? formatPct(row.average) : ''}</td>
+      {showAverage ? (
+        <td style={AVERAGE_COLUMN_STYLE}>{row.average !== null ? formatPct(row.average) : ''}</td>
+      ) : null}
       {columns.map((col, i) => {
         const value = row.cells[i] ?? null
         // The note travels with the row's aligned cells (the view's rows are
@@ -374,7 +384,11 @@ export function TxrHeatmapTable({ view, onShowAll }: TxrHeatmapTableProps) {
   }, [])
   const windowed = heatmapWindowOf(scrollTop, rows.length)
   const visibleRows = rows.slice(windowed.start, windowed.end)
-  const colCount = columns.length + 2
+  // R2-11: the Average column is redundant when ONE method column is shown
+  // (its per-patient value IS the average); it remains on the two-or-more
+  // column tables the board's "Average" exists for.
+  const showAverage = columns.length > 1
+  const colCount = columns.length + (showAverage ? 2 : 1)
   const topSpacer = windowed.start * HEATMAP_ROW_HEIGHT
   const bottomSpacer = (rows.length - windowed.end) * HEATMAP_ROW_HEIGHT
   const averageHeader =
@@ -403,9 +417,11 @@ export function TxrHeatmapTable({ view, onShowAll }: TxrHeatmapTableProps) {
                 <th scope="col" style={CORNER_HEADER}>
                   Patient
                 </th>
-                <th scope="col" style={AVERAGE_HEADER}>
-                  {averageHeader}
-                </th>
+                {showAverage ? (
+                  <th scope="col" style={AVERAGE_HEADER}>
+                    {averageHeader}
+                  </th>
+                ) : null}
                 {columns.map(col => (
                   <th
                     key={col.methodId}
@@ -423,7 +439,7 @@ export function TxrHeatmapTable({ view, onShowAll }: TxrHeatmapTableProps) {
             <tbody>
               {topSpacer > 0 ? <SpacerRow key="top-spacer" height={topSpacer} colCount={colCount} /> : null}
               {visibleRows.map(row => (
-                <HeatmapRow key={row.patientId} row={row} columns={columns} />
+                <HeatmapRow key={row.patientId} row={row} columns={columns} showAverage={showAverage} />
               ))}
               {bottomSpacer > 0 ? <SpacerRow key="bottom-spacer" height={bottomSpacer} colCount={colCount} /> : null}
             </tbody>

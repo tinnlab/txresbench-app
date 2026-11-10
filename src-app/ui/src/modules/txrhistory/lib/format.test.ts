@@ -23,6 +23,7 @@ import { describe, expect, it } from 'vitest'
 import type { TxrHistoryBucket, TxrRunReason, TxrRunMode } from '@/api-client/types'
 import {
   NO_REASON_RECORDED,
+  displayBucketOf,
   endpointLabel,
   formatBytes,
   formatDate,
@@ -211,5 +212,41 @@ describe('tookLine (TEST-HIST-5)', () => {
   it('drops the parenthetical when the estimate cannot be read', () => {
     expect(tookLine(190, -5)).toBe('3 minutes 10 seconds')
     expect(tookLine(190, Number.NaN)).toBe('3 minutes 10 seconds')
+  })
+})
+
+describe('displayBucketOf (qa-fixes2 R2-02 — the failed-run presentation)', () => {
+  it('presents a finished run with no finished method as failed', () => {
+    // The engine's own truth: `predictions_ready = counts.finished > 0` —
+    // the row's can_reopen/can_download flags carry it.
+    expect(displayBucketOf({ bucket: 'finished', can_reopen: false })).toBe('failed')
+    expect(displayBucketOf({ bucket: 'finished', can_reopen: true })).toBe('finished')
+    expect(displayBucketOf({ bucket: 'running', can_reopen: false })).toBe('running')
+    expect(displayBucketOf({ bucket: 'stopped', can_reopen: false })).toBe('stopped')
+    expect(displayBucketOf({ bucket: 'failed', can_reopen: false })).toBe('failed')
+  })
+
+  it('the failed presentation reads the provider reason line (round-1 hidden reason)', () => {
+    // The row's wire bucket is finished (the engine scheduler ran), yet a
+    // K row with nothing finished reads Failed + the first terminal
+    // reason — the exact shape of the report's a9f2119c / 97b25262 rows.
+    const reason: TxrRunReason = {
+      code: 'ENV_UNREADY',
+      detail: 'oras is not installed',
+    }
+    expect(statusLabel(displayBucketOf({ bucket: 'finished', can_reopen: false })).text).toBe(
+      'Failed',
+    )
+    expect(
+      reasonLine(displayBucketOf({ bucket: 'finished', can_reopen: false }), reason),
+    ).toBe('Failed: oras is not installed')
+    expect(
+      reasonLine(displayBucketOf({ bucket: 'finished', can_reopen: false }), {
+        code: 'ENV_UNKNOWN',
+        detail: 'no published environment for method bayes-pt-cure-joint',
+      }),
+    ).toBe('Failed: no published environment for method bayes-pt-cure-joint')
+    // A finished run that DID finish keeps the facts line (no reason).
+    expect(reasonLine(displayBucketOf({ bucket: 'finished', can_reopen: true }), reason)).toBeNull()
   })
 })

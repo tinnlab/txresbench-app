@@ -1,32 +1,28 @@
 # TxResBench
 
-TxResBench is a desktop application for clinicians who want to predict **treatment
-response from repeated blood biomarker measurements** — for example response to
-treatment at a chosen decision day, or risk of progression during follow-up — on
-their own computer.
+TxResBench is an app for clinicians who want to predict **treatment
+response from repeated blood biomarker measurements** — for example response
+to treatment at a chosen decision day, or risk of progression during
+follow-up.
 
 ## What it does
 
 - **Upload your data.** Two tables: one row per patient (the outcome, decision
-  day, follow-up), and one row per measurement (a marker value at a date). No
-  server, no account, no data leaves your machine.
+  day, follow-up), and one row per measurement (a marker value at a date).
 - **Arrange the analysis.** Choose the outcome, the decision day, the prediction
   horizon and the covariates you want the methods to use.
 - **Run many methods.** Select any number of methods from a catalogue of published
   approaches; each shows an estimated run time before you start it. Every method
-  runs in its own isolated sandboxed environment on your machine.
+  runs in its own isolated sandboxed environment.
 - **See per-patient predictions.** A heatmap table of patients × methods, ready to
   export to CSV.
 - **Save and reuse.** Trained models can be saved, reloaded and applied to new
-  patients; a history of runs stays on your machine.
+  patients; a history of runs is kept for each of them.
 
-## Runs on your computer
+## Privacy
 
-Everything — data, analysis, trained models, history — stays on your computer.
-The application makes no cloud calls and keeps no analytics or tracking. The only
-times it uses the network are when it downloads a method's analysis environment
-from the project's container registry (once per method) and when it checks for
-application updates.
+TxResBench does not track you and uses no analytics. Your files are used only to
+run the analyses you start. You can delete runs, models and history yourself.
 
 ## Getting it
 

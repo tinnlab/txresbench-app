@@ -22,17 +22,28 @@ import { MemoryRouter } from 'react-router-dom'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { ThemeContext, type ThemeContextValue } from '@ziee/shell'
 import { TxrShell } from './TxrLayout'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
+
+/** The theme context value a real ThemeProvider computes for the light theme. */
+const LIGHT_THEME: ThemeContextValue = {
+  selectedTheme: 'system',
+  resolvedTheme: 'light',
+  isDarkMode: false,
+  setTheme: () => {},
+}
 
 describe('TxrShell header (TEST-QF-7, X2)', () => {
   function headerOf() {
     const view = render(
       <MemoryRouter initialEntries={['/']}>
-        <TxrShell>
-          <div data-testid="txr-shell-content" />
-        </TxrShell>
+        <ThemeContext.Provider value={LIGHT_THEME}>
+          <TxrShell>
+            <div data-testid="txr-shell-content" />
+          </TxrShell>
+        </ThemeContext.Provider>
       </MemoryRouter>,
     )
     return {
@@ -42,19 +53,28 @@ describe('TxrShell header (TEST-QF-7, X2)', () => {
       tagline: view.container.querySelector<HTMLElement>('.txr-shell-tagline')!,
       actions: view.container.querySelector<HTMLElement>('.txr-shell-actions')!,
       nav: view.container.querySelector<HTMLElement>('.txr-shell-nav')!,
+      toggle: view.container.querySelector<HTMLElement>('[data-testid="txr-theme-toggle"]')!,
     }
   }
 
-  it('keeps the board header byte at desktop: brand + tagline left, nav + Help right, the four destinations', () => {
-    const { header, brandGroup, tagline, actions, nav, view } = headerOf()
+  it('keeps the board header byte at desktop: brand + tagline left, nav + theme switch right, the four destinations', () => {
+    const { header, brandGroup, tagline, actions, nav, toggle, view } = headerOf()
     expect(header).not.toBeNull()
     expect(brandGroup.contains(tagline)).toBe(true)
     expect(actions.contains(nav)).toBe(true)
-    expect(nav.querySelectorAll('a.txr-nav-link')).toHaveLength(3)
+    // qa-fixes2 ITEM-3 (R2-H5): Help is now one of the four nav links — the
+    // NavLink paints the active pill on /help like the other destinations.
+    expect(nav.querySelectorAll('a.txr-nav-link')).toHaveLength(4)
     expect(nav.textContent).toContain('New analysis')
     expect(nav.textContent).toContain('Models')
     expect(nav.textContent).toContain('History')
-    expect(actions.textContent).toContain('Help')
+    expect(nav.textContent).toContain('Help')
+    // The theme switch sits in the same actions cluster, to the right of Help
+    // (qa-fixes2 ITEM-1), and shows the CURRENT state with an icon + label.
+    expect(actions.contains(toggle)).toBe(true)
+    expect(nav.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(toggle.querySelector('svg')).not.toBeNull()
+    expect(toggle.textContent).toContain('Light')
     // The palette goes through the app tokens — never a light hex that would
     // stay light in dark mode (RM-1).
     expect(header.style.background).toBe('var(--txr-surface-dim)')
@@ -64,21 +84,29 @@ describe('TxrShell header (TEST-QF-7, X2)', () => {
     )
   })
 
-  it('carries the responsive hooks the index.css block keys on (tagline + wrap + stack)', () => {
-    const { header, brandGroup, tagline, actions, nav } = headerOf()
+  it('carries the responsive hooks the index.css block keys on (tagline + wrap + stack + toggle label)', () => {
+    const { header, brandGroup, tagline, actions, nav, toggle } = headerOf()
     // The class hooks the media rules select (index.css @media blocks).
     expect(header.className).toContain('txr-shell-header')
     expect(brandGroup.className).toContain('txr-shell-brand-group')
     expect(tagline.className).toContain('txr-shell-tagline')
     expect(actions.className).toContain('txr-shell-actions')
     expect(nav.className).toContain('txr-shell-nav')
+    expect(toggle.className).toContain('txr-theme-toggle')
+    expect(toggle.querySelector('.txr-theme-toggle-label')).not.toBeNull()
   })
 
-  it('the narrow rules exist in index.css: the tagline yields first, the header stacks below 640', () => {
+  it('the narrow rules exist in index.css: the tagline yields first, the header stacks below 640, the toggle label collapses', () => {
     const index = readFileSync(resolve(HERE, '../../index.css'), 'utf8')
     expect(index).toContain('@media (max-width: 900px)')
     expect(/@media \(max-width: 900px\)\s*\{\s*\.txr-shell-tagline\s*\{[^}]*display: none/.test(index)).toBe(true)
     expect(/@media \(max-width: 640px\)\s*\{[^}]*\.txr-shell-header\s*\{[^}]*height: auto/.test(index)).toBe(true)
     expect(/\.txr-shell-actions\s*\{[^}]*flex: 1 1 100%/.test(index)).toBe(true)
+    // ITEM-1's own narrow byte: the switch's label hides, the icon stays.
+    expect(
+      /@media \(max-width: 640px\)\s*\{[\s\S]*?\.txr-theme-toggle\s+\.txr-theme-toggle-label\s*\{[^}]*display: none/.test(
+        index,
+      ),
+    ).toBe(true)
   })
 })

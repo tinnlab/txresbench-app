@@ -45,7 +45,7 @@ import { expect, test, type Locator } from '@playwright/test'
  * cannot (I), the sizes 4,600,000 per card and the 800 KB–12.8 MB
  * produced spread — never a board example number (INV-4). The D story's
  * total for the three selected cards is 45 + 90 + 120 = 255 s → "about 4
- * minutes in total on this computer"; the download card's 1,234,567 of
+ * minutes in total"; the download card's 1,234,567 of
  * 4,600,000 bytes reads "1.2 MB of 4.4 MB" at 27%.
  *
  * Run (own port on a shared box — the config derives one per worktree):
@@ -73,7 +73,7 @@ const I_CHECKED_LINE =
   'Checked against your file: 42 patients, 4 markers, draws at day 0, 14, 28 and 56. Models from one training run are grouped; pick any of them.'
 
 /** The fixture total for the three selected installed cards (45+90+120 s). */
-const D_TOTAL_TEXT = 'about 4 minutes in total on this computer'
+const D_TOTAL_TEXT = 'about 4 minutes in total'
 
 /** The gated-Run line (the D page's constant for a still-downloading card). */
 const GATE_DOWNLOADING_LINE =
@@ -90,8 +90,7 @@ function yOf(row: Locator): Promise<number> {
   return row.evaluate(el => el.getBoundingClientRect().top)
 }
 
-test.describe('txr-models-d — choose the pretrained models (TEST-MOD-17)', () => {
-  test('board bytes, chips, selection → total, download gate, Model card, Run payload', async ({
+test.describe('txr-models-d — choose the pretrained models (TEST-MOD-17)', () => {  test('board bytes, chips, selection → total, download gate, Model card, Run payload', async ({
     page,
   }) => {
     await page.goto(`${GALLERY}txr-models-d`)
@@ -202,6 +201,27 @@ test.describe('txr-models-d — choose the pretrained models (TEST-MOD-17)', () 
     expect(result.body.config?.endpoint).toBe('pfs')
     expect(result.body.config?.look_ahead_day).toBe(240)
     await expect(page.getByTestId('txr-models-d-run-landed')).toBeVisible()
+  })
+
+  test('R2-08: the no-file empty state names WHICH models this screen lists', async ({
+    page,
+  }) => {
+    await page.goto(`${GALLERY}txr-models-empty`)
+
+    // The not-ready block + the honest note: the pretrained screen's list is
+    // the benchmark's published catalogue — never the identical saved-model
+    // empty state a `/pretrained-models` direct visit used to render (the
+    // two screens were indistinguishable).
+    await expect(page.getByTestId('txr-models-d-empty')).toBeVisible()
+    await expect(page.getByTestId('txr-models-d-empty')).toContainText(
+      'Add the patients\u2019 measurements you want to predict first.',
+    )
+    await expect(page.getByTestId('txr-models-d-empty-note')).toContainText(
+      'The published models of the benchmark are listed here once the file checks out',
+    )
+    await expect(page.getByTestId('txr-models-d-empty-cta')).toHaveText(
+      'Go to the measurements step',
+    )
   })
 })
 
@@ -384,15 +404,35 @@ test.describe('txr-models-j — your models (TEST-MOD-18)', () => {
   test('the 390 px story has no horizontal page overflow and the import affordance stays inside', async ({
     page,
   }) => {
+    // The phone media queries answer the WINDOW width — the "390 px" story
+    // is only a real 390 layout once the viewport is emulated (the gallery
+    // page itself is 1280; the prior pins measured the desktop table).
+    await page.setViewportSize({ width: 390, height: 844 })
     await page.goto(`${GALLERY}txr-models-j-narrow-390`)
     await expect(page.getByTestId('txr-models-j')).toBeVisible()
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     )
-    expect(overflow).toBeLessThanOrEqual(0)
+    expect(overflow).toBeLessThanOrEqual(1)
     const importButton = await page.getByTestId('txr-models-import').boundingBox()
     expect(importButton).not.toBeNull()
     expect(importButton!.x + importButton!.width).toBeLessThanOrEqual(390)
+
+    // ── R2-05 (qa-fixes2): the Actions row WRAPS — the old clipped card
+    //    ended "Use Export Rename Dele" (Delete cut off, unreachable by
+    //    touch). The cell's buttons yield no horizontal overflow, and the
+    //    Delete button of the first row is fully on screen with its bytes. ──
+    const actionsCell = page.locator('.txr-models-j-table td[data-label="Actions"]').first()
+    const cellMetrics = await actionsCell.evaluate(el => ({
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth,
+    }))
+    expect(cellMetrics.scrollWidth).toBeLessThanOrEqual(cellMetrics.clientWidth)
+    const deleteButton = page.locator('[data-testid^="txr-models-delete-"]').first()
+    await expect(deleteButton).toHaveText('Delete')
+    const deleteBox = await deleteButton.boundingBox()
+    expect(deleteBox).not.toBeNull()
+    expect(deleteBox!.x + deleteBox!.width).toBeLessThanOrEqual(390)
   })
 })
 

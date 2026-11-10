@@ -12,7 +12,7 @@
  *   the panel's request is the seeded one; toggling a marker-group checkbox
  *   re-runs the eligibility and the count/left-out list update (the
  *   responder is a function of the request body: checking ctDNA moves from
- *   22 fit / 13 left out to 25 fit / 11 left out — TEST-INT-14's
+ *   26 fit / 13 left out to 28 fit / 11 left out — TEST-INT-14's
  *   "This updates as you answer").
  * - `txr-intake-c`: screen C (Files.dc.html) — the REAL FilesPage with the
  *   REAL store (the flow owns the drop → parse (PROV-FV-7, in-browser) →
@@ -90,8 +90,8 @@ function NavigationResultLine() {
 }
 
 /** The B story's seeded answers: colorectal, risk by a day, no groups yet. */
-function seedStudyAnswers(): void {
-  TxrIntake.reset()
+function seedStudyAnswers(fresh = true): void {
+  if (fresh) TxrIntake.reset()
   TxrIntake.patchStudy({
     disease: 'colorectal',
     treatment: 'immunotherapy',
@@ -145,8 +145,8 @@ function loadedFrom(table: ReturnType<typeof parseCsvText>): LoadedFile {
 }
 
 /** Seed the store's C screen with the validated (fixed) file pair. */
-function seedValidatedFiles(): void {
-  TxrIntake.reset()
+function seedValidatedFiles(fresh = true): void {
+  if (fresh) TxrIntake.reset()
   const patientsTable = parseCsvText(
     TXR_INTAKE_FIXTURE_BUNDLE.patients,
     { kind: 'patients' },
@@ -185,8 +185,8 @@ function seedValidatedFiles(): void {
 }
 
 /** Seed the store's N screen (predict intent, the clean predict file). */
-function seedPredictFile(): void {
-  TxrIntake.reset()
+function seedPredictFile(fresh = true): void {
+  if (fresh) TxrIntake.reset()
   TxrIntake.setIntent('pretrained')
   const predictTable = parseCsvText(
     TXR_INTAKE_FIXTURE_BUNDLE.predict,
@@ -244,19 +244,12 @@ function NStoryView() {
 function NarrowFrame({
   label,
   title,
-  setup,
   children,
 }: {
   label: string
   title: string
-  setup?: () => void
   children: ReactNode
 }) {
-  useEffect(() => {
-    setup?.()
-    // The frame owns its store seed (the three frames mount together).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
   return (
     <section
       data-testid={`txr-intake-narrow-${label}`}
@@ -270,24 +263,35 @@ function NarrowFrame({
   )
 }
 
-/** The three screens at the board's mobile width, stacked in the story. */
+/**
+ * The three screens at the board's mobile width, stacked in the story.
+ *
+ * The frames share ONE store (the app's real singleton) and mount together,
+ * so their seeds must COMPOSE rather than each reset it: the store keeps the
+ * study answers (B), the validated file pair (C) and the predict file (N)
+ * as separate slices, and the shared `validation` slot ends as the N
+ * response — exactly the state the standalone N story leaves (the frames'
+ * own flows never re-run: the slot is non-null when they mount). The
+ * seeding runs in THIS view's effect (after the frames' effects — React
+ * runs child effects first), with the standalone seeds' resets skipped.
+ */
 function NarrowStoryView() {
+  useEffect(() => {
+    extendEligibilityForPreviewStory()
+    seedStudyAnswers()
+    seedValidatedFiles(false)
+    seedPredictFile(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
-      <NarrowFrame
-        label="b"
-        title="Screen B — Your study"
-        setup={() => {
-          extendEligibilityForPreviewStory()
-          seedStudyAnswers()
-        }}
-      >
+      <NarrowFrame label="b" title="Screen B — Your study">
         <StudyPage />
       </NarrowFrame>
-      <NarrowFrame label="c" title="Screen C — Your files" setup={seedValidatedFiles}>
+      <NarrowFrame label="c" title="Screen C — Your files">
         <FilesPage />
       </NarrowFrame>
-      <NarrowFrame label="n" title="Screen N — Add the patients to predict" setup={seedPredictFile}>
+      <NarrowFrame label="n" title="Screen N — Add the patients to predict">
         <PredictFilesPage />
       </NarrowFrame>
     </div>
@@ -332,7 +336,7 @@ export const gallery: ModuleGallery = {
     {
       slug: 'txr-intake-b',
       title: 'Your study (screen B) — the live fit panel',
-      note: 'The six question groups (seeded: colorectal, immunotherapy, risk by a day, no marker groups) with the REAL eligibility hook over the mock cassette: "22 of 39 methods fit" + the left-out list with one reason per method; checking the ctDNA group re-runs the panel (25 fit, 11 left out).',
+      note: 'The six question groups (seeded: colorectal, immunotherapy, risk by a day, no marker groups) with the REAL eligibility hook over the mock cassette: "26 of 39 methods fit" (22 can run + 4 for some patients — the head-to-the-tail inclusive count) + the left-out list with one reason per method; checking the ctDNA group re-runs the panel (28 fit, 11 left out).',
       path: '/study',
       initialPath: '/study',
       component: lazy(() => Promise.resolve({ default: BStoryView })),

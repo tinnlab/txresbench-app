@@ -385,7 +385,9 @@ function topPatients(rows: TxrHeatmapRow[], idx: number): TxrHeatmapRow[] {
  * The compare card's numbers for the VIEW's first two columns (the two
  * compared methods: `cols[0]` = "a", `cols[1]` = "b"; a view with fewer than
  * two columns has nothing to compare — the H screen shows no compare segment
- * on a single-method run):
+ * on a single-method run). The optional `aId`/`bId` name the pair from a
+ * picker (qa-fixes2 R2-07 — the card used to compare the first two columns
+ * always); an id that names no column falls back to the default pair.
  *
  * - `sharedTop` — the intersection of the two top-5 sets, at most
  *   `COMPARE_SHARED_CAP` names, ordered by the patient's average desc then
@@ -401,11 +403,27 @@ function topPatients(rows: TxrHeatmapRow[], idx: number): TxrHeatmapRow[] {
 export function compareReport(
   cols: TxrHeatmapColumn[],
   rows: TxrHeatmapRow[],
+  aId?: string,
+  bId?: string,
 ): TxrCompareReport {
   if (cols.length < 2) return { sharedTop: [], mostDiffering: [], divergentCount: 0 }
+  const indexOf = (id: string | undefined, fallback: number): number => {
+    if (id === undefined) return fallback
+    const idx = cols.findIndex(c => c.methodId === id)
+    return idx < 0 ? fallback : idx
+  }
+  let ia = indexOf(aId, 0)
+  let ib = indexOf(bId, 1)
+  // The picker asks for two DISTINCT methods; an unknown/duplicate pair
+  // falls back to the default first-two (the picker keeps its own state
+  // valid, this arm is the defensive one).
+  if (ia === ib) {
+    ia = 0
+    ib = cols.length > 1 ? 1 : 0
+  }
 
-  const inTopB = new Set(topPatients(rows, 1).map(r => r.patientId))
-  const shared = topPatients(rows, 0).filter(r => inTopB.has(r.patientId))
+  const inTopB = new Set(topPatients(rows, ib).map(r => r.patientId))
+  const shared = topPatients(rows, ia).filter(r => inTopB.has(r.patientId))
   shared.sort((x, y) => {
     if (x.average === null && y.average === null) return comparePatientIds(x.patientId, y.patientId)
     if (x.average === null) return 1
@@ -419,7 +437,7 @@ export function compareReport(
   }))
 
   const differing = rows
-    .map(r => ({ patientId: r.patientId, a: valueAt(r, 0), b: valueAt(r, 1) }))
+    .map(r => ({ patientId: r.patientId, a: valueAt(r, ia), b: valueAt(r, ib) }))
     .filter((d): d is { patientId: string; a: number; b: number } => d.a !== null && d.b !== null)
     .map(d => ({
       patientId: d.patientId,
@@ -439,8 +457,8 @@ export function compareReport(
 
   let divergentCount = 0
   for (const row of rows) {
-    const a = valueAt(row, 0)
-    const b = valueAt(row, 1)
+    const a = valueAt(row, ia)
+    const b = valueAt(row, ib)
     if (a !== null && b !== null && Math.abs(a - b) * 100 >= DIVERGENCE_PP) {
       divergentCount += 1
     }

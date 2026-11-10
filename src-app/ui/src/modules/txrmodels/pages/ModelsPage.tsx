@@ -1,6 +1,6 @@
 /**
  * Screen J — Your models (board `Models.dc.html`; ITEM-8, PROV-UI-MODELS-5):
- * the inventory of every model kept on this computer, from `model-store`'s
+ * the inventory of every kept model, from `model-store`'s
  * `GET /api/txr/models` (CONS-UM-4) — the fifth surface of the module, NOT
  * the shared selection list (the plan-audit ITEM-8: the board is an
  * inventory table; INV-1's "D, I and E are ONE list" names the choice
@@ -57,6 +57,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ApiClient } from '@/api-client'
 import type { ModelSummary } from '@/api-client/types'
 import { isDesktop } from '@/core/platform'
+import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { useTxrIntakeStore } from '@/modules/txrintake'
 import { predictFilesPath } from '@/modules/txrrun'
 import { revealRunDir } from '@/modules/txrresults'
@@ -215,8 +216,7 @@ const BOX_LINE: CSSProperties = { padding: '14px', fontSize: 13.5, color: 'var(-
 const EMPTY_LINE = 'No models yet.'
 
 /** The empty state's explanation (next to the CTA; honest, no board copy). */
-const EMPTY_NOTE =
-  'Run an analysis and save its models, or open a model file from another computer.'
+const EMPTY_NOTE = 'Run an analysis and save its models, or open a model file.'
 
 /** The no-match line for a search/set view with no rows. */
 const NO_MATCH_LINE = 'Nothing matches here.'
@@ -253,6 +253,8 @@ export function ModelsPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const setId = searchParams.get('set')
+  // R2-G1: the tab/title byte is the page's own h1.
+  useDocumentTitle('Your models')
 
   const [search, setSearch] = useState('')
   const inventory = useModelInventory({ query: search, setId })
@@ -488,7 +490,11 @@ export function ModelsPage() {
                       style={{ ...ROW_HEADER, borderBottom: 'none' }}
                     >
                       {model.name}
-                      {subline.length > 0 ? <div style={SUBLINE}>{subline}</div> : null}
+                      {subline.length > 0 ? (
+                        <div className="txr-models-j-subline" style={SUBLINE}>
+                          {subline}
+                        </div>
+                      ) : null}
                     </th>
                     <td data-label="Method" style={lastTd}>
                       <span style={MONO}>{model.method_id}</span>

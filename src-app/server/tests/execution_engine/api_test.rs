@@ -545,8 +545,8 @@ async fn results_while_running_and_the_sse_replay_serve_the_seeded_columns() {
     assert_eq!(avg.len(), 30, "one average per patient row");
     let first = avg[0].as_f64().expect("average value");
     assert!(
-        (first - 0.41).abs() < 1e-9,
-        "C01's average over the two columns (0.21 + 0.61)/2: {first}"
+        (first - 0.21).abs() < 1e-9,
+        "C01's average covers the run's pfs task only (0.21): the response column never joins the progression mean — qa-fixes2 R2-06's endpoint scope: {first}"
     );
 
     // CSV download while active.

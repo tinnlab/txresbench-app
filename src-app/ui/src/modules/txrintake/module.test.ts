@@ -156,7 +156,10 @@ describe('txrintake module', () => {
     // and the `/help` route to `txrhelp` (the content page) — the
     // sanctioned handoffs of this epic's route takeovers (each module
     // edits the same shell file, its own block).
-    expect(routesOf(txrShellModule).map(r => r.path)).toEqual([])
+    // qa-fixes2 ITEM-4 (R2-G2): the ONE route the shell keeps is the global
+    // catch-all — an unknown URL renders the not-found screen instead of
+    // the SDK router's silent redirect to `/`.
+    expect(routesOf(txrShellModule).map(r => r.path)).toEqual(['*'])
     const shellSource = readFileSync(
       fileURLToPath(new URL('../txrshell/module.tsx', import.meta.url)),
       'utf8',
@@ -171,7 +174,7 @@ describe('txrintake module', () => {
     expect(shellSource).toContain('`txrhistory` module')
     expect(shellSource).not.toContain("path: '/history'")
     // The `/help` handoff (ITEM-4 — the last scaffold route; the shell now
-    // owns no screen route, only the shared layout).
+    // owns no screen route, only the shared layout + the catch-all).
     expect(shellSource).toContain('`txrhelp` module')
     expect(shellSource).not.toContain("path: '/help'")
   })

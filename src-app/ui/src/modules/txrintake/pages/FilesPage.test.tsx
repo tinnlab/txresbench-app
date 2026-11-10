@@ -270,7 +270,7 @@ describe('FilesPage (screen C, ITEM-6)', () => {
     expect(inspectCall.table.columns).toEqual(['patient_id', 'day', 'marker', 'value', 'unit'])
     expect(inspectCall.table.rows).toHaveLength(2)
 
-    expect(screen.getByText('We check each file as soon as you choose it.')).toBeTruthy()
+    expect(screen.getByText('We check the files once both are here.')).toBeTruthy()
     const status = screen.getByTestId('txr-intake-file-status-measurements')
     expect(within(status).getByText('2 rows read')).toBeTruthy()
     expect(continueButton().disabled).toBe(true)
@@ -296,23 +296,24 @@ describe('FilesPage (screen C, ITEM-6)', () => {
     expect(validateCall.parameters).toEqual({ decision_day: 56, baseline_max_day: 0 })
 
     // Both cards land their facts: the patients box is on the ready line
-    // (no patient-side problem) while the measurements box lists the shared
-    // R03 row once plus the cross-table R08 (the A03 row is represented by
-    // the join offer, not by a problem line).
+    // (no patient-side problem); the measurements card's suggestions are the
+    // pending action — R2-4: the offer rows come FIRST and the problem list
+    // is hidden until they are resolved (the red box's heading stays).
     await waitFor(() => {
       expect(screen.getByText('✓ 2 patients read')).toBeTruthy()
     })
-    const measurementsProblems = within(screen.getByTestId('txr-intake-file-problems-measurements'))
-    expect(measurementsProblems.getAllByRole('listitem')).toHaveLength(2)
-    // The ITEM-4 code link is appended to the provider's line (the row
-    // message bytes are the provider's; the link carries the code).
+    const measurementsStatus = screen.getByTestId('txr-intake-file-status-measurements')
     expect(
-      within(screen.getByTestId('txr-intake-file-problems-measurements'))
-        .getAllByRole('listitem')[0]
-        .textContent,
-    ).toContain('Row 4: week 4 is not a number in the day column')
+      within(measurementsStatus).queryByTestId('txr-intake-file-problems-measurements'),
+    ).toBeNull()
     expect(screen.getByTestId('txr-intake-join-offer-ldh')).toBeTruthy()
     expect(screen.getByTestId('txr-intake-vocab-offer-cea')).toBeTruthy()
+    // The offers render ABOVE the status box (the pending question first).
+    const offerBox = screen.getByTestId('txr-intake-join-offer-ldh').closest('div') as HTMLElement
+    expect(
+      offerBox.compareDocumentPosition(measurementsStatus) & Node.DOCUMENT_POSITION_FOLLOWING,
+      'the offer rows must precede the status box',
+    ).toBeTruthy()
   })
 
   it('Continue stays disabled with error problems; the fix affordance removes the file', async () => {
@@ -355,6 +356,16 @@ describe('FilesPage (screen C, ITEM-6)', () => {
     const revalidated = api.validate.mock.calls[1][0] as ValidationRequest
     expect(revalidated.joins).toEqual([{ variants: ['ldh', 'LDH'], key: 'ldh' }])
     expect(screen.queryByTestId('txr-intake-join-offer-ldh')).toBeNull()
+    // R2-4: the vocab suggestion is still pending, so the problem list stays
+    // hidden; declining it brings the list back (the A03 line is gone — the
+    // join offer represented it, and the re-validated problems carry its
+    // resolution).
+    expect(screen.getByTestId('txr-intake-vocab-offer-cea')).toBeTruthy()
+    expect(screen.queryByTestId('txr-intake-file-problems-measurements')).toBeNull()
+    fireEvent.click(screen.getByTestId('txr-intake-vocab-decline-cea'))
+    await waitFor(() => {
+      expect(screen.getByTestId('txr-intake-file-problems-measurements')).toBeTruthy()
+    })
     expect(
       within(screen.getByTestId('txr-intake-file-problems-measurements')).queryByText(
         /look the same/,

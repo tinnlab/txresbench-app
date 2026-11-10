@@ -17,9 +17,12 @@
  *   row's first fact; INV-2's "failure kept with its reason" is the
  *   detail line);
  * - the time texts are the board's words: exact durations read whole
- *   minutes and seconds, anything under a minute reads "under a minute",
- *   and the time-left line reads "about N minutes left" (announced as
- *   about); a whole-minute duration reads the minutes only;
+ *   minutes and seconds — a sub-minute span reads its whole seconds
+ *   ("12 s"; qa-fixes2 R2-2/R2-4 — "under a minute" was a display
+ *   segment that never moved on a sub-minute run), the time-left line
+ *   reads "about N minutes left" (announced as about; a sub-minute
+ *   remainder reads "under a minute left" — the estimate is a rough
+ *   promise); a whole-minute duration reads the minutes only;
  * - the download line reads "N of M MB" — `bytes_downloaded` /
  *   `bytes_total` are byte counters, the display unit is MB (the boards'
  *   download lines), and a null total renders the bytes only;
@@ -42,6 +45,7 @@ import type {
   TxrRunLogLine,
   TxrRunMethod,
   TxrRunProgressFrame,
+  TimingQuality,
 } from '@/api-client/types'
 import type { TxrRunBucket } from '../types'
 
@@ -134,14 +138,17 @@ export function bucketOf(state: TxrMethodState): Exclude<TxrRunBucket, 'all'> {
 
 /**
  * An exact duration in the board's words (whole minutes and seconds), a
- * whole-number minute reading as the minutes only, and anything under a
- * minute reading "under a minute". `null` (no duration yet) and
- * non-finite/negative spans (clock skew must not print) render the
- * constant "—".
+ * whole-number minute reading as the minutes only, and a sub-minute span
+ * reading its whole seconds ("12 s" — qa-fixes2 R2-2/R2-4: "under a
+ * minute" was a fact that never moved on a sub-minute run, so the Time
+ * column and the header elapsed read the exact seconds; the ~1 s floor
+ * keeps a just-started row from running off the left edge of a second).
+ * `null` (no duration yet) and non-finite/negative spans (clock skew must
+ * not print) render the constant "—".
  */
 export function formatSecs(secs: number | null): string {
   if (secs === null || !Number.isFinite(secs) || secs < 0) return '—'
-  if (secs < 60) return 'under a minute'
+  if (secs < 60) return `${Math.max(1, Math.round(secs))} s`
   const m = Math.floor(secs / 60)
   const s = Math.floor(secs % 60)
   return s === 0 ? `${m} min` : `${m} min ${s} s`
@@ -166,6 +173,20 @@ export function formatTimeLeft(
   if (remaining < 60) return 'under a minute left'
   const minutes = Math.round(remaining / 60)
   return `about ${minutes} ${minutes === 1 ? 'minute' : 'minutes'} left`
+}
+
+/**
+ * The estimate's honest provenance word (qa-fixes2 R2-3): the engine
+ * reports each estimate as `measured` (real per-fold seconds — with the
+ * app's calibration those are THIS app's own measured durations) or as an
+ * `estimate` (the generated fallback facts). The header's time line
+ * renders the word so an "about N minutes" number never claims more
+ * precision than its source has. `null` (no quality fact — the run has no
+ * estimate) renders no word.
+ */
+export function estimateQualityWord(quality: TimingQuality | null | undefined): string | null {
+  if (quality === null || quality === undefined) return null
+  return quality === 'measured' ? 'measured estimate' : 'rough estimate'
 }
 
 /** One megabyte, as the boards' "MB" unit is applied to the byte counters. */
@@ -194,8 +215,21 @@ export function formatBytes(done: number, total: number | null): string {
  */
 export function formatProgress(r: TxrRunMethod, progress: TxrRunProgressFrame | null): string {
   switch (r.state) {
-    case 'downloading':
-      return formatBytes(r.bytes_downloaded, r.bytes_total ?? null)
+    case 'downloading': {
+      // R2-4: a "downloading" row that has fetched NOTHING (no total, a
+      // 0 total, or a total that rounds to 0 MB — the engine's cache-hit
+      // env phase, `bytes_total` 4096) must not read the silly "0 of 0 MB":
+      // the state chip carries the row, the detail line stays empty until a
+      // real download exists.
+      const total = r.bytes_total ?? null
+      if (
+        (r.bytes_downloaded ?? 0) === 0 &&
+        (total === null || Math.round(total / MB) === 0)
+      ) {
+        return ''
+      }
+      return formatBytes(r.bytes_downloaded, total)
+    }
     case 'running':
       return progress?.message ?? ''
     case 'failed':
@@ -208,18 +242,24 @@ export function formatProgress(r: TxrRunMethod, progress: TxrRunProgressFrame | 
 
 /**
  * The F row's TIME column — the row's own timing sentence (the board's
- * per-row Time column): a running row reads its elapsed ("1 min 40 s"), a
+ * per-row Time column): a running (or downloading) row reads its LIVE
+ * elapsed — `nowMs` (the page's one-second clock; the server and the page
+ * are the same machine, so the row's `started_at` is directly readable)
+ * against the row's `started_at`, falling back to the row's last engine
+ * `elapsed_secs` snapshot when the clock or the anchor is missing
+ * (qa-fixes2 R2-4 — the column was empty during the run because the rows
+ * only carry an engine snapshot, and a sub-minute run never saw one), a
  * completed row reads "done in M min S s" (the board's log line's words at
  * the row's own duration, `duration_ms`), a failed / cannot-run row reads
  * its elapsed (the board's "5 s"), and a stopped row reads the elapsed it
  * reached (it ran for a while before the user cleared it). A SKIPPED row
  * reads nothing: it never ran (qa-fixes ITEM-3, RP-7 — its "done in …"
- * was the engine's duration_ms of a row that never started). Waiting and
- * downloading rows read nothing: the engine contracts a per-row estimate
- * nowhere — the header's time-left line carries the schedule (DEC-3) and
- * the board's per-row "about 1 min" facts are design examples, never data
- * (INV-6) — so an empty column is the honest reading, never an invented
- * duration.
+ * was the engine's duration_ms of a row that never started). Waiting rows
+ * read nothing: the row has no start yet and the engine contracts a
+ * per-row estimate nowhere — the header's time-left line carries the
+ * schedule (DEC-3) and the board's per-row "about 1 min" facts are design
+ * examples, never data (INV-6) — so an empty column is the honest
+ * reading, never an invented duration.
  *
  * The absent tests are `== null` (NOT `=== undefined`): the engine's
  * `Option` counters serialize their absent value as JSON `null` while the
@@ -227,9 +267,17 @@ export function formatProgress(r: TxrRunMethod, progress: TxrRunProgressFrame | 
  * null-vs-undefined rule) — a `duration_ms: null` wire value must read an
  * empty cell, never "done in —".
  */
-export function formatRowTime(r: TxrRunMethod): string {
+export function formatRowTime(r: TxrRunMethod, nowMs: number | null = null): string {
   switch (r.state) {
     case 'running':
+    case 'downloading':
+      if (r.started_at != null && nowMs !== null) {
+        const start = Date.parse(r.started_at)
+        if (Number.isFinite(start) && nowMs >= start) {
+          return formatSecs((nowMs - start) / 1000)
+        }
+      }
+      return r.elapsed_secs == null ? '' : formatSecs(r.elapsed_secs)
     case 'failed':
     case 'cannot_run':
     case 'stopped':
@@ -241,6 +289,25 @@ export function formatRowTime(r: TxrRunMethod): string {
     default:
       return ''
   }
+}
+
+/**
+ * The R2-5 start-up noise predicate (the setlocale / R-startup lines that
+ * opened the "All methods" log with one warning per method): the engine's
+ * own log content for the locale warnings a sandboxed method's shell and
+ * R runtime print on start. These lines are TRUE output — the "Show
+ * technical output" switch in the log panel reveals them — but they are
+ * not progress, and a log that opens with 7 warning lines per method hides
+ * the run's own lines behind them. Matched on the line content (the
+ * engine authors no per-line kind field): `setlocale` (the bash warning),
+ * `Setting LC_*` (R's per-locale messages) and the R start-up warning
+ * banner. Plain-voice rule: this is the run screen's own copy layer, the
+ * lines stay in the store and in the copy text when the switch is on.
+ */
+const TECHNICAL_NOISE: RegExp = /setlocale|Setting LC_|During startup - Warning/i
+
+export function isTechnicalLogNoise(line: TxrRunLogLine): boolean {
+  return TECHNICAL_NOISE.test(line.content)
 }
 
 /**

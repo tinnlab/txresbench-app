@@ -266,7 +266,12 @@ describe('txrmodels module (TEST-MOD-01)', () => {
           p !== 'scripts/dev-registry/make_real_inputs.test.py' &&
           p !== 'scripts/file-validator/gen_material.py' &&
           p !== 'scripts/file-validator/fixtures/expected/examples/patients.csv' &&
-          p !== 'scripts/file-validator/fixtures/expected/examples/measurements.csv',
+          p !== 'scripts/file-validator/fixtures/expected/examples/measurements.csv' &&
+          p !== 'scripts/file-validator/gen_help_catalog.sh' &&
+          // qa-fixes2 ITEM-2 (location-neutral copy): the notice generator's
+          // header reword — "the TxResBench application", not "desktop
+          // application" (the generated THIRD-PARTY-NOTICES.md follows).
+          p !== 'scripts/third-party.py' ,
       ),
     ).toEqual([])
     // qa-fixes ITEM-7 (X1): the built-CSS url check — one script file
@@ -318,7 +323,14 @@ describe('txrmodels module (TEST-MOD-01)', () => {
           p !== 'src-app/server/src/modules/file_validator/types.rs' &&
           p !== 'src-app/server/src/modules/file_validator/validate.rs' &&
           p !== 'src-app/server/src/modules/file_validator/units.rs' &&
-          p !== 'src-app/server/tests/model_store/api_test.rs',
+          p !== 'src-app/server/src/modules/file_validator/rules.rs' &&
+          p !== 'src-app/server/src/modules/file_validator/mod.rs' &&
+          p !== 'src-app/server/src/modules/file_validator/catalog.rs' &&
+          p !== 'src-app/server/tests/file_validator/rules_test.rs' &&
+          p !== 'src-app/server/tests/model_store/api_test.rs' &&
+          // qa-fixes2 ITEM-7 (R2-04): the K row's `predicted` doc grows
+          // the distinct-patient meaning — history_store/types.rs.
+          p !== 'src-app/server/src/modules/history_store/types.rs',
       ),
     ).toEqual([])
     // TEN sanctioned exceptions (the DRIFT-1 #8 class + the `/history` +
@@ -358,6 +370,23 @@ describe('txrmodels module (TEST-MOD-01)', () => {
           p !== 'src-app/ui/src/modules/txrshell/TxrLayout.tsx' &&
           p !== 'src-app/ui/src/modules/txrshell/TxrLayout.test.tsx' &&
           p !== 'src-app/ui/src/modules/txrshell/gallery.tsx' &&
+          // qa-fixes2 ITEM-1 (the theme switch): the new toggle component + its unit test.
+          p !== 'src-app/ui/src/modules/txrshell/TxrThemeToggle.tsx' &&
+          p !== 'src-app/ui/src/modules/txrshell/TxrThemeToggle.test.tsx' &&
+          // qa-fixes2 ITEM-2 (the location-neutral copy guard): its test file
+          // + allow-list, the item's own new txrshell files.
+          p !== 'src-app/ui/src/modules/txrshell/lib/copyGuard.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/copyGuard.allowlist.json' &&
+          // qa-fixes2 ITEM-4 (global + shell): the title hook + its unit
+          // test, the not-found screen + its unit test, the TxrLayout
+          // brand-link class (the header ring unification's hook) and the
+          // shell's catch-all route itself (module.tsx is sanctioned above;
+          // the module test pins the routes array).
+          p !== 'src-app/ui/src/modules/txrshell/lib/document-title.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/document-title.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/pages/NotFoundPage.tsx' &&
+          p !== 'src-app/ui/src/modules/txrshell/pages/NotFoundPage.test.tsx' &&
+
     // qa-fixes ITEM-7 (X3): the session guard's loading/failure
     // surface is tokenized with the pages (its own ink was a
     // hard-coded light hex — a light flash before the app loads).
@@ -371,8 +400,10 @@ describe('txrmodels module (TEST-MOD-01)', () => {
 
   it('records the txrshell route handoffs: the `/models` route is gone, the handoff comment is there, nothing else in the shell moves', () => {
     // The current shell state (all four handoffs' result): no screen route
-    // — `/help` left the shell with the ITEM-4 handoff (`txrhelp` owns it).
-    expect(routesOf(txrShellModule).map(r => r.path)).toEqual([])
+    // — `/help` left the shell with the ITEM-4 handoff (`txrhelp` owns it);
+    // the ONE route the shell keeps is the global catch-all (qa-fixes2
+    // ITEM-4, R2-G2).
+    expect(routesOf(txrShellModule).map(r => r.path)).toEqual(['*'])
     const shellSource = readFileSync(
       fileURLToPath(new URL('../txrshell/module.tsx', import.meta.url)),
       'utf8',
@@ -389,38 +420,35 @@ describe('txrmodels module (TEST-MOD-01)', () => {
     expect(shellSource).not.toContain("path: '/help'")
     expect(shellSource).not.toContain('ShellPage') // the scaffold component left with the route
 
-    // The patch itself: the NEWEST shell-touching commit is the
-    // `/help` handoff (the walk-back takes the nearest one — the
-    // `/history` handoff is an ancestor of it now), so the byte pin
-    // asserts THAT patch: removed lines are the old comment block + the
-    // ShellPage import + the `/help` route block only; added lines are
-    // the new comment block + the empty `routes: []` line only.
-    // Byte-pins "NO other change" (DEC-2).
+    // The patch itself: with this item's working-tree diff the walk-back
+    // takes THIS item's shell patch (qa-fixes2 ITEM-4 — the catch-all), so
+    // the byte pin asserts THAT patch: removed lines are the old empty
+    // `routes: []` only; added lines are the NotFoundPage import + the
+    // catch-all comment block + the catch-all route block only. Byte-pins
+    // "NO other change" (DEC-2).
     const { added, removed } = shellPatch()
     const commentLine = (l: string) => /^(\s*\/\*\*|\s*\*(?:\s.*)?|\s*\*\/)$/.test(l)
     const routeBlockLine = (l: string) =>
       [
-        "import { ShellPage } from './pages/ShellPage'",
+        "import { NotFoundPage } from './pages/NotFoundPage'",
         '  routes: [',
-        '  ],',
         '    {',
-        "      path: '/help',",
-        '      element: <ShellPage title="Help" />,',
+        "      path: '*',",
+        '      element: <NotFoundPage />,',
         '      requiresAuth: true,',
         '      layout: TxrLayoutDef,',
         '    },',
+        '  ],',
       ].includes(l)
     expect(removed.length).toBeGreaterThan(0)
-    expect(removed).toContain("      path: '/help',")
-    expect(removed).toContain("import { ShellPage } from './pages/ShellPage'")
-    for (const line of removed) {
+    expect(removed).toEqual(['  routes: [],'])
+    for (const line of added) {
+      // The new comment block words the catch-all (asserted on the source
+      // above); every added line is comment text or the catch-all route
+      // block.
       expect(commentLine(line) || routeBlockLine(line)).toBe(true)
     }
-    for (const line of added) {
-      // The new comment block words the handoff (asserted on the source
-      // above); every added line is comment text or the empty route list.
-      expect(commentLine(line) || line === '  routes: [],').toBe(true)
-    }
+    expect(added).toContain("      path: '*',")
   })
 
   it('carries no status words, no literal design-example numbers and no URL literal in its own copy (INV-5/6)', () => {

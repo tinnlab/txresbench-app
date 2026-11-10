@@ -4,10 +4,11 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useStore } from 'zustand'
 import { Button, ErrorState, Skeleton } from '@ziee/kit'
 import type { TxrRunDetail } from '@/api-client/types'
+import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { TxrResults, useTxrResultsStore } from '../stores/Results.store'
 import { buildColumns, compareReport, divergentPatients, sortByFirstMethod, viewOf } from '../lib/heatmap'
 import { compareResultsPath, methodResultsPath, downloadPredictionsCsv, revealRunDir } from '../index'
-import { formatConstantNote, formatMixedOutcomeNote } from '../lib/format'
+import { formatConstantNote, formatMixedOutcomeNote, formatNoChanceNote, txrRunFailed } from '../lib/format'
 import { TxrResultsHeader, subtitleFactsOf } from '../components/TxrResultsHeader'
 import { TxrCannotRunBanner } from '../components/TxrCannotRunBanner'
 import { TxrRunFailedState } from '../components/TxrRunFailedState'
@@ -15,6 +16,7 @@ import { TxrMethodTabs } from '../components/TxrMethodTabs'
 import { TxrOutcomeTabs } from '../components/TxrOutcomeTabs'
 import { TxrBarsTable } from '../components/TxrBarsTable'
 import { TxrCompareCard } from '../components/TxrCompareCard'
+import { TxrComparePicker } from '../components/TxrComparePicker'
 import { TxrMethodAside } from '../components/TxrMethodAside'
 import { TxrChanceDialog } from '../components/TxrChanceDialog'
 import { TxrLogDialog } from '../components/TxrLogDialog'
@@ -220,6 +222,12 @@ export function MethodResultsPage() {
   )
   const isCompareTab = methodId === undefined || methodId === null
   const methodNotFound = !isCompareTab && activeColumn === null
+  // R2-G1: the tab/title byte is the page's own h1 — the Compare-methods tab
+  // on `/compare`, the method column's label on a method tab (the same word
+  // the page renders under the method tabs), "Method" while it loads.
+  useDocumentTitle(
+    isCompareTab ? 'Compare methods' : (activeColumn?.label ?? 'Method'),
+  )
   // The H base view: the one-method tab's OWN column (its task is the
   // method's — the outcome tabs yield to it, RES-11), else the active
   // outcome tab's columns. UNFILTERED (H has no search/method-group controls
@@ -249,27 +257,49 @@ export function MethodResultsPage() {
         : null,
     [allColumns, predictions, activeColumn, outcomeTab],
   )
-  const firstMethodId = activeColumn?.methodId ?? baseView?.columns[0]?.methodId ?? ''
+  // R2-07: the compare pair the H compare tab actually compares. The picker
+  // state is PRESENTATION state — the pair defaults to the first two columns
+  // and re-defaults whenever the picker's column set changes (a different
+  // run/tab presents its own first two); an id outside the set (or a
+  // duplicated pick) resolves to the default pair, never a broken report.
+  const [comparePair, setComparePair] = useState<{ a: string; b: string } | null>(null)
+  const pair = useMemo(() => {
+    const columns = baseView?.columns ?? []
+    if (columns.length < 2) return null
+    const isIn = (id: string | null): boolean => id !== null && columns.some(c => c.methodId === id)
+    if (
+      comparePair !== null &&
+      isIn(comparePair.a) &&
+      isIn(comparePair.b) &&
+      comparePair.a !== comparePair.b
+    ) {
+      return comparePair
+    }
+    return { a: columns[0].methodId, b: columns[1].methodId }
+  }, [baseView, comparePair])
+  const firstMethodId = activeColumn?.methodId ?? pair?.a ?? baseView?.columns[0]?.methodId ?? ''
   const orderedRows = useMemo(
     () => (baseView ? sortByFirstMethod(baseView.columns, baseView.rows, firstMethodId) : []),
     [baseView, firstMethodId],
   )
   const divergentIds = useMemo(() => {
-    if (!divergentOnly || !baseView || baseView.columns.length < 2) return null
-    const a = baseView.columns[0].methodId
-    const b = baseView.columns[1].methodId
-    return new Set(divergentPatients(baseView.columns, orderedRows, a, b))
-  }, [divergentOnly, baseView, orderedRows])
+    if (!divergentOnly || !baseView || pair === null) return null
+    return new Set(divergentPatients(baseView.columns, orderedRows, pair.a, pair.b))
+  }, [divergentOnly, baseView, orderedRows, pair])
   const tableRows = useMemo(() => {
     const filtered = divergentIds ? orderedRows.filter(r => divergentIds.has(r.patientId)) : orderedRows
     return patientLimit > 0 ? filtered.slice(0, patientLimit) : filtered
   }, [orderedRows, divergentIds, patientLimit])
   const totalCount = divergentIds ? divergentIds.size : orderedRows.length
   // The compare card: compare tab only (a one-method tab is not a
-  // two-method comparison — ITEM-4 note (p)), over the full row set.
+  // two-method comparison — ITEM-4 note (p)), over the full row set and the
+  // PICKED pair (R2-07 — the old card was always the first two columns).
   const compareReportData = useMemo(
-    () => (baseView && baseView.columns.length >= 2 ? compareReport(baseView.columns, baseView.rows) : null),
-    [baseView],
+    () =>
+      baseView && baseView.columns.length >= 2 && pair !== null
+        ? compareReport(baseView.columns, baseView.rows, pair.a, pair.b)
+        : null,
+    [baseView, pair],
   )
   // The compare tab only (a one-method tab is not a two-method comparison —
   // ITEM-4 note (p)); the narrowed variable carries the report to the card.
@@ -288,6 +318,14 @@ export function MethodResultsPage() {
   const constantNote = useMemo(
     () => (baseView ? formatConstantNote(baseView.columns) : null),
     [baseView],
+  )
+  // R2-03: a no-chance column (prob_source none — the predict-only reuse
+  // case) is a dashed wall with no explanation; the note names it with the
+  // page's own prob-source words (the one-method tab's column set is the
+  // active method's, the compare tab's is the view's).
+  const noChanceNote = useMemo(
+    () => formatNoChanceNote(activeColumn ? [activeColumn] : (baseView?.columns ?? [])),
+    [activeColumn, baseView],
   )
   const mixedNote = useMemo(
     () =>
@@ -338,7 +376,10 @@ export function MethodResultsPage() {
   }
 
   const cannotRun = run.methods.filter(m => m.state === 'cannot_run')
-  const runFailed = run.status === 'failed' || run.status === 'stopped'
+  // qa-fixes2 R2-02: the failure state is the engine's own truth — a
+  // TERMINAL run with no finished method (the engine's `finished` status
+  // also covers a run where nothing finished, `predictions_ready` false).
+  const runFailed = txrRunFailed(run)
 
   // The 409 empty-heatmap state (DEC-18: banner + counts + disabled
   // download, no spinner loop — the SSE fills it). A terminal failed /
@@ -359,7 +400,7 @@ export function MethodResultsPage() {
           }
         />
         {runFailed ? (
-          <TxrRunFailedState run={run} onShowLog={method => TxrResults.openLog(method)} />
+          <TxrRunFailedState run={run} onShowLog={method => TxrResults.openLog(method)} onShowHistory={() => navigate('/history')} />
         ) : null}
         <TxrCannotRunBanner
           methods={cannotRun}
@@ -451,7 +492,7 @@ export function MethodResultsPage() {
         />
       )}
       <div style={CONTENT_ROW}>
-        <section style={TABLE_SECTION}>
+        <section className="txr-h-table-section" style={TABLE_SECTION}>
           <TxrBarsTable
             columns={tableColumns}
             rows={tableRows}
@@ -465,6 +506,11 @@ export function MethodResultsPage() {
               {constantNote}
             </p>
           ) : null}
+          {noChanceNote !== null ? (
+            <p data-testid="txr-results-no-chance-note" style={{ ...NOTE_LINE, marginTop: 8 }}>
+              {noChanceNote}
+            </p>
+          ) : null}
           {mixedNote !== null ? (
             <p data-testid="txr-results-mixed-note" style={{ ...NOTE_LINE, marginTop: 8 }}>
               {mixedNote}
@@ -476,15 +522,22 @@ export function MethodResultsPage() {
             </p>
           ) : null}
         </section>
-        <aside style={ASIDE_COLUMN}>
-          {cardReport ? (
-            <TxrCompareCard
-              report={cardReport}
-              aLabel={baseView.columns[0]?.label ?? ''}
-              bLabel={baseView.columns[1]?.label ?? ''}
-              divergentOnly={divergentOnly}
-              onToggleDivergent={on => TxrResults.setDivergentOnly(on)}
-            />
+        <aside className="txr-h-aside" style={ASIDE_COLUMN}>
+          {cardReport && pair !== null ? (
+            <>
+              <TxrComparePicker
+                columns={baseView.columns}
+                pair={pair}
+                onChange={picked => setComparePair(picked)}
+              />
+              <TxrCompareCard
+                report={cardReport}
+                aLabel={baseView.columns.find(c => c.methodId === pair.a)?.label ?? ''}
+                bLabel={baseView.columns.find(c => c.methodId === pair.b)?.label ?? ''}
+                divergentOnly={divergentOnly}
+                onToggleDivergent={on => TxrResults.setDivergentOnly(on)}
+              />
+            </>
           ) : null}
           <TxrMethodAside
             dir={run.dir ?? null}

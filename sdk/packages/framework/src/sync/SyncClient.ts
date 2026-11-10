@@ -6,6 +6,7 @@ import { bumpFetchEpoch } from '../api-client/inflight'
 interface SyncEvent { entity: string; action: string; id: string }
 import { useEventBusStore } from '../events/store'
 import { setSyncConnectionId } from './connection'
+import { isDocumentUnloading } from './unload'
 import {
   INITIAL_BACKOFF_MS,
   MAX_BACKOFF_MS,
@@ -86,7 +87,18 @@ async function connectLoop(myEpoch: number): Promise<void> {
       if (!started || myEpoch !== epoch) break
       if (error instanceof SubscribeRefused) refusedStatus = error.status
       if (!(error instanceof DOMException && error.name === 'AbortError')) {
-        console.warn('[sync] stream ended; reconnecting', error)
+        // R2-G5 (help-r2.md): every page load logged
+        // "[sync] stream ended; reconnecting" as a WARNING — the streams
+        // are cut when the page navigates/closes, which is the teardown,
+        // not a failure. The unload signal is the report's own direction
+        // ("suppress when the document is unloading"): an unloading page
+        // logs at debug, a genuine drop while the page is alive stays a
+        // warn (the reconnect loop itself is unchanged).
+        if (isDocumentUnloading()) {
+          console.debug('[sync] stream ended as the page unloads; reconnecting', error)
+        } else {
+          console.warn('[sync] stream ended; reconnecting', error)
+        }
       }
     }
     if (!started || myEpoch !== epoch) break
