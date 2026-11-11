@@ -49,7 +49,7 @@ export const QUICK_START: readonly QuickStartCard[] = [
     eyebrow: 'Quickest',
     title: 'Predict with a pretrained model',
     text: 'Add the blood measurements of the patients you want predictions for. The app shows which pretrained models can run on them.',
-    screen: 'Screen N — Predict files',
+    screen: 'Predict files',
     route: '/predict-files',
     cta: 'Add the patients to predict',
     tryExample: {
@@ -62,7 +62,7 @@ export const QUICK_START: readonly QuickStartCard[] = [
     eyebrow: 'Most flexible',
     title: 'Learn from my data',
     text: 'Train the methods on your own patients with known outcomes, then predict new patients. One card sets what to predict; the list shows which methods can run and how long they take.',
-    screen: 'Screen B — Your study',
+    screen: 'Your study',
     route: '/study',
     cta: 'Add my data',
     tryExample: {
@@ -75,7 +75,7 @@ export const QUICK_START: readonly QuickStartCard[] = [
     eyebrow: 'Repeat a past analysis',
     title: 'Use a model I saved',
     text: 'Add the patients to predict, then pick any of the models you trained before. No need to upload the training data again.',
-    screen: 'Screen N — Predict files',
+    screen: 'Predict files',
     route: '/predict-files',
     cta: 'Predict with a model I saved',
     tryExample: {
@@ -122,7 +122,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
               'Pick the way in: a pretrained model, learn from my data, or a model I saved.',
               'The three cards name what each way needs.',
             ],
-            screen: 'Screen A — Start',
+            screen: 'Start',
             details: [
               {
                 kind: 'bullets',
@@ -142,7 +142,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
               'Answer the seven question groups: disease, treatment, what to predict, markers, and the three draw questions.',
               'The "N of M methods fit" panel updates as you answer.',
             ],
-            screen: 'Screen B — Your study',
+            screen: 'Your study',
             details: [
               {
                 kind: 'bullets',
@@ -160,7 +160,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
               'Add a patients table and a measurements table; with a model, only the measurements of the patients to predict.',
               'Each file is checked the moment you choose it. Problems are listed under the card.',
             ],
-            screen: 'Screen C — Your files',
+            screen: 'Your files',
             details: [
               {
                 kind: 'bullets',
@@ -178,7 +178,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
               'Pick the methods, set the run settings, and click "Run N methods". The running screen shows each method\'s state live.',
               'You can leave. The run continues and stays in History.',
             ],
-            screen: 'Screen D/E — Methods and running',
+            screen: 'Methods and running',
             details: [
               {
                 kind: 'bullets',
