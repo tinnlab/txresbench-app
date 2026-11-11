@@ -177,6 +177,35 @@ html.txr-shell-mode-shell #root {
   overflow: auto;
 }
 
+/* app-shell ITEM-3 (the audit's /help row): the PRINT byte — the shell's
+ * fixed document and the pages' own regions are for the SCREEN; a printed
+ * Help page must be the whole article. The mode-class rules above (height
+ * 100% + overflow hidden) are unset here and the regions' inline
+ * height/overflow yield to the printer (the `!important` is what beats an
+ * inline style, and the class-scoped selectors beat the mode rules at
+ * equal specificity by coming later). */
+@media print {
+  html.txr-shell-mode-shell,
+  html.txr-shell-mode-shell body,
+  html.txr-shell-mode-shell #root {
+    height: auto !important;
+    overflow: visible !important;
+  }
+  .txr-app-shell-shell,
+  .txr-app-shell-shell .txr-app-shell-body {
+    height: auto !important;
+    overflow: visible !important;
+  }
+  .txr-page-frame {
+    height: auto !important;
+  }
+  .txr-scroll-region-frame,
+  .txr-scroll-region {
+    height: auto !important;
+    overflow: visible !important;
+  }
+}
+
 /* QA-fixes ITEM-7 (X2) + app-shell ITEM-1: the shell header at narrow
  * width. The board's header is ONE 56 px row; below 900 px the tagline
  * yields (the brand stays — the tagline is the least-needed byte and the
@@ -680,12 +709,17 @@ html.txr-shell-mode-shell #root {
   max-width: 1048px;
   margin: 0 auto;
 }
+/* app-shell ITEM-3 (the audit's /help row): the rail STICKS at the REGION's
+ * top (the article's scrollport — the rail no longer scrolls itself; the
+ * region is the one scroller). In shell mode the region's top edge already
+ * sits below the frame's fixed top, so the offset is 0; in flow mode the
+ * rail runs against the document under the shell's sticky 56 px header. */
 .txr-help-rail {
   position: sticky;
-  top: 20px;
-  max-height: calc(100vh - 40px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  top: 0;
+}
+html.txr-shell-mode-flow .txr-help-rail {
+  top: 64px;
 }
 .txr-help-column {
   min-width: 0;
