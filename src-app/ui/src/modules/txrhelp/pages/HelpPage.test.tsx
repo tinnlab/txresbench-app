@@ -13,7 +13,7 @@
  * gallery test drives the real element scroll and the measured layout).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { HELP_SECTIONS, PROBLEM_HELP, QUICK_START } from '../content'
 import { helpPath } from '../routes'
@@ -86,10 +86,11 @@ describe('HelpPage render (TEST-HELP-3)', () => {
     }
   })
 
-  it('the rail highlight follows the section-heading observer (ITEM-6)', () => {
-    // jsdom has no IntersectionObserver (the real spy is the browser tier's
-    // measure) — install a capture stub and drive the page's observer with
-    // the crossed-the-header-line facts.
+  it('the rail wires the section-heading observer, and the first section is current at rest (ITEM-6)', () => {
+    // jsdom has no IntersectionObserver and no layout (the real spy — the
+    // per-section scroll answer — is the browser tier's measure); this
+    // guards the wiring: the page observes every section heading and starts
+    // on the first section.
     const instances: Array<{ callback: IntersectionObserverCallback; observed: Element[] }> = []
     class FakeIntersectionObserver {
       callback: IntersectionObserverCallback
@@ -111,44 +112,28 @@ describe('HelpPage render (TEST-HELP-3)', () => {
       thresholds = []
     }
     vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver)
+    // jsdom lays out nothing: without a model, every section's
+    // getBoundingClientRect returns 0 and the spy would claim the LAST
+    // section. Give the sections far-below tops so the at-rest answer is
+    // the honest first-section fallback.
+    const realRect = Element.prototype.getBoundingClientRect
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      if (this.id !== '' && HELP_SECTIONS.some(s => s.id === this.id)) {
+        return { top: 1000, bottom: 1000, left: 0, right: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}) } as DOMRect
+      }
+      return realRect.call(this)
+    })
     renderHelp()
     const spy = instances[0]
     expect(spy).toBeTruthy()
     expect(spy.observed.length).toBe(HELP_SECTIONS.length)
     const toc = screen.getByRole('navigation', { name: 'On this page' })
-    const active = () =>
+    expect(
       within(toc)
         .getAllByRole('link')
         .find(link => link.getAttribute('aria-current') === 'true')!
-    // At rest (nothing crossed the header line) the first section is current.
-    expect(active().getAttribute('data-testid')).toBe('txr-help-toc-overview')
-    const fire = (ids: string[], isIntersecting: boolean) => {
-      const entries = ids.map(id => ({
-        target: document.querySelector<HTMLElement>(
-          `[data-testid="txr-help-section-${id}"] h2`,
-        )!,
-        isIntersecting,
-      }))
-      act(() => {
-        spy.callback(entries as unknown as IntersectionObserverEntry[], spy as unknown as IntersectionObserver)
-      })
-    }
-    // A heading BELOW the line has not been reached; crossing the line going
-    // up marks the section — the current one is the LAST crossed in page
-    // order (a jump lands the target section's heading above the line).
-    fire(['overview'], true)
-    fire(['overview'], false)
-    expect(active().getAttribute('data-testid')).toBe('txr-help-toc-overview')
-    fire(['steps'], false)
-    expect(active().getAttribute('data-testid')).toBe('txr-help-toc-steps')
-    fire(['files'], false)
-    expect(active().getAttribute('data-testid')).toBe('txr-help-toc-files')
-    // Scrolling back UP: the heading re-crosses the line downward and the
-    // section leaves the crossed set — the highlight steps back.
-    fire(['files'], true)
-    expect(active().getAttribute('data-testid')).toBe('txr-help-toc-steps')
-    fire(['steps', 'overview'], true)
-    expect(active().getAttribute('data-testid')).toBe('txr-help-toc-overview')
+        .getAttribute('data-testid'),
+    ).toBe('txr-help-toc-overview')
   })
 
   it('a deep link scrolls its entry into view and expands it (the intake problems link target)', () => {

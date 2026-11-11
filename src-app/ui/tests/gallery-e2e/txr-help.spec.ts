@@ -179,11 +179,15 @@ test.describe('txr-help — the measured layout at 1440x900', () => {
     await openHelp(page, { width: 1440, height: 900 })
     for (const id of SECTIONS) {
       await page.getByTestId(`txr-help-toc-${id}`).click()
+      // The hash effect's smooth scroll lands the heading at the 84 px
+      // scroll-margin — poll for the LANDING, not for the start: a naked
+      // read can beat the animation on a loaded box (the same one-off the
+      // 768 disclosure records below).
       await expect
         .poll(async () =>
           page.getByTestId(`txr-help-section-${id}`).evaluate(el => el.getBoundingClientRect().top),
         )
-        .toBeGreaterThanOrEqual(0)
+        .toBeLessThan(140)
       const top = await page.getByTestId(`txr-help-section-${id}`).evaluate(el => el.getBoundingClientRect().top)
       expect(top, `heading ${id} lands clear of the header`).toBeGreaterThanOrEqual(0)
       expect(top, `heading ${id} is fully visible`).toBeLessThan(140)
@@ -199,22 +203,38 @@ test.describe('txr-help — the measured layout at 1440x900', () => {
       await page.getByTestId(`txr-help-toc-${id}`).click()
       await expect(active(id), `anchor scroll to ${id}`).toHaveAttribute('aria-current', 'true')
     }
-    // KEYBOARD: End jumps to the bottom — the rail lands on the last section
-    // (a jump no intermediate heading passes).
-    await page.keyboard.press('End')
-    await expect(active('troubleshooting')).toHaveAttribute('aria-current', 'true')
-    // KEYBOARD: Home back to the top — the rail lands on the first section.
-    await page.keyboard.press('Home')
-    await expect(active('overview')).toHaveAttribute('aria-current', 'true')
+    // KEYBOARD: Tab walks the page's controls — the browser scrolls to the
+    // focused element (a keyboard user's navigation; the scroll-table keys
+    // are the sticky rail's box's keys here, not the page's) — and the rail
+    // follows down to the last section (measured: a few Tabs reach the
+    // deep controls; the rail lands on the section they belong to).
+    await page.evaluate(() => {
+      ;(document.activeElement as HTMLElement | null)?.blur?.()
+      window.scrollTo(0, 0)
+    })
+    const pressUntil = async (key: string, id: string, tries: number) => {
+      for (let i = 0; i < tries; i++) {
+        if ((await active(id).getAttribute('aria-current')) === 'true') return
+        await page.keyboard.press(key)
+      }
+      await expect(active(id)).toHaveAttribute('aria-current', 'true')
+    }
+    await pressUntil('Tab', 'troubleshooting', 60)
+    await pressUntil('Shift+Tab', 'overview', 90)
     // WHEEL: a continuous wheel scroll follows the sections as they pass the
-    // header line — wheel down until a mid-page section is the current one,
-    // then all the way to the bottom.
+    // header line — wheel down two steps onto a mid-page section, then
+    // further, then all the way to the bottom, then all the way back.
+    await page.evaluate(() => window.scrollTo(0, 0))
     await page.mouse.move(720, 500)
     await page.mouse.wheel(0, 400)
+    await page.mouse.wheel(0, 400)
+    await expect(active('steps')).toHaveAttribute('aria-current', 'true')
     await page.mouse.wheel(0, 400)
     await expect(active('files')).toHaveAttribute('aria-current', 'true')
     await page.mouse.wheel(0, 30000)
     await expect(active('troubleshooting')).toHaveAttribute('aria-current', 'true')
+    await page.mouse.wheel(0, -30000)
+    await expect(active('overview')).toHaveAttribute('aria-current', 'true')
   })
 
   test('the quick-start row shares the grid\'s edges on desktop (ITEM-6 e)', async ({ page }) => {
@@ -313,10 +333,18 @@ test.describe('txr-help — the breakpoints', () => {
     await openHelp(page, { width: 768, height: 1024 })
     await expect(page.getByTestId('txr-help-rail')).toHaveCount(0)
     await expect(page.getByTestId('txr-help-contents-toggle')).toBeVisible()
-    // Open it, click a link: the section lands below the header.
+    // Open it, click a link: the section lands below the header. The click
+    // is followed by the hash effect's scroll — a poll, not a naked read
+    // (the read can beat the effect on a loaded box, ITEM-6 records the
+    // one-off).
     await page.getByTestId('txr-help-contents-toggle').click()
     await expect(page.getByTestId('txr-help-contents-link-troubleshooting')).toBeVisible()
     await page.getByTestId('txr-help-contents-link-troubleshooting').click()
+    await expect
+      .poll(() =>
+        page.getByTestId('txr-help-section-troubleshooting').evaluate(el => el.getBoundingClientRect().top),
+      )
+      .toBeLessThan(140)
     const top = await page.getByTestId('txr-help-section-troubleshooting').evaluate(el => el.getBoundingClientRect().top)
     expect(top).toBeGreaterThanOrEqual(0)
     expect(top).toBeLessThan(140)

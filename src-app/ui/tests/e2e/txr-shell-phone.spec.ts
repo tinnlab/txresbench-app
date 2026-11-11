@@ -55,16 +55,36 @@ test.describe('txr-shell — the real app at phone width (TEST-QF-7 full-app leg
       )
       .toBe('none')
 
-    // Every destination stays inside the viewport (X2's History/Help
-    // fall-off-screen bug) — the same needle as the shell gallery story,
-    // now under the real app.
+    // Every destination is REACHABLE inside the viewport (X2's History/Help
+    // fall-off-screen bug; qa-fixes3 ITEM-6: the header is ONE row and the
+    // nav is a scrollable strip under 640 px — focusing a destination
+    // scrolls the strip to it, exactly like Tab does) — the same needle as
+    // the shell gallery story, now under the real app.
     for (const label of ['New analysis', 'Models', 'History', 'Help']) {
       const link = page.locator('.txr-shell a', { hasText: label }).first()
       await expect(link).toBeVisible()
+      await link.focus()
       const box = await link.boundingBox()
-      expect(box, `${label} must be on-screen`).not.toBeNull()
+      expect(box, `${label} must be reachable`).not.toBeNull()
       expect(box!.x, `${label} starts inside`).toBeGreaterThanOrEqual(0)
       expect(box!.x + box!.width, `${label} ends inside`).toBeLessThanOrEqual(390 + 1)
+    }
+    // ONE header row (ITEM-6 c): the brand, the nav and the theme switch
+    // share one centre line, in a single 56 px row.
+    const row = await page.evaluate(() => {
+      const header = document.querySelector<HTMLElement>('.txr-shell-header')!
+      const brand = header.querySelector<HTMLElement>('.txr-shell-brand')!
+      const nav = document.querySelector<HTMLElement>('.txr-shell-nav')!
+      const toggle = document.querySelector<HTMLElement>('[data-testid="txr-theme-toggle"]')!
+      const r = (el: Element) => el.getBoundingClientRect()
+      return {
+        headerHeight: r(header).height,
+        centres: [r(brand), r(nav), r(toggle)].map(box => box.y + box.height / 2),
+      }
+    })
+    expect(row.headerHeight, 'one 56 px header row').toBeLessThanOrEqual(60)
+    for (const centre of row.centres) {
+      expect(Math.abs(centre - row.centres[0]), 'one header row').toBeLessThanOrEqual(4)
     }
 
     // ── X1: the design fonts load in the BUILT app (the dist the desktop

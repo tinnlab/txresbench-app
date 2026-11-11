@@ -961,68 +961,57 @@ export function HelpPage() {
   }, [location.hash, documentHash])
 
   // The rail's current-section highlight (qa-fixes3 ITEM-6): an
-  // IntersectionObserver over the section HEADINGS, not a scroll listener.
-  // The owner-side review measured the rail stuck on "What TxResBench does"
-  // while the reader was at "Troubleshooting": a capture-phase window scroll
-  // listener is only as good as the scroll events the page actually fires,
-  // and a jump that no scroll event reports leaves the highlight frozen.
-  // The observer reads the heading's own position against the "header line"
-  // — a band that is EVERYTHING below the sticky-header offset (96 px, just
-  // past the 84 px scroll-margin every anchor lands at): a heading below the
-  // line has not been reached yet, and the moment it passes the line (by
-  // mouse wheel, keyboard, an anchor click or a jump to the bottom) the
-  // observer fires with its fresh position and the section is marked
-  // crossed. The current section is the LAST crossed one in page order —
-  // the "the lowest section whose heading is at the top" reading the rail
-  // promised — and while none is crossed (the page is at its start) the
-  // first section is current. jsdom has no IntersectionObserver: the unit
-  // tier only renders, the browser tier measures the spy.
-  const SCROLLSPY_HEADER_OFFSET = 96
+  // IntersectionObserver over the section HEADINGS + one shared position
+  // computation. The owner-side review measured the rail stuck on "What
+  // TxResBench does" while the reader was at "Troubleshooting". The rule is
+  // the rail's promise — "the lowest section whose heading is at the top":
+  // the current section is the LAST one (page order) whose heading's top is
+  // at or above the sticky-header line (96 px, just past the 84 px
+  // scroll-margin every anchor lands at); while none is, the first section
+  // is current.
+  // The observer is the plan's device (the heading's own position against
+  // the viewport — it fires on a jump whose scroll never reaches the
+  // window listener, keyboard End or an anchor scroll in a frame), and it
+  // re-reads the REAL positions on every change so no entry can carry a
+  // stale one; the capture-phase scroll listener keeps the per-pixel
+  // case exact (an IO entry fires only when a heading crosses the
+  // viewport edges — a heading sitting at 84 px between two entries is
+  // the listener's byte). jsdom has no IntersectionObserver: the unit tier
+  // only renders, the browser tier measures the spy.
+  const SCROLLSPY_LINE = 96
+  const updateActiveSection = useCallback(() => {
+    let current = HELP_SECTIONS[0].id
+    for (const section of HELP_SECTIONS) {
+      const el = document.getElementById(section.id)
+      if (el !== null && el.getBoundingClientRect().top <= SCROLLSPY_LINE) {
+        current = section.id
+      }
+    }
+    setActiveSection(current)
+  }, [])
   useEffect(() => {
-    if (typeof IntersectionObserver === 'undefined') return
-    const headings = HELP_SECTIONS.flatMap(section => {
-      const heading = document.getElementById(section.id)?.querySelector('h2')
-      return heading instanceof Element ? [heading] : []
-    })
-    if (headings.length === 0) return
-    const crossed = new Set<string>()
-    const observer = new IntersectionObserver(
-      entries => {
-        for (const entry of entries) {
-          const section = entry.target.closest('section')
-          if (section === null || !HELP_SECTIONS.some(s => s.id === section.id)) continue
-          // Intersecting = the heading is real-time BELOW the header line
-          // (not reached); crossing the line going up removes it, coming
-          // back down re-adds it — the jump cases fire too, because every
-          // heading that crossed the line changed its intersection state.
-          if (entry.isIntersecting) crossed.delete(section.id)
-          else crossed.add(section.id)
-        }
-        let next: string | null = null
-        for (const section of HELP_SECTIONS) {
-          if (crossed.has(section.id)) next = section.id
-        }
-        setActiveSection(next ?? HELP_SECTIONS[0].id)
-      },
-      {
-        // Everything from the sticky-header offset down to the bottom of the
-        // viewport — a heading inside it has not been reached yet.
-        rootMargin: `-${SCROLLSPY_HEADER_OFFSET}px 0px 0px 0px`,
-        threshold: 0,
-      },
-    )
-    for (const heading of headings) observer.observe(heading)
-    return () => observer.disconnect()
-    // Re-created when the search narrows the sections: hidden sections
-    // unmount (their headings are gone) and remount with NEW elements on
-    // clear — the observer must be watching the live ones.
-  }, [sectionsVisible])
+    if (typeof IntersectionObserver !== 'undefined') {
+      const headings = HELP_SECTIONS.flatMap(section => {
+        const heading = document.getElementById(section.id)?.querySelector('h2')
+        return heading instanceof Element ? [heading] : []
+      })
+      if (headings.length > 0) {
+        const observer = new IntersectionObserver(() => updateActiveSection(), { threshold: 0 })
+        for (const heading of headings) observer.observe(heading)
+        // Re-created when the search narrows the sections: hidden sections
+        // unmount (their headings are gone) and remount with NEW elements on
+        // clear — the observer must be watching the live ones.
+        return () => observer.disconnect()
+      }
+    }
+    return undefined
+  }, [sectionsVisible, updateActiveSection])
 
-  // The back-to-top control's visibility (the only remaining scroll
-  // listener): a rAF-throttled capture listener reading the real scroller —
-  // an inner scroll container (the app-shell pane, the gallery tier's
-  // bounded frame) does not bubble scroll events to the window, hence the
-  // capture phase. The section highlight itself is the observer above.
+  // The back-to-top control's visibility (+ the per-pixel side of the
+  // highlight, above): a rAF-throttled capture listener reading the real
+  // scroller — an inner scroll container (the app-shell pane, the gallery
+  // tier's bounded frame) does not bubble scroll events to the window,
+  // hence the capture phase.
   useEffect(() => {
     let frame: number | null = null
     const update = () => {
@@ -1030,6 +1019,7 @@ export function HelpPage() {
       const scroller = mainRef.current !== null ? helpScroller(mainRef.current) : null
       const scrollTop = scroller !== null ? scroller.scrollTop : window.scrollY
       setShowBackTop(scrollTop > 600)
+      updateActiveSection()
     }
     const onScroll = () => {
       if (frame !== null) return
@@ -1041,7 +1031,7 @@ export function HelpPage() {
       window.removeEventListener('scroll', onScroll, { capture: true })
       if (frame !== null) cancelAnimationFrame(frame)
     }
-  }, [])
+  }, [updateActiveSection])
 
   const railVisible = useRailVisible()
 

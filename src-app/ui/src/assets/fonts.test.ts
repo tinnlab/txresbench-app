@@ -149,10 +149,12 @@ describe('the local font bundle (TEST-QF-7, X1)', () => {
     const { txrBuiltCssUrlsCheck } = await import('../../vite-built-css-check')
     // The Plugin typing allows an ObjectHook wrapper; a plain function hook
     // is callable directly (the factory's hooks are functions).
-    const configResolved = (plugin: { configResolved?: unknown }, outDir: string) =>
-      (plugin.configResolved as unknown as (config: { build: { outDir: string } }) => void)({
-        build: { outDir },
-      })
+    const configResolved = (plugin: { configResolved?: unknown }, config: { root: string; outDir: string }) =>
+      (
+        plugin.configResolved as unknown as (
+          config: { root: string; build: { outDir: string } },
+        ) => void
+      )({ root: config.root, build: { outDir: config.outDir } })
     const closeBundle = (plugin: { closeBundle?: unknown }) =>
       (plugin.closeBundle as unknown as () => void)()
     const tmp = mkdtempSync(join(process.env.TMPDIR ?? '.', 'txr-outdir-check-'))
@@ -163,15 +165,22 @@ describe('the local font bundle (TEST-QF-7, X1)', () => {
         writeFileSync(join(assets, 'index-abc.css'), "a{src:url('/assets/font-ok.woff2')}")
         writeFileSync(join(assets, 'font-ok.woff2'), 'x')
       }
-      const defaultDist = join(tmp, 'dist')
+      const root = join(tmp, 'ui')
+      const defaultDist = join(root, '..', 'dist') // vite resolves '../dist' against the root
       const customDist = join(tmp, 'somewhere-else')
-      // Both resolved-outDir values pass through the same closeBundle hook.
-      for (const outDir of [defaultDist, customDist]) {
-        fixture(outDir)
+      // The two shapes the resolved config carries: a relative outDir (this
+      // config's own `outDir: '../dist'`) and an absolute --outDir override.
+      // Both must pass through the same closeBundle hook against the
+      // directory the build resolves them to.
+      for (const [outDir, distRoot] of [
+        ['../dist', defaultDist],
+        [customDist, customDist],
+      ] as const) {
+        fixture(distRoot)
         const plugin = txrBuiltCssUrlsCheck()
-        // Vite calls configResolved with the RESOLVED (absolute) outDir in
-        // both cases — the default `dist` and the --outDir override.
-        configResolved(plugin, outDir)
+        // Vite calls configResolved with the raw outDir; the plugin resolves
+        // it the way the bundler does (path.resolve(root, outDir)).
+        configResolved(plugin, { root, outDir })
         expect(() => closeBundle(plugin)).not.toThrow()
       }
       // The override case is what the old hardcoded `dist` missed: a broken
@@ -179,7 +188,7 @@ describe('the local font bundle (TEST-QF-7, X1)', () => {
       // thrown command names the custom directory (the check's own stderr
       // carries the missing url).
       const plugin = txrBuiltCssUrlsCheck()
-      configResolved(plugin, customDist)
+      configResolved(plugin, { root, outDir: customDist })
       writeFileSync(
         join(customDist, 'assets', 'index-abc.css'),
         "a{src:url('/assets/assets/fonts/gone.woff2')}",
