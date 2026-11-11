@@ -435,6 +435,15 @@ describe('txrmodels module (TEST-MOD-01)', () => {
           p !== 'src-app/ui/src/modules/txrshell/lib/document-title.test.ts' &&
           p !== 'src-app/ui/src/modules/txrshell/pages/NotFoundPage.tsx' &&
           p !== 'src-app/ui/src/modules/txrshell/pages/NotFoundPage.test.tsx' &&
+          // app-shell ITEM-1 (its DRIFT-1): the shell's layout primitives —
+          // the components dir + the two new lib modules (the rewritten
+          // TxrLayout/TxrThemeToggle/gallery files are the entries above).
+          !p.startsWith('src-app/ui/src/modules/txrshell/components/') &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/shellMode.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/shellMode.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/scrollCache.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/scrollCache.test.ts' &&
+
 
     // qa-fixes ITEM-7 (X3): the session guard's loading/failure
     // surface is tokenized with the pages (its own ink was a

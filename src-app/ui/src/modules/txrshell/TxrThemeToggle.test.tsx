@@ -68,20 +68,22 @@ describe('TxrThemeToggle (TEST-QF2-1)', () => {
     expect(light.container.querySelector('svg')).not.toBeNull()
   })
 
-  it('carries the ACTION as the accessible name and tooltip copy: "Switch to dark/light mode"', () => {
-    // The state label is visible text; the accessible name is the action (the
-    // kit Button promotes a string `tooltip` to `aria-label`, shown on hover
-    // AND keyboard focus).
+  it('carries the ACTION as the accessible name and tooltip copy — with the visible state text inside (ITEM-1)', () => {
+    // The state label is visible text; the accessible name is the action
+    // (the kit Button promotes a string `tooltip` to `aria-label`, shown on
+    // hover AND keyboard focus) AND carries the visible state text, so the
+    // icon-only narrow header loses no information for a screen reader.
     const dark = withResolved('dark')
     expect(screen.getByTestId('txr-theme-toggle').getAttribute('aria-label')).toBe(
-      'Switch to light mode',
+      'Switch to light mode (Dark)',
     )
     dark.unmount()
 
     const light = withResolved('light')
     expect(screen.getByTestId('txr-theme-toggle').getAttribute('aria-label')).toBe(
-      'Switch to dark mode',
+      'Switch to dark mode (Light)',
     )
+    light.unmount()
   })
 
   it('writes the opposite-of-resolved preference to the ONE ConfigClient store on click', () => {

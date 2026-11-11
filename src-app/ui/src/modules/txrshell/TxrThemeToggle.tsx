@@ -19,14 +19,17 @@ import { useConfigClientStore } from '@/modules/config-client/ConfigClient.store
  * The button shows the CURRENT state (sun + "Light" / moon + "Dark"), while
  * the accessible name and the tooltip are the ACTION — "Switch to dark mode"
  * / "Switch to light mode" — so a screen-reader and a pointer user both hear
- * what clicking does. The kit Button carries the accessible name from the
- * string `tooltip` (it shows on hover AND keyboard focus) and the standard
- * kit focus ring, the same ring every kit control in the header's app uses.
+ * what clicking does. The app-shell byte (ITEM-1): the visible state text
+ * is INSIDE the name (`Switch to dark mode (Light)`), so when the label is
+ * not visible (the icon-only narrow header, below 700 px) a screen reader
+ * still hears what a sighted user would have seen. The kit Button carries
+ * the accessible name from the string `tooltip` (it shows on hover AND
+ * keyboard focus) and the standard kit focus ring, the same ring every kit
+ * control in the header's app uses.
  *
- * At the phone widths the header stacks to (<=640 px, qa-fixes ITEM-7), the
- * label collapses and the icon alone stays — the same yield rule as the
- * tagline, in index.css against the `.txr-theme-toggle-*` hooks (a media
- * query cannot touch an inline style).
+ * At the narrow widths the label collapses and the icon alone stays — the
+ * same yield rule as the tagline, in index.css against the
+ * `.txr-theme-toggle-*` hooks (a media query cannot touch an inline style).
  */
 
 /** The theme a click switches to: the opposite of what is shown now. */
@@ -50,7 +53,7 @@ export function TxrThemeToggle() {
       data-testid="txr-theme-toggle"
       className="txr-theme-toggle"
       variant="ghost"
-      tooltip={action}
+      tooltip={`${action} (${stateLabel})`}
       icon={dark ? <FiMoon aria-hidden /> : <FiSun aria-hidden />}
       onClick={() => setThemePreference(nextThemePreference(resolvedTheme))}
       style={{
