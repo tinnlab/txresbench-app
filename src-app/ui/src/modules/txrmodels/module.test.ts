@@ -267,6 +267,11 @@ describe('txrmodels module (TEST-MOD-01)', () => {
           p.startsWith('scripts/') &&
           p !== 'scripts/dev-registry/make-real-inputs.py' &&
           p !== 'scripts/dev-registry/make_real_inputs.test.py' &&
+          // qa-fixes3 ITEM-5 (the e2e-real --example mode): the driver's
+          // three-flow extension + its unit test (scripts/dev-registry/
+          // e2e-real.py + e2e_real.test.py).
+          p !== 'scripts/dev-registry/e2e-real.py' &&
+          p !== 'scripts/dev-registry/e2e_real.test.py' &&
           p !== 'scripts/file-validator/gen_material.py' &&
           p !== 'scripts/file-validator/fixtures/expected/examples/patients.csv' &&
           p !== 'scripts/file-validator/fixtures/expected/examples/measurements.csv' &&

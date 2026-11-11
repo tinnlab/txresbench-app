@@ -243,7 +243,13 @@ describe('txrhelp module (TEST-HELP-4)', () => {
           // github.com).
           p !== 'scripts/file-validator/fixtures/expected/examples/predict-measurements.csv' &&
           p !== 'scripts/file-validator/fixtures/expected/templates/patients.csv' &&
-          p !== 'scripts/network-allowlist.txt',
+          p !== 'scripts/network-allowlist.txt' &&
+          // qa-fixes3 ITEM-5 (its own DRIFT-1): the real-data driver's
+          // --example mode (the three use-example flows over the API) and
+          // its unit test — scripts/dev-registry/e2e-real.py +
+          // scripts/dev-registry/e2e_real.test.py.
+          p !== 'scripts/dev-registry/e2e-real.py' &&
+          p !== 'scripts/dev-registry/e2e_real.test.py',
       ),
     ).toEqual([])
     // qa-fixes ITEM-7 (X1): the built-CSS url check — one script file
@@ -475,6 +481,12 @@ describe('txrhelp module (TEST-HELP-4)', () => {
       // page — the media rules answer the window) and the R2-01 font pin
       // (the portalled confirm dialog carries the app face).
       'src-app/ui/tests/gallery-e2e/txr-history.spec.ts',
+      // The qa-fixes3 ITEM-5 spec (its own DRIFT-1): the ONE-CLICK example
+      // proof — per path, on a fresh start, click Use example → the landing
+      // step (the file step) is filled + Continue enabled → Continue reaches
+      // the next step (TEST-QF3-3's browser leg; the story answers the
+      // example-family cassette + the ITEM-3 ready set).
+      'src-app/ui/tests/gallery-e2e/txr-use-example.spec.ts',
     ])
     expect(testsTouched.length).toBeLessThanOrEqual(sanctionedTests.size)
     for (const file of testsTouched) {
