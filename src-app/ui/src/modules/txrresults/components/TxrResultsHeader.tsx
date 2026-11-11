@@ -1,15 +1,18 @@
 /**
  * TxrResultsHeader — the G/H header of one analysis run's results
  * (`BusyResults.dc.html` / `Results.dc.html`): the "Predictions for N
- * patients" title, the board subtitle (counts · learned from · decision day ·
- * took) and the three actions (Download all predictions (CSV) — disabled
- * exactly while PREDICTIONS_UNAVAILABLE — Save the models (N), New analysis).
+ * patients" title and the board subtitle (counts · learned from · decision day ·
+ * took), plus the New analysis button. The header keeps the SUMMARY role
+ * (app-shell ITEM-3, the audit route table's fixed top: "summary, tabs,
+ * search"); the data actions — Download and Save the models — moved to the
+ * page's FIXED BOTTOM BAR (`TxrResultsBar`, where the audit's route table
+ * pins "Showing n of N" + download + save models; the buttons keep their
+ * test-ids and behaviour, the events still fire from the click).
  *
  * The header is PRESENTATIONAL: the page feeds the run detail + the
  * predictions response + the predictions error state; the header derives the
- * subtitle's facts and the save-models payload, and reports the two actions it
- * does not own (the download click — ITEM-10's `downloadPredictionsCsv` is the
- * page's wiring — and New analysis via the router).
+ * subtitle's facts (the save-models payload is the bar's, both over the same
+ * `finishedMethodIdsOf`).
  *
  * Copy facts (board-verbatim, PROV-UR-5):
  * - the title counts `predictions.patients.length` ("Predictions for 38
@@ -17,13 +20,7 @@
  * - the subtitle is `formatSubtitle`'s board sentence, each segment omitted
  *   when its datum is null (a run with no elapsed time yet shows no "took …");
  *   "took" derives from `elapsed_secs` first, else the started→finished wall
- *   time (the detail's snapshot — never a ticking clock, ITEM-5 note (t));
- * - the actions row's keyboard order is the board's left-to-right: download →
- *   save-models → new analysis;
- * - the Save-the-models button renders ONLY when the run produced models
- *   (`run.models.length > 0` — a `save_models: false` run has none, DEC-8)
- *   and emits `txr:save-models-requested` with the run id + the FINISHED
- *   method ids (the payload ui-models' dialogs bind).
+ *   time (the detail's snapshot — never a ticking clock, ITEM-5 note (t)).
  */
 import type { CSSProperties } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -162,10 +159,6 @@ export interface TxrResultsHeaderProps {
   predictions: TxrPredictionsResponse | null
   /** `'unavailable'` (409) alone disables the download (TEST-UR-4). */
   predictionsError: 'unavailable' | 'network' | null
-  /** The download click — the page wires `downloadPredictionsCsv` (ITEM-10). */
-  onDownload?: () => void
-  /** The H board's label differs by one word ("Download predictions (CSV)"). */
-  downloadLabel?: string
   /**
    * The subtitle facts, when the page overrides them (qa-fixes RES-02):
    * a terminal failed/stopped run with no predictions omits the
@@ -175,36 +168,17 @@ export interface TxrResultsHeaderProps {
    * they are the run's own recorded facts.
    */
   subtitleFacts?: TxrSubtitleFacts
-  /**
-   * The H one-method view (`SaveOne.dc.html`): the method id whose
-   * "Save this model" button REPLACES the run's "Save the models (N)" one
-   * (the L2 dialog's entry point is this button). The page passes it only
-   * when the method finished with a produced model — TEST-UR-10's gate; a
-   * click emits `txr:save-one-model-requested` the same way the run-level
-   * button emits the models event (DEC-8).
-   */
-  saveOne?: string | null
 }
 
 export function TxrResultsHeader({
   run,
   predictions,
   predictionsError,
-  onDownload,
-  downloadLabel = 'Download all predictions (CSV)',
   subtitleFacts,
-  saveOne,
 }: TxrResultsHeaderProps) {
   const navigate = useNavigate()
   const patientCount = predictions?.patients.length ?? 0
   const subtitle = run ? formatSubtitle(subtitleFacts ?? subtitleFactsOf(run)) : ''
-  const modelCount = run?.models.length ?? 0
-  const onSaveModels = () => {
-    if (run) void emitSaveModels(run.id, finishedMethodIdsOf(run))
-  }
-  const onSaveOne = () => {
-    if (run && saveOne) void emitSaveOneModel(run.id, saveOne)
-  }
   return (
     <header data-testid="txr-results-header" style={HEADER}>
       <div>
@@ -217,27 +191,101 @@ export function TxrResultsHeader({
           </div>
         ) : null}
       </div>
-      <div style={ACTIONS}>
-        <TxrDownloadButton
-          label={downloadLabel}
-          disabled={predictionsError === 'unavailable'}
-          onClick={() => onDownload?.()}
-        />
-        {saveOne ? (
-          <TxrSaveOneModelButton onClick={onSaveOne} />
-        ) : modelCount > 0 ? (
-          <TxrSaveModelsButton count={modelCount} onClick={onSaveModels} />
-        ) : null}
-        <Button
-          data-testid="txr-results-new-analysis"
-          variant="outline"
-          onClick={() => navigate('/')}
-          className="rounded-lg font-semibold"
-          style={PRIMARY_BUTTON}
-        >
-          New analysis
-        </Button>
-      </div>
+      <Button
+        data-testid="txr-results-new-analysis"
+        variant="outline"
+        onClick={() => navigate('/')}
+        className="rounded-lg font-semibold"
+        style={PRIMARY_BUTTON}
+      >
+        New analysis
+      </Button>
     </header>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The fixed bottom bar (app-shell ITEM-3, the audit route table's
+// `/analysis/:id/results` row): "Showing n of N" + the row-window "Show all
+// M" on the left, the data actions (Download, Save the models / Save this
+// model) on the right. The count and the window control live on the PAGE's
+// view (the same facts the table's footer used to carry — the sentence
+// stayed board-verbatim, now pinned next to the actions so it never scrolls
+// away); the actions are the exported buttons with the SAME test-ids and
+// event emissions the header used to wire.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const BAR_LEFT: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  alignItems: 'center',
+  gap: 10,
+  fontSize: 13,
+  color: 'var(--txr-muted)',
+}
+
+const BAR_RIGHT: CSSProperties = { display: 'flex', gap: 10, flexWrap: 'wrap' }
+
+export interface TxrResultsBarProps {
+  /** The view's windowed row count ("Showing N of…"). */
+  shownCount: number
+  /** The view's full row count (…of M patients"; 0 = the no-match state). */
+  totalCount: number
+  /** "Show all M" (null while all rows are shown). */
+  onShowAll: (() => void) | null
+  /** The download wiring (the page's `downloadPredictionsCsv` + failure line). */
+  download: { label: string; disabled: boolean; onClick: () => void }
+  /** The run-level models count, or the H one-method id (Save this model). */
+  save: { mode: 'run'; count: number } | { mode: 'one'; methodId: string } | null
+  /** The run detail — the events' payload source (null → no save button). */
+  run: TxrRunDetail | null
+}
+
+export function TxrResultsBar({
+  shownCount,
+  totalCount,
+  onShowAll,
+  download,
+  save,
+  run,
+}: TxrResultsBarProps) {
+  const onSaveModels = () => {
+    if (run) void emitSaveModels(run.id, finishedMethodIdsOf(run))
+  }
+  const onSaveOne = () => {
+    if (run && save !== null && save.mode === 'one') {
+      void emitSaveOneModel(run.id, save.methodId)
+    }
+  }
+  return (
+    <div
+      className="txr-results-bar"
+      data-testid="txr-results-bar"
+      style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', justifyContent: 'space-between' }}
+    >
+      <span style={BAR_LEFT}>
+        <span data-testid="txr-heatmap-count">
+          {totalCount > 0 ? `Showing ${shownCount} of ${totalCount} patients.` : ''}
+        </span>
+        {onShowAll !== null ? (
+          <Button
+            data-testid="txr-heatmap-show-more"
+            variant="link"
+            className="p-0"
+            onClick={onShowAll}
+          >
+            {`Show all ${totalCount}`}
+          </Button>
+        ) : null}
+      </span>
+      <span style={BAR_RIGHT}>
+        <TxrDownloadButton label={download.label} disabled={download.disabled} onClick={download.onClick} />
+        {save === null ? null : save.mode === 'one' ? (
+          <TxrSaveOneModelButton onClick={onSaveOne} />
+        ) : save.count > 0 ? (
+          <TxrSaveModelsButton count={save.count} onClick={onSaveModels} />
+        ) : null}
+      </span>
+    </div>
   )
 }

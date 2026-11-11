@@ -5,11 +5,14 @@ import { useStore } from 'zustand'
 import { Button, ErrorState, Skeleton } from '@ziee/kit'
 import type { TxrRunDetail } from '@/api-client/types'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
+import { PageFrame } from '@/modules/txrshell/components/PageFrame'
+import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
+import { PageFooterBar } from '@/modules/txrshell/components/PageFooterBar'
 import { TxrResults, useTxrResultsStore } from '../stores/Results.store'
 import { buildColumns, compareReport, divergentPatients, sortByFirstMethod, viewOf } from '../lib/heatmap'
 import { compareResultsPath, methodResultsPath, downloadPredictionsCsv, revealRunDir } from '../index'
 import { formatConstantNote, formatMixedOutcomeNote, formatNoChanceNote, txrRunFailed } from '../lib/format'
-import { TxrResultsHeader, subtitleFactsOf } from '../components/TxrResultsHeader'
+import { subtitleFactsOf, TxrResultsBar, TxrResultsHeader } from '../components/TxrResultsHeader'
 import { TxrCannotRunBanner } from '../components/TxrCannotRunBanner'
 import { TxrRunFailedState } from '../components/TxrRunFailedState'
 import { TxrMethodTabs } from '../components/TxrMethodTabs'
@@ -60,13 +63,29 @@ import type { TxrOutcomeKey } from '../types'
  * row window is the shared "Showing N of M" (the Show-all raises the same
  * `patientLimit`).
  */
-const PAGE_MAIN: CSSProperties = {
-  flexGrow: 1,
-  boxSizing: 'border-box',
-  padding: '24px 32px',
+const PAGE_OUTER: CSSProperties = {
+  height: '100%',
+  minHeight: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  minWidth: 0,
+}
+
+/** The fixed top's own padding (the page chrome — ITEM-3). */
+const PAGE_TOP: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 12,
+  padding: '20px 24px 12px',
+  minWidth: 0,
+}
+
+/** The ONE scroll region's content padding (the region scrolls, the padding rides). */
+const REGION_CONTENT: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 14,
+  padding: '12px 24px 20px',
   minWidth: 0,
 }
 
@@ -343,8 +362,16 @@ export function MethodResultsPage() {
 
   if (runError === 'not-found') {
     return (
-      <main data-testid="txr-results" className="txr-results-page" style={PAGE_MAIN}>
-        <NotFoundResults onNewAnalysis={() => navigate('/')} />
+      <main data-testid="txr-results" className="txr-results-page" style={PAGE_OUTER}>
+        <PageFrame
+          body={
+            <ScrollRegion label="Results">
+              <div style={REGION_CONTENT}>
+                <NotFoundResults onNewAnalysis={() => navigate('/')} />
+              </div>
+            </ScrollRegion>
+          }
+        />
       </main>
     )
   }
@@ -355,13 +382,21 @@ export function MethodResultsPage() {
 
   if (runError === 'network' || (run !== null && predictions === null && predictionsError === 'network')) {
     return (
-      <main data-testid="txr-results" className="txr-results-page" style={PAGE_MAIN}>
-        <ErrorState
-          variant="page"
-          resource="the run"
-          description="The results could not be loaded right now. Check that the app server is running, then try again."
-          onRetry={errorRetry}
-          data-testid="txr-results-error"
+      <main data-testid="txr-results" className="txr-results-page" style={PAGE_OUTER}>
+        <PageFrame
+          body={
+            <ScrollRegion label="Results">
+              <div style={REGION_CONTENT}>
+                <ErrorState
+                  variant="page"
+                  resource="the run"
+                  description="The results could not be loaded right now. Check that the app server is running, then try again."
+                  onRetry={errorRetry}
+                  data-testid="txr-results-error"
+                />
+              </div>
+            </ScrollRegion>
+          }
         />
       </main>
     )
@@ -369,8 +404,16 @@ export function MethodResultsPage() {
 
   if (run === null || (predictions === null && predictionsLoading)) {
     return (
-      <main data-testid="txr-results" className="txr-results-page" style={PAGE_MAIN}>
-        <LoadingResults />
+      <main data-testid="txr-results" className="txr-results-page" style={PAGE_OUTER}>
+        <PageFrame
+          body={
+            <ScrollRegion label="Results">
+              <div style={REGION_CONTENT}>
+                <LoadingResults />
+              </div>
+            </ScrollRegion>
+          }
+        />
       </main>
     )
   }
@@ -388,24 +431,49 @@ export function MethodResultsPage() {
   // omitted.
   if (predictions === null) {
     return (
-      <main data-testid="txr-results" className="txr-results-page" style={PAGE_MAIN}>
-        <TxrResultsHeader
-          run={run}
-          predictions={null}
-          predictionsError={predictionsError}
-          onDownload={undefined}
-          downloadLabel="Download predictions (CSV)"
-          subtitleFacts={
-            runFailed ? { ...subtitleFactsOf(run), trainedOn: null, tookSeconds: null } : undefined
+      <main data-testid="txr-results" className="txr-results-page" style={PAGE_OUTER}>
+        <PageFrame
+          top={
+            <div style={PAGE_TOP}>
+              <TxrResultsHeader
+                run={run}
+                predictions={null}
+                predictionsError={predictionsError}
+                subtitleFacts={
+                  runFailed ? { ...subtitleFactsOf(run), trainedOn: null, tookSeconds: null } : undefined
+                }
+              />
+              {runFailed ? (
+                <TxrRunFailedState run={run} onShowLog={method => TxrResults.openLog(method)} onShowHistory={() => navigate('/history')} />
+              ) : null}
+              <TxrCannotRunBanner
+                methods={cannotRun}
+                total={run.methods.length}
+                onShowLog={method => TxrResults.openLog(method)}
+              />
+            </div>
           }
-        />
-        {runFailed ? (
-          <TxrRunFailedState run={run} onShowLog={method => TxrResults.openLog(method)} onShowHistory={() => navigate('/history')} />
-        ) : null}
-        <TxrCannotRunBanner
-          methods={cannotRun}
-          total={run.methods.length}
-          onShowLog={method => TxrResults.openLog(method)}
+          body={
+            <ScrollRegion label="Results">
+              <div style={REGION_CONTENT} />
+            </ScrollRegion>
+          }
+          bottom={
+            <PageFooterBar testId="txr-results-bottom-bar">
+              <TxrResultsBar
+                shownCount={0}
+                totalCount={0}
+                onShowAll={null}
+                download={{
+                  label: 'Download predictions (CSV)',
+                  disabled: true,
+                  onClick: () => {},
+                }}
+                save={run.models.length > 0 ? { mode: 'run', count: run.models.length } : null}
+                run={run}
+              />
+            </PageFooterBar>
+          }
         />
         <TxrLogDialog />
       </main>
@@ -419,22 +487,30 @@ export function MethodResultsPage() {
   // the state names the problem).
   if (methodNotFound) {
     return (
-      <main data-testid="txr-results" className="txr-results-page" style={PAGE_MAIN}>
-        <div data-testid="txr-results-method-not-found" style={METHOD_NOT_FOUND_BLOCK}>
-          <h2 style={NOT_FOUND_TITLE}>This method could not be found in this run</h2>
-          <p style={{ margin: 0, fontSize: 14, color: 'var(--txr-text-2)' }}>
-            It may have failed before producing predictions, or the link is outdated.
-          </p>
-          <Button
-            data-testid="txr-results-method-new-analysis"
-            variant="outline"
-            className="rounded-lg font-semibold"
-            style={{ padding: '9px 16px' }}
-            onClick={() => navigate(compareResultsPath(runId ?? ''))}
-          >
-            See all methods
-          </Button>
-        </div>
+      <main data-testid="txr-results" className="txr-results-page" style={PAGE_OUTER}>
+        <PageFrame
+          body={
+            <ScrollRegion label="Results">
+              <div style={REGION_CONTENT}>
+                <div data-testid="txr-results-method-not-found" style={METHOD_NOT_FOUND_BLOCK}>
+                  <h2 style={NOT_FOUND_TITLE}>This method could not be found in this run</h2>
+                  <p style={{ margin: 0, fontSize: 14, color: 'var(--txr-text-2)' }}>
+                    It may have failed before producing predictions, or the link is outdated.
+                  </p>
+                  <Button
+                    data-testid="txr-results-method-new-analysis"
+                    variant="outline"
+                    className="rounded-lg font-semibold"
+                    style={{ padding: '9px 16px' }}
+                    onClick={() => navigate(compareResultsPath(runId ?? ''))}
+                  >
+                    See all methods
+                  </Button>
+                </div>
+              </div>
+            </ScrollRegion>
+          }
+        />
       </main>
     )
   }
@@ -447,108 +523,140 @@ export function MethodResultsPage() {
 
   const activeColumnMethod = activeColumn ? { ...activeColumn } : null
   const tableColumns = activeColumnMethod ? [activeColumnMethod] : baseView.columns
+  const saveEntry =
+    saveOneMethodId !== null
+      ? ({ mode: 'one', methodId: saveOneMethodId } as const)
+      : run.models.length > 0
+        ? ({ mode: 'run', count: run.models.length } as const)
+        : null
   return (
-    <main data-testid="txr-results" className="txr-results-page" style={PAGE_MAIN}>
-      <TxrResultsHeader
-        run={run}
-        predictions={predictions}
-        predictionsError={predictionsError}
-        onDownload={handleDownload}
-        downloadLabel="Download predictions (CSV)"
-        saveOne={saveOneMethodId}
-      />
-      <TxrCannotRunBanner
-        methods={cannotRun}
-        total={run.methods.length}
-        onShowLog={method => TxrResults.openLog(method)}
-      />
-      {downloadFailed ? (
-        <div data-testid="txr-results-download-error" role="alert" style={DOWNLOAD_ERROR}>
-          The predictions could not be downloaded. Try again.
-        </div>
-      ) : null}
-      <TxrMethodTabs
-        columns={allColumns}
-        activeMethodId={activeColumn?.methodId ?? null}
-        onSelect={method =>
-          navigate(method ? methodResultsPath(runId ?? '', method) : compareResultsPath(runId ?? ''))
+    <main data-testid="txr-results" className="txr-results-page" style={PAGE_OUTER}>
+      <PageFrame
+        testId="txr-results-frame"
+        top={
+          <div style={PAGE_TOP}>
+            <TxrResultsHeader
+              run={run}
+              predictions={predictions}
+              predictionsError={predictionsError}
+            />
+            <TxrCannotRunBanner
+              methods={cannotRun}
+              total={run.methods.length}
+              onShowLog={method => TxrResults.openLog(method)}
+            />
+            {downloadFailed ? (
+              <div data-testid="txr-results-download-error" role="alert" style={DOWNLOAD_ERROR}>
+                The predictions could not be downloaded. Try again.
+              </div>
+            ) : null}
+            <TxrMethodTabs
+              columns={allColumns}
+              activeMethodId={activeColumn?.methodId ?? null}
+              onSelect={method =>
+                navigate(method ? methodResultsPath(runId ?? '', method) : compareResultsPath(runId ?? ''))
+              }
+            />
+            {activeColumn ? (
+              <div data-testid="txr-results-method-heading" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <h1 style={METHOD_HEADING}>{activeColumn.label}</h1>
+                <p style={METHOD_HEADING_LABEL}>
+                  {activeColumn.groupLabel}
+                  {activeColumn.probSource === null ? ' \u00b7 no chances shown' : ''}
+                </p>
+              </div>
+            ) : (
+              <TxrOutcomeTabs
+                columns={allColumns}
+                active={outcomeTab}
+                horizon={horizon}
+                labelDay={labelDay}
+                onChange={tab => TxrResults.setOutcomeTab(tab)}
+              />
+            )}
+          </div>
+        }
+        body={
+          <ScrollRegion label="Methods" className="txr-results-methods-region">
+            <div style={REGION_CONTENT}>
+              <div style={CONTENT_ROW}>
+                <section className="txr-h-table-section" style={TABLE_SECTION}>
+                  <TxrBarsTable
+                    columns={tableColumns}
+                    rows={tableRows}
+                    totalCount={totalCount}
+                    outcome={activeColumn?.task ?? outcomeTab}
+                    horizon={(activeColumn?.task ?? outcomeTab) === 'response' ? responseDay : horizon}
+                    onShowAll={() => TxrResults.setPatientLimit(-1)}
+                  />
+                  {constantNote !== null ? (
+                    <p data-testid="txr-results-constant-note" style={{ ...NOTE_LINE, marginTop: 8 }}>
+                      {constantNote}
+                    </p>
+                  ) : null}
+                  {noChanceNote !== null ? (
+                    <p data-testid="txr-results-no-chance-note" style={{ ...NOTE_LINE, marginTop: 8 }}>
+                      {noChanceNote}
+                    </p>
+                  ) : null}
+                  {mixedNote !== null ? (
+                    <p data-testid="txr-results-mixed-note" style={{ ...NOTE_LINE, marginTop: 8 }}>
+                      {mixedNote}
+                    </p>
+                  ) : null}
+                  {divergentOnly && totalCount === 0 ? (
+                    <p data-testid="txr-results-divergent-empty" style={{ ...NOTE_LINE, marginTop: 8 }}>
+                      No patient differs between the two methods by 10 percentage points or more.
+                    </p>
+                  ) : null}
+                </section>
+                <aside className="txr-h-aside" style={ASIDE_COLUMN}>
+                  {cardReport && pair !== null ? (
+                    <>
+                      <TxrComparePicker
+                        columns={baseView.columns}
+                        pair={pair}
+                        onChange={picked => setComparePair(picked)}
+                      />
+                      <TxrCompareCard
+                        report={cardReport}
+                        aLabel={baseView.columns.find(c => c.methodId === pair.a)?.label ?? ''}
+                        bLabel={baseView.columns.find(c => c.methodId === pair.b)?.label ?? ''}
+                        divergentOnly={divergentOnly}
+                        onToggleDivergent={on => TxrResults.setDivergentOnly(on)}
+                      />
+                    </>
+                  ) : null}
+                  <TxrMethodAside
+                    dir={run.dir ?? null}
+                    trainedOn={run.input_summary?.patients ?? null}
+                    method={activeColumn}
+                    onShowLog={activeColumn ? method => TxrResults.openLog(method) : undefined}
+                    onOpenChance={() => TxrResults.openChanceDialog(true)}
+                    onOpenFolder={dir => void revealRunDir(dir)}
+                  />
+                </aside>
+              </div>
+            </div>
+          </ScrollRegion>
+        }
+        bottom={
+          <PageFooterBar testId="txr-results-bottom-bar">
+            <TxrResultsBar
+              shownCount={0}
+              totalCount={0}
+              onShowAll={null}
+              download={{
+                label: 'Download predictions (CSV)',
+                disabled: predictionsError === 'unavailable',
+                onClick: handleDownload,
+              }}
+              save={saveEntry}
+              run={run}
+            />
+          </PageFooterBar>
         }
       />
-      {activeColumn ? (
-        <div data-testid="txr-results-method-heading" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <h1 style={METHOD_HEADING}>{activeColumn.label}</h1>
-          <p style={METHOD_HEADING_LABEL}>
-            {activeColumn.groupLabel}
-            {activeColumn.probSource === null ? ' \u00b7 no chances shown' : ''}
-          </p>
-        </div>
-      ) : (
-        <TxrOutcomeTabs
-          columns={allColumns}
-          active={outcomeTab}
-          horizon={horizon}
-          labelDay={labelDay}
-          onChange={tab => TxrResults.setOutcomeTab(tab)}
-        />
-      )}
-      <div style={CONTENT_ROW}>
-        <section className="txr-h-table-section" style={TABLE_SECTION}>
-          <TxrBarsTable
-            columns={tableColumns}
-            rows={tableRows}
-            totalCount={totalCount}
-            outcome={activeColumn?.task ?? outcomeTab}
-            horizon={(activeColumn?.task ?? outcomeTab) === 'response' ? responseDay : horizon}
-            onShowAll={() => TxrResults.setPatientLimit(-1)}
-          />
-          {constantNote !== null ? (
-            <p data-testid="txr-results-constant-note" style={{ ...NOTE_LINE, marginTop: 8 }}>
-              {constantNote}
-            </p>
-          ) : null}
-          {noChanceNote !== null ? (
-            <p data-testid="txr-results-no-chance-note" style={{ ...NOTE_LINE, marginTop: 8 }}>
-              {noChanceNote}
-            </p>
-          ) : null}
-          {mixedNote !== null ? (
-            <p data-testid="txr-results-mixed-note" style={{ ...NOTE_LINE, marginTop: 8 }}>
-              {mixedNote}
-            </p>
-          ) : null}
-          {divergentOnly && totalCount === 0 ? (
-            <p data-testid="txr-results-divergent-empty" style={{ ...NOTE_LINE, marginTop: 8 }}>
-              No patient differs between the two methods by 10 percentage points or more.
-            </p>
-          ) : null}
-        </section>
-        <aside className="txr-h-aside" style={ASIDE_COLUMN}>
-          {cardReport && pair !== null ? (
-            <>
-              <TxrComparePicker
-                columns={baseView.columns}
-                pair={pair}
-                onChange={picked => setComparePair(picked)}
-              />
-              <TxrCompareCard
-                report={cardReport}
-                aLabel={baseView.columns.find(c => c.methodId === pair.a)?.label ?? ''}
-                bLabel={baseView.columns.find(c => c.methodId === pair.b)?.label ?? ''}
-                divergentOnly={divergentOnly}
-                onToggleDivergent={on => TxrResults.setDivergentOnly(on)}
-              />
-            </>
-          ) : null}
-          <TxrMethodAside
-            dir={run.dir ?? null}
-            trainedOn={run.input_summary?.patients ?? null}
-            method={activeColumn}
-            onShowLog={activeColumn ? method => TxrResults.openLog(method) : undefined}
-            onOpenChance={() => TxrResults.openChanceDialog(true)}
-            onOpenFolder={dir => void revealRunDir(dir)}
-          />
-        </aside>
-      </div>
       <TxrLogDialog />
       <TxrChanceDialog
         open={chanceDialogOpen}

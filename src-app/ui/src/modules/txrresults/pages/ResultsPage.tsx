@@ -5,11 +5,19 @@ import { useStore } from 'zustand'
 import { Button, ErrorState, Skeleton } from '@ziee/kit'
 import type { TxrRunDetail } from '@/api-client/types'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
+import { PageFrame } from '@/modules/txrshell/components/PageFrame'
+import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
+import { PageFooterBar } from '@/modules/txrshell/components/PageFooterBar'
 import type { TxrOutcomeKey } from '../types'
 import { TxrResults, useTxrResultsStore } from '../stores/Results.store'
 import { buildColumns, viewOf } from '../lib/heatmap'
 import { downloadPredictionsCsv } from '../index'
-import { formatPredictionsTitle, TxrResultsHeader, subtitleFactsOf } from '../components/TxrResultsHeader'
+import {
+  formatPredictionsTitle,
+  subtitleFactsOf,
+  TxrResultsBar,
+  TxrResultsHeader,
+} from '../components/TxrResultsHeader'
 import { TxrCannotRunBanner } from '../components/TxrCannotRunBanner'
 import { TxrRunFailedState } from '../components/TxrRunFailedState'
 import { TxrOutcomeTabs } from '../components/TxrOutcomeTabs'
@@ -48,13 +56,29 @@ import { formatChanceMissingNote, formatConstantNote, formatMixedOutcomeNote, fo
  * host is `ui-models`), New analysis (`/`).
  */
 
-const PAGE_MAIN: CSSProperties = {
-  flexGrow: 1,
-  boxSizing: 'border-box',
-  padding: '24px 32px',
+const PAGE_OUTER: CSSProperties = {
+  height: '100%',
+  minHeight: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  minWidth: 0,
+}
+
+/** The fixed top's own padding (the page chrome — ITEM-3: summary, tabs, search). */
+const PAGE_TOP: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 12,
+  padding: '20px 24px 12px',
+  minWidth: 0,
+}
+
+/** The ONE scroll region's content padding (the region scrolls, the padding rides). */
+const REGION_CONTENT: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 14,
+  padding: '12px 24px 20px',
   minWidth: 0,
 }
 
@@ -255,8 +279,16 @@ export function ResultsPage() {
 
   if (runError === 'not-found') {
     return (
-      <main data-testid="txr-results" className="txr-results-page" style={PAGE_MAIN}>
-        <NotFoundResults onNewAnalysis={() => navigate('/')} />
+      <main data-testid="txr-results" className="txr-results-page" style={PAGE_OUTER}>
+        <PageFrame
+          body={
+            <ScrollRegion label="Results">
+              <div style={REGION_CONTENT}>
+                <NotFoundResults onNewAnalysis={() => navigate('/')} />
+              </div>
+            </ScrollRegion>
+          }
+        />
       </main>
     )
   }
@@ -270,13 +302,21 @@ export function ResultsPage() {
   // DEC-18). With a snapshot the content branch below keeps rendering it.
   if (runError === 'network' || (run !== null && predictions === null && predictionsError === 'network')) {
     return (
-      <main data-testid="txr-results" className="txr-results-page" style={PAGE_MAIN}>
-        <ErrorState
-          variant="page"
-          resource="the run"
-          description="The results could not be loaded right now. Check that the app server is running, then try again."
-          onRetry={errorRetry}
-          data-testid="txr-results-error"
+      <main data-testid="txr-results" className="txr-results-page" style={PAGE_OUTER}>
+        <PageFrame
+          body={
+            <ScrollRegion label="Results">
+              <div style={REGION_CONTENT}>
+                <ErrorState
+                  variant="page"
+                  resource="the run"
+                  description="The results could not be loaded right now. Check that the app server is running, then try again."
+                  onRetry={errorRetry}
+                  data-testid="txr-results-error"
+                />
+              </div>
+            </ScrollRegion>
+          }
         />
       </main>
     )
@@ -286,8 +326,16 @@ export function ResultsPage() {
   // is — the skeleton never reappears over a loaded snapshot.
   if (run === null || (predictions === null && predictionsLoading)) {
     return (
-      <main data-testid="txr-results" className="txr-results-page" style={PAGE_MAIN}>
-        <LoadingResults />
+      <main data-testid="txr-results" className="txr-results-page" style={PAGE_OUTER}>
+        <PageFrame
+          body={
+            <ScrollRegion label="Results">
+              <div style={REGION_CONTENT}>
+                <LoadingResults />
+              </div>
+            </ScrollRegion>
+          }
+        />
       </main>
     )
   }
@@ -307,23 +355,49 @@ export function ResultsPage() {
   // fills the columns without a reload (INV-1, EXAMPLE-UR-4).
   if (predictions === null) {
     return (
-      <main data-testid="txr-results" className="txr-results-page" style={PAGE_MAIN}>
-        <TxrResultsHeader
-          run={run}
-          predictions={null}
-          predictionsError={predictionsError}
-          onDownload={undefined}
-          subtitleFacts={
-            runFailed ? { ...subtitleFactsOf(run), trainedOn: null, tookSeconds: null } : undefined
+      <main data-testid="txr-results" className="txr-results-page" style={PAGE_OUTER}>
+        <PageFrame
+          top={
+            <div className="txr-results-top" style={PAGE_TOP}>
+              <TxrResultsHeader
+                run={run}
+                predictions={null}
+                predictionsError={predictionsError}
+                subtitleFacts={
+                  runFailed ? { ...subtitleFactsOf(run), trainedOn: null, tookSeconds: null } : undefined
+                }
+              />
+              {runFailed ? (
+                <TxrRunFailedState run={run} onShowLog={methodId => TxrResults.openLog(methodId)} onShowHistory={() => navigate('/history')} />
+              ) : null}
+              <TxrCannotRunBanner
+                methods={cannotRun}
+                total={run.methods.length}
+                onShowLog={methodId => TxrResults.openLog(methodId)}
+              />
+            </div>
           }
-        />
-        {runFailed ? (
-          <TxrRunFailedState run={run} onShowLog={methodId => TxrResults.openLog(methodId)} onShowHistory={() => navigate('/history')} />
-        ) : null}
-        <TxrCannotRunBanner
-          methods={cannotRun}
-          total={run.methods.length}
-          onShowLog={methodId => TxrResults.openLog(methodId)}
+          body={
+            <ScrollRegion label="Results">
+              <div style={REGION_CONTENT} />
+            </ScrollRegion>
+          }
+          bottom={
+            <PageFooterBar testId="txr-results-bottom-bar">
+              <TxrResultsBar
+                shownCount={0}
+                totalCount={0}
+                onShowAll={null}
+                download={{
+                  label: 'Download all predictions (CSV)',
+                  disabled: true,
+                  onClick: () => {},
+                }}
+                save={run.models.length > 0 ? { mode: 'run', count: run.models.length } : null}
+                run={run}
+              />
+            </PageFooterBar>
+          }
         />
         <TxrLogDialog />
       </main>
@@ -341,63 +415,91 @@ export function ResultsPage() {
   }
 
   return (
-    <main data-testid="txr-results" className="txr-results-page" style={PAGE_MAIN}>
-      <TxrResultsHeader
-        run={run}
-        predictions={predictions}
-        predictionsError={predictionsError}
-        onDownload={handleDownload}
+    <main data-testid="txr-results" className="txr-results-page" style={PAGE_OUTER}>
+      <PageFrame
+        testId="txr-results-frame"
+        top={
+          <div className="txr-results-top" style={PAGE_TOP}>
+            <TxrResultsHeader
+              run={run}
+              predictions={predictions}
+              predictionsError={predictionsError}
+            />
+            <TxrCannotRunBanner
+              methods={cannotRun}
+              total={run.methods.length}
+              onShowLog={methodId => TxrResults.openLog(methodId)}
+            />
+            {downloadFailed ? (
+              <div data-testid="txr-results-download-error" role="alert" style={DOWNLOAD_ERROR}>
+                The predictions could not be downloaded. Try again.
+              </div>
+            ) : null}
+            <div className="txr-results-controls" style={CONTROLS_ROW}>
+              <TxrOutcomeTabs
+                columns={allColumns}
+                active={outcomeTab}
+                horizon={horizon}
+                labelDay={labelDay}
+                onChange={tab => TxrResults.setOutcomeTab(tab)}
+              />
+              <TxrMethodFilterBar
+                columns={pickerColumns}
+                filter={methodFilter}
+                search={search}
+                sort={sort}
+                outcome={outcomeTab}
+                onFilterChange={filter => TxrResults.setMethodFilter(filter)}
+                onSearchChange={value => TxrResults.setSearch(value)}
+                onSortChange={value => TxrResults.setSort(value)}
+              />
+            </div>
+          </div>
+        }
+        body={
+          <ScrollRegion label="Patient predictions" className="txr-results-region">
+            <div style={REGION_CONTENT}>
+              <TxrHeatmapTable view={view} />
+              {chanceNote !== null ? (
+                <p data-testid="txr-results-chance-note" style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-text-2)' }}>
+                  {chanceNote}
+                </p>
+              ) : null}
+              {noChanceNote !== null ? (
+                <p data-testid="txr-results-no-chance-note" style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-text-2)' }}>
+                  {noChanceNote}
+                </p>
+              ) : null}
+              {mixedNote !== null ? (
+                <p data-testid="txr-results-mixed-note" style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-text-2)' }}>
+                  {mixedNote}
+                </p>
+              ) : null}
+              {constantNote !== null ? (
+                <p data-testid="txr-results-constant-note" style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-text-2)' }}>
+                  {constantNote}
+                </p>
+              ) : null}
+            </div>
+          </ScrollRegion>
+        }
+        bottom={
+          <PageFooterBar testId="txr-results-bottom-bar">
+            <TxrResultsBar
+              shownCount={view.shownCount}
+              totalCount={view.totalCount}
+              onShowAll={view.shownCount < view.totalCount ? () => TxrResults.setPatientLimit(-1) : null}
+              download={{
+                label: 'Download all predictions (CSV)',
+                disabled: predictionsError === 'unavailable',
+                onClick: handleDownload,
+              }}
+              save={run.models.length > 0 ? { mode: 'run', count: run.models.length } : null}
+              run={run}
+            />
+          </PageFooterBar>
+        }
       />
-      <TxrCannotRunBanner
-        methods={cannotRun}
-        total={run.methods.length}
-        onShowLog={methodId => TxrResults.openLog(methodId)}
-      />
-      {downloadFailed ? (
-        <div data-testid="txr-results-download-error" role="alert" style={DOWNLOAD_ERROR}>
-          The predictions could not be downloaded. Try again.
-        </div>
-      ) : null}
-      <div className="txr-results-controls" style={CONTROLS_ROW}>
-        <TxrOutcomeTabs
-          columns={allColumns}
-          active={outcomeTab}
-          horizon={horizon}
-          labelDay={labelDay}
-          onChange={tab => TxrResults.setOutcomeTab(tab)}
-        />
-        <TxrMethodFilterBar
-          columns={pickerColumns}
-          filter={methodFilter}
-          search={search}
-          sort={sort}
-          outcome={outcomeTab}
-          onFilterChange={filter => TxrResults.setMethodFilter(filter)}
-          onSearchChange={value => TxrResults.setSearch(value)}
-          onSortChange={value => TxrResults.setSort(value)}
-        />
-      </div>
-      <TxrHeatmapTable view={view} onShowAll={() => TxrResults.setPatientLimit(-1)} />
-      {chanceNote !== null ? (
-        <p data-testid="txr-results-chance-note" style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-text-2)' }}>
-          {chanceNote}
-        </p>
-      ) : null}
-      {noChanceNote !== null ? (
-        <p data-testid="txr-results-no-chance-note" style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-text-2)' }}>
-          {noChanceNote}
-        </p>
-      ) : null}
-      {mixedNote !== null ? (
-        <p data-testid="txr-results-mixed-note" style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-text-2)' }}>
-          {mixedNote}
-        </p>
-      ) : null}
-      {constantNote !== null ? (
-        <p data-testid="txr-results-constant-note" style={{ margin: 0, fontSize: 13.5, color: 'var(--txr-text-2)' }}>
-          {constantNote}
-        </p>
-      ) : null}
       <TxrLogDialog />
     </main>
   )
