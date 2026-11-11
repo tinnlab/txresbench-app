@@ -6,7 +6,7 @@
 //! channel (the "Stop all" signal the drive loop's lane queue + env phase
 //! select on — DEC-17's counterpart to the per-JOB cancel the admission
 //! wrapper registers on the admitted `jobs` row). The runtime is pool-free and
-//! instance-owned: the module installs its [`RunRuntime`] in `init` (the
+//! shared-instance: the module installs [`RunRuntime::global`] in `init` (the
 //! TEST-EE-01 "init installs the pool + the RunRuntime" half), and ITEM-10's
 //! routes + ITEM-8's drive loops receive the same `Arc`.
 //!
@@ -14,17 +14,20 @@
 //!
 //! `jobs::runtime` is a process-global `LazyLock` (every job stream in the
 //! process shares one registry, and the framework's admin setting caps it).
-//! This module's runtime is deliberately the MODULE's: the RunRuntime has no
-//! configurable cap (the app's single-user surface needs only
-//! [`TxrLimits::SSE_CLIENTS_MAX`] as the OOM guard), no settings seam and no
-//! cross-module consumer — the run loop and the run routes are both inside
-//! this module, so a module-held instance is the smaller surface. The
-//! register/broadcast/close/cancel semantics are the jobs ones verbatim
-//! (subscribe-first + replay-on-connect, prune-on-send, `signal_cancel`
-//! answers whether the run was live).
+//! This module's runtime is a single shared instance — [`RunRuntime::global`]:
+//! the RunRuntime has no configurable cap (the app's single-user surface
+//! needs only [`TxrLimits::SSE_CLIENTS_MAX`] as the OOM guard), no settings
+//! seam — and once qa-fixes3 ITEM-3's example-set seam became a consumer, the
+//! ONE instance is the shared one, so a run started by the example endpoint
+//! streams and stops through the SAME registry the run routes use (two
+//! registries would leave the engine's stream route subscribed to a runtime
+//! that never broadcasts the example run). The register/broadcast/close/
+//! cancel semantics are the jobs ones verbatim (subscribe-first +
+//! replay-on-connect, prune-on-send, `signal_cancel` answers whether the run
+//! was live).
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use axum::response::sse::Event;
 use tokio::sync::{mpsc, watch};
@@ -33,6 +36,15 @@ use uuid::Uuid;
 use super::types::TxrLimits;
 
 type EventSender = mpsc::UnboundedSender<Result<Event, axum::Error>>;
+
+/// The process's one RunRuntime: the engine module installs it at init, and
+/// the model_store module's example-set seam shares the same instance (the
+/// ITEM-3 example run drives through the same broadcaster + stop registry the
+/// run routes read).
+pub fn global() -> &'static Arc<RunRuntime> {
+    static GLOBAL: OnceLock<Arc<RunRuntime>> = OnceLock::new();
+    GLOBAL.get_or_init(|| Arc::new(RunRuntime::new()))
+}
 
 /// The per-run SSE + run-stop registry (in-memory only; lives as long as the
 /// module instance).

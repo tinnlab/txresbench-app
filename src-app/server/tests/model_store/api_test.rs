@@ -701,6 +701,7 @@ async fn the_route_matrix_is_401_403_with_the_health_control() {
         ("DELETE", format!("/txr/models/{id}")),
         ("POST", "/txr/models/resolve".to_string()),
         ("POST", "/txr/models/eligibility".to_string()),
+        ("POST", "/txr/models/example".to_string()),
         ("GET", "/txr/model-sets".to_string()),
         ("PATCH", format!("/txr/model-sets/{id}")),
         ("DELETE", format!("/txr/model-sets/{id}")),

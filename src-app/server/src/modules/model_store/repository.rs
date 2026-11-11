@@ -165,6 +165,18 @@ pub struct ModelStoreRepository {
     pool: SqlitePool,
 }
 
+/// One `txr_example_set` row as stored (qa-fixes3 ITEM-3): the state string +
+/// the run/set ids. The state-vocabulary mapping (`ExampleSetState`) is the
+/// example module's, so the row stays a raw projection and a foreign state
+/// string is a corrupt row there (the engine's enum_from_wire discipline).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExampleStateRow {
+    pub state: String,
+    pub run_id: Option<Uuid>,
+    pub set_id: Option<Uuid>,
+    pub error: Option<String>,
+}
+
 impl ModelStoreRepository {
     pub fn new(pool: SqlitePool) -> Self {
         Self { pool }
@@ -226,6 +238,46 @@ impl ModelStoreRepository {
         .fetch_optional(&self.pool)
         .await
         .map_err(AppError::database_error)
+    }
+
+    // ─────────────────────── the example-set state (ITEM-3) ───────────────────────
+
+    /// The single example-set creation row (None before the first example
+    /// request; the row is created by [`Self::upsert_example_state`]).
+    pub async fn example_state(&self) -> Result<Option<ExampleStateRow>, AppError> {
+        sqlx::query_as!(
+            ExampleStateRow,
+            r#"SELECT state, run_id as "run_id?: Uuid", set_id as "set_id?: Uuid", error
+               FROM txr_example_set WHERE id = 1"#,
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(AppError::database_error)
+    }
+
+    /// Insert or replace the single example-set row (id = 1; the column's
+    /// `CHECK (id = 1)` makes a second row a constraint violation, never a
+    /// silent twin). `updated_at` is set by the UPSERT, so a stale row is
+    /// never read after a transition.
+    pub async fn upsert_example_state(&self, row: &ExampleStateRow) -> Result<(), AppError> {
+        sqlx::query(
+            r#"INSERT INTO txr_example_set (id, state, run_id, set_id, error)
+               VALUES (1, $1, $2, $3, $4)
+               ON CONFLICT (id) DO UPDATE SET
+                 state = excluded.state,
+                 run_id = excluded.run_id,
+                 set_id = excluded.set_id,
+                 error = excluded.error,
+                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')"#,
+        )
+        .bind(&row.state)
+        .bind(row.run_id)
+        .bind(row.set_id)
+        .bind(&row.error)
+        .execute(&self.pool)
+        .await
+        .map_err(AppError::database_error)?;
+        Ok(())
     }
 
     /// The inventory list (J's sets) with each set's model count + summed tree

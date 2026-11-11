@@ -11,6 +11,7 @@
 
 mod api_test;
 mod eligibility_test;
+mod example_test;
 mod roundtrip_test;
 
 use std::path::{Path, PathBuf};

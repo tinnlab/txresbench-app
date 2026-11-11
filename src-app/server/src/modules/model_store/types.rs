@@ -177,6 +177,74 @@ pub struct ExportTarget {
     pub dir: String,
 }
 
+/// The example saved set's state (qa-fixes3 ITEM-3, `POST
+/// /api/txr/models/example`): `creating` (the run is training the methods),
+/// `ready` (the set exists) or `failed` (the honest reason is in the
+/// response's `error`; the next call retries).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ExampleSetState {
+    Creating,
+    Ready,
+    Failed,
+}
+
+impl ExampleSetState {
+    /// The stored/wire spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ExampleSetState::Creating => "creating",
+            ExampleSetState::Ready => "ready",
+            ExampleSetState::Failed => "failed",
+        }
+    }
+
+    /// The stored state string's closed vocabulary (None for a corrupt row —
+    /// the caller decides, never a silently defaulted state).
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "creating" => Some(ExampleSetState::Creating),
+            "ready" => Some(ExampleSetState::Ready),
+            "failed" => Some(ExampleSetState::Failed),
+            _ => None,
+        }
+    }
+}
+
+/// The example saved set's answer (qa-fixes3 ITEM-3): the caller asks "give me
+/// the example models" and gets the set id when it exists, the creating run's
+/// id + status while it trains (the call reports the run's job state — the
+/// UI polls it),
+/// or the failed reason. `methods` is the deterministic fast-method pick the
+/// set was (or is being) trained with.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ExampleSetResponse {
+    pub state: ExampleSetState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub set_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_status: Option<String>,
+    /// The deterministic fast-method pick (the plan's "3 that run in under
+    /// 30 s each").
+    pub methods: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// The single-row example-set creation state (`txr_example_set`, qa-fixes3
+/// ITEM-3): which run is training the example models (or which set is ready),
+/// or the last failure's reason. App-internal (one row, id = 1); the wire
+/// type is [`ExampleSetResponse`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExampleSetRow {
+    pub state: ExampleSetState,
+    pub run_id: Option<Uuid>,
+    pub set_id: Option<Uuid>,
+    pub error: Option<String>,
+}
+
 /// The save response (201): the set (created or grown), the saved rows and the
 /// optional one-off export.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -753,7 +821,7 @@ pub struct ModelEligibilityResponse {
 // generated client, so a rename is one edit, and the routes' own test binds
 // the registered set to this constant — the engine's ROUTE_DOC_IDS precedent).
 // ─────────────────────────────────────────────────────────────────────────────
-pub const ROUTE_DOC_IDS: [&str; 13] = [
+pub const ROUTE_DOC_IDS: [&str; 14] = [
     "Models.listModels",
     "Models.getModel",
     "Models.saveModels",
@@ -763,6 +831,7 @@ pub const ROUTE_DOC_IDS: [&str; 13] = [
     "Models.deleteModel",
     "Models.resolveModels",
     "Models.checkEligibility",
+    "Models.exampleSet",
     "ModelSets.listSets",
     "ModelSets.renameSet",
     "ModelSets.deleteSet",
@@ -860,11 +929,11 @@ mod tests {
         }
     }
 
-    /// The doc-id vocabulary is exactly the 13 plan-pinned ids (the aide
+    /// The doc-id vocabulary is exactly the 14 plan-pinned ids (the aide
     /// `operationId` values the OpenAPI regen must contain once the routes
     /// register — the routes' own suite binds the registered set to this).
     #[test]
-    fn route_doc_ids_are_exactly_the_13_pinned() {
+    fn route_doc_ids_are_exactly_the_14_pinned() {
         assert_eq!(
             ROUTE_DOC_IDS,
             [
@@ -877,6 +946,7 @@ mod tests {
                 "Models.deleteModel",
                 "Models.resolveModels",
                 "Models.checkEligibility",
+                "Models.exampleSet",
                 "ModelSets.listSets",
                 "ModelSets.renameSet",
                 "ModelSets.deleteSet",
