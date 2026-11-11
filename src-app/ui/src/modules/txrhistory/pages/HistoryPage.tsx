@@ -48,6 +48,9 @@ import { useStore } from 'zustand'
 import { Alert } from '@ziee/kit'
 import { isDesktop } from '@/core/platform'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
+import { PageFrame } from '@/modules/txrshell/components/PageFrame'
+import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
+import { PageFooterBar } from '@/modules/txrshell/components/PageFooterBar'
 import { modelsPath } from '@/modules/txrmodels'
 import { downloadPredictionsCsv, resultsPath, revealRunDir } from '@/modules/txrresults'
 import { chooseMethodsPath, runningPath } from '@/modules/txrrun'
@@ -58,14 +61,30 @@ import { TxrHistoryList } from '../components/TxrHistoryList'
 import { TxrHistoryLogDialog } from '../components/TxrHistoryLogDialog'
 import { TxrHistoryToolbar } from '../components/TxrHistoryToolbar'
 
-/** The board's page chrome (the main column the ITEM-1 shell carried). */
-const PAGE_MAIN: CSSProperties = {
-  flexGrow: 1,
-  boxSizing: 'border-box',
-  padding: '28px 36px',
+/** The page's flex spine (the frame fills the routed area). */
+const PAGE_OUTER: CSSProperties = {
+  height: '100%',
+  minHeight: 0,
   display: 'flex',
   flexDirection: 'column',
-  gap: 18,
+  minWidth: 0,
+}
+
+/** The fixed top's own padding (title + search + filter — the audit row). */
+const PAGE_TOP: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 12,
+  padding: '20px 24px 12px',
+  minWidth: 0,
+}
+
+/** The ONE scroll region's content padding (the region scrolls, the padding rides). */
+const REGION_CONTENT: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 12,
+  padding: '12px 24px 20px',
   minWidth: 0,
 }
 
@@ -198,48 +217,65 @@ export function HistoryPage() {
       : []
 
   return (
-    <main data-testid="txr-history" className="txr-history-page" style={PAGE_MAIN}>
-      <TxrHistoryToolbar
-        search={state.searchInput}
-        filter={state.filter}
-        onSearch={handleSearch}
-        onFilter={handleFilter}
-      />
-      {actionError !== null ? (
-        <div style={ALERT_ROW}>
-          <Alert data-testid="txr-history-action-error" tone="error" title={actionError} />
-        </div>
-      ) : null}
-      <TxrHistoryList
-        items={state.items}
-        total={state.total}
-        loading={state.loading}
-        loadingMore={state.loadingMore}
-        error={state.error}
-        expandedId={state.expandedId}
-        detail={state.detail}
-        detailLoading={state.detailLoading}
-        isDesktop={isDesktop()}
-        onToggle={handleToggle}
-        onLoadMore={handleLoadMore}
-        onRetry={handleRetry}
-        onOpenResults={handleOpenResults}
-        onOpenRunning={handleOpenRunning}
-        onRerun={handleRerun}
-        onSettingsAgain={handleSettingsAgain}
-        onDownload={handleDownload}
-        onReveal={handleReveal}
-        onLog={handleLog}
-        onOpenSet={handleOpenSet}
-      />
-      <TxrHistoryFooter
-        usage={state.usage}
-        total={state.total}
-        preferences={state.preferences}
-        working={state.working !== null}
-        onCopiesOff={handleCopiesOff}
-        onCopiesOn={handleCopiesOn}
-        onClearAll={handleClearAll}
+    <main data-testid="txr-history" className="txr-history-page" style={PAGE_OUTER}>
+      <PageFrame
+        testId="txr-history-frame"
+        top={
+          <div className="txr-history-top" style={PAGE_TOP}>
+            <TxrHistoryToolbar
+              search={state.searchInput}
+              filter={state.filter}
+              onSearch={handleSearch}
+              onFilter={handleFilter}
+            />
+          </div>
+        }
+        body={
+          <ScrollRegion label="History" className="txr-history-region">
+            <div style={REGION_CONTENT}>
+              {actionError !== null ? (
+                <div style={ALERT_ROW}>
+                  <Alert data-testid="txr-history-action-error" tone="error" title={actionError} />
+                </div>
+              ) : null}
+              <TxrHistoryList
+                items={state.items}
+                total={state.total}
+                loading={state.loading}
+                loadingMore={state.loadingMore}
+                error={state.error}
+                expandedId={state.expandedId}
+                detail={state.detail}
+                detailLoading={state.detailLoading}
+                isDesktop={isDesktop()}
+                onToggle={handleToggle}
+                onLoadMore={handleLoadMore}
+                onRetry={handleRetry}
+                onOpenResults={handleOpenResults}
+                onOpenRunning={handleOpenRunning}
+                onRerun={handleRerun}
+                onSettingsAgain={handleSettingsAgain}
+                onDownload={handleDownload}
+                onReveal={handleReveal}
+                onLog={handleLog}
+                onOpenSet={handleOpenSet}
+              />
+            </div>
+          </ScrollRegion>
+        }
+        bottom={
+          <PageFooterBar testId="txr-history-footer-bar">
+            <TxrHistoryFooter
+              usage={state.usage}
+              total={state.total}
+              preferences={state.preferences}
+              working={state.working !== null}
+              onCopiesOff={handleCopiesOff}
+              onCopiesOn={handleCopiesOn}
+              onClearAll={handleClearAll}
+            />
+          </PageFooterBar>
+        }
       />
       <TxrConfirmDialog
         confirm={state.confirm}
