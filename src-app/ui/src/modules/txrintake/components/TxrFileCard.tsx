@@ -214,7 +214,8 @@ const EXAMPLE_TABLE: CSSProperties = {
   overflow: 'hidden',
   border: '1px solid var(--txr-border)',
   borderRadius: 8,
-  borderCollapse: 'collapse',
+  borderCollapse: 'separate',
+  borderSpacing: 0,
   width: '100%',
 }
 const EXAMPLE_HEAD: CSSProperties = {
@@ -224,6 +225,13 @@ const EXAMPLE_HEAD: CSSProperties = {
   borderBottom: '1px solid var(--txr-border)',
   fontWeight: 600,
   fontSize: 12.5,
+  // app-shell ITEM-2: the preview table's header sticks inside its OWN
+  // bounded box (the audit's "each preview table has its own bounded region
+  // with a sticky header") — the box is the table's scrollport, so the
+  // header stays put while the rows move.
+  position: 'sticky',
+  top: 0,
+  zIndex: 2,
 }
 const EXAMPLE_ENTRY: CSSProperties = {
   padding: '4px 10px',
@@ -595,14 +603,21 @@ function RoleTable({ roles }: { roles: RoleRow[] }) {
   )
 }
 
-/** The adopted file's first rows (the board's "Example (first rows)" box). */
+/** The adopted file's first rows (the board's "Example (first rows)" box).
+ *  app-shell ITEM-2: the box is the preview's OWN bounded region — a fixed
+ *  max height with overflow on BOTH axes and the sticky header above, so a
+ *  tall preview scrolls inside its box and the header never leaves it (the
+ *  audit's /files + /predict-files byte; the card never grows the page). */
 function FirstRows({ columns, rows }: { columns: string[]; rows: (string | null)[][] }) {
   return (
     // ITEM-6 F9: the table scrolls INSIDE its box (the last column of the
     // patients preview used to clip at the card edge with no way to see it —
     // "response_da" cut mid-word; the box's own overflow keeps the page
     // fixed and the hint-comma inside cells no longer hides the tail).
-    <div className="txr-intake-first-rows" style={{ overflowX: 'auto', borderRadius: 8 }}>
+    <div
+      className="txr-intake-first-rows"
+      style={{ overflow: 'auto', borderRadius: 8, maxHeight: 280, maxWidth: '100%' }}
+    >
       <table style={EXAMPLE_TABLE}>
         <thead>
           <tr>

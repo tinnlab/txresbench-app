@@ -6,6 +6,9 @@ import { ApiClient } from '@/api-client'
 import type { FileTableKind } from '@/api-client/types'
 import { useStore } from 'zustand'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
+import { PageFrame } from '@/modules/txrshell/components/PageFrame'
+import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
+import { PageFooterBar } from '@/modules/txrshell/components/PageFooterBar'
 import { TxrIntake, useTxrIntakeStore } from '../stores/TxrIntake.store'
 import {
   cardProblems,
@@ -63,16 +66,32 @@ import type { ColumnRenameOffer, JoinOffer, LoadedFile, VocabOffer } from '../ty
 const SLOTS = ['patients', 'measurements'] as const
 type Slot = (typeof SLOTS)[number]
 
-const PAGE_CONTAINER: CSSProperties = {
-  flexGrow: 1,
+const PAGE_ROOT: CSSProperties = {
+  height: '100%',
+  minHeight: 0,
+  minWidth: 0,
+  display: 'flex',
+  flexDirection: 'column',
+}
+
+const PAGE_TOP: CSSProperties = {
   boxSizing: 'border-box',
-  padding: '40px 48px',
+  padding: '40px 48px 10px',
   maxWidth: 1280,
   margin: '0 auto',
   width: '100%',
+}
+
+/** The body region's content (the cards' column, page-width capped). */
+const REGION_CONTENT: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 18,
+  boxSizing: 'border-box',
+  padding: '0 48px 24px',
+  maxWidth: 1280,
+  margin: '0 auto',
+  width: '100%',
 }
 
 const STEP_LINE: CSSProperties = {
@@ -378,107 +397,121 @@ export function FilesPage() {
   return (
     <div
       role="main"
-      style={PAGE_CONTAINER}
+      style={PAGE_ROOT}
       className="txr-intake-page"
       data-testid="txr-intake-files"
     >
-      <div>
-        <div style={STEP_LINE}>Step 3 of 4</div>
-        <h1 style={TITLE}>Add your files</h1>
-        <p style={INTRO}>
-          Two tables, as CSV or Excel. Used only for the analyses you start. Match the examples; we
-          check each file as soon as you choose it.
-        </p>
-      </div>
+      <PageFrame
+        top={
+          <div className="txr-intake-top txr-intake-page-top" style={PAGE_TOP}>
+            <div>
+              <div style={STEP_LINE}>Step 3 of 4</div>
+              <h1 style={TITLE}>Add your files</h1>
+              <p style={INTRO}>
+                Two tables, as CSV or Excel. Used only for the analyses you start. Match the examples; we
+                check each file as soon as you choose it.
+              </p>
+            </div>
 
-      <div
-        style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 10,
-        }}
-      >
-        {exampleLoaded ? (
-          <p data-testid="txr-intake-example-loaded" style={{ ...INTRO, margin: 0 }}>
-            {EXAMPLE_BANNER} —{' '}
-            <Button
-              data-testid="txr-intake-clear-example"
-              variant="link"
-              style={{ padding: 0, color: 'var(--txr-brand)', fontWeight: 600 }}
-              onClick={clearExamples}
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 10,
+              }}
             >
-              {CLEAR_EXAMPLE_LABEL}
-            </Button>{' '}
-            to start with your own.
-          </p>
-        ) : (
-          <span style={INTRO}></span>
-        )}
-        <TxrUseExampleButton path="train" />
-      </div>
+              {exampleLoaded ? (
+                <p data-testid="txr-intake-example-loaded" style={{ ...INTRO, margin: 0 }}>
+                  {EXAMPLE_BANNER} —{' '}
+                  <Button
+                    data-testid="txr-intake-clear-example"
+                    variant="link"
+                    style={{ padding: 0, color: 'var(--txr-brand)', fontWeight: 600 }}
+                    onClick={clearExamples}
+                  >
+                    {CLEAR_EXAMPLE_LABEL}
+                  </Button>{' '}
+                  to start with your own.
+                </p>
+              ) : (
+                <span style={INTRO}></span>
+              )}
+              <TxrUseExampleButton path="train" />
+            </div>
+          </div>
+        }
+        body={
+          <ScrollRegion label="Your files" className="txr-files-region">
+            <div className="txr-intake-page-body" style={REGION_CONTENT}>
+              <TxrFileCard
+                kind="patients"
+                mode="study"
+                file={patients}
+                busy={busySlot === 'patients'}
+                error={cardErrors.patients ?? null}
+                isExample={exampleSlots.patients}
+                onPick={file => void handlePick('patients', file)}
+                onRemove={() => handleRemove('patients')}
+                onAcceptJoin={acceptJoin}
+                onRejectJoin={rejectJoin}
+                onAcceptVocab={acceptVocab}
+                onRejectVocab={rejectVocab}
+                onAcceptColumn={acceptColumn}
+                onRejectColumn={rejectColumn}
+                onDownloadTemplate={() => void downloadCsv('patients', 'template')}
+                onDownloadExample={() => void downloadCsv('patients', 'example')}
+              />
 
-      <TxrFileCard
-        kind="patients"
-        mode="study"
-        file={patients}
-        busy={busySlot === 'patients'}
-        error={cardErrors.patients ?? null}
-        isExample={exampleSlots.patients}
-        onPick={file => void handlePick('patients', file)}
-        onRemove={() => handleRemove('patients')}
-        onAcceptJoin={acceptJoin}
-        onRejectJoin={rejectJoin}
-        onAcceptVocab={acceptVocab}
-        onRejectVocab={rejectVocab}
-        onAcceptColumn={acceptColumn}
-        onRejectColumn={rejectColumn}
-        onDownloadTemplate={() => void downloadCsv('patients', 'template')}
-        onDownloadExample={() => void downloadCsv('patients', 'example')}
+              <TxrFileCard
+                kind="measurements"
+                mode="study"
+                file={measurements}
+                busy={busySlot === 'measurements'}
+                error={cardErrors.measurements ?? null}
+                isExample={exampleSlots.measurements}
+                onPick={file => void handlePick('measurements', file)}
+                onRemove={() => handleRemove('measurements')}
+                onAcceptJoin={acceptJoin}
+                onRejectJoin={rejectJoin}
+                onAcceptVocab={acceptVocab}
+                onRejectVocab={rejectVocab}
+                onAcceptColumn={acceptColumn}
+                onRejectColumn={rejectColumn}
+                onDownloadTemplate={() => void downloadCsv('measurements', 'template')}
+                onDownloadExample={() => void downloadCsv('measurements', 'example')}
+              />
+            </div>
+          </ScrollRegion>
+        }
+        bottom={
+          <PageFooterBar className="txr-intake-footer-bar">
+            <div style={{ ...FOOTER, width: '100%' }} className="txr-intake-footer">
+              <span style={FOOTER_LABEL}>
+                {canContinue
+                  ? 'Both files check out — next you choose the methods that can run on them.'
+                  : validation !== null
+                    ? 'Fix the problems to continue.'
+                    : 'Both files are needed before the check runs.'}
+              </span>
+              {validateError !== null ? (
+                <span role="alert" style={PAGE_ERROR}>
+                  {validateError}
+                </span>
+              ) : null}
+              <Button
+                data-testid="txr-intake-continue"
+                style={PRIMARY_BUTTON}
+                disabled={!canContinue}
+                onClick={continueFlow}
+              >
+                Continue
+              </Button>
+            </div>
+          </PageFooterBar>
+        }
       />
-
-      <TxrFileCard
-        kind="measurements"
-        mode="study"
-        file={measurements}
-        busy={busySlot === 'measurements'}
-        error={cardErrors.measurements ?? null}
-        isExample={exampleSlots.measurements}
-        onPick={file => void handlePick('measurements', file)}
-        onRemove={() => handleRemove('measurements')}
-        onAcceptJoin={acceptJoin}
-        onRejectJoin={rejectJoin}
-        onAcceptVocab={acceptVocab}
-        onRejectVocab={rejectVocab}
-        onAcceptColumn={acceptColumn}
-        onRejectColumn={rejectColumn}
-        onDownloadTemplate={() => void downloadCsv('measurements', 'template')}
-        onDownloadExample={() => void downloadCsv('measurements', 'example')}
-      />
-
-      <div style={FOOTER} className="txr-intake-footer">
-        <span style={FOOTER_LABEL}>
-          {canContinue
-            ? 'Both files check out — next you choose the methods that can run on them.'
-            : validation !== null
-              ? 'Fix the problems to continue.'
-              : 'Both files are needed before the check runs.'}
-        </span>
-        {validateError !== null ? (
-          <span role="alert" style={PAGE_ERROR}>
-            {validateError}
-          </span>
-        ) : null}
-        <Button
-          data-testid="txr-intake-continue"
-          style={PRIMARY_BUTTON}
-          disabled={!canContinue}
-          onClick={continueFlow}
-        >
-          Continue
-        </Button>
-      </div>
     </div>
   )
 }

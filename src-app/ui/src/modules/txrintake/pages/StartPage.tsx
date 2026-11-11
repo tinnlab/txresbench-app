@@ -3,6 +3,8 @@ import type { CSSProperties } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Button } from '@ziee/kit'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
+import { PageFrame } from '@/modules/txrshell/components/PageFrame'
+import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
 import { TxrIntake } from '../stores/TxrIntake.store'
 import { useRunnableMethodCount } from '../data/useRunnableMethodCount'
 import { TxrUseExampleButton } from '../components/TxrUseExampleButton'
@@ -39,10 +41,19 @@ const STUDY_ROUTE = '/study'
 const FILES_ROUTE = '/files'
 const PREDICT_FILES_ROUTE = '/predict-files'
 
+/** The page's frame host. */
+const PAGE_ROOT: CSSProperties = {
+  height: '100%',
+  minHeight: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  minWidth: 0,
+}
+
+/** The body region's content (the page's scrollable body). */
 const PAGE_CONTAINER: CSSProperties = {
-  flexGrow: 1,
   boxSizing: 'border-box',
-  padding: '40px 48px',
+  padding: '40px 48px 28px',
   maxWidth: 1180,
   margin: '0 auto',
   width: '100%',
@@ -234,127 +245,135 @@ export function StartPage() {
     import.meta.env.DEV
 
   return (
-    <div role="main" style={PAGE_CONTAINER}>
-      <div>
-        <div style={STEP_LINE}>Step 1 of 4</div>
-        <h1 style={TITLE}>What do you want to do?</h1>
-        <p style={INTRO}>
-          Pick the way that fits what you have; you can change your mind later.
-        </p>
-      </div>
+    <div role="main" data-testid="txr-intake-start" style={PAGE_ROOT}>
+      <PageFrame
+        body={
+          <ScrollRegion label="Start">
+            <div className="txr-intake-page-body" style={PAGE_CONTAINER}>
+              <div>
+                <div style={STEP_LINE}>Step 1 of 4</div>
+                <h1 style={TITLE}>What do you want to do?</h1>
+                <p style={INTRO}>
+                  Pick the way that fits what you have; you can change your mind later.
+                </p>
+              </div>
 
-      <div style={CARD_GRID}>
-        <section style={CARD_ACCENT} data-testid="txr-intake-start-card-pretrained">
-          <div style={CARD_EYEBROW}>Quickest</div>
-          <h2 style={CARD_TITLE}>
-            Predict with a pretrained model
-            <span style={RECOMMENDED_BADGE}>Recommended to start</span>
-          </h2>
-          <p style={CARD_BODY}>
-            Add the blood measurements of the patients you want predictions for. The app shows
-            which pretrained models can run on them, and you pick as many as you like.
-          </p>
-          <ul style={CARD_BULLETS}>
-            <li style={CARD_BULLET}>Works with a small cohort, and with no outcomes</li>
-            <li style={CARD_BULLET}>
-              The app checks your file and shows which models can run
-            </li>
-            <li style={CARD_BULLET}>
-              Each model shows where it was learned and how well it transferred to other cohorts
-            </li>
-          </ul>
-          <div style={CARD_BUTTON_ROW}>
-            <Button
-              data-testid="txr-intake-start-card-pretrained-cta"
-              style={PRIMARY_BUTTON}
-              onClick={() => pickPath('pretrained')}
-            >
-              Add the patients to predict
-            </Button>
-            <TxrUseExampleButton path="pretrained" onDone={() => exampleDone('pretrained')} />
-          </div>
-        </section>
+              <div style={CARD_GRID}>
+                <section style={CARD_ACCENT} data-testid="txr-intake-start-card-pretrained">
+                  <div style={CARD_EYEBROW}>Quickest</div>
+                  <h2 style={CARD_TITLE}>
+                    Predict with a pretrained model
+                    <span style={RECOMMENDED_BADGE}>Recommended to start</span>
+                  </h2>
+                  <p style={CARD_BODY}>
+                    Add the blood measurements of the patients you want predictions for. The app shows
+                    which pretrained models can run on them, and you pick as many as you like.
+                  </p>
+                  <ul style={CARD_BULLETS}>
+                    <li style={CARD_BULLET}>Works with a small cohort, and with no outcomes</li>
+                    <li style={CARD_BULLET}>
+                      The app checks your file and shows which models can run
+                    </li>
+                    <li style={CARD_BULLET}>
+                      Each model shows where it was learned and how well it transferred to other cohorts
+                    </li>
+                  </ul>
+                  <div style={CARD_BUTTON_ROW}>
+                    <Button
+                      data-testid="txr-intake-start-card-pretrained-cta"
+                      style={PRIMARY_BUTTON}
+                      onClick={() => pickPath('pretrained')}
+                    >
+                      Add the patients to predict
+                    </Button>
+                    <TxrUseExampleButton path="pretrained" onDone={() => exampleDone('pretrained')} />
+                  </div>
+                </section>
 
-        <section style={CARD_PLAIN} data-testid="txr-intake-start-card-train">
-          <div style={CARD_EYEBROW}>Most flexible</div>
-          <h2 style={CARD_TITLE}>Learn from my data</h2>
-          <p style={CARD_BODY}>
-            Train the methods on your own patients with known outcomes, then predict new patients.
-            Choose what to predict — progression or death within a chosen horizon — and run the
-            methods that fit your file.
-          </p>
-          <ul style={CARD_BULLETS}>
-            <li style={CARD_BULLET}>
-              Needs patients with outcomes (progression or death times)
-            </li>
-            <li style={CARD_BULLET}>
-              {count !== null
-                ? `${count} methods, with the time each will take`
-                : 'Methods, with the time each will take'}
-            </li>
-            <li style={CARD_BULLET}>Save the trained models to reuse them</li>
-          </ul>
-          <div style={CARD_BUTTON_ROW}>
-            <Button
-              data-testid="txr-intake-start-card-train-cta"
-              style={OUTLINE_BUTTON}
-              onClick={() => pickPath('train')}
-            >
-              Add my data
-            </Button>
-            <TxrUseExampleButton path="train" onDone={() => exampleDone('train')} />
-          </div>
-        </section>
+                <section style={CARD_PLAIN} data-testid="txr-intake-start-card-train">
+                  <div style={CARD_EYEBROW}>Most flexible</div>
+                  <h2 style={CARD_TITLE}>Learn from my data</h2>
+                  <p style={CARD_BODY}>
+                    Train the methods on your own patients with known outcomes, then predict new patients.
+                    Choose what to predict — progression or death within a chosen horizon — and run the
+                    methods that fit your file.
+                  </p>
+                  <ul style={CARD_BULLETS}>
+                    <li style={CARD_BULLET}>
+                      Needs patients with outcomes (progression or death times)
+                    </li>
+                    <li style={CARD_BULLET}>
+                      {count !== null
+                        ? `${count} methods, with the time each will take`
+                        : 'Methods, with the time each will take'}
+                    </li>
+                    <li style={CARD_BULLET}>Save the trained models to reuse them</li>
+                  </ul>
+                  <div style={CARD_BUTTON_ROW}>
+                    <Button
+                      data-testid="txr-intake-start-card-train-cta"
+                      style={OUTLINE_BUTTON}
+                      onClick={() => pickPath('train')}
+                    >
+                      Add my data
+                    </Button>
+                    <TxrUseExampleButton path="train" onDone={() => exampleDone('train')} />
+                  </div>
+                </section>
 
-        <section style={CARD_PLAIN} data-testid="txr-intake-start-card-reuse">
-          <div style={CARD_EYEBROW}>Repeat a past analysis</div>
-          <h2 style={CARD_TITLE}>Use a model I saved</h2>
-          <p style={CARD_BODY}>
-            Add the patients to predict, then pick any of the models you trained here before, one
-            or many. No need to upload the training data again.
-          </p>
-          <ul style={CARD_BULLETS}>
-            <li style={CARD_BULLET}>
-              Checks that the new patients have the markers the model needs
-            </li>
-          </ul>
-          <div style={CARD_BUTTON_ROW}>
-            {/* qa-fixes ITEM-6 L3: the board labels BOTH flows "Add the
-                patients to predict" — the pretrained card's words — so the
-                saved-model path was indistinguishable at a glance; the
-                plain sentence names the flow this button starts. */}
-            <Button
-              data-testid="txr-intake-start-card-reuse-cta"
-              style={OUTLINE_BUTTON}
-              onClick={() => pickPath('reuse')}
-            >
-              Predict with a model I saved
-            </Button>
-            <TxrUseExampleButton path="reuse" onDone={() => exampleDone('reuse')} />
-          </div>
-        </section>
-      </div>
+                <section style={CARD_PLAIN} data-testid="txr-intake-start-card-reuse">
+                  <div style={CARD_EYEBROW}>Repeat a past analysis</div>
+                  <h2 style={CARD_TITLE}>Use a model I saved</h2>
+                  <p style={CARD_BODY}>
+                    Add the patients to predict, then pick any of the models you trained here before, one
+                    or many. No need to upload the training data again.
+                  </p>
+                  <ul style={CARD_BULLETS}>
+                    <li style={CARD_BULLET}>
+                      Checks that the new patients have the markers the model needs
+                    </li>
+                  </ul>
+                  <div style={CARD_BUTTON_ROW}>
+                    {/* qa-fixes ITEM-6 L3: the board labels BOTH flows "Add the
+                        patients to predict" — the pretrained card's words — so the
+                        saved-model path was indistinguishable at a glance; the
+                        plain sentence names the flow this button starts. */}
+                    <Button
+                      data-testid="txr-intake-start-card-reuse-cta"
+                      style={OUTLINE_BUTTON}
+                      onClick={() => pickPath('reuse')}
+                    >
+                      Predict with a model I saved
+                    </Button>
+                    <TxrUseExampleButton path="reuse" onDone={() => exampleDone('reuse')} />
+                  </div>
+                </section>
+              </div>
 
-      <div style={BANNER}>
-        <span>
-          Not sure which fits?{' '}
-          <Link data-testid="txr-intake-start-unsure" style={EXAMPLE_LINK} to={STUDY_ROUTE}>
-            Answer a few questions about your study on the next screen
-          </Link>
-          : we show what each way needs from you.
-        </span>
-        <span style={BANNER_SPACER} />
-        <span data-testid="txr-intake-start-example-hint">
-          Prefer to try it first? <b>Use example</b> on any card fills the whole flow with the
-          example data — replace it with your own files at any time.
-        </span>
-      </div>
+              <div style={BANNER}>
+                <span>
+                  Not sure which fits?{' '}
+                  <Link data-testid="txr-intake-start-unsure" style={EXAMPLE_LINK} to={STUDY_ROUTE}>
+                    Answer a few questions about your study on the next screen
+                  </Link>
+                  : we show what each way needs from you.
+                </span>
+                <span style={BANNER_SPACER} />
+                <span data-testid="txr-intake-start-example-hint">
+                  Prefer to try it first? <b>Use example</b> on any card fills the whole flow with the
+                  example data — replace it with your own files at any time.
+                </span>
+              </div>
 
-      {webUrlUsable ? (
-        <div style={WEB_URL_NOTICE} data-testid="txr-intake-web-url">
-          This app is also available at {window.location.origin}
-        </div>
-      ) : null}
+              {webUrlUsable ? (
+                <div style={WEB_URL_NOTICE} data-testid="txr-intake-web-url">
+                  This app is also available at {window.location.origin}
+                </div>
+              ) : null}
+            </div>
+          </ScrollRegion>
+        }
+      />
     </div>
   )
 }
