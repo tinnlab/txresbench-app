@@ -18,6 +18,7 @@ import {
 } from '@/modules/txrlist'
 import { Alert, Button, message, Skeleton } from '@ziee/kit'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
+import { useShortShell } from '../lib/useNarrow'
 import {
   PageFrame,
 } from '@/modules/txrshell/components/PageFrame'
@@ -114,18 +115,6 @@ const REGION_CONTENT: CSSProperties = {
   flexDirection: 'column',
   gap: 14,
   padding: '12px 36px 24px',
-  minWidth: 0,
-}
-
-const PAGE_MAIN: CSSProperties = {
-  flexGrow: 1,
-  minHeight: 0,
-  overflowY: 'auto',
-  boxSizing: 'border-box',
-  padding: '24px 36px',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 12,
   minWidth: 0,
 }
 
@@ -309,6 +298,10 @@ export function ChooseMethodsPage() {
   const creating = useRef(false)
   const settingsAnchor = useRef<HTMLDivElement | null>(null)
   useDocumentTitle('Choose the methods and settings')
+  /** A short shell window collapses the summary + settings cards by
+   *  default (the expanded chrome cannot share a 720/768 px shell window
+   *  with the list — the audit's fixed-top byte, ITEM-2). */
+  const short = useShortShell()
   const mode = useStore(useTxrIntakeStore, s => s.mode)
   const patients = useStore(useTxrIntakeStore, s => s.patients)
   const measurements = useStore(useTxrIntakeStore, s => s.measurements)
@@ -485,6 +478,7 @@ export function ChooseMethodsPage() {
         markerNames={filesSummary.markerNames}
         details={filesSummary.details}
         onChangeFiles={() => setChangeOpen(true)}
+        collapsed={short}
       />
       <div ref={settingsAnchor}>
         {runConfig.loading ? (
@@ -511,6 +505,7 @@ export function ChooseMethodsPage() {
               covariates={covariates}
               onChange={change}
               onMoreSettings={next => change({ ...settings, ...next })}
+              collapsed={short}
             />
           </>
         )}

@@ -20,7 +20,9 @@
  *   ITEM-2) and the estimate explained (where the time numbers come from);
  * - at the app's phone width the card is COLLAPSIBLE (collapsed by
  *   default) with the live sentence as its one-line summary; the rows are
- *   the same controls either way (only the chrome changes).
+ *   the same controls either way (only the chrome changes). The app-shell's
+ *   short shell windows (720/768 px) use the same compact form via the
+ *   `collapsed` prop (ITEM-2's fixed-top byte).
  *
  * The block is CONTROLLED and presentational (the ITEM-7 rule): the rows
  * render `value`, every change reports the new full `RunSettings` up, the
@@ -53,6 +55,10 @@ export interface TxrSettingsBlockProps {
   onChange(next: RunSettings): void
   /** The More-settings controls changed (CPUs / lanes). */
   onMoreSettings(next: Partial<Pick<RunSettings, 'cpus' | 'at_a_time'>>): void
+  /** app-shell ITEM-2: a SHORT shell window renders the card collapsed by
+   *  default (the audit's fixed-top byte — the one-line summary form the
+   *  phone width already uses); `undefined` keeps the width-driven state. */
+  collapsed?: boolean
 }
 
 /** The card's look (the board's settings card, with the block's own title). */
@@ -172,9 +178,12 @@ export function TxrSettingsBlock({
   covariates,
   onChange,
   onMoreSettings,
+  collapsed,
 }: TxrSettingsBlockProps) {
   const [moreOpen, setMoreOpen] = useState(false)
   const narrow = useNarrow()
+  /** The compact (one-line) form: phone width, or a SHORT shell window. */
+  const compact = narrow || collapsed === true
   const [phoneOpen, setPhoneOpen] = useState(false)
   const names = factsLine(covariates)
   const sentence = useMemo(
@@ -296,7 +305,7 @@ export function TxrSettingsBlock({
     </div>
   )
 
-  if (narrow && !phoneOpen) {
+  if (compact && !phoneOpen) {
     return (
       <div style={CARD} data-testid="txr-run-settings" data-narrow="true">
         <Button
@@ -313,6 +322,9 @@ export function TxrSettingsBlock({
             background: 'transparent',
             height: 'auto',
             minHeight: 44,
+            // The kit button's default is nowrap — the summary lines must
+            // WRAP on a narrow card (the 390 sweep's byte).
+            whiteSpace: 'normal',
           }}
           onClick={() => setPhoneOpen(true)}
         >
@@ -324,7 +336,7 @@ export function TxrSettingsBlock({
   }
 
   return (
-    <div style={CARD} data-testid="txr-run-settings" data-narrow={narrow ? 'true' : 'false'}>
+    <div style={CARD} data-testid="txr-run-settings" data-narrow={compact ? 'true' : 'false'}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
         <h2 data-testid="txr-run-settings-title" style={CARD_TITLE}>
           What do you want to predict?
@@ -333,7 +345,7 @@ export function TxrSettingsBlock({
           {sentence}
         </p>
       </div>
-      {narrow ? (
+      {compact ? (
         <Button
           variant="outline"
           data-testid="txr-run-settings-toggle"

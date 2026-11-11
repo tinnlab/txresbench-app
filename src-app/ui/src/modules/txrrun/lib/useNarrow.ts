@@ -25,6 +25,35 @@ function isNarrow(): boolean {
   )
 }
 
+/**
+ * app-shell ITEM-2 — the short-shell-window query. The audit's three
+ * measured heights are 900 (the chrome fits expanded), 720 and 768 (the
+ * fixed top would leave the list region nothing), so the E page's two
+ * collapsible cards answer this query: below 800 px tall they render
+ * COLLAPSED by default (the same one-line form the phone width uses), and
+ * the user can expand them in place.
+ */
+const SHORT_QUERY = '(max-height: 799px)'
+
+/** True on a short shell window (guarded — jsdom answers false, desktop). */
+export function useShortShell(): boolean {
+  const [short, setShort] = useState(
+    () =>
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia(SHORT_QUERY).matches,
+  )
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
+    const mql = window.matchMedia(SHORT_QUERY)
+    const onChange = (): void => setShort(mql.matches)
+    mql.addEventListener('change', onChange)
+    setShort(mql.matches)
+    return () => mql.removeEventListener('change', onChange)
+  }, [])
+  return short
+}
+
 /** True on the app's phone width (guarded — jsdom answers false, desktop). */
 export function useNarrow(): boolean {
   const [narrow, setNarrow] = useState(isNarrow)

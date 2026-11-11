@@ -14,6 +14,10 @@
  * (the page owns the dialog state).
  *
  * At the app's phone width the card is COLLAPSIBLE (collapsed by default)
+ * with the one-line summary as the toggle; the app-shell's short shell
+ * windows (the audit's 720/768 px fixed-top byte) use the same compact
+ * form via the `collapsed` prop so the E page's fixed chrome shares the
+ * window with the method list.
  * with the compact line as its one-line summary; the Details disclosure
  * and "Change files" live in the expanded body (same content, smaller
  * chrome).
@@ -104,6 +108,10 @@ export interface TxrFilesSummaryProps {
   details: TxrSlotSummarySlot[]
   /** The "Change files" action (opens the module's change-files dialog). */
   onChangeFiles: () => void
+  /** app-shell ITEM-2: a SHORT shell window renders the card collapsed by
+   *  default (the audit's fixed-top byte — the one-line summary form the
+   *  phone width already uses); `undefined` keeps the width-driven state. */
+  collapsed?: boolean
 }
 
 export function TxrFilesSummary({
@@ -111,8 +119,11 @@ export function TxrFilesSummary({
   markerNames,
   details,
   onChangeFiles,
+  collapsed,
 }: TxrFilesSummaryProps) {
   const narrow = useNarrow()
+  /** The compact (one-line) form: phone width, or a SHORT shell window. */
+  const compact = narrow || collapsed === true
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [phoneOpen, setPhoneOpen] = useState(false)
 
@@ -168,7 +179,7 @@ export function TxrFilesSummary({
     </>
   )
 
-  if (narrow && !phoneOpen) {
+  if (compact && !phoneOpen) {
     return (
       <div style={CARD} data-testid="txr-run-summary" data-narrow="true">
         <Button
@@ -185,6 +196,9 @@ export function TxrFilesSummary({
             height: 'auto',
             minHeight: 44,
             minWidth: 0,
+            // The kit button's default is nowrap — the one-line summary must
+            // WRAP on a narrow card (the 390 sweep's byte).
+            whiteSpace: 'normal',
           }}
           onClick={() => setPhoneOpen(true)}
         >
@@ -198,9 +212,9 @@ export function TxrFilesSummary({
     <div
       style={CARD}
       data-testid="txr-run-summary"
-      data-narrow={narrow ? 'true' : 'false'}
+      data-narrow={compact ? 'true' : 'false'}
     >
-      {narrow ? (
+      {compact ? (
         <Button
           variant="outline"
           data-testid="txr-run-summary-toggle"
