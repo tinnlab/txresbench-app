@@ -465,6 +465,10 @@ async fn template_and_example_endpoints_serve_the_committed_bytes() {
             "/file-validation/examples/measurements",
             "data/file-validator/examples/measurements.csv",
         ),
+        (
+            "/file-validation/examples/predict-measurements",
+            "data/file-validator/examples/predict-measurements.csv",
+        ),
     ] {
         let resp = server
             .client
@@ -506,7 +510,7 @@ async fn template_and_example_endpoints_serve_the_committed_bytes() {
     let text = resp.text().await.expect("text");
     assert_eq!(
         text.trim(),
-        "patient_id,pfs_days,pfs_event,os_days,os_event,age,sex,stage"
+        "patient_id,pfs_days,pfs_event,os_days,os_event,responder,response_day,age,sex,stage"
     );
     let resp = server
         .client

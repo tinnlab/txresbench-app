@@ -278,7 +278,7 @@ test.describe('txr-run — the real backend (TEST-RUN-28/29)', () => {
     // real eligibility rows and the bottom bar (the runnable verdicts over
     // the example files — never a board number). The recommended set is
     // ticked on arrival; the leg wants exactly ONE method, so None first.
-    await expect(page.getByTestId('txr-run-intro')).toContainText('learns from your 300 patients', {
+    await expect(page.getByTestId('txr-run-intro')).toContainText('learns from your 100 patients', {
       timeout: 120_000,
     })
     await expect(page.getByTestId('txr-run-settings-error')).toHaveCount(0)

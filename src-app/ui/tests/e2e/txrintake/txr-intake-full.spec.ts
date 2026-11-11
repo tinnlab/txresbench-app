@@ -9,7 +9,7 @@ import { expect, test, type Page } from '@playwright/test'
  * the example CSVs come from the real `FileValidation.example` endpoints
  * (CONS-UI-INTAKE-6), and the real inspect / validate / eligibility wiring
  * renders the board's data-filled boxes. Every number asserted below is the
- * provider's real response for the committed synthetic examples (300
+ * provider's real response for the committed synthetic examples (100
  * patients / 3,848 rows) — never the boards' design-example counts.
  *
  * Spec ↔ TESTS.md:
@@ -171,7 +171,7 @@ test.describe('txr-intake-full — the real backend (TEST-INT-17)', () => {
     // asserted here against the real API (never a mock pin).
     const patientsTemplate = await fetchCsv(page, '/api/file-validation/templates/patients')
     expect(patientsTemplate.split('\n')[0]).toBe(
-      'patient_id,pfs_days,pfs_event,os_days,os_event,age,sex,stage',
+      'patient_id,pfs_days,pfs_event,os_days,os_event,responder,response_day,age,sex,stage',
     )
     const measurementsTemplate = await fetchCsv(
       page,
@@ -180,27 +180,27 @@ test.describe('txr-intake-full — the real backend (TEST-INT-17)', () => {
     expect(measurementsTemplate.split('\n')[0]).toBe('patient_id,day,marker,value,unit')
 
     // The examples the screens serve (CONS-UI-INTAKE-6): the committed
-    // synthetic world — 300 patients, 3,848 value rows.
+    // synthetic world — 100 patients, 2,959 value rows (qa-fixes3 ITEM-3's family).
     const patients = await fetchCsv(page, '/api/file-validation/examples/patients')
     const measurements = await fetchCsv(page, '/api/file-validation/examples/measurements')
-    expect(patients.trimEnd().split('\n')).toHaveLength(301)
-    expect(measurements.trimEnd().split('\n')).toHaveLength(3849)
+    expect(patients.trimEnd().split('\n')).toHaveLength(101)
+    expect(measurements.trimEnd().split('\n')).toHaveLength(2960)
 
     // The real drop → browser decode (PROV-FV-7) → inspect → validate flow.
     const validateBodies = captureValidateBodies(page)
     await dropCsv(page, 'txr-intake-file-drop-patients', 'patients.csv', patients)
     await expect(page.getByTestId('txr-intake-file-status-patients')).toContainText(
-      '300 rows read',
+      '100 rows read',
     )
     await dropCsv(page, 'txr-intake-file-drop-measurements', 'measurements.csv', measurements)
 
     // The patients card: the board's green line, data-filled by the REAL
-    // validate summary (300 rows, 300 with the primary outcome, the real
+    // validate summary (100 rows, 100 with the primary outcome, the real
     // median follow-up of the synthetic world).
     const patientsStatus = page.getByTestId('txr-intake-file-status-patients')
-    await expect(patientsStatus).toContainText('✓ 300 patients read')
+    await expect(patientsStatus).toContainText('✓ 100 patients read')
     await expect(patientsStatus).toContainText(
-      'Found 300 rows, 206 progressions or deaths, median follow-up 216 days. Ready.',
+      'Found 100 rows, 61 progressions or deaths, median follow-up 207.5 days. Ready.',
     )
 
     // The measurements card: the board-N line with the C "Ready." terminator
@@ -208,7 +208,7 @@ test.describe('txr-intake-full — the real backend (TEST-INT-17)', () => {
     const measurementsStatus = page.getByTestId('txr-intake-file-status-measurements')
     await expect(measurementsStatus).toContainText('✓ 300 patients read')
     await expect(measurementsStatus).toContainText(
-      'Found 3,848 rows: markers M1 and M2; draws on 9 days (0 to 336). Ready.',
+      'Found 2,959 rows: markers M1, M2 and M3; draws on 10 days (-28 to 336). Ready.',
     )
 
     // The example files carry the provider's own two A04 notes (the a.u.
@@ -216,7 +216,7 @@ test.describe('txr-intake-full — the real backend (TEST-INT-17)', () => {
     // R2-6: a ready file WITH notes is the distinct warning-toned
     // "Ready, with notes" state, not the green all-clear).
     const problems = page.getByTestId('txr-intake-file-notes-measurements')
-    await expect(measurementsStatus).toContainText('Ready, with 2 notes')
+    await expect(measurementsStatus).toContainText('Ready, with 3 notes')
     // The provider's markdown backticks are stripped for display (ITEM-6 F5e);
     // R2-5: the two notes are one grouped line each + the codes disclosure.
     await expect(problems).toContainText(
@@ -239,8 +239,8 @@ test.describe('txr-intake-full — the real backend (TEST-INT-17)', () => {
     const validate = validateBodies[validateBodies.length - 1]
     expect(validate, 'the C flow must have posted one validate').toBeDefined()
     expect(validate!.mode).toBe('files')
-    expect((validate!.patients as { rows: unknown[] }).rows).toHaveLength(300)
-    expect((validate!.measurements as { rows: unknown[] }).rows).toHaveLength(3848)
+    expect((validate!.patients as { rows: unknown[] }).rows).toHaveLength(100)
+    expect((validate!.measurements as { rows: unknown[] }).rows).toHaveLength(2959)
     expect(validate!.joins).toEqual([])
     expect(validate!.mapping).toEqual([])
     expect(validate!.parameters).toEqual({ decision_day: 56, baseline_max_day: 0 })
@@ -295,7 +295,7 @@ test.describe('txr-intake-full — the real backend (TEST-INT-17)', () => {
     const status = page.getByTestId('txr-intake-file-status-measurements')
     await expect(status).toContainText('✓ 300 patients read')
     await expect(status).toContainText(
-      'Found 3,848 rows: markers M1 and M2; draws on 9 days (0 to 336). Next you choose the models that can run on it.',
+      'Found 2,959 rows: markers M1, M2 and M3; draws on 10 days (-28 to 336). Next you choose the models that can run on it.',
     )
     await expect(page.getByTestId('txr-intake-continue')).toBeEnabled()
 

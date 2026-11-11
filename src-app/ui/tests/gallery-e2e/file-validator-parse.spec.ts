@@ -54,10 +54,10 @@ test.describe('file-validator decode library (real browser, real File API)', () 
     expect(table.source).toEqual({ name: 'measurements.csv', format: 'csv' })
     expect(table.header_row).toBe(1)
     expect(table.columns).toEqual(['patient_id', 'day', 'marker', 'value', 'unit'])
-    expect(table.rows).toHaveLength(3848)
+    expect(table.rows).toHaveLength(2959)
     // The byte pin is the regenerated example (qa-fixes ITEM-6, F6): the
     // generator rounds whole days and 1-decimal values for display.
-    expect(table.rows[0]).toEqual(['J0000', '0', 'M1', '12.4', 'a.u.'])
+    expect(table.rows[0]).toEqual(['J0000', '-28', 'M1', '8.1', 'a.u.'])
     expect(errors).toEqual([])
   })
 
@@ -85,6 +85,8 @@ test.describe('file-validator decode library (real browser, real File API)', () 
       'pfs_event',
       'os_days',
       'os_event',
+      'responder',
+      'response_day',
       'age',
       'sex',
       'stage',

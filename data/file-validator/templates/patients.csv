@@ -1,1 +1,1 @@
-patient_id,pfs_days,pfs_event,os_days,os_event,age,sex,stage
+patient_id,pfs_days,pfs_event,os_days,os_event,responder,response_day,age,sex,stage

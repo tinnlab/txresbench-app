@@ -247,7 +247,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
             },
           ],
           exampleRows:
-            'patient_id,pfs_days,pfs_event,os_days,os_event,age,sex,stage\nJ0000,203,1,203,1,47,F,III\nJ0001,358,0,358,0,30,F,III\nJ0002,406,1,406,1,72,F,III',
+            'patient_id,pfs_days,pfs_event,os_days,os_event,responder,response_day,age,sex,stage\nJ0000,472,1,808,1,0,35,77,M,III\nJ0001,145,1,242,1,0,63,46,M,II\nJ0002,60,1,527,0,1,59,64,M,II',
         },
       },
       {
@@ -289,7 +289,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
             },
           ],
           exampleRows:
-            'patient_id,day,marker,value,unit\nJ0000,0,M1,12.4,a.u.\nJ0000,0,M2,4.6,a.u.\nJ0000,21,M1,16.2,a.u.',
+            'patient_id,day,marker,value,unit\nJ0000,-28,M1,8.1,a.u.\nJ0000,-28,M2,18.1,a.u.\nJ0000,-28,M3,29.5,a.u.',
         },
       },
       {

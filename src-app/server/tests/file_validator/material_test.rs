@@ -185,11 +185,13 @@ fn generator_fixture_parity_and_committed_example_are_synthetic_only() {
     assert!(out.contains("self-test OK"), "selftest must report OK:\n{out}");
 
     // The example is the synthetic fixture world only (INV-4): ids J*, markers
-    // M1/M2, no restricted-world vocabulary.
+    // M1/M2/M3, no restricted-world vocabulary.
     let patients_text = std::fs::read_to_string(repo.join("data/file-validator/examples/patients.csv"))
         .expect("example patients");
     let measurements_text = std::fs::read_to_string(repo.join("data/file-validator/examples/measurements.csv"))
         .expect("example measurements");
+    let predict_text = std::fs::read_to_string(repo.join("data/file-validator/examples/predict-measurements.csv"))
+        .expect("example predict measurements");
     let patients = parse_csv(&patients_text);
     let measurements = parse_csv(&measurements_text);
     for row in &patients[1..] {
@@ -201,14 +203,26 @@ fn generator_fixture_parity_and_committed_example_are_synthetic_only() {
     }
     for row in &measurements[1..] {
         assert!(
-            row[2].trim() == "M1" || row[2].trim() == "M2",
+            row[2].trim() == "M1" || row[2].trim() == "M2" || row[2].trim() == "M3",
             "the example markers are the fixture registry's: {}",
+            row[2]
+        );
+    }
+    // The predict table is the same marker shape (ITEM-3: new patients, same
+    // markers, no outcomes).
+    let predict = parse_csv(&predict_text);
+    assert!(!predict[1..].is_empty(), "the predict example carries rows");
+    for row in &predict[1..] {
+        assert!(
+            row[2].trim() == "M1" || row[2].trim() == "M2" || row[2].trim() == "M3",
+            "the predict example markers are the family's: {}",
             row[2]
         );
     }
     for (file, text) in [
         ("patients", &patients_text),
         ("measurements", &measurements_text),
+        ("predict-measurements", &predict_text),
     ] {
         for token in ["restricted", "GENIE", "BPC"] {
             assert!(
@@ -247,10 +261,41 @@ fn generator_fixture_parity_and_committed_example_are_synthetic_only() {
     assert!(errors.is_empty(), "the example has no errors: {errors:?}");
     assert_eq!(
         warnings.len(),
-        2,
-        "the two no-scale-assumption warnings (M1/M2, a.u.): {warnings:?}"
+        3,
+        "the three no-scale-assumption warnings (M1/M2/M3, a.u.): {warnings:?}"
     );
     assert!(warnings.iter().all(|p| p.code.code() == "A04"));
+
+    // The predict table validates in the measurements-only (`predict`) mode
+    // with the same zero errors + the per-marker A04 notes (TEST-QF3-1: the
+    // example family passes the validator with at most the normal notes).
+    let predict_request = json!({
+        "mode": "predict",
+        "measurements": csv_to_table("predict-measurements.csv", &repo.join("data/file-validator/examples/predict-measurements.csv")),
+        "joins": [],
+        "mapping": [],
+        "parameters": {"decision_day": 56.0, "baseline_max_day": 0.0},
+    });
+    let predict_request: cytoanalyst::modules::file_validator::ValidationRequest =
+        serde_json::from_value(predict_request).expect("the predict example is a valid request");
+    let predict_response = cytoanalyst::modules::file_validator::validate(&predict_request)
+        .expect("the predict example validates");
+    let predict_warnings: Vec<_> = predict_response
+        .problems
+        .iter()
+        .filter(|p| p.severity == cytoanalyst::modules::file_validator::ProblemSeverity::Warning)
+        .collect();
+    let predict_errors: Vec<_> = predict_response
+        .problems
+        .iter()
+        .filter(|p| p.severity == cytoanalyst::modules::file_validator::ProblemSeverity::Error)
+        .collect();
+    assert!(predict_errors.is_empty(), "the predict example has no errors: {predict_errors:?}");
+    assert_eq!(
+        predict_warnings.len(),
+        3,
+        "the same three per-marker A04 notes: {predict_warnings:?}"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

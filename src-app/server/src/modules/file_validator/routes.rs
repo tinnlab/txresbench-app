@@ -342,13 +342,35 @@ fn post_validate_docs(op: TransformOperation) -> TransformOperation {
 /// The asset endpoints' kind resolution: the two file kinds of the screens
 /// (patients + measurements). `None` for an unknown kind → 404
 /// INVALID_EXAMPLE_KIND (PROV-FV-4: any other kind is refused, never a
-/// silently empty body).
-fn asset_kind(kind: &str) -> Option<FileTableKind> {
+/// silently empty body). The templates know no other kind; the examples add
+/// the ITEM-3 predict-measurements table ([`example_kind`]).
+fn template_kind(kind: &str) -> Option<FileTableKind> {
     match kind {
         "patients" => Some(FileTableKind::Patients),
         "measurements" => Some(FileTableKind::Measurements),
         _ => None,
     }
+}
+
+/// The example kind resolution of PROV-FV-4 + the qa-fixes3 ITEM-3 growth:
+/// the two screen kinds plus `predict-measurements` (the separate table of
+/// NEW patients to predict — the N screen's file shape: same markers, no
+/// outcomes).
+fn example_kind(kind: &str) -> Option<ExampleKind> {
+    match kind {
+        "patients" => Some(ExampleKind::Patients),
+        "measurements" => Some(ExampleKind::Measurements),
+        "predict-measurements" => Some(ExampleKind::PredictMeasurements),
+        _ => None,
+    }
+}
+
+/// One example table (the examples endpoint's kind vocabulary).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExampleKind {
+    Patients,
+    Measurements,
+    PredictMeasurements,
 }
 
 /// The CSV response: 200 + `text/csv; charset=utf-8` + the embedded bytes
@@ -367,7 +389,7 @@ async fn get_template(
     _auth: RequirePermissions<(ProjectsUse,)>,
     Path(kind): Path<String>,
 ) -> ApiResult<impl axum::response::IntoResponse> {
-    let bytes = match asset_kind(&kind) {
+    let bytes = match template_kind(&kind) {
         Some(FileTableKind::Patients) => ASSETS.patients_template,
         Some(FileTableKind::Measurements) => ASSETS.measurements_template,
         None => {
@@ -384,7 +406,7 @@ async fn get_template(
 
 fn get_template_docs(op: TransformOperation) -> TransformOperation {
     with_permission::<(ProjectsUse,)>(op)
-        .description("The header-only template CSV for a screen-C file kind (`patients`: patient_id,pfs_days,pfs_event,os_days,os_event,age,sex,stage; `measurements`: patient_id,day,marker,value,unit) — served from the embedded bytes, never read from disk. Unknown kind → 404 INVALID_EXAMPLE_KIND.")
+        .description("The header-only template CSV for a screen-C file kind (`patients`: patient_id,pfs_days,pfs_event,os_days,os_event,responder,response_day,age,sex,stage; `measurements`: patient_id,day,marker,value,unit) — served from the embedded bytes, never read from disk. Unknown kind → 404 INVALID_EXAMPLE_KIND.")
         .id("FileValidation.template")
         .tag("file-validator")
         .response_with::<200, (), _>(|r| {
@@ -394,19 +416,25 @@ fn get_template_docs(op: TransformOperation) -> TransformOperation {
 }
 
 /// `GET /api/file-validation/examples/{kind}` — the shipped full synthetic
-/// example (a generated fixture, never real data).
+/// example (a generated fixture, never real data): the training patients,
+/// the training measurements, or — `kind=predict-measurements` (qa-fixes3
+/// ITEM-3) — the separate measurements table of NEW patients to predict
+/// (same markers, no outcomes).
 async fn get_example(
     _auth: RequirePermissions<(ProjectsUse,)>,
     Path(kind): Path<String>,
 ) -> ApiResult<impl axum::response::IntoResponse> {
-    let bytes = match asset_kind(&kind) {
-        Some(FileTableKind::Patients) => ASSETS.patients_example,
-        Some(FileTableKind::Measurements) => ASSETS.measurements_example,
+    let bytes = match example_kind(&kind) {
+        Some(ExampleKind::Patients) => ASSETS.patients_example,
+        Some(ExampleKind::Measurements) => ASSETS.measurements_example,
+        Some(ExampleKind::PredictMeasurements) => ASSETS.predict_measurements_example,
         None => {
             return Err(AppError::new(
                 StatusCode::NOT_FOUND,
                 "INVALID_EXAMPLE_KIND",
-                format!("no example for kind `{kind}` (patients | measurements)"),
+                format!(
+                    "no example for kind `{kind}` (patients | measurements | predict-measurements)"
+                ),
             )
             .to_api_error())
         }
@@ -416,7 +444,7 @@ async fn get_example(
 
 fn get_example_docs(op: TransformOperation) -> TransformOperation {
     with_permission::<(ProjectsUse,)>(op)
-        .description("The full synthetic example CSV for a screen-C file kind (generated from the open benchmark data-synth world; ids J0000.., markers M1/M2 — never real patient data). Served from the embedded bytes. Unknown kind → 404 INVALID_EXAMPLE_KIND.")
+        .description("The full synthetic example CSV for a file kind (generated from the app's seeded example simulator; ids J0000.., markers M1/M2/M3, unit a.u. — never real patient data). `patients` / `measurements` are the training pair (the C screen's two files); `predict-measurements` is the separate table of new patients to predict (the N screen's file: the same markers, no outcomes). Served from the embedded bytes. Unknown kind → 404 INVALID_EXAMPLE_KIND.")
         .id("FileValidation.example")
         .tag("file-validator")
         .response_with::<200, (), _>(|r| {
@@ -549,11 +577,28 @@ mod tests {
     /// refused, never a silently empty body).
     #[test]
     fn asset_kind_refuses_unknown_kinds() {
-        assert_eq!(asset_kind("patients"), Some(FileTableKind::Patients));
-        assert_eq!(asset_kind("measurements"), Some(FileTableKind::Measurements));
-        assert_eq!(asset_kind("patients.csv"), None);
-        assert_eq!(asset_kind(""), None);
-        assert_eq!(asset_kind("tables"), None);
+        assert_eq!(template_kind("patients"), Some(FileTableKind::Patients));
+        assert_eq!(template_kind("measurements"), Some(FileTableKind::Measurements));
+        assert_eq!(template_kind("patients.csv"), None);
+        assert_eq!(template_kind(""), None);
+        assert_eq!(template_kind("tables"), None);
+    }
+
+    /// The ITEM-3 growth of the example kinds: `predict-measurements` is the
+    /// third example table; the template endpoint still knows only the two
+    /// screen kinds (an unknown kind on EITHER endpoint keeps the closed 404).
+    #[test]
+    fn example_kinds_carry_the_predict_table_and_refuse_unknowns() {
+        assert_eq!(example_kind("patients"), Some(ExampleKind::Patients));
+        assert_eq!(example_kind("measurements"), Some(ExampleKind::Measurements));
+        assert_eq!(
+            example_kind("predict-measurements"),
+            Some(ExampleKind::PredictMeasurements)
+        );
+        assert_eq!(example_kind("predict_measurements"), None);
+        assert_eq!(example_kind("measurements.csv"), None);
+        assert_eq!(example_kind(""), None);
+        assert_eq!(example_kind("tables"), None);
     }
 
     /// TEST-FV-30 (posture half): the handler's engine call is the pure

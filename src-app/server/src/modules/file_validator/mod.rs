@@ -101,6 +101,7 @@ impl AppModule for FileValidatorModule {
             measurements_template_bytes = facts.measurements_template.byte_len,
             patients_example_lines = facts.patients_example.line_count,
             measurements_example_lines = facts.measurements_example.line_count,
+            predict_measurements_example_lines = facts.predict_measurements_example.line_count,
             "file validator assets loaded from the embedded files"
         );
         Ok(())
