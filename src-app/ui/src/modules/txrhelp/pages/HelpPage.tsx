@@ -960,25 +960,76 @@ export function HelpPage() {
     if (section !== null) setActiveSection(section.id)
   }, [location.hash, documentHash])
 
-  // The rail's current-section highlight (a scroll listener, rAF-throttled).
-  // Captured: inner scroll containers (the app-shell pane, the gallery tier's
-  // bounded frame) do not bubble scroll events to the window.
+  // The rail's current-section highlight (qa-fixes3 ITEM-6): an
+  // IntersectionObserver over the section HEADINGS, not a scroll listener.
+  // The owner-side review measured the rail stuck on "What TxResBench does"
+  // while the reader was at "Troubleshooting": a capture-phase window scroll
+  // listener is only as good as the scroll events the page actually fires,
+  // and a jump that no scroll event reports leaves the highlight frozen.
+  // The observer reads the heading's own position against the "header line"
+  // — a band that is EVERYTHING below the sticky-header offset (96 px, just
+  // past the 84 px scroll-margin every anchor lands at): a heading below the
+  // line has not been reached yet, and the moment it passes the line (by
+  // mouse wheel, keyboard, an anchor click or a jump to the bottom) the
+  // observer fires with its fresh position and the section is marked
+  // crossed. The current section is the LAST crossed one in page order —
+  // the "the lowest section whose heading is at the top" reading the rail
+  // promised — and while none is crossed (the page is at its start) the
+  // first section is current. jsdom has no IntersectionObserver: the unit
+  // tier only renders, the browser tier measures the spy.
+  const SCROLLSPY_HEADER_OFFSET = 96
   useEffect(() => {
-    const threshold = 120
+    if (typeof IntersectionObserver === 'undefined') return
+    const headings = HELP_SECTIONS.flatMap(section => {
+      const heading = document.getElementById(section.id)?.querySelector('h2')
+      return heading instanceof Element ? [heading] : []
+    })
+    if (headings.length === 0) return
+    const crossed = new Set<string>()
+    const observer = new IntersectionObserver(
+      entries => {
+        for (const entry of entries) {
+          const section = entry.target.closest('section')
+          if (section === null || !HELP_SECTIONS.some(s => s.id === section.id)) continue
+          // Intersecting = the heading is real-time BELOW the header line
+          // (not reached); crossing the line going up removes it, coming
+          // back down re-adds it — the jump cases fire too, because every
+          // heading that crossed the line changed its intersection state.
+          if (entry.isIntersecting) crossed.delete(section.id)
+          else crossed.add(section.id)
+        }
+        let next: string | null = null
+        for (const section of HELP_SECTIONS) {
+          if (crossed.has(section.id)) next = section.id
+        }
+        setActiveSection(next ?? HELP_SECTIONS[0].id)
+      },
+      {
+        // Everything from the sticky-header offset down to the bottom of the
+        // viewport — a heading inside it has not been reached yet.
+        rootMargin: `-${SCROLLSPY_HEADER_OFFSET}px 0px 0px 0px`,
+        threshold: 0,
+      },
+    )
+    for (const heading of headings) observer.observe(heading)
+    return () => observer.disconnect()
+    // Re-created when the search narrows the sections: hidden sections
+    // unmount (their headings are gone) and remount with NEW elements on
+    // clear — the observer must be watching the live ones.
+  }, [sectionsVisible])
+
+  // The back-to-top control's visibility (the only remaining scroll
+  // listener): a rAF-throttled capture listener reading the real scroller —
+  // an inner scroll container (the app-shell pane, the gallery tier's
+  // bounded frame) does not bubble scroll events to the window, hence the
+  // capture phase. The section highlight itself is the observer above.
+  useEffect(() => {
     let frame: number | null = null
     const update = () => {
       frame = null
       const scroller = mainRef.current !== null ? helpScroller(mainRef.current) : null
       const scrollTop = scroller !== null ? scroller.scrollTop : window.scrollY
       setShowBackTop(scrollTop > 600)
-      let current = HELP_SECTIONS[0].id
-      for (const section of HELP_SECTIONS) {
-        const el = document.getElementById(section.id)
-        if (el !== null && el.getBoundingClientRect().top <= threshold) {
-          current = section.id
-        }
-      }
-      setActiveSection(current)
     }
     const onScroll = () => {
       if (frame !== null) return
@@ -1051,7 +1102,18 @@ export function HelpPage() {
         {quickStartVisible ? (
           <div
             data-testid="txr-help-quickstart"
-            style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12, margin: '0 0 18px' }}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+              gap: 12,
+              // qa-fixes3 ITEM-6 (e): the row's width is the GRID's width,
+              // not the page's — the quick-start cards used to run the full
+              // 1096 px inner column while the rail + content grid below is
+              // capped at 1048 px, so the cards stuck out 48 px past the
+              // text-column edges on desktop. Same cap, same centring.
+              maxWidth: 1048,
+              margin: '0 auto 18px',
+            }}
           >
             {QUICK_START.map(card => (
               <section
@@ -1119,6 +1181,7 @@ export function HelpPage() {
                     <Link
                       to={helpPath(section.id)}
                       data-testid={`txr-help-toc-${section.id}`}
+                      aria-current={activeSection === section.id ? 'true' : undefined}
                       onClick={() => setContentsOpen(false)}
                       style={{
                         display: 'block',

@@ -190,6 +190,52 @@ test.describe('txr-help — the measured layout at 1440x900', () => {
     }
   })
 
+  test('the rail highlight follows the scroll — anchor, keyboard and wheel (ITEM-6 b)', async ({ page }) => {
+    await openHelp(page, { width: 1440, height: 900 })
+    const active = (id: string) => page.getByTestId(`txr-help-toc-${id}`)
+    // ANCHOR: clicking each contents link lands the rail on the same section
+    // (the owner-side defect: the rail stuck on "What TxResBench does").
+    for (const id of SECTIONS) {
+      await page.getByTestId(`txr-help-toc-${id}`).click()
+      await expect(active(id), `anchor scroll to ${id}`).toHaveAttribute('aria-current', 'true')
+    }
+    // KEYBOARD: End jumps to the bottom — the rail lands on the last section
+    // (a jump no intermediate heading passes).
+    await page.keyboard.press('End')
+    await expect(active('troubleshooting')).toHaveAttribute('aria-current', 'true')
+    // KEYBOARD: Home back to the top — the rail lands on the first section.
+    await page.keyboard.press('Home')
+    await expect(active('overview')).toHaveAttribute('aria-current', 'true')
+    // WHEEL: a continuous wheel scroll follows the sections as they pass the
+    // header line — wheel down until a mid-page section is the current one,
+    // then all the way to the bottom.
+    await page.mouse.move(720, 500)
+    await page.mouse.wheel(0, 400)
+    await page.mouse.wheel(0, 400)
+    await expect(active('files')).toHaveAttribute('aria-current', 'true')
+    await page.mouse.wheel(0, 30000)
+    await expect(active('troubleshooting')).toHaveAttribute('aria-current', 'true')
+  })
+
+  test('the quick-start row shares the grid\'s edges on desktop (ITEM-6 e)', async ({ page }) => {
+    await openHelp(page, { width: 1440, height: 900 })
+    const m = await page.evaluate(() => {
+      const quickstart = document.querySelector<HTMLElement>('[data-testid="txr-help-quickstart"]')!
+      const grid = document.querySelector<HTMLElement>('.txr-help-grid')!
+      const q = quickstart.getBoundingClientRect()
+      const g = grid.getBoundingClientRect()
+      return {
+        leftDelta: q.left - g.left,
+        rightDelta: q.right - g.right,
+      }
+    })
+    // The cards' row is capped at the grid's width and centred like it — the
+    // old row ran the page's full 1096 px and stuck out 48 px past the
+    // grid's edges.
+    expect(Math.abs(m.leftDelta)).toBeLessThanOrEqual(1)
+    expect(Math.abs(m.rightDelta)).toBeLessThanOrEqual(1)
+  })
+
   test('the file tables scroll inside their own box (they never widen the column)', async ({ page }) => {
     await openHelp(page, { width: 1440, height: 900 })
     for (const kind of ['patients', 'measurements']) {
