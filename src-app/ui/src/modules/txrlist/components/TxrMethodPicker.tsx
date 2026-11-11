@@ -34,8 +34,15 @@
  * The copy is location-neutral (qa-fixes2 ITEM-2 rules): no "on this
  * computer" anywhere; the deployment fact (fewer methods can start than the
  * catalogue lists) is stated as "no published environment".
+ *
+ * app-shell ITEM-2: the picker's pieces can be SPLIT by the host through
+ * the `layout` render prop (toolbar → the page's fixed top slot, list →
+ * the scroll region) while the toolbar state stays inside this component —
+ * one state owner, one keyboard model, whichever box the toolbar ends up
+ * in. Without `layout` the two pieces render inline exactly as before (the
+ * gallery and the D/I screens keep the old composition).
  */
-import { useMemo, useState, type CSSProperties } from 'react'
+import { useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { Button, Input, Select, Skeleton } from '@ziee/kit'
 import type { TxrMethodCard } from '../types'
 import {
@@ -136,6 +143,18 @@ export interface TxrMethodPickerProps {
   onChangeFiles(): void
   /** The zero-state's "Change settings" action (scroll to the settings). */
   onChangeSettings(): void
+  /** The host's own composition of the picker's two pieces (toolbar + list).
+   *  Default: both inline in one column (the pre-ITEM-2 byte). */
+  layout?(parts: TxrMethodPickerLayoutParts): ReactNode
+}
+
+/** The picker's two pieces (app-shell ITEM-2's split). */
+export interface TxrMethodPickerLayoutParts {
+  /** The presets row, the re-check line and the search/filter/sort toolbar.
+   *  `null` while the first load is in flight (the old early-return byte). */
+  toolbar: ReactNode | null
+  /** The loading / error / zero / sections / cannot-run bodies. */
+  list: ReactNode
 }
 
 /** The family chip's toggleable pill (the kit Button wears the pill look). */
@@ -173,6 +192,7 @@ export function TxrMethodPicker({
   onSelectionChange,
   onChangeFiles,
   onChangeSettings,
+  layout,
 }: TxrMethodPickerProps) {
   const [query, setQuery] = useState('')
   const [familyFilter, setFamilyFilter] = useState<ReadonlySet<string>>(new Set())
@@ -241,18 +261,111 @@ export function TxrMethodPicker({
     { value: 'none', label: 'None' },
   ]
 
-  if (loading && cards.length === 0) {
-    return (
+  const firstLoad = loading && cards.length === 0
+  const firstError = error !== null && cards.length === 0
+
+  // The toolbar (the page may pin it OUTSIDE the list's scroll region): the
+  // first-load and first-error states have no toolbar (the old early-return
+  // byte — the page's fixed top then carries only the page's own header).
+  const toolbar =
+    firstLoad || firstError ? null : (
+      <>
+        <div data-testid="txr-method-presets" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          {presets.map(item => (
+            <Button
+              key={item.value}
+              type="button"
+              data-testid={`txr-method-preset-${item.value}`}
+              aria-pressed={preset === item.value}
+              variant="outline"
+              className="txr-method-preset"
+              style={preset === item.value ? { ...FAMILY_CHIP, ...PRESET_ON } : FAMILY_CHIP}
+              onClick={() => applyPreset(item.value)}
+            >
+              {item.label}
+            </Button>
+          ))}
+        </div>
+
+        {refreshing && cards.length > 0 ? (
+          <div data-testid="txr-method-refreshing" aria-busy="true" style={REFRESH_LINE}>
+            <span
+              aria-hidden="true"
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: 999,
+                border: '2px solid var(--txr-border)',
+                borderTopColor: 'var(--txr-brand)',
+                display: 'inline-block',
+              }}
+            />
+            Re-checking what can run with these settings…
+          </div>
+        ) : null}
+
+        <div data-testid="txr-method-toolbar" style={TOOLBAR}>
+          <Input
+            data-testid="txr-method-search"
+            aria-label="Search methods"
+            placeholder="Search methods"
+            allowStyle
+            style={SEARCH}
+            value={query}
+            onChange={event => setQuery(event.target.value)}
+          />
+          {TXRMETHOD_GROUP_ORDER.map(group => {
+            const count = runnable.filter(card => card.group === group).length
+            if (count === 0) return null
+            const active = familyFilter.has(group)
+            return (
+              <Button
+                key={group}
+                type="button"
+                data-testid={`txr-method-family-${group}`}
+                aria-pressed={active}
+                variant="outline"
+                className="txr-method-family"
+                style={active ? { ...FAMILY_CHIP, ...FAMILY_CHIP_ON } : FAMILY_CHIP}
+                onClick={() => toggleFamily(group)}
+              >
+                {cards.find(card => card.group === group)?.groupLabel ?? group} ({count})
+              </Button>
+            )
+          })}
+          <Select
+            data-testid="txr-method-sort"
+            aria-label="Sort methods"
+            size="sm"
+            options={[
+              { value: 'recommended', label: 'Recommended' },
+              { value: 'fastest', label: 'Fastest' },
+              { value: 'name', label: 'Name' },
+              { value: 'year', label: 'Year' },
+            ]}
+            value={sort}
+            onValueChange={value => setSort(value as TxrMethodSort)}
+          />
+          <Button
+            data-testid="txr-method-cannot-toggle"
+            variant="outline"
+            aria-pressed={cannotOpen}
+            onClick={openCannot}
+          >
+            {cannotOpen ? 'Hide methods that can\'t run' : "Show methods that can't run"}
+          </Button>
+        </div>
+      </>
+    )
+
+  const list =
+    firstLoad ? (
       <div data-testid="txr-method-loading" aria-busy="true" style={PICKER}>
         {Array.from({ length: 5 }, (_, i) => (
           <Skeleton key={i} style={{ height: 92, borderRadius: 10 }} />
         ))}
       </div>
-    )
-  }
-
-  if (error !== null && cards.length === 0) {
-    return (
+    ) : firstError ? (
       <div data-testid="txr-method-error" style={PICKER}>
         <span style={{ fontSize: 13.5, color: 'var(--txr-danger)' }}>{error}</span>
         <div>
@@ -261,98 +374,7 @@ export function TxrMethodPicker({
           </Button>
         </div>
       </div>
-    )
-  }
-
-  return (
-    <div data-testid="txr-method-picker" style={PICKER}>
-      <div data-testid="txr-method-presets" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        {presets.map(item => (
-          <Button
-            key={item.value}
-            type="button"
-            data-testid={`txr-method-preset-${item.value}`}
-            aria-pressed={preset === item.value}
-            variant="outline"
-            className="txr-method-preset"
-            style={preset === item.value ? { ...FAMILY_CHIP, ...PRESET_ON } : FAMILY_CHIP}
-            onClick={() => applyPreset(item.value)}
-          >
-            {item.label}
-          </Button>
-        ))}
-      </div>
-
-      {refreshing && cards.length > 0 ? (
-        <div data-testid="txr-method-refreshing" aria-busy="true" style={REFRESH_LINE}>
-          <span
-            aria-hidden="true"
-            style={{
-              width: 10,
-              height: 10,
-              borderRadius: 999,
-              border: '2px solid var(--txr-border)',
-              borderTopColor: 'var(--txr-brand)',
-              display: 'inline-block',
-            }}
-          />
-          Re-checking what can run with these settings…
-        </div>
-      ) : null}
-
-      <div data-testid="txr-method-toolbar" style={TOOLBAR}>
-        <Input
-          data-testid="txr-method-search"
-          aria-label="Search methods"
-          placeholder="Search methods"
-          allowStyle
-          style={SEARCH}
-          value={query}
-          onChange={event => setQuery(event.target.value)}
-        />
-        {TXRMETHOD_GROUP_ORDER.map(group => {
-          const count = runnable.filter(card => card.group === group).length
-          if (count === 0) return null
-          const active = familyFilter.has(group)
-          return (
-            <Button
-              key={group}
-              type="button"
-              data-testid={`txr-method-family-${group}`}
-              aria-pressed={active}
-              variant="outline"
-              className="txr-method-family"
-              style={active ? { ...FAMILY_CHIP, ...FAMILY_CHIP_ON } : FAMILY_CHIP}
-              onClick={() => toggleFamily(group)}
-            >
-              {cards.find(card => card.group === group)?.groupLabel ?? group} ({count})
-            </Button>
-          )
-        })}
-        <Select
-          data-testid="txr-method-sort"
-          aria-label="Sort methods"
-          size="sm"
-          options={[
-            { value: 'recommended', label: 'Recommended' },
-            { value: 'fastest', label: 'Fastest' },
-            { value: 'name', label: 'Name' },
-            { value: 'year', label: 'Year' },
-          ]}
-          value={sort}
-          onValueChange={value => setSort(value as TxrMethodSort)}
-        />
-        <Button
-          data-testid="txr-method-cannot-toggle"
-          variant="outline"
-          aria-pressed={cannotOpen}
-          onClick={openCannot}
-        >
-          {cannotOpen ? 'Hide methods that can\'t run' : "Show methods that can't run"}
-        </Button>
-      </div>
-
-      {runnable.length === 0 ? (
+    ) : runnable.length === 0 ? (
         <div
           data-testid="txr-method-zero"
           style={{
@@ -386,6 +408,7 @@ export function TxrMethodPicker({
           </div>
         </div>
       ) : (
+        <>
         <div data-testid="txr-method-sections" style={PICKER}>
           <h2 data-testid="txr-method-ready-heading" style={{ margin: '4px 0 0', fontSize: 16 }}>
             Ready to run ({runnable.length})
@@ -444,77 +467,84 @@ export function TxrMethodPicker({
             )
           })}
         </div>
-      )}
 
-      {cannot.length > 0 ? (
-        <section data-testid="txr-method-cannot" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <h2 data-testid="txr-method-cannot-heading" style={{ margin: '4px 0 0', fontSize: 16 }}>
-            {cannot.length} {cannot.length === 1 ? 'method' : 'methods'} can't run on this data
-          </h2>
-          {!cannotOpen ? (
-            <div data-testid="txr-method-cannot-chips" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {reasonGroupsList.map(group => (
-                <Button
-                  key={group.key}
-                  type="button"
-                  data-testid={`txr-method-reason-${group.key}`}
-                  variant="outline"
-                  style={{ ...FAMILY_CHIP, background: 'var(--txr-danger-soft)', color: 'var(--txr-danger)', borderColor: 'var(--txr-danger-border)' }}
-                  aria-expanded={expandedReasons.has(group.key)}
-                  onClick={() => {
-                    setCannotOpen(true)
-                    setExpandedReasons(prev => {
-                      const next = new Set(prev)
-                      if (next.has(group.key)) next.delete(group.key)
-                      else next.add(group.key)
-                      return next
-                    })
-                  }}
-                >
-                  {group.label} ({group.count})
-                </Button>
-              ))}
-            </div>
-          ) : (
-            <div data-testid="txr-method-cannot-lists" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {reasonGroupsList.map(group => (
-                <div key={group.key} data-testid={`txr-method-reason-group-${group.key}`} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {cannot.length > 0 ? (
+          <section data-testid="txr-method-cannot" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <h2 data-testid="txr-method-cannot-heading" style={{ margin: '4px 0 0', fontSize: 16 }}>
+              {cannot.length} {cannot.length === 1 ? 'method' : 'methods'} can't run on this data
+            </h2>
+            {!cannotOpen ? (
+              <div data-testid="txr-method-cannot-chips" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {reasonGroupsList.map(group => (
                   <Button
+                    key={group.key}
                     type="button"
-                    data-testid={`txr-method-reason-toggle-${group.key}`}
-                    aria-expanded={expandedReasons.has(group.key)}
+                    data-testid={`txr-method-reason-${group.key}`}
                     variant="outline"
-                    style={expandedReasons.has(group.key) ? { ...FAMILY_CHIP, ...FAMILY_CHIP_ON } : FAMILY_CHIP}
-                    onClick={() => toggleReason(group.key)}
+                    style={{ ...FAMILY_CHIP, background: 'var(--txr-danger-soft)', color: 'var(--txr-danger)', borderColor: 'var(--txr-danger-border)' }}
+                    aria-expanded={expandedReasons.has(group.key)}
+                    onClick={() => {
+                      setCannotOpen(true)
+                      setExpandedReasons(prev => {
+                        const next = new Set(prev)
+                        if (next.has(group.key)) next.delete(group.key)
+                        else next.add(group.key)
+                        return next
+                      })
+                    }}
                   >
                     {group.label} ({group.count})
                   </Button>
-                  {expandedReasons.has(group.key) ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      {group.cards.map(card => (
-                        <div key={card.key} data-testid={`txr-method-cannot-row-${card.id}`} style={{ padding: '6px 10px', border: '1px solid var(--txr-border-subtle)', borderRadius: 8, background: 'var(--txr-surface)' }}>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txr-text)' }}>
-                            {card.title}
+                ))}
+              </div>
+            ) : (
+              <div data-testid="txr-method-cannot-lists" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {reasonGroupsList.map(group => (
+                  <div key={group.key} data-testid={`txr-method-reason-group-${group.key}`} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <Button
+                      type="button"
+                      data-testid={`txr-method-reason-toggle-${group.key}`}
+                      aria-expanded={expandedReasons.has(group.key)}
+                      variant="outline"
+                      style={expandedReasons.has(group.key) ? { ...FAMILY_CHIP, ...FAMILY_CHIP_ON } : FAMILY_CHIP}
+                      onClick={() => toggleReason(group.key)}
+                    >
+                      {group.label} ({group.count})
+                    </Button>
+                    {expandedReasons.has(group.key) ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {group.cards.map(card => (
+                          <div key={card.key} data-testid={`txr-method-cannot-row-${card.id}`} style={{ padding: '6px 10px', border: '1px solid var(--txr-border-subtle)', borderRadius: 8, background: 'var(--txr-surface)' }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--txr-text)' }}>
+                              {card.title}
+                            </div>
+                            <div style={{ fontSize: 12, fontFamily: "'Source Code Pro', monospace", color: 'var(--txr-muted)' }}>
+                              {card.id}
+                            </div>
+                            <div style={{ fontSize: 12.5, color: 'var(--txr-text-2)' }}>
+                              {card.run.reasonLine}
+                            </div>
+                            <div style={{ fontSize: 12.5, color: 'var(--txr-muted)' }}>
+                              {card.run.reasonFix || group.fix}
+                            </div>
                           </div>
-                          <div style={{ fontSize: 12, fontFamily: "'Source Code Pro', monospace", color: 'var(--txr-muted)' }}>
-                            {card.id}
-                          </div>
-                          <div style={{ fontSize: 12.5, color: 'var(--txr-text-2)' }}>
-                            {card.run.reasonLine}
-                          </div>
-                          <div style={{ fontSize: 12.5, color: 'var(--txr-muted)' }}>
-                            {card.run.reasonFix || group.fix}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      ) : null}
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        ) : null}
+      </>
+    )
+
+  const compose = layout ?? ((parts: TxrMethodPickerLayoutParts) => (
+    <div data-testid="txr-method-picker" style={PICKER}>
+      {parts.toolbar}
+      {parts.list}
     </div>
-  )
+  ))
+  return compose({ toolbar, list })
 }
