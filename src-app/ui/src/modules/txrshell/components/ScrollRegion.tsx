@@ -178,32 +178,37 @@ export function ScrollRegion({
     if (isNativeControl(event.target)) return
     const el = scrollRef.current
     if (!el) return
-    const metrics = (): ScrollMetrics => ({
+    // The metric snapshot is the input; the scroll-step helpers MUTATE it
+    // (their contract — see TEST-AS-1's pins), so the result is written to
+    // the element only after the switch (a fresh object per keypress: a
+    // mutate-then-move pair that the e2e keyboard leg measures).
+    const m: ScrollMetrics = {
       scrollTop: el.scrollTop,
       clientHeight: el.clientHeight,
       scrollHeight: el.scrollHeight,
-    })
+    }
     let handled = true
     switch (event.key) {
       case 'PageDown':
-        scrollByPage(metrics(), 1)
+        scrollByPage(m, 1)
         break
       case ' ':
-        scrollByPage(metrics(), event.shiftKey ? -1 : 1)
+        scrollByPage(m, event.shiftKey ? -1 : 1)
         break
       case 'PageUp':
-        scrollByPage(metrics(), -1)
+        scrollByPage(m, -1)
         break
       case 'Home':
-        scrollToEdge(metrics(), 'start')
+        scrollToEdge(m, 'start')
         break
       case 'End':
-        scrollToEdge(metrics(), 'end')
+        scrollToEdge(m, 'end')
         break
       default:
         handled = false
     }
     if (handled) {
+      el.scrollTop = m.scrollTop
       event.preventDefault()
       event.stopPropagation()
     }

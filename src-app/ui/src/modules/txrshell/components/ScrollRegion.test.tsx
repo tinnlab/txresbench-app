@@ -95,6 +95,45 @@ describe('ScrollRegion render (TEST-AS-1)', () => {
     expect(screen.getByTestId('txr-scroll-region-shadow-bottom')).not.toBeNull()
   })
 
+  it('a handled key scrolls the region and stops the default (the browser e2e measures the movement)', () => {
+    render(
+      <MemoryRouter initialEntries={['/files']}>
+        <ScrollRegion label="The two file cards">
+          <div>content</div>
+        </ScrollRegion>
+      </MemoryRouter>,
+    )
+    const region = screen.getByTestId('txr-scroll-region')
+    // jsdom has no layout: give the region the measured facts a browser
+    // would (the pages are real scrollports) so the step has somewhere to go.
+    Object.defineProperties(region, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 2000 },
+    })
+    const down = new KeyboardEvent('keydown', {
+      key: 'PageDown',
+      bubbles: true,
+      cancelable: true,
+    })
+    act(() => {
+      region.dispatchEvent(down)
+    })
+    expect(down.defaultPrevented).toBe(true)
+    expect(region.scrollTop).toBe(360)
+    // A native control keeps its own behaviour: the region does not swallow.
+    const button = document.createElement('button')
+    region.appendChild(button)
+    const onKey = new KeyboardEvent('keydown', {
+      key: 'PageDown',
+      bubbles: true,
+      cancelable: true,
+    })
+    act(() => {
+      button.dispatchEvent(onKey)
+    })
+    expect(onKey.defaultPrevented).toBe(false)
+  })
+
   it('a scroll updates the cache under the route+label key', () => {
     renderRegion()
     const region = screen.getByTestId('txr-scroll-region')
