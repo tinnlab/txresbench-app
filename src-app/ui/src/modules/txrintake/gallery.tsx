@@ -44,15 +44,18 @@
  */
 import { lazy, useEffect } from 'react'
 import type { ReactNode } from 'react'
-import { useLocation } from 'react-router-dom'
+import { Route, Routes, useLocation } from 'react-router-dom'
 import { extendCassette, type ModuleGallery, type MockRequestContext } from '@ziee/gallery'
 import { parseCsvText } from '@/lib/txr-files/csv'
 import { StudyPage } from './pages/StudyPage'
 import { FilesPage } from './pages/FilesPage'
 import { PredictFilesPage } from './pages/PredictFilesPage'
+import { StartPage } from './pages/StartPage'
 import { TxrIntake } from './stores/TxrIntake.store'
 import type { LoadedFile, StudyAnswers } from './types'
 import {
+  TXR_INTAKE_EXAMPLE_BUNDLE,
+  TXR_INTAKE_EXAMPLE_SET,
   TXR_INTAKE_FIXTURE_BUNDLE,
   TXR_INTAKE_GROUPS,
   TXR_INTAKE_VOCABULARY,
@@ -298,6 +301,50 @@ function NarrowStoryView() {
   )
 }
 
+// ── the use-example story (qa-fixes3 ITEM-5) ────────────────────────────────
+
+/**
+ * The ONE-CLICK example proof: the REAL StartPage under the story's
+ * descendant Routes, so the example flow's navigation is observed IN FRAME
+ * instead of unmounting the story — the three Use-example buttons land on
+ * the path's file step, the file screens run the SAME inspect/validate a
+ * user drop runs (the cassette answers with the example family bytes), the
+ * Continue button enables on the warning-free state, and the next step's
+ * route records in the navigation seam (the sibling stories' pattern).
+ * The reuse path's example-set poll is the ITEM-3 ready answer extended at
+ * mount — the one endpoint the module family does not own.
+ */
+function UseExampleStoryView() {
+  useEffect(() => {
+    TxrIntake.reset()
+    extendCassette({
+      'Models.exampleSet': () => TXR_INTAKE_EXAMPLE_SET,
+    })
+  }, [])
+  return (
+    <section style={{ minWidth: 0 }}>
+      <Routes>
+        <Route path="/" element={<StartPage />} />
+        <Route path="/files" element={<FilesPage />} />
+        <Route path="/predict-files" element={<PredictFilesPage />} />
+        <Route path="/choose-methods" element={<ExampleStepSeam path="/choose-methods" />} />
+        <Route path="/pretrained-models" element={<ExampleStepSeam path="/pretrained-models" />} />
+        <Route path="/saved-models" element={<ExampleStepSeam path="/saved-models" />} />
+      </Routes>
+      <NavigationResultLine />
+    </section>
+  )
+}
+
+/** The route the Continue reached (the example walk's next step). */
+function ExampleStepSeam({ path }: { path: string }) {
+  return (
+    <p data-testid="txr-use-example-step" style={{ margin: 12, fontSize: 12, color: 'var(--txr-muted)' }}>
+      next step: {path}
+    </p>
+  )
+}
+
 // ── the module's gallery seed ──
 
 export const gallery: ModuleGallery = {
@@ -326,10 +373,16 @@ export const gallery: ModuleGallery = {
       ctx.params.kind === 'measurements'
         ? TXR_INTAKE_FIXTURE_BUNDLE.templateMeasurements
         : TXR_INTAKE_FIXTURE_BUNDLE.templatePatients,
+    // qa-fixes3 ITEM-5: the example family — the SAME bytes every Use-example
+    // flow consumes ("Download the full example" and the one-click buttons
+    // share one source of truth; the old mock served the problem fixture's
+    // twin under the example name).
     'FileValidation.example': (ctx: MockRequestContext) =>
-      ctx.params.kind === 'measurements'
-        ? TXR_INTAKE_FIXTURE_BUNDLE.measurements
-        : TXR_INTAKE_FIXTURE_BUNDLE.patients,
+      ctx.params.kind === 'predict-measurements'
+        ? TXR_INTAKE_EXAMPLE_BUNDLE.predictMeasurements
+        : ctx.params.kind === 'measurements'
+          ? TXR_INTAKE_EXAMPLE_BUNDLE.measurements
+          : TXR_INTAKE_EXAMPLE_BUNDLE.patients,
   },
 
   seeded: [
@@ -361,6 +414,15 @@ export const gallery: ModuleGallery = {
       path: '*',
       initialPath: '/predict-files',
       component: lazy(() => Promise.resolve({ default: NStoryView })),
+      fullHeight: true,
+    },
+    {
+      slug: 'txr-intake-use-example',
+      title: 'One click to a filled flow (qa-fixes3 ITEM-5)',
+      note: 'The Start screen under in-frame routes: each card\'s "Use example" prepares the example family in ONE click and lands on the path\'s file step (train → /files, the two predict paths → /predict-files); the file screens run the same inspect/validate a user drop runs and enable Continue on the warning-free state; Continue records the next step in the seam. The reuse path\'s example set answers ready (ITEM-3) so the poll settles in one round.',
+      path: '/*',
+      initialPath: '/',
+      component: lazy(() => Promise.resolve({ default: UseExampleStoryView })),
       fullHeight: true,
     },
     {

@@ -30,7 +30,7 @@
  * the search and the back-to-top control.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Button, Input, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@ziee/kit'
 import { FiAlertTriangle, FiArrowUp, FiCheckCircle, FiInfo } from 'react-icons/fi'
 import { ApiClient } from '@/api-client'
@@ -39,6 +39,15 @@ import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { STATE_LABEL, STATE_TONE } from '@/modules/txrrun/lib/format'
 import { formatRunHeadline } from '@/modules/txrlist/lib/format'
 import { TXRLIST_STATUS_COLORS } from '@/modules/txrlist/components/TxrListRow'
+// qa-fixes3 ITEM-5: the quick-start cards' one-line example action reuses
+// the SAME button the Start screen's cards use (the one shared "Use
+// example" flow). The import goes through the sibling module's internals —
+// the `txrrun`/`txrlist` precedent — and `txrhelp` does NOT declare
+// `txrintake` in its framework dependencies: the intake module already
+// declares `txrhelp`, so the declared edge would be the loader's
+// `Circular dependency detected` (the cycle the qa-fixes2 ITEM-3 plan
+// already recorded for `txrrun`).
+import { TxrUseExampleButton } from '@/modules/txrintake/components/TxrUseExampleButton'
 import {
   ELIGIBILITY_STATUSES,
   HELP_SECTIONS,
@@ -51,6 +60,12 @@ import {
 } from '../content'
 import { helpPath } from '../routes'
 import type { FileCardContent, HelpBlock, HelpProblemEntry, ProblemGroup, StepCard } from '../types'
+
+/** The intake route the example action lands on (the one-click promise of
+ *  qa-fixes3 ITEM-4: the file step whose own flow validates the adopted
+ *  tables; the destination literals mirror the Start screen's own). */
+const EXAMPLE_FILES_ROUTE = '/files'
+const EXAMPLE_PREDICT_FILES_ROUTE = '/predict-files'
 
 /** The page shell (the app's own palette — R2-H6: the kit token layer's
  *  near-black dark background is NOT the app's page colour). */
@@ -881,6 +896,7 @@ function sectionText(section: (typeof HELP_SECTIONS)[number]): string {
 
 export function HelpPage() {
   const location = useLocation()
+  const navigate = useNavigate()
   // The per-route title system (R2-G1) — ITEM-3's local effect is now the
   // shell's one hook: the same "Help — TxResBench" byte, with the previous
   // title restored on unmount like every other route.
@@ -1071,6 +1087,20 @@ export function HelpPage() {
                   <Link to={card.route} data-testid={`txr-help-quickstart-cta-${card.id}`} style={{ color: 'var(--txr-brand)', fontWeight: 600, fontSize: 13.5 }}>
                     {card.cta} →
                   </Link>
+                  {/* qa-fixes3 ITEM-5: the card's one-line example action —
+                      the same one-click "Use example" flow the Start screen's
+                      card runs, landing on the path's file step. */}
+                  <TxrUseExampleButton
+                    path={card.tryExample.path}
+                    label={card.tryExample.label}
+                    onDone={() =>
+                      navigate(
+                        card.tryExample.path === 'train'
+                          ? EXAMPLE_FILES_ROUTE
+                          : EXAMPLE_PREDICT_FILES_ROUTE,
+                      )
+                    }
+                  />
                 </div>
               </section>
             ))}

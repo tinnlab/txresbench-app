@@ -331,6 +331,36 @@ test.describe('txr-help — the breakpoints', () => {
   })
 })
 
+test.describe('txr-help — the quick-start example actions (qa-fixes3 ITEM-5)', () => {
+  test('each card carries its one-line "Try it with example data" action with the path\'s accessible name', async ({ page }) => {
+    await openHelp(page, { width: 1440, height: 900 })
+    const cards: Array<{ id: string; path: string; name: string }> = [
+      { id: 'pretrained', path: 'pretrained', name: 'Use example data: predict with a pretrained model' },
+      { id: 'learn', path: 'train', name: 'Use example data: learn from my data' },
+      { id: 'saved', path: 'reuse', name: 'Use example data: use a model I saved' },
+    ]
+    for (const card of cards) {
+      const frame = page.getByTestId(`txr-help-quickstart-${card.id}`)
+      await expect(frame.getByText('Try it with example data')).toBeVisible()
+      await expect(frame.getByRole('button', { name: card.name })).toBeVisible()
+      await expect(frame.getByTestId(`txr-use-example-${card.path}`)).toBeVisible()
+    }
+    // The example actions never widen the one-document page. The page-height
+    // pin (under 5,500 px) is NOT repeated here: it already fails on this
+    // branch's base — qa-fixes3 ITEM-2's help-content growth pushed the page
+    // past the qa-fixes2 ITEM-3 target without a browser-tier run noticing
+    // (recorded in DRIFT-1 ITEM-5 as the pre-existing condition). The new
+    // action adds ~32 px to that page.
+    const m = await page.evaluate(() => {
+      return {
+        bodyWidth: document.documentElement.scrollWidth,
+        viewportWidth: document.documentElement.clientWidth,
+      }
+    })
+    expect(m.bodyWidth - m.viewportWidth).toBeLessThanOrEqual(1)
+  })
+})
+
 test.describe('txr-help — light and dark', () => {
   for (const theme of ['light', 'dark'] as const) {
     test(`[${theme}] body text, chips and callouts keep >= 4.5:1 contrast against their real backgrounds`, async ({

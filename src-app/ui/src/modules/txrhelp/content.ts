@@ -52,6 +52,10 @@ export const QUICK_START: readonly QuickStartCard[] = [
     screen: 'Screen N — Predict files',
     route: '/predict-files',
     cta: 'Add the patients to predict',
+    tryExample: {
+      label: 'Try it with example data',
+      path: 'pretrained',
+    },
   },
   {
     id: 'learn',
@@ -61,6 +65,10 @@ export const QUICK_START: readonly QuickStartCard[] = [
     screen: 'Screen B — Your study',
     route: '/study',
     cta: 'Add my data',
+    tryExample: {
+      label: 'Try it with example data',
+      path: 'train',
+    },
   },
   {
     id: 'saved',
@@ -70,6 +78,10 @@ export const QUICK_START: readonly QuickStartCard[] = [
     screen: 'Screen N — Predict files',
     route: '/predict-files',
     cta: 'Predict with a model I saved',
+    tryExample: {
+      label: 'Try it with example data',
+      path: 'reuse',
+    },
   },
 ]
 

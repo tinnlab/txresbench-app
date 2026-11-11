@@ -19,6 +19,24 @@ follow-up.
 - **Save and reuse.** Trained models can be saved, reloaded and applied to new
   patients; a history of runs is kept for each of them.
 
+## Try it with example data
+
+Every way in has a ready-made example. On the start screen, or in the Help
+page's quick start, the button **Use example** on one of the three ways fills
+the whole flow with the app's own example data and takes you to the next step:
+
+- **Predict with a pretrained model** — example blood measurements for a small
+  group of new patients.
+- **Learn from my data** — an example patients table and its measurements
+  (three markers, drawn before and during treatment), with the study questions
+  answered for you.
+- **Use a model I saved** — the same example measurements, plus an example set
+  of trained models the app prepares the first time (three fast methods).
+
+The example data is small, synthetic and identical on every run; nothing you
+upload is ever sent anywhere. Clear example returns the screens to their empty
+state.
+
 ## Privacy
 
 TxResBench does not track you and uses no analytics. Your files are used only to

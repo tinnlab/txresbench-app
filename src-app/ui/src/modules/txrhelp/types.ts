@@ -44,6 +44,22 @@ export interface HelpSection {
   blocks: HelpBlock[]
 }
 
+/** One quick-start card's example action (qa-fixes3 ITEM-5): the one-line
+ *  "Try it with example data" that runs the same one-click example flow the
+ *  Start screen's card runs. The path union is the txrintake module's
+ *  `IntakeIntent` spelling — a LOCAL three-literal union on purpose, so the
+ *  help content stays data-pure: the module never imports the intake
+ *  module's types (the `txintake` → `txrhelp` dependency direction is
+ *  declared; a reverse import would be the manifest cycle the loader
+ *  throws on — the `txrrun`/`txrlist` internals precedent). */
+export interface QuickStartTryExample {
+  /** The visible one-line label (the plan's words). */
+  label: string
+  /** The example flow's path (`'train'` = learn from my data; the two
+   *  predict paths use their intent spelling). */
+  path: 'pretrained' | 'train' | 'reuse'
+}
+
 /** One quick-start card under the search box (mirrors the Start screen's
  *  three ways in; each button goes to the screen that starts it). */
 export interface QuickStartCard {
@@ -59,6 +75,8 @@ export interface QuickStartCard {
    *  in the renderer — the button label is the screen's own words). */
   route: string
   cta: string
+  /** The card's one-click example action (qa-fixes3 ITEM-5). */
+  tryExample: QuickStartTryExample
 }
 
 /** One column spec of a file card (the mono-chip name, the required pill,

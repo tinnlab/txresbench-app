@@ -73,10 +73,14 @@ export interface TxrUseExampleButtonProps {
   path: IntakeIntent
   /** The host's navigation after the flow prepared the store. */
   onDone?: () => void
+  /** The visible label (default: the board's "Use example"; qa-fixes3
+   *  ITEM-5's Help cards pass the plan's one line "Try it with example
+   *  data" — the per-path accessible name never changes). */
+  label?: string
   style?: CSSProperties
 }
 
-export function TxrUseExampleButton({ path, onDone, style }: TxrUseExampleButtonProps) {
+export function TxrUseExampleButton({ path, onDone, label, style }: TxrUseExampleButtonProps) {
   const occupied = useStore(
     useTxrIntakeStore,
     s => {
@@ -165,7 +169,7 @@ export function TxrUseExampleButton({ path, onDone, style }: TxrUseExampleButton
         loading={busy}
         onClick={onClick}
       >
-        {error !== null ? 'Try again' : LABEL}
+        {error !== null ? 'Try again' : (label ?? LABEL)}
       </Button>
       {progress !== null ? (
         <p data-testid={`txr-use-example-progress-${path}`} style={PROGRESS_LINE} role="status">

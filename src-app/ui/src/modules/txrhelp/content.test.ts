@@ -177,6 +177,19 @@ describe('help content — sections (TEST-HELP-1)', () => {
     expect(QUICK_START[0].route).toBe('/predict-files')
     expect(QUICK_START[1].route).toBe('/study')
     expect(QUICK_START[2].route).toBe('/predict-files')
+    // qa-fixes3 ITEM-5: each card carries the one-line example action, and
+    // the path it starts is the card's own way in (the Start screen's
+    // intent spelling, never a different path's example).
+    expect(QUICK_START.map(card => card.tryExample.label)).toEqual([
+      'Try it with example data',
+      'Try it with example data',
+      'Try it with example data',
+    ])
+    expect(QUICK_START.map(card => card.tryExample.path)).toEqual([
+      'pretrained',
+      'train',
+      'reuse',
+    ])
   })
 
   it('the status vocabulary covers both the eligibility verdicts and the run states, with a one-line meaning each', () => {
