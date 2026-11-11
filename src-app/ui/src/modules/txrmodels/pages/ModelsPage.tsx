@@ -58,6 +58,9 @@ import { ApiClient } from '@/api-client'
 import type { ModelSummary } from '@/api-client/types'
 import { isDesktop } from '@/core/platform'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
+import { PageFrame } from '@/modules/txrshell/components/PageFrame'
+import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
+import { PageFooterBar } from '@/modules/txrshell/components/PageFooterBar'
 import { useTxrIntakeStore } from '@/modules/txrintake'
 import { predictFilesPath } from '@/modules/txrrun'
 import { revealRunDir } from '@/modules/txrresults'
@@ -69,14 +72,30 @@ import { useTxrModelsStore } from '../stores/TxrModels.store'
 import { TxrDeleteModelDialog } from '../components/TxrDeleteModelDialog'
 import { TxrRenameModelDialog } from '../components/TxrRenameModelDialog'
 
-/** The board's page chrome (from the ITEM-1 shell). */
-const PAGE_MAIN: CSSProperties = {
-  flexGrow: 1,
-  boxSizing: 'border-box',
-  padding: '28px 36px',
+/** The page's flex spine (the frame fills the routed area). */
+const PAGE_OUTER: CSSProperties = {
+  height: '100%',
+  minHeight: 0,
   display: 'flex',
   flexDirection: 'column',
-  gap: 18,
+  minWidth: 0,
+}
+
+/** The fixed top's own padding (title + toolbar — the audit row). */
+const PAGE_TOP: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 12,
+  padding: '20px 24px 12px',
+  minWidth: 0,
+}
+
+/** The ONE scroll region's content padding (the region scrolls, the padding rides). */
+const REGION_CONTENT: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 12,
+  padding: '12px 24px 20px',
   minWidth: 0,
 }
 
@@ -108,17 +127,18 @@ const HEADER_CONTROLS: CSSProperties = {
   flexWrap: 'wrap',
 }
 
-/** The table's rounded card (the board's frame; horizontal scroll on a narrow screen). */
+/** The table's rounded card (the board's frame; the REGION scrolls both axes — ITEM-3). */
 const TABLE_BOX: CSSProperties = {
   border: '1px solid var(--txr-border)',
   borderRadius: 10,
-  overflowX: 'auto',
   background: 'var(--txr-surface)',
+  minWidth: 0,
 }
 
 const TABLE: CSSProperties = {
   width: '100%',
-  borderCollapse: 'collapse',
+  borderCollapse: 'separate',
+  borderSpacing: 0,
   fontSize: 14,
   minWidth: 960,
 }
@@ -130,6 +150,11 @@ const HEAD_LOOK: CSSProperties = {
   borderBottom: '1px solid var(--txr-border)',
   background: 'var(--txr-surface-dim)',
   whiteSpace: 'nowrap',
+  // ITEM-3: the header sticks to the REGION's top (the region is the
+  // scrollport; the opaque surface is the header token).
+  position: 'sticky',
+  top: 0,
+  zIndex: 2,
 }
 
 const HEAD_RIGHT: CSSProperties = { ...HEAD_LOOK, textAlign: 'right' }
@@ -348,82 +373,90 @@ export function ModelsPage() {
     <main
       data-testid="txr-models-j"
       className="txr-models-j-main"
-      style={PAGE_MAIN}
+      style={PAGE_OUTER}
     >
-      <div className="txr-models-j-header" style={HEADER}>
-        <div>
-          <h1 style={TITLE}>Your models</h1>
-          <div style={SUBTITLE}>
-            Every model you train is kept here, so you can predict new patients later without
-            training again.
+      <PageFrame
+        testId="txr-models-j-frame"
+        top={
+          <div className="txr-models-j-top" style={PAGE_TOP}>
+            <div className="txr-models-j-header" style={HEADER}>
+              <div>
+                <h1 style={TITLE}>Your models</h1>
+                <div style={SUBTITLE}>
+                  Every model you train is kept here, so you can predict new patients later without
+                  training again.
+                </div>
+              </div>
+              <div style={HEADER_CONTROLS}>
+                <Input
+                  data-testid="txr-models-j-search"
+                  className="txr-models-j-search"
+                  type="search"
+                  placeholder="Search models"
+                  aria-label="Search models"
+                  value={search}
+                  onChange={event => setSearch(event.target.value)}
+                  style={{ width: 220 }}
+                  allowStyle
+                />
+                <Button data-testid="txr-models-import" onClick={() => fileRef.current?.click()}>
+                  {IMPORT_LABEL}
+                </Button>
+                {/* native-control-ok: the file input is invisible; the visible affordance is <Button> */}
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".txr"
+                  style={{ display: 'none' }}
+                  aria-hidden="true"
+                  tabIndex={-1}
+                  data-testid="txr-models-import-file"
+                  onChange={event => {
+                    const file = event.target.files?.[0] ?? null
+                    event.target.value = ''
+                    if (file !== null) void importFile(file)
+                  }}
+                />
+              </div>
+            </div>
+
+            {setId !== null ? (
+              <div data-testid="txr-models-j-set-focus" style={SET_FOCUS}>
+                <span>
+                  Showing the set &ldquo;{focusedSetName}&rdquo;
+                </span>
+                <Button
+                  data-testid="txr-models-j-set-clear"
+                  variant="outline"
+                  onClick={() => setSearchParams({})}
+                >
+                  Show all
+                </Button>
+              </div>
+            ) : null}
+
+            {inventory.error !== null ? (
+              <Alert tone="error" data-testid="txr-models-j-error" title={inventory.error} />
+            ) : null}
+            {inventory.error !== null ? (
+              <div>
+                <Button variant="outline" data-testid="txr-models-j-retry" onClick={refresh}>
+                  Retry
+                </Button>
+              </div>
+            ) : null}
+            {importError !== null ? (
+              <Alert tone="error" data-testid="txr-models-j-import-error" title={importError} />
+            ) : null}
+            {actionError !== null ? (
+              <Alert tone="error" data-testid="txr-models-j-action-error" title={actionError} />
+            ) : null}
           </div>
-        </div>
-        <div style={HEADER_CONTROLS}>
-          <Input
-            data-testid="txr-models-j-search"
-            className="txr-models-j-search"
-            type="search"
-            placeholder="Search models"
-            aria-label="Search models"
-            value={search}
-            onChange={event => setSearch(event.target.value)}
-            style={{ width: 220 }}
-            allowStyle
-          />
-          <Button data-testid="txr-models-import" onClick={() => fileRef.current?.click()}>
-            {IMPORT_LABEL}
-          </Button>
-          {/* native-control-ok: the file input is invisible; the visible affordance is <Button> */}
-          <input
-            ref={fileRef}
-            type="file"
-            accept=".txr"
-            style={{ display: 'none' }}
-            aria-hidden="true"
-            tabIndex={-1}
-            data-testid="txr-models-import-file"
-            onChange={event => {
-              const file = event.target.files?.[0] ?? null
-              event.target.value = ''
-              if (file !== null) void importFile(file)
-            }}
-          />
-        </div>
-      </div>
-
-      {setId !== null ? (
-        <div data-testid="txr-models-j-set-focus" style={SET_FOCUS}>
-          <span>
-            Showing the set &ldquo;{focusedSetName}&rdquo;
-          </span>
-          <Button
-            data-testid="txr-models-j-set-clear"
-            variant="outline"
-            onClick={() => setSearchParams({})}
-          >
-            Show all
-          </Button>
-        </div>
-      ) : null}
-
-      {inventory.error !== null ? (
-        <Alert tone="error" data-testid="txr-models-j-error" title={inventory.error} />
-      ) : null}
-      {inventory.error !== null ? (
-        <div>
-          <Button variant="outline" data-testid="txr-models-j-retry" onClick={refresh}>
-            Retry
-          </Button>
-        </div>
-      ) : null}
-      {importError !== null ? (
-        <Alert tone="error" data-testid="txr-models-j-import-error" title={importError} />
-      ) : null}
-      {actionError !== null ? (
-        <Alert tone="error" data-testid="txr-models-j-action-error" title={actionError} />
-      ) : null}
-
-      <div style={TABLE_BOX}>
+        }
+        body={
+          <ScrollRegion label="Your models" className="txr-models-j-region">
+            <div style={REGION_CONTENT}>
+              <div style={TABLE_BOX}>
         {firstLoading ? (
           <div data-testid="txr-models-j-loading" style={BOX_LINE}>
             Loading models…
@@ -554,29 +587,36 @@ export function ModelsPage() {
             </tbody>
           </table>
         )}
-      </div>
-
-      <div style={FOOTNOTES}>
-        <span data-testid="txr-models-j-stored-line" style={STORED_LINE}>
-          <span>Models are stored in</span>
-          {modelsDir !== null ? (
-            <span data-testid="txr-models-j-models-path" style={PATH_SPAN}>
-              {modelsDir}
-            </span>
-          ) : null}
-          {isDesktop() && modelsDir !== null ? (
-            <Button
-              data-testid="txr-models-open-folder"
-              variant="link"
-              style={{ fontSize: 13.5, color: 'var(--txr-brand)' }}
-              onClick={() => void revealRunDir(modelsDir)}
-            >
-              Open the folder
-            </Button>
-          ) : null}
-        </span>
-        <span>Deleting a model removes its file. Results already made with it are kept in History.</span>
-      </div>
+              </div>
+            </div>
+          </ScrollRegion>
+        }
+        bottom={
+          <PageFooterBar testId="txr-models-j-footer-bar">
+            <div style={FOOTNOTES}>
+              <span data-testid="txr-models-j-stored-line" style={STORED_LINE}>
+                <span>Models are stored in</span>
+                {modelsDir !== null ? (
+                  <span data-testid="txr-models-j-models-path" style={PATH_SPAN}>
+                    {modelsDir}
+                  </span>
+                ) : null}
+                {isDesktop() && modelsDir !== null ? (
+                  <Button
+                    data-testid="txr-models-open-folder"
+                    variant="link"
+                    style={{ fontSize: 13.5, color: 'var(--txr-brand)' }}
+                    onClick={() => void revealRunDir(modelsDir)}
+                  >
+                    Open the folder
+                  </Button>
+                ) : null}
+              </span>
+              <span>Deleting a model removes its file. Results already made with it are kept in History.</span>
+            </div>
+          </PageFooterBar>
+        }
+      />
 
       <TxrRenameModelDialog
         model={rowDialog?.kind === 'rename' ? rowDialog.model : null}

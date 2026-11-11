@@ -115,15 +115,18 @@ vi.mock('@/api-client', () => ({
 }))
 
 // ── jsdom has no layout, and the shared list is a VIRTUALIZED window ──
-// The virtualizer reads the overlayscrollbars viewport's offsetHeight and
-// each row's measured height; jsdom answers 0 to all of them, so the layout
-// is STATED (the ChooseMethodsPage suite's own idiom): a tall viewport,
-// every item measuring the row height the list estimates.
+// The virtualizer reads the scrollport's offsetHeight and each row's
+// measured height; jsdom answers 0 to all of them, so the layout is STATED
+// (the ChooseMethodsPage suite's own idiom): a tall viewport, every item
+// measuring the row height the list estimates. ITEM-3 moves the scrollport
+// from the kit ScrollArea's overlayscrollbars viewport (the standalone
+// path) to the frame's region (the layout split), so both are stated.
 const VIEWPORT_H = 1400
 const ROW_H = 56
 
 const isViewport = (el: HTMLElement): boolean =>
-  el.hasAttribute('data-overlayscrollbars-viewport')
+  el.hasAttribute('data-overlayscrollbars-viewport') ||
+  el.classList.contains('txr-scroll-region')
 
 let restoreLayout: (() => void) | null = null
 

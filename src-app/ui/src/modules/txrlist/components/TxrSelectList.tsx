@@ -19,6 +19,15 @@
  *   (an empty group is noise, not a run);
  * - the bottom bar (`TxrListBottomBar`) is pinned to the bottom.
  *
+ * app-shell ITEM-3 — the layout split (the `TxrMethodPicker` layout
+ * precedent): a host that calls `layout(parts)` pins `toolbar` in the
+ * frame's fixed top, `rows` in the frame's ScrollRegion and `bottomBar`
+ * in the fixed bottom. The row stream inside the region then consumes the
+ * REGION as its scrollport (`ScrollRegionContext` — the DataTable wiring,
+ * DEC-3: a page never invents a nested scroll container; the kit
+ * ScrollArea remains only in the standalone composition the module's
+ * gallery stories/unit tier use).
+ *
  * CONTROLLED selection (DEC-3): the host owns the `selected` set and the
  * selection transitions. The piece-level changes are wired to the ONE
  * `lib/selection.ts` rule set — every change the subcomponents report is
@@ -51,9 +60,10 @@
  * it actually rendered (`measureElement`), so a wrapped row corrects the
  * fixed estimate instead of overlapping the next one.
  */
-import { useCallback, useState, type CSSProperties } from 'react'
+import { useCallback, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { observeElementOffset, useVirtualizer } from '@tanstack/react-virtual'
 import { Button, ScrollArea, Skeleton } from '@ziee/kit'
+import { useScrollRegionElement } from '@/modules/txrshell/components/ScrollRegionContext'
 import type {
   TxrFilterChip,
   TxrListRow,
@@ -97,6 +107,15 @@ export interface TxrSelectListBottomBar {
   onRun(keys: string[], opts: { atATime: number; saveModels: boolean }): void
 }
 
+export interface TxrSelectListLayoutParts {
+  /** The filter/search/sort bar (the host pins it in the frame's fixed top). */
+  toolbar: ReactNode
+  /** The row stream (the host puts it inside the frame's ScrollRegion). */
+  rows: ReactNode
+  /** The counters + Run bar (the host pins it in the frame's fixed bottom). */
+  bottomBar: ReactNode
+}
+
 export interface TxrSelectListProps {
   /** The rows this list shows (the host pre-filters them — DEC-9). */
   rows: TxrListRow[]
@@ -132,6 +151,14 @@ export interface TxrSelectListProps {
   onRetry?(): void
   /** The empty state's sentence (default "No <itemLabel>s to show"). */
   emptyText?: string
+  /**
+   * The ITEM-3 layout split: the host pins `toolbar` in the frame's fixed
+   * top, `rows` in the frame's ScrollRegion and `bottomBar` in the fixed
+   * bottom (the row stream then consumes the REGION as its scrollport).
+   * Without `layout` the pieces render inline exactly as before (the
+   * module's gallery stories and unit tier — the kit ScrollArea path).
+   */
+  layout?(parts: TxrSelectListLayoutParts): ReactNode
 }
 
 /** One flat windowed item: a screen-I run-group header or a row. */
@@ -184,6 +211,87 @@ const STATE_BODY: CSSProperties = {
   alignItems: 'flex-start',
 }
 
+/** The row stream's windowed facts (the virtualizer's shape, structural). */
+interface TxrWindowedStream {
+  getVirtualItems(): Array<{ key: string | number | bigint; index: number; start: number }>
+  getTotalSize(): number
+  measureElement: (el: Element | null) => void
+}
+
+/** The row's windowed slot (absolute + translateY, both modes share it). */
+function VirtualItemSlot({
+  virtualRow,
+  item,
+  renderRow,
+  measureElement,
+}: {
+  virtualRow: { key: string | number | bigint; index: number; start: number }
+  item: TxrListItem
+  renderRow(item: TxrListItem): ReactNode
+  measureElement: (el: Element | null) => void
+}) {
+  return (
+    <div
+      data-index={virtualRow.index}
+      ref={measureElement}
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        width: '100%',
+        transform: `translateY(${virtualRow.start}px)`,
+      }}
+    >
+      {renderRow(item)}
+    </div>
+  )
+}
+
+/** The app-shell ITEM-3 row stream: the host ScrollRegion is the scrollport. */
+function RegionRows({
+  virt,
+  items,
+  renderRow,
+  regionRef,
+}: {
+  virt: TxrWindowedStream
+  items: TxrListItem[]
+  renderRow(item: TxrListItem): ReactNode
+  regionRef: { current: HTMLDivElement | null }
+}) {
+  // The context value's identity follows the published node (the region
+  // re-publiches it), so this stream re-renders when the region lands and
+  // republishes the virtualizer's scrollport.
+  const region = useScrollRegionElement()
+  regionRef.current = region?.current ?? null
+  return (
+    <div style={{ minHeight: 0 }} data-testid="txr-region-rows">
+      <div
+        data-testid="txr-list-content"
+        style={{
+          height: virt.getTotalSize(),
+          position: 'relative',
+          width: '100%',
+        }}
+      >
+        {virt.getVirtualItems().map(virtualRow => {
+          const item = items[virtualRow.index]
+          if (item === undefined) return null
+          return (
+            <VirtualItemSlot
+              key={virtualRow.key}
+              virtualRow={virtualRow}
+              item={item}
+              renderRow={renderRow}
+              measureElement={virt.measureElement}
+            />
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export function TxrSelectList({
   rows,
   sections,
@@ -202,9 +310,14 @@ export function TxrSelectList({
   error = null,
   onRetry,
   emptyText,
+  layout,
 }: TxrSelectListProps) {
   const items = buildItems(sections, rows)
   const [viewport, setViewport] = useState<HTMLElement | null>(null)
+  // The host region (ITEM-3 split): the row stream writes the published
+  // element here; the virtualizer reads it (the bridge keeps the
+  // component stable while the region node settles).
+  const regionRef = useRef<HTMLDivElement | null>(null)
 
   const estimateSize = useCallback(
     (index: number) =>
@@ -222,7 +335,7 @@ export function TxrSelectList({
 
   const virt = useVirtualizer({
     count: items.length,
-    getScrollElement: () => viewport,
+    getScrollElement: () => (layout !== undefined ? regionRef.current : viewport),
     estimateSize,
     overscan: TXRLIST_OVERSCAN,
     getItemKey,
@@ -243,118 +356,131 @@ export function TxrSelectList({
     },
   })
 
-  return (
+  const renderRow = (item: TxrListItem): ReactNode =>
+    item.kind === 'section' ? (
+      <TxrListSectionHeader
+        section={item.section}
+        rows={rows}
+        selected={selected}
+        onToggleSection={section =>
+          onSelectionChange(toggleSection(selected, section, rows))
+        }
+        onSectionAction={onSectionAction}
+      />
+    ) : (
+      <TxrListRowView
+        row={item.row}
+        checked={selected.has(item.row.key)}
+        onToggle={row => onSelectionChange(toggle(selected, row))}
+        onAction={onRowAction}
+      />
+    )
+
+  const rowsSlot =
+    loading && rows.length === 0 ? (
+      <div
+        data-testid="txr-list-loading"
+        aria-busy="true"
+        style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '16px 0' }}
+      >
+        {Array.from({ length: TXRLIST_SKELETON_ROWS }, (_, i) => (
+          <Skeleton key={i} style={{ height: TXRLIST_ROW_HEIGHT, borderRadius: 10 }} />
+        ))}
+      </div>
+    ) : error !== null && rows.length === 0 ? (
+      <div data-testid="txr-list-error" style={STATE_BODY}>
+        <span style={{ fontSize: 13.5, color: 'var(--txr-danger)' }}>{error}</span>
+        {onRetry ? (
+          <Button data-testid="txr-list-retry" variant="outline" onClick={onRetry}>
+            Retry
+          </Button>
+        ) : null}
+      </div>
+    ) : items.length === 0 ? (
+      <div data-testid="txr-list-empty" style={STATE_BODY}>
+        <span style={{ fontSize: 13.5, color: 'var(--txr-muted)' }}>
+          {emptyText ?? `No ${pluralize(itemLabel, 2)} to show`}
+        </span>
+      </div>
+    ) : layout !== undefined ? (
+      <RegionRows virt={virt} items={items} renderRow={renderRow} regionRef={regionRef} />
+    ) : (
+      <ScrollArea
+        events={{
+          // overlayscrollbars' own viewport — the node the virtualizer
+          // measures and listens to; `updated` as well as `initialized`,
+          // because the viewport is swapped when the instance restarts.
+          initialized: instance =>
+            setViewport(instance.elements().scrollOffsetElement as HTMLElement),
+          updated: instance =>
+            setViewport(instance.elements().scrollOffsetElement as HTMLElement),
+        }}
+        style={{ height: '100%' }}
+      >
+        <div
+          data-testid="txr-list-content"
+          style={{
+            height: virt.getTotalSize(),
+            position: 'relative',
+            width: '100%',
+          }}
+        >
+          {virt.getVirtualItems().map(virtualRow => {
+            const item = items[virtualRow.index]
+            if (item === undefined) return null
+            return (
+              <VirtualItemSlot
+                key={virtualRow.key}
+                virtualRow={virtualRow}
+                item={item}
+                renderRow={renderRow}
+                measureElement={virt.measureElement}
+              />
+            )
+          })}
+        </div>
+      </ScrollArea>
+    )
+
+  const toolbar = (
+    <TxrListFilterBar
+      rows={rows}
+      selected={selected}
+      filterChips={filterChips}
+      allFilter={allFilter}
+      canRunFilter={canRunFilter}
+      search={search}
+      sort={sort}
+      onToggleAllCanRun={() => onSelectionChange(toggleAllCanRun(selected, rows))}
+    />
+  )
+
+  const bar = (
+    <TxrListBottomBar
+      itemLabel={itemLabel}
+      selectedCount={bottomBar.selectedCount}
+      totalTimeText={bottomBar.totalTimeText}
+      atATime={bottomBar.atATime}
+      saveModels={bottomBar.saveModels}
+      notice={bottomBar.notice}
+      onRun={opts => bottomBar.onRun(runKeys(selected, rows), opts)}
+    />
+  )
+
+  const compose = layout ?? ((parts: TxrSelectListLayoutParts) => (
     <div
       data-testid="txr-list"
       style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}
     >
-      <TxrListFilterBar
-        rows={rows}
-        selected={selected}
-        filterChips={filterChips}
-        allFilter={allFilter}
-        canRunFilter={canRunFilter}
-        search={search}
-        sort={sort}
-        onToggleAllCanRun={() => onSelectionChange(toggleAllCanRun(selected, rows))}
-      />
-      <div style={{ flex: 1, minHeight: 0 }}>
-        {loading && rows.length === 0 ? (
-          <div
-            data-testid="txr-list-loading"
-            aria-busy="true"
-            style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '16px 0' }}
-          >
-            {Array.from({ length: TXRLIST_SKELETON_ROWS }, (_, i) => (
-              <Skeleton key={i} style={{ height: TXRLIST_ROW_HEIGHT, borderRadius: 10 }} />
-            ))}
-          </div>
-        ) : error !== null && rows.length === 0 ? (
-          <div data-testid="txr-list-error" style={STATE_BODY}>
-            <span style={{ fontSize: 13.5, color: 'var(--txr-danger)' }}>{error}</span>
-            {onRetry ? (
-              <Button data-testid="txr-list-retry" variant="outline" onClick={onRetry}>
-                Retry
-              </Button>
-            ) : null}
-          </div>
-        ) : items.length === 0 ? (
-          <div data-testid="txr-list-empty" style={STATE_BODY}>
-            <span style={{ fontSize: 13.5, color: 'var(--txr-muted)' }}>
-              {emptyText ?? `No ${pluralize(itemLabel, 2)} to show`}
-            </span>
-          </div>
-        ) : (
-          <ScrollArea
-            events={{
-              // overlayscrollbars' own viewport — the node the virtualizer
-              // measures and listens to; `updated` as well as `initialized`,
-              // because the viewport is swapped when the instance restarts.
-              initialized: instance =>
-                setViewport(instance.elements().scrollOffsetElement as HTMLElement),
-              updated: instance =>
-                setViewport(instance.elements().scrollOffsetElement as HTMLElement),
-            }}
-            style={{ height: '100%' }}
-          >
-            <div
-              data-testid="txr-list-content"
-              style={{
-                height: virt.getTotalSize(),
-                position: 'relative',
-                width: '100%',
-              }}
-            >
-              {virt.getVirtualItems().map(virtualRow => {
-                const item = items[virtualRow.index]
-                if (item === undefined) return null
-                return (
-                  <div
-                    key={virtualRow.key}
-                    data-index={virtualRow.index}
-                    ref={virt.measureElement}
-                    style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      width: '100%',
-                      transform: `translateY(${virtualRow.start}px)`,
-                    }}
-                  >
-                    {item.kind === 'section' ? (
-                      <TxrListSectionHeader
-                        section={item.section}
-                        rows={rows}
-                        selected={selected}
-                        onToggleSection={section =>
-                          onSelectionChange(toggleSection(selected, section, rows))
-                        }
-                        onSectionAction={onSectionAction}
-                      />
-                    ) : (
-                      <TxrListRowView
-                        row={item.row}
-                        checked={selected.has(item.row.key)}
-                        onToggle={row => onSelectionChange(toggle(selected, row))}
-                        onAction={onRowAction}
-                      />
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </ScrollArea>
-        )}
-      </div>
-      <TxrListBottomBar
-        itemLabel={itemLabel}
-        selectedCount={bottomBar.selectedCount}
-        totalTimeText={bottomBar.totalTimeText}
-        atATime={bottomBar.atATime}
-        saveModels={bottomBar.saveModels}
-        notice={bottomBar.notice}
-        onRun={opts => bottomBar.onRun(runKeys(selected, rows), opts)}
-      />
+      {parts.toolbar}
+      <div style={{ flex: 1, minHeight: 0 }}>{parts.rows}</div>
+      {parts.bottomBar}
+    </div>
+  ))
+
+  return (
+    <div data-testid="txr-list" style={{ height: '100%', minHeight: 0 }}>
+      {compose({ toolbar, rows: rowsSlot, bottomBar: bar })}
     </div>
   )
 }

@@ -50,8 +50,7 @@
  * Copy rule (INV-4): the summary line's counts are the validation's own;
  * the boards' numbers are never constants here.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from 'zustand'
 import { ApiClient } from '@/api-client'
@@ -69,6 +68,9 @@ import {
 } from '@/modules/txrlist'
 import { predictFilesPath, runningPath } from '@/modules/txrrun'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
+import { PageFrame } from '@/modules/txrshell/components/PageFrame'
+import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
+import { PageFooterBar } from '@/modules/txrshell/components/PageFooterBar'
 import { modelsPath } from '../routes'
 import { Alert, Button } from '@ziee/kit'
 import { usePretrained } from '../data/usePretrained'
@@ -83,21 +85,33 @@ import type { TxrModelDialogId, TxrModelFilterId, TxrModelSortId } from '../type
 import { TxrDownloadState } from '../components/TxrDownloadState'
 import { TxrModelCardDialog } from '../components/TxrModelCardDialog'
 
-/** The board's page chrome (from the ITEM-1 shell). */
+/** The page's flex spine (the frame fills the routed area). */
 const PAGE_OUTER: CSSProperties = {
-  flexGrow: 1,
+  height: '100%',
+  minHeight: 0,
   display: 'flex',
   flexDirection: 'column',
   minWidth: 0,
 }
 
-const PAGE_MAIN: CSSProperties = {
-  flexGrow: 1,
-  boxSizing: 'border-box',
-  padding: '26px 36px',
+/** The fixed top's own padding (step + title + checked line + toolbar). */
+const PAGE_TOP: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 14,
+  gap: 12,
+  padding: '20px 24px 12px',
+  minWidth: 0,
+}
+
+/** The list toolbar's slot (the toolbar row the shared list splits out). */
+const TOOLBAR_SLOT: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }
+
+/** The ONE scroll region's content padding (the region scrolls, the padding rides). */
+const REGION_CONTENT: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 12,
+  padding: '12px 24px 20px',
   minWidth: 0,
 }
 
@@ -122,18 +136,6 @@ const TOTALS: CSSProperties = { fontSize: 14, color: 'var(--txr-text-2)' }
 
 /** The header block's lead paragraph (the board's own). */
 const CHECK_LINE: CSSProperties = { margin: 0, color: 'var(--txr-text-2)', maxWidth: '62ch' }
-
-/** The list area's frame (the bounded column the shared list fills). */
-const LIST_FRAME: CSSProperties = {
-  flexGrow: 1,
-  minHeight: 0,
-  display: 'flex',
-  flexDirection: 'column',
-  border: '1px solid var(--txr-border)',
-  borderRadius: 10,
-  background: 'var(--txr-surface)',
-  overflow: 'hidden',
-}
 
 /** The downloads strip's card (the host chrome between list and footnote). */
 const DOWNLOAD_STRIP: CSSProperties = {
@@ -539,41 +541,91 @@ export function PretrainedModelsPage() {
     [cards, patients, measurements, predictMeasurements, joins, mapping, parameters, atATime, navigate],
   )
 
-  return (
-    <main data-testid="txr-models-d" style={PAGE_OUTER}>
-      <div style={PAGE_MAIN}>
-        <div
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: 'flex-end',
-            justifyContent: 'space-between',
-            gap: 12,
-          }}
-        >
-          <div>
-            {/* The step is the flow's fourth; a page reached directly (no
-                validated predict file yet) is not ON step 4 — the step line
-                would claim a position the flow has not reached (RES-20); the
-                counters stay hidden too (nothing has been checked). */}
-            {validation !== null ? <div style={STEP_LINE}>Step 4 of 4</div> : null}
-            <h1 style={TITLE}>Choose the models to run</h1>
-            {validation !== null ? (
-              <p data-testid="txr-models-d-checked" style={CHECK_LINE}>
-                {checkedLine(validation)}
-              </p>
-            ) : null}
-          </div>
-          {validation !== null && cards.length > 0 ? (
-            <span data-testid="txr-models-d-totals" style={TOTALS}>
-              {totals === null || (cardsLoading && cards.length === 0)
-                ? '\u2026'
-                : `${totals.total_fit + totals.total_some} can run, ${totals.total_cannot} cannot`}
-            </span>
+  // ── The ITEM-3 frame composition ─────────────────────────────────────────
+  // The audit route table's row for the D route: fixed top = step + title +
+  // the checked-against line + the totals + the shared list's TOOLBAR (the
+  // list's layout split — the filter chips/search/sort), ONE ScrollRegion =
+  // the virtualized model rows (with the footnote), fixed bottom = the
+  // shared list's counters + Run bar. The split's stream consumes the
+  // region as its scrollport (its own kit ScrollArea is dropped); the no-
+  // catalogue and not-ready branches render the same frame without the
+  // list chrome.
+
+  /** The page's fixed top (the list's toolbar joins it in the list branch). */
+  const pageTop = (toolbar: ReactNode | null): ReactNode => (
+    <div className="txr-models-d-top" style={PAGE_TOP}>
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'flex-end',
+          justifyContent: 'space-between',
+          gap: 12,
+        }}
+      >
+        <div>
+          {/* The step is the flow's fourth; a page reached directly (no
+              validated predict file yet) is not ON step 4 — the step line
+              would claim a position the flow has not reached (RES-20); the
+              counters stay hidden too (nothing has been checked). */}
+          {validation !== null ? <div style={STEP_LINE}>Step 4 of 4</div> : null}
+          <h1 style={TITLE}>Choose the models to run</h1>
+          {validation !== null ? (
+            <p data-testid="txr-models-d-checked" style={CHECK_LINE}>
+              {checkedLine(validation)}
+            </p>
           ) : null}
         </div>
-        {validation !== null ? (
-          cards.length === 0 && !cardsLoading && cardsError === null ? (
+        {validation !== null && cards.length > 0 ? (
+          <span data-testid="txr-models-d-totals" style={TOTALS}>
+            {totals === null || (cardsLoading && cards.length === 0)
+              ? '\u2026'
+              : `${totals.total_fit + totals.total_some} can run, ${totals.total_cannot} cannot`}
+          </span>
+        ) : null}
+      </div>
+      {toolbar !== null ? (
+        <div className="txr-models-d-toolbar" style={TOOLBAR_SLOT}>
+          {toolbar}
+        </div>
+      ) : null}
+      {stripIds.length > 0 ? (
+        <div data-testid="txr-models-downloads" style={DOWNLOAD_STRIP}>
+          <span style={STRIP_CAPTION}>Downloads</span>
+          {stripIds.map(id => (
+            <StripEntry key={id} id={id} />
+          ))}
+        </div>
+      ) : null}
+      {runError !== null ? (
+        <Alert tone="error" data-testid="txr-models-d-run-error" title={runError} />
+      ) : null}
+    </div>
+  )
+
+  /** The ONE body region (the row stream or a branch's own content). */
+  const bodyRegion = (content: ReactNode): ReactNode => (
+    <ScrollRegion label="Models to choose" className="txr-models-d-region">
+      <div style={REGION_CONTENT}>{content}</div>
+    </ScrollRegion>
+  )
+
+  const footnote = (
+    <p style={FOOTNOTE}>
+      Models that cannot run say what is missing from your file. Add the missing
+      markers and they become available.
+    </p>
+  )
+
+  // The no-catalogue branch (a published catalogue with no cards yet): the
+  // same frame, its own content in the region.
+  if (validation !== null && cards.length === 0 && !cardsLoading && cardsError === null) {
+    return (
+      <main data-testid="txr-models-d" style={PAGE_OUTER}>
+        <PageFrame
+          testId="txr-models-d-frame"
+          top={pageTop(null)}
+          body={bodyRegion(
             <div
               data-testid="txr-models-d-no-catalogue"
               style={{
@@ -599,85 +651,109 @@ export function PretrainedModelsPage() {
               >
                 Go to Your models
               </Button>
-            </div>
-          ) : (
-            <div style={LIST_FRAME}>
-              <TxrSelectList
-                rows={shown}
-                itemLabel="model"
-                selected={selection}
-                onSelectionChange={onSelectionChange}
-                filterChips={chips}
-                sort={{
-                  value: sort,
-                  options: D_SORT_OPTIONS as { value: string; label: string }[],
-                  onChange: value => useTxrModelsStore.getState().setSort(value as TxrModelSortId),
-                }}
-                loading={cardsLoading || eligLoading}
-                error={cardsError ?? eligError}
-                onRetry={() => {
-                  refetch()
-                  refetchElig()
-                }}
-                bottomBar={{
-                  selectedCount: countSelected(selection, rows),
-                  totalTimeText: formatTotalTime(
-                    totalSecondsForSelection(selection, verdictByKey),
-                  ),
-                  notice: RESEARCH_NOTICE,
-                  onRun: keys => {
-                    void createRun(keys)
-                  },
-                }}
-                onRowAction={row => {
-                  useTxrModelsStore.getState().openDialog(`card:${row.key.slice(ROW_KEY_PREFIX.length)}` as TxrModelDialogId)
-                }}
-              />
-            </div>
-          )
-        ) : (
-          <div
-            data-testid="txr-models-d-empty"
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 12,
-              alignItems: 'flex-start',
-              padding: '24px 0',
-            }}
-          >
-            <p style={CHECK_LINE}>{EMPTY_LINE}</p>
-            <p data-testid="txr-models-d-empty-note" style={CHECK_LINE}>
-              {EMPTY_NOTE}
-            </p>
-            <Button
-              data-testid="txr-models-d-empty-cta"
-              variant="outline"
-              onClick={() => navigate(predictFilesPath())}
+            </div>,
+          )}
+        />
+        <TxrModelCardDialog
+          cardId={null}
+          onClose={() => useTxrModelsStore.getState().closeDialog()}
+        />
+      </main>
+    )
+  }
+
+  // The not-ready branch (no validated predict file): the frame, the empty
+  // state's own lines in the region (never a half-built list, DEC-6).
+  if (validation === null) {
+    return (
+      <main data-testid="txr-models-d" style={PAGE_OUTER}>
+        <PageFrame
+          testId="txr-models-d-frame"
+          top={pageTop(null)}
+          body={bodyRegion(
+            <div
+              data-testid="txr-models-d-empty"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+                alignItems: 'flex-start',
+                padding: '24px 0',
+              }}
             >
-              {EMPTY_CTA}
-            </Button>
-          </div>
+              <p style={CHECK_LINE}>{EMPTY_LINE}</p>
+              <p data-testid="txr-models-d-empty-note" style={CHECK_LINE}>
+                {EMPTY_NOTE}
+              </p>
+              <Button
+                data-testid="txr-models-d-empty-cta"
+                variant="outline"
+                onClick={() => navigate(predictFilesPath())}
+              >
+                {EMPTY_CTA}
+              </Button>
+            </div>,
+          )}
+        />
+        <TxrModelCardDialog
+          cardId={null}
+          onClose={() => useTxrModelsStore.getState().closeDialog()}
+        />
+      </main>
+    )
+  }
+
+  return (
+    <main data-testid="txr-models-d" style={PAGE_OUTER}>
+      <TxrSelectList
+        rows={shown}
+        itemLabel="model"
+        selected={selection}
+        onSelectionChange={onSelectionChange}
+        filterChips={chips}
+        sort={{
+          value: sort,
+          options: D_SORT_OPTIONS as { value: string; label: string }[],
+          onChange: value => useTxrModelsStore.getState().setSort(value as TxrModelSortId),
+        }}
+        loading={cardsLoading || eligLoading}
+        error={cardsError ?? eligError}
+        onRetry={() => {
+          refetch()
+          refetchElig()
+        }}
+        bottomBar={{
+          selectedCount: countSelected(selection, rows),
+          totalTimeText: formatTotalTime(
+            totalSecondsForSelection(selection, verdictByKey),
+          ),
+          notice: RESEARCH_NOTICE,
+          onRun: keys => {
+            void createRun(keys)
+          },
+        }}
+        onRowAction={row => {
+          useTxrModelsStore.getState().openDialog(`card:${row.key.slice(ROW_KEY_PREFIX.length)}` as TxrModelDialogId)
+        }}
+        layout={parts => (
+          <>
+            <PageFrame
+              testId="txr-models-d-frame"
+              top={pageTop(parts.toolbar)}
+              body={bodyRegion(
+                <>
+                  {parts.rows}
+                  {footnote}
+                </>,
+              )}
+              bottom={<PageFooterBar testId="txr-models-d-bar">{parts.bottomBar}</PageFooterBar>}
+            />
+            <TxrModelCardDialog
+              cardId={dialog.startsWith('card:') ? dialog.slice(5) : null}
+              onClose={() => useTxrModelsStore.getState().closeDialog()}
+            />
+          </>
         )}
-        {stripIds.length > 0 ? (
-          <div data-testid="txr-models-downloads" style={DOWNLOAD_STRIP}>
-            <span style={STRIP_CAPTION}>Downloads</span>
-            {stripIds.map(id => (
-              <StripEntry key={id} id={id} />
-            ))}
-          </div>
-        ) : null}
-        {runError !== null ? (
-          <Alert tone="error" data-testid="txr-models-d-run-error" title={runError} />
-        ) : null}
-        <p style={FOOTNOTE}>
-          Models that cannot run say what is missing from your file. Add the missing
-          markers and they become available.
-        </p>
-      </div>
-      <TxrModelCardDialog
-        cardId={dialog.startsWith('card:') ? dialog.slice(5) : null}
-        onClose={() => useTxrModelsStore.getState().closeDialog()}
       />
     </main>
   )

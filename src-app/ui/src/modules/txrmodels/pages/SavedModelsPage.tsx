@@ -61,7 +61,7 @@
  * Copy rule (INV-4): the totals line's count is the store's own; the
  * boards' numbers are never constants here.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from 'zustand'
 import { ApiClient } from '@/api-client'
@@ -77,6 +77,9 @@ import { countSelected, formatTotalTime, TxrSelectList } from '@/modules/txrlist
 import { predictFilesPath, runningPath } from '@/modules/txrrun'
 import { Alert, Button } from '@ziee/kit'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
+import { PageFrame } from '@/modules/txrshell/components/PageFrame'
+import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
+import { PageFooterBar } from '@/modules/txrshell/components/PageFooterBar'
 import { TxrUseExampleButton } from '@/modules/txrintake'
 import { useAnalysisOutcome } from '../data/useAnalysisOutcome'
 import { buildSavedRows, buildSavedSections } from '../lib/rows'
@@ -93,21 +96,33 @@ import { TxrModelDetailsDialog } from '../components/TxrModelDetailsDialog'
 import { TxrRenameSetDialog } from '../components/TxrRenameSetDialog'
 import { TxrDeleteSetDialog } from '../components/TxrDeleteSetDialog'
 
-/** The board's page chrome (from the ITEM-1 shell). */
+/** The page's flex spine (the frame fills the routed area). */
 const PAGE_OUTER: CSSProperties = {
-  flexGrow: 1,
+  height: '100%',
+  minHeight: 0,
   display: 'flex',
   flexDirection: 'column',
   minWidth: 0,
 }
 
-const PAGE_MAIN: CSSProperties = {
-  flexGrow: 1,
-  boxSizing: 'border-box',
-  padding: '26px 36px',
+/** The fixed top's own padding (step + title + checked line + use-example + toolbar). */
+const PAGE_TOP: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 14,
+  gap: 12,
+  padding: '20px 24px 12px',
+  minWidth: 0,
+}
+
+/** The list toolbar's slot (the toolbar row the shared list splits out). */
+const TOOLBAR_SLOT: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }
+
+/** The ONE scroll region's content padding (the region scrolls, the padding rides). */
+const REGION_CONTENT: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 12,
+  padding: '12px 24px 20px',
   minWidth: 0,
 }
 
@@ -132,18 +147,6 @@ const TOTALS: CSSProperties = { fontSize: 14, color: 'var(--txr-text-2)' }
 
 /** The header block's lead paragraph (the board's own). */
 const CHECK_LINE: CSSProperties = { margin: 0, color: 'var(--txr-text-2)', maxWidth: '62ch' }
-
-/** The list area's frame (the bounded column the shared list fills). */
-const LIST_FRAME: CSSProperties = {
-  flexGrow: 1,
-  minHeight: 0,
-  display: 'flex',
-  flexDirection: 'column',
-  border: '1px solid var(--txr-border)',
-  borderRadius: 10,
-  background: 'var(--txr-surface)',
-  overflow: 'hidden',
-}
 
 /** The board's footnote under the list (verbatim — the I board's own). */
 const FOOTNOTE: CSSProperties = { fontSize: 13, color: 'var(--txr-muted)' }
@@ -525,118 +528,85 @@ export function SavedModelsPage() {
   // apply). ────────────────────────────────────────────────────────────────
   const totals = eligibility.totals
 
-  return (
-    <main data-testid="txr-models-i" style={PAGE_OUTER}>
-      <div style={PAGE_MAIN}>
-        <div
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: 'flex-end',
-            justifyContent: 'space-between',
-            gap: 12,
-          }}
-        >
-          <div>
-            {/* The step is the flow's fourth; a page reached directly (no
-                validated predict file yet) is not ON step 4 — the step line
-                would claim a position the flow has not reached (RES-20). */}
-            {validation !== null ? <div style={STEP_LINE}>Step 4 of 4</div> : null}
-            <h1 style={TITLE}>Choose the saved models to run</h1>
-            {validation !== null ? (
-              <p data-testid="txr-models-i-checked" style={CHECK_LINE}>
-                {checkedLine(validation)}
-              </p>
-            ) : null}
-          </div>
+  // ── The ITEM-3 frame composition ─────────────────────────────────────────
+  // The audit route table's row for the I route: fixed top = step + title +
+  // the checked-against line + the totals + the use-example action + the
+  // shared list's TOOLBAR (the list's layout split — the filter chips/
+  // search/sort), ONE ScrollRegion = the virtualized grouped model rows
+  // (with the footnote), fixed bottom = the shared list's counters + Run
+  // bar. The split's stream consumes the region as its scrollport (its own
+  // kit ScrollArea is dropped); the not-ready branch renders the same frame
+  // without the list chrome.
+
+  /** The page's fixed top (the list's toolbar joins it in the list branch). */
+  const pageTop = (toolbar: ReactNode | null): ReactNode => (
+    <div className="txr-models-i-top" style={PAGE_TOP}>
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'flex-end',
+          justifyContent: 'space-between',
+          gap: 12,
+        }}
+      >
+        <div>
+          {/* The step is the flow's fourth; a page reached directly (no
+              validated predict file yet) is not ON step 4 — the step line
+              would claim a position the flow has not reached (RES-20); the
+              totals line stays hidden too (nothing has been checked). */}
+          {validation !== null ? <div style={STEP_LINE}>Step 4 of 4</div> : null}
+          <h1 style={TITLE}>Choose the saved models to run</h1>
           {validation !== null ? (
-            <span data-testid="txr-models-i-totals" style={TOTALS}>
-              {totals === null
-                ? '\u2026'
-                : formatSavedTotals(
-                    saved.summaries.length,
-                    totals.fit,
-                    totals.some,
-                    totals.cannot,
-                  )}
-            </span>
+            <p data-testid="txr-models-i-checked" style={CHECK_LINE}>
+              {checkedLine(validation)}
+            </p>
           ) : null}
         </div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <TxrUseExampleButton
-            path="reuse"
-            onDone={() => navigate(predictFilesPath())}
-          />
-        </div>
         {validation !== null ? (
-          <div style={LIST_FRAME}>
-            <TxrSelectList
-              rows={shown}
-              sections={sections}
-              itemLabel="model"
-              selected={selection}
-              onSelectionChange={next => useTxrModelsStore.getState().setSelection(next)}
-              filterChips={chips}
-              search={{
-                value: searchText,
-                onChange: value => useTxrModelsStore.getState().setSearch(value),
-              }}
-              sort={{
-                value: shownSort,
-                options: I_SORT_OPTIONS as { value: string; label: string }[],
-                onChange: value => useTxrModelsStore.getState().setSort(value as TxrModelSortId),
-              }}
-              loading={saved.loading || eligibility.loading}
-              error={saved.error ?? eligibility.error}
-              onRetry={() => {
-                void useTxrModelsStore.getState().loadSaved({ force: true })
-                void useTxrModelsStore.getState().loadEligibility(ids, { force: true })
-              }}
-              bottomBar={{
-                selectedCount: countSelected(selection, rows),
-                totalTimeText: formatTotalTime(
-                  totalSecondsForSelection(selection, eligibility.byKey),
-                ),
-                notice: RESEARCH_NOTICE,
-                onRun: keys => {
-                  void createRun(keys)
-                },
-              }}
-              onRowAction={row => {
-                useTxrModelsStore.getState().openDialog(`details:${row.key}` as TxrModelDialogId)
-              }}
-              onSectionAction={onSectionAction}
-            />
-          </div>
-        ) : (
-          <div
-            data-testid="txr-models-i-empty"
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 12,
-              alignItems: 'flex-start',
-              padding: '24px 0',
-            }}
-          >
-            <p style={CHECK_LINE}>{EMPTY_LINE}</p>
-            <Button
-              data-testid="txr-models-i-empty-cta"
-              variant="outline"
-              onClick={() => navigate(predictFilesPath())}
-            >
-              {EMPTY_CTA}
-            </Button>
-          </div>
-        )}
-        {runError !== null ? (
-          <Alert tone="error" data-testid="txr-models-i-run-error" title={runError} />
+          <span data-testid="txr-models-i-totals" style={TOTALS}>
+            {totals === null
+              ? '\u2026'
+              : formatSavedTotals(
+                  saved.summaries.length,
+                  totals.fit,
+                  totals.some,
+                  totals.cannot,
+                )}
+          </span>
         ) : null}
-        <p style={FOOTNOTE}>
-          A model that cannot run says what is missing from your file. The same list shows
-          pretrained models in the other path; only the models differ.
-        </p>
       </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <TxrUseExampleButton path="reuse" onDone={() => navigate(predictFilesPath())} />
+      </div>
+      {toolbar !== null ? (
+        <div className="txr-models-i-toolbar" style={TOOLBAR_SLOT}>
+          {toolbar}
+        </div>
+      ) : null}
+      {runError !== null ? (
+        <Alert tone="error" data-testid="txr-models-i-run-error" title={runError} />
+      ) : null}
+    </div>
+  )
+
+  /** The ONE body region (the row stream or the empty state). */
+  const bodyRegion = (content: ReactNode): ReactNode => (
+    <ScrollRegion label="Saved models" className="txr-models-i-region">
+      <div style={REGION_CONTENT}>{content}</div>
+    </ScrollRegion>
+  )
+
+  const footnote = (
+    <p style={FOOTNOTE}>
+      A model that cannot run says what is missing from your file. The same list shows
+      pretrained models in the other path; only the models differ.
+    </p>
+  )
+
+  /** The row dialogs (the list's actions — closed in the empty state). */
+  const dialogs = (
+    <>
       <TxrModelDetailsDialog
         modelId={dialog.startsWith('details:') ? dialog.slice('details:'.length) : null}
         onClose={() => useTxrModelsStore.getState().closeDialog()}
@@ -655,6 +625,99 @@ export function SavedModelsPage() {
           onDeleted={refreshSaved}
         />
       ) : null}
+    </>
+  )
+
+  // The not-ready branch (no validated predict file): the frame, the empty
+  // state's own lines in the region (never a half-built list, DEC-6).
+  if (validation === null) {
+    return (
+      <main data-testid="txr-models-i" style={PAGE_OUTER}>
+        <PageFrame
+          testId="txr-models-i-frame"
+          top={pageTop(null)}
+          body={bodyRegion(
+            <div
+              data-testid="txr-models-i-empty"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+                alignItems: 'flex-start',
+                padding: '24px 0',
+              }}
+            >
+              <p style={CHECK_LINE}>{EMPTY_LINE}</p>
+              <Button
+                data-testid="txr-models-i-empty-cta"
+                variant="outline"
+                onClick={() => navigate(predictFilesPath())}
+              >
+                {EMPTY_CTA}
+              </Button>
+            </div>,
+          )}
+        />
+        {dialogs}
+      </main>
+    )
+  }
+
+  return (
+    <main data-testid="txr-models-i" style={PAGE_OUTER}>
+      <TxrSelectList
+        rows={shown}
+        sections={sections}
+        itemLabel="model"
+        selected={selection}
+        onSelectionChange={next => useTxrModelsStore.getState().setSelection(next)}
+        filterChips={chips}
+        search={{
+          value: searchText,
+          onChange: value => useTxrModelsStore.getState().setSearch(value),
+        }}
+        sort={{
+          value: shownSort,
+          options: I_SORT_OPTIONS as { value: string; label: string }[],
+          onChange: value => useTxrModelsStore.getState().setSort(value as TxrModelSortId),
+        }}
+        loading={saved.loading || eligibility.loading}
+        error={saved.error ?? eligibility.error}
+        onRetry={() => {
+          void useTxrModelsStore.getState().loadSaved({ force: true })
+          void useTxrModelsStore.getState().loadEligibility(ids, { force: true })
+        }}
+        bottomBar={{
+          selectedCount: countSelected(selection, rows),
+          totalTimeText: formatTotalTime(
+            totalSecondsForSelection(selection, eligibility.byKey),
+          ),
+          notice: RESEARCH_NOTICE,
+          onRun: keys => {
+            void createRun(keys)
+          },
+        }}
+        onRowAction={row => {
+          useTxrModelsStore.getState().openDialog(`details:${row.key}` as TxrModelDialogId)
+        }}
+        onSectionAction={onSectionAction}
+        layout={parts => (
+          <>
+            <PageFrame
+              testId="txr-models-i-frame"
+              top={pageTop(parts.toolbar)}
+              body={bodyRegion(
+                <>
+                  {parts.rows}
+                  {footnote}
+                </>,
+              )}
+              bottom={<PageFooterBar testId="txr-models-i-bar">{parts.bottomBar}</PageFooterBar>}
+            />
+            {dialogs}
+          </>
+        )}
+      />
     </main>
   )
 }
