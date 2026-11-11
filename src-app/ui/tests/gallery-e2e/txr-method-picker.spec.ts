@@ -115,7 +115,7 @@ test.describe('the picker page is one document (1440x900, light + dark)', () => 
       // without scrolling the page's own scroll container.
       const frame = await page.getByTestId('txr-run').boundingBox()
       expect(frame).not.toBeNull()
-      const run = page.getByTestId('txr-list-run')
+      const run = page.getByTestId('txr-run-bar-run')
       await expect(run).toBeVisible()
       const box = await run.boundingBox()
       expect(box).not.toBeNull()
@@ -237,9 +237,20 @@ test.describe('ITEM-2 — phone (390x844): nothing clipped, 44 px touch targets'
     await openE(page, { width: 390, height: 844 }, 'txr-run-e-small')
     await expect(page.getByTestId('txr-method-picker')).toBeVisible()
 
+    // The summary and settings cards are COLLAPSED by default at the phone
+    // width (the ITEM-2 layout); open both so "nothing is clipped" covers
+    // the expanded content.
+    const summaryToggle = page.getByTestId('txr-run-summary-toggle')
+    await summaryToggle.click()
+    await expect(page.getByTestId('txr-run-summary-line')).toBeVisible()
+    const settingsToggle = page.getByTestId('txr-run-settings-toggle')
+    await settingsToggle.click()
+    await expect(page.getByTestId('txr-run-settings-sentence')).toBeVisible()
+
     const targets = [
       'txr-run-summary',
       'txr-run-summary-line',
+      'txr-run-summary-markers',
       'txr-run-settings',
       'txr-run-settings-sentence',
       'txr-method-presets',
@@ -296,7 +307,7 @@ test.describe('ITEM-2 — keyboard-only completion: summary, settings, presets, 
     }
 
     const seen: string[] = []
-    for (let i = 0; i < 30; i += 1) {
+    for (let i = 0; i < 60; i += 1) {
       await page.keyboard.press('Tab')
       const group = await page.evaluate(groupOf)
       if (group !== null && seen[seen.length - 1] !== group) seen.push(group)
