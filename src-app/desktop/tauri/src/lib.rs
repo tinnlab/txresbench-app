@@ -51,11 +51,19 @@ pub fn register_invoke_handler<R: tauri::Runtime>(
 /// `dock/popout.ts`) opens + loads a REAL, scriptable Tauri window instead of
 /// being denied/blocked. The frontend stays untouched; all desktop handling
 /// lives in the harness Rust layer.
+///
+/// The minimum size (app-shell ITEM-1, DEC-1/DEC-2): the desktop window is
+/// ALWAYS in shell mode — the app-shell audit's bound is a viewport of at
+/// least 768×520 — so a user who shrinks the window must not be able to
+/// reach the flow layout (page-level scrolling) at all: the floor is 1000×640,
+/// comfortably above the bound. (The window config lives HERE, not in
+/// `tauri.conf.json`: its `app.windows` is empty by design and the harness
+/// `WindowConfig` builds the window — the conf file would be a dead pin.)
 pub(crate) fn desktop_window_config() -> WindowConfig {
     WindowConfig {
         title: "TxResBench".to_string(),
         inner_size: (1200.0, 800.0),
-        min_inner_size: (400.0, 600.0),
+        min_inner_size: (1000.0, 640.0),
         effect_radius: 8.0,
         traffic_light_position: (20.0, 22.0),
         enable_popout_windows: true,
@@ -148,6 +156,27 @@ mod tests {
              harness wires on_new_window→Create (+ Linux \
              javascript_can_open_windows_automatically) for the workbench pane \
              pop-out; without it window.open is denied on the desktop build",
+        );
+    }
+
+    /// TEST-AS-1 (app-shell ITEM-1): the desktop window's minimum size is the
+    /// plan's 1000×640 — above the shell-mode bound of the app-shell audit
+    /// (768×520), so the desktop app can never reach the flow layout
+    /// (DEC-2: "the desktop window has a minimum size that keeps it in shell
+    /// mode"). The value lives in `desktop_window_config()`, not the Tauri
+    /// conf JSON (its `app.windows` is empty by design).
+    #[test]
+    fn desktop_window_min_size_keeps_shell_mode() {
+        let window = desktop_window_config();
+        let (w, h) = window.min_inner_size;
+        assert_eq!(
+            (w, h),
+            (1000.0, 640.0),
+            "the desktop window floor must stay at 1000x640 (shell mode, DEC-2)",
+        );
+        assert!(
+            w >= 768.0 && h >= 520.0,
+            "the floor must clear the app-shell shell-mode bound",
         );
     }
 
