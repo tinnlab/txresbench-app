@@ -34,10 +34,9 @@ export const FIXED_SEED_FACT =
 
 /**
  * The bar's time line: the long-form total plus the lanes in parentheses —
- * "about 14 minutes (3 at a time on 8 CPUs)" / "about 2 min (3 at a time)"
- * — and the loading ellipsis while the estimate is in flight (`null`
- * total). The CPU count appears only when the screen knows it (Auto names
- * no machine fact the bar did not measure).
+ * "<duration> (3 at a time on 8 CPUs)" — and the loading ellipsis while the
+ * estimate is in flight (`null` total). The CPU count appears only when the
+ * screen knows it (Auto names no machine fact the bar did not measure).
  */
 export function formatRunBarTime(
   seconds: number | null,

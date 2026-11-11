@@ -2235,6 +2235,34 @@ export interface EstimateResponse {
   total_seconds: number
 }
 
+/**
+ * The example saved set's answer (qa-fixes3 ITEM-3): the caller asks "give me
+ *  the example models" and gets the set id when it exists, the creating run's
+ *  id + status while it trains (the call reports progress — the UI polls it),
+ *  or the failed reason. `methods` is the deterministic fast-method pick the
+ *  set was (or is being) trained with.
+ */
+export interface ExampleSetResponse {
+  error?: string
+  /**
+   * The deterministic fast-method pick (the plan's "3 that run in under
+   *  30 s each").
+   */
+  methods: string[]
+  run_id?: string
+  run_status?: string
+  set_id?: string
+  state: ExampleSetState
+}
+
+/**
+ * The example saved set's state (qa-fixes3 ITEM-3, `POST
+ *  /api/txr/models/example`): `creating` (the run is training the methods),
+ *  `ready` (the set exists) or `failed` (the honest reason is in the
+ *  response's `error`; the next call retries).
+ */
+export type ExampleSetState = 'creating' | 'ready' | 'failed'
+
 /** `POST /provenance/export` — build a reproducibility bundle. */
 export interface ExportRequest {
   project_id: string
@@ -7409,6 +7437,7 @@ export type ApiEndpointParameters = {
   'ModelSets.renameSet': { id: string } & RenameRequest
   'Models.checkEligibility': ModelEligibilityRequest
   'Models.deleteModel': { id: string }
+  'Models.exampleSet': void
   'Models.exportModel': { id: string }
   'Models.getModel': { id: string }
   'Models.importModel': FormData
@@ -7641,6 +7670,7 @@ export type ApiEndpointResponses = {
   'ModelSets.renameSet': SetSummary
   'Models.checkEligibility': ModelEligibilityResponse
   'Models.deleteModel': void
+  'Models.exampleSet': ExampleSetResponse
   'Models.exportModel': void
   'Models.getModel': ModelDetail
   'Models.importModel': ImportOutcome
