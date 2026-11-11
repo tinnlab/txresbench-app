@@ -1,20 +1,18 @@
-import { useCallback, useState } from 'react'
+import { useCallback } from 'react'
 import type { CSSProperties } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Button } from '@ziee/kit'
-import { ApiClient } from '@/api-client'
-import { parseCsvText } from '@/lib/txr-files/csv'
-import type { FileTableKind, ParsedTable } from '@/lib/txr-files/types'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { TxrIntake } from '../stores/TxrIntake.store'
 import { useRunnableMethodCount } from '../data/useRunnableMethodCount'
-import type { IntakeIntent, LoadedFile } from '../types'
+import { TxrUseExampleButton } from '../components/TxrUseExampleButton'
+import type { IntakeIntent } from '../types'
 
 /**
  * Screen A — Start (board Start.dc.html): the three FLOW paths as cards
  * (Path 1 pretrained, Path 2 learn from my data, Path 3 saved models), the
- * "Not sure which fits?" banner with "Try the example data", and the
- * dev/web web-URL notice (DEC-12).
+ * "Not sure which fits?" banner pointing at the per-card "Use example"
+ * buttons, and the dev/web web-URL notice (DEC-12).
  *
  * Board-copy rule (DEC-13): board wording is used verbatim where it is a
  * label or behavior; every NUMBER on the board is a design example, never
@@ -26,9 +24,14 @@ import type { IntakeIntent, LoadedFile } from '../types'
  * Intent navigation (PROV-UI-INTAKE-1 + DEC-20): each card's button sets the
  * intent FIRST (the store's `setIntent` maps it to the flow's mode) and then
  * navigates to the intake route the path starts on — pretrained/reuse →
- * `/predict-files` (N), train → `/study` (B). "Try the example data" sets
- * intent `train`, adopts the two example files (CONS-UI-INTAKE-6, DEC-20)
- * and lands on `/files` with the C screen's files already in the store.
+ * `/predict-files` (N), train → `/study` (B). "Use example" (qa-fixes3
+ * ITEM-4) sets the intent AND the example files/answers in ONE click and
+ * lands on the path's file step (`/files` for train, `/predict-files`
+ * for the two predict paths) — the step's own flow validates the adopted
+ * tables exactly as a user drop, and Continue is enabled when the file
+ * checks out (the bottom banner's old single "Try the example data" link is
+ * replaced by the three per-card buttons; the banner stays and points at
+ * them).
  */
 
 /** The intake's own route literals (the module route table is the source). */
@@ -186,6 +189,7 @@ const BANNER_SPACER: CSSProperties = { flexGrow: 1 }
 // qa-fixes ITEM-6 L1: the button carried the kit link's padding (the
 // 11 px indent + the extra top gap vs the paragraph above it); it now
 // renders flush with the banner's line.
+/** The banner's study link (qa-fixes ITEM-6 L1: flush with the line). */
 const EXAMPLE_LINK: CSSProperties = { padding: 0, color: 'var(--txr-brand)', fontWeight: 600 }
 
 /** The one-line web notice (DEC-12): origin read at runtime, never a literal. */
@@ -195,45 +199,9 @@ const WEB_URL_NOTICE: CSSProperties = {
   fontSize: 13.5,
 }
 
-/**
- * One example CSV through the provider asset endpoint (CONS-UI-INTAKE-6) and
- * PROV-FV-7's browser decode — the same bytes the "Download the full example"
- * link serves, adopted as the C screen's patients + measurements files
- * (DEC-20). The generated response type for the text/csv body is `void` (the
- * openapi schema has no JSON body — a provider dtype artifact, DRIFT-1 ITEM-4
- * #3); the shared transport's parse switch returns the TEXT of a `text/*`
- * body, so this cast at the one seam is the consumer side, and the byte guard
- * keeps a bodiless response loud instead of a silent empty table. The
- * inspect/validate pass that turns these into card facts is the C-screen flow
- * (ITEM-6's `lib/flow.ts` + FilesPage) — this loader only parses + adopts.
- */
-async function fetchExampleTable(kind: FileTableKind): Promise<ParsedTable> {
-  const body = (await ApiClient.FileValidation.example({ kind })) as unknown as string
-  if (typeof body !== 'string' || body.length === 0) {
-    throw new Error(`the example ${kind} file came back empty`)
-  }
-  return parseCsvText(body, { kind }, `${kind}_example.csv`)
-}
-
-/** The adopted-file shell: the decode only — card facts come from the flows. */
-function loadedFrom(table: ParsedTable): LoadedFile {
-  return {
-    source: table.source,
-    table,
-    inspection: null,
-    problems: [],
-    prepared: false,
-    joinOffers: [],
-    vocabOffers: [],
-    columnOffers: [],
-  }
-}
-
 export function StartPage() {
   const navigate = useNavigate()
   const { count } = useRunnableMethodCount()
-  const [exampleBusy, setExampleBusy] = useState(false)
-  const [exampleError, setExampleError] = useState<string | null>(null)
   // R2-G1: the tab/title byte is the page's own h1.
   useDocumentTitle('What do you want to do?')
 
@@ -250,29 +218,15 @@ export function StartPage() {
     [navigate],
   )
 
-  /** "Try the example data" (DEC-20): train intent + both example files → C. */
-  const tryExampleData = useCallback(async () => {
-    if (exampleBusy) return
-    setExampleBusy(true)
-    setExampleError(null)
-    try {
-      const [patients, measurements] = await Promise.all([
-        fetchExampleTable('patients'),
-        fetchExampleTable('measurements'),
-      ])
-      TxrIntake.setIntent('train')
-      TxrIntake.adoptFile('patients', loadedFrom(patients))
-      TxrIntake.adoptFile('measurements', loadedFrom(measurements))
-      // ITEM-6 F6: the C screen announces the example (the old flow landed
-      // on /files with both cards filled and no word about what was loaded).
-      TxrIntake.setExampleLoaded(true)
-      navigate(FILES_ROUTE)
-    } catch {
-      setExampleError('The example files could not be loaded. Try again.')
-    } finally {
-      setExampleBusy(false)
-    }
-  }, [exampleBusy, navigate])
+  /** The "Use example" landing (qa-fixes3 ITEM-4): one click to the file
+   *  step with the flow filled — the file screen's own flow then validates
+   *  the adopted tables (the same inspect/validate a user drop runs). */
+  const exampleDone = useCallback(
+    (intent: IntakeIntent) => {
+      navigate(intent === 'train' ? FILES_ROUTE : PREDICT_FILES_ROUTE)
+    },
+    [navigate],
+  )
 
   const webUrlUsable =
     typeof window !== 'undefined' &&
@@ -317,6 +271,7 @@ export function StartPage() {
             >
               Add the patients to predict
             </Button>
+            <TxrUseExampleButton path="pretrained" onDone={() => exampleDone('pretrained')} />
           </div>
         </section>
 
@@ -347,6 +302,7 @@ export function StartPage() {
             >
               Add my data
             </Button>
+            <TxrUseExampleButton path="train" onDone={() => exampleDone('train')} />
           </div>
         </section>
 
@@ -374,6 +330,7 @@ export function StartPage() {
             >
               Predict with a model I saved
             </Button>
+            <TxrUseExampleButton path="reuse" onDone={() => exampleDone('reuse')} />
           </div>
         </section>
       </div>
@@ -387,22 +344,11 @@ export function StartPage() {
           : we show what each way needs from you.
         </span>
         <span style={BANNER_SPACER} />
-        <Button
-          data-testid="txr-intake-start-example"
-          variant="link"
-          style={EXAMPLE_LINK}
-          loading={exampleBusy}
-          onClick={() => void tryExampleData()}
-        >
-          Try the example data
-        </Button>
+        <span data-testid="txr-intake-start-example-hint">
+          Prefer to try it first? <b>Use example</b> on any card fills the whole flow with the
+          example data — replace it with your own files at any time.
+        </span>
       </div>
-
-      {exampleError !== null ? (
-        <div role="alert" style={{ color: 'var(--txr-danger)', fontSize: 13.5 }}>
-          {exampleError}
-        </div>
-      ) : null}
 
       {webUrlUsable ? (
         <div style={WEB_URL_NOTICE} data-testid="txr-intake-web-url">

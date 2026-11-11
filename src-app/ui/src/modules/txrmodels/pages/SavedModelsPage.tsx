@@ -72,11 +72,12 @@ import type {
   RunConfig,
 } from '@/api-client/types'
 import type { IntakeSnapshot } from '@/modules/txrintake'
-import { buildTxrRunInput, useTxrIntakeStore } from '@/modules/txrintake'
+import { buildTxrRunInput, TxrIntake, useTxrIntakeStore } from '@/modules/txrintake'
 import { countSelected, formatTotalTime, TxrSelectList } from '@/modules/txrlist'
 import { predictFilesPath, runningPath } from '@/modules/txrrun'
 import { Alert, Button } from '@ziee/kit'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
+import { TxrUseExampleButton } from '@/modules/txrintake'
 import { useAnalysisOutcome } from '../data/useAnalysisOutcome'
 import { buildSavedRows, buildSavedSections } from '../lib/rows'
 import {
@@ -242,6 +243,7 @@ export function SavedModelsPage() {
   const predictMeasurements = useStore(useTxrIntakeStore, s => s.predictMeasurements)
   const joins = useStore(useTxrIntakeStore, s => s.joins)
   const mapping = useStore(useTxrIntakeStore, s => s.mapping)
+  const pendingExampleSetId = useStore(useTxrIntakeStore, s => s.pendingExampleSetId)
 
   const inventory = useStore(useTxrModelsStore, s => s.inventory)
   const saved = useStore(useTxrModelsStore, s => s.saved)
@@ -297,6 +299,25 @@ export function SavedModelsPage() {
     }
     store.setPendingUse(null)
   }, [saved.summaries])
+
+  // The ITEM-3 example-set handoff (qa-fixes3 ITEM-4): the reuse-path
+  // "Use example" ensured the "Example models" set and parked its id
+  // here; once the saved list holds the set, tick EVERY row of it (the
+  // plan's "the example set ticked") and clear the handoff. A loaded list
+  // with no row of the set (deleted meanwhile) is a dead handoff — clear
+  // it too, never a stuck tick.
+  useEffect(() => {
+    if (pendingExampleSetId === null) return
+    if (saved.summaries.length === 0) return
+    const keys = saved.summaries
+      .filter(model => model.set_id === pendingExampleSetId)
+      .map(model => model.id)
+    const store = useTxrModelsStore.getState()
+    if (keys.length > 0) {
+      store.setSelection(new Set([...store.selection, ...keys]))
+    }
+    TxrIntake.setPendingExampleSet(null)
+  }, [saved.summaries, pendingExampleSetId])
 
   // ── The verdict layer (the ITEM-3 store's PROV-MS-9 slice) ───────────────
   const ids = useMemo(() => saved.summaries.map(model => model.id), [saved.summaries])
@@ -540,6 +561,12 @@ export function SavedModelsPage() {
                   )}
             </span>
           ) : null}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <TxrUseExampleButton
+            path="reuse"
+            onDone={() => navigate(predictFilesPath())}
+          />
         </div>
         {validation !== null ? (
           <div style={LIST_FRAME}>

@@ -26,6 +26,7 @@ import type {
   ValidationRequest,
   ValidationResponse,
 } from '@/api-client/types'
+import type { LoadedFile } from '../types'
 import { FilesPage } from './FilesPage'
 import { useTxrIntakeStore } from '../stores/TxrIntake.store'
 
@@ -502,13 +503,58 @@ describe('ITEM-6 F2/F3/F4/F12 — the mapping step, the no-data-rows gate, the p
     })
   })
 
-  it('the example-loaded banner shows while the example files are loaded (F6)', () => {
+  it('the example banner shows with the Clear example action while the example files are loaded (F6 / ITEM-4)', () => {
     renderFiles()
     expect(screen.queryByTestId('txr-intake-example-loaded')).toBeNull()
-    act(() => store().setExampleLoaded(true))
+    const own: LoadedFile = {
+      source: { name: 'mine.csv', format: 'csv' },
+      table: {
+        source: { name: 'mine.csv', format: 'csv' },
+        header_row: 1,
+        columns: ['patient_id', 'pfs_days', 'pfs_event'],
+        rows: [['P0001', '214', '1']],
+      },
+      inspection: null,
+      problems: [],
+      prepared: false,
+      joinOffers: [],
+      vocabOffers: [],
+      columnOffers: [],
+    }
+    act(() => store().adoptExampleFile('patients', own))
+    act(() => store().adoptExampleFile('measurements', own))
     expect(screen.getByTestId('txr-intake-example-loaded').textContent).toContain(
-      'Example data loaded',
+      'This is example data',
     )
+    expect(screen.getByTestId('txr-intake-clear-example').textContent).toBe('Clear example')
+  })
+
+  it('Clear example removes only the example-flagged cards and returns to the empty state', () => {
+    renderFiles()
+    const own: LoadedFile = {
+      source: { name: 'mine.csv', format: 'csv' },
+      table: {
+        source: { name: 'mine.csv', format: 'csv' },
+        header_row: 1,
+        columns: ['patient_id', 'pfs_days', 'pfs_event'],
+        rows: [['P0001', '214', '1']],
+      },
+      inspection: null,
+      problems: [],
+      prepared: false,
+      joinOffers: [],
+      vocabOffers: [],
+      columnOffers: [],
+    }
+    act(() => store().adoptFile('patients', own))
+    act(() => store().adoptExampleFile('measurements', own))
+    fireEvent.click(screen.getByTestId('txr-intake-clear-example'))
+    expect(store().exampleLoaded).toBe(false)
+    // The user's own patients card is untouched; the example measurements
+    // card returns to its empty state.
+    expect(store().patients?.source.name).toBe('mine.csv')
+    expect(store().measurements).toBeNull()
+    expect(screen.queryByTestId('txr-intake-clear-example')).toBeNull()
   })
 
   it('the drop path hands the File to the flow (F12)', async () => {

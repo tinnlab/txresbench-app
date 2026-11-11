@@ -93,6 +93,24 @@ export interface TxrIntakeState extends IntakeSnapshot {
    * removal of a file clears it (the cards then hold the user's own files).
    */
   exampleLoaded: boolean
+  /**
+   * The per-slot example fact (qa-fixes3 ITEM-4): WHICH cards hold the
+   * example set (the badge + the "Clear example" action need the slot
+   * granularity — the N screen's predict card and the C screen's two
+   * cards announce separately). Written by the same actions that write
+   * `exampleLoaded`; `exampleLoaded` stays the aggregated boolean the
+   * qa-fixes2 banner reads.
+   */
+  exampleSlots: Record<FileSlot, boolean>
+  /**
+   * The ITEM-3 set handoff (qa-fixes3 ITEM-4): the id of the "Example
+   * models" set the reuse-path example flow ensured — the saved-models
+   * screen ticks that set's rows once its saved list holds them, then
+   * clears the fact. Same class as `exampleLoaded`: a handoff fact, never
+   * part of `IntakeSnapshot`, never persisted (a reload forgets it — the
+   * user can call "Use example" again).
+   */
+  pendingExampleSetId: string | null
 }
 
 /**
@@ -143,6 +161,17 @@ const BIRTH_FILE_RECALLS: FileRecalls = {
   patients: null,
   measurements: null,
   predictMeasurements: null,
+}
+
+const BIRTH_EXAMPLE_SLOTS: Record<FileSlot, boolean> = {
+  patients: false,
+  measurements: false,
+  predictMeasurements: false,
+}
+
+/** Whether any slot still holds the example set (the aggregate banner fact). */
+function anyExampleSlot(slots: Record<FileSlot, boolean>): boolean {
+  return slots.patients || slots.measurements || slots.predictMeasurements
 }
 
 /** Replace one slot's file (all three slots always present in the result). */
@@ -248,6 +277,8 @@ const TxrIntakeDef = defineStore('TxrIntake', {
     validation: null as ValidationResponse | null,
     fileRecalls: { ...BIRTH_FILE_RECALLS },
     exampleLoaded: false,
+    exampleSlots: { ...BIRTH_EXAMPLE_SLOTS },
+    pendingExampleSetId: null as string | null,
   },
   actions: (set, get) => {
     /** The state snapshot the current validation is STILL valid against. */
@@ -280,25 +311,106 @@ const TxrIntakeDef = defineStore('TxrIntake', {
        * that is still there).
        */
       adoptFile: (slot: FileSlot, file: LoadedFile) => {
-        set(s => ({
-          ...withFile(s, slot, { ...file, joinOffers: [], vocabOffers: [], columnOffers: [] }),
-          fileRecalls: {
-            ...s.fileRecalls,
-            [slot]: { name: file.source.name, prepared: file.prepared },
-          },
-          validation: null,
-          exampleLoaded: false,
-        }))
+        set(s => {
+          const exampleSlots = { ...s.exampleSlots, [slot]: false }
+          return {
+            ...withFile(s, slot, { ...file, joinOffers: [], vocabOffers: [], columnOffers: [] }),
+            fileRecalls: {
+              ...s.fileRecalls,
+              [slot]: { name: file.source.name, prepared: file.prepared },
+            },
+            validation: null,
+            exampleSlots,
+            exampleLoaded: anyExampleSlot(exampleSlots),
+          }
+        })
+      },
+
+      /**
+       * Adopt the example table for a slot (qa-fixes3 ITEM-4): the same
+       * contract as `adoptFile` (offers reset, recall kept, validation
+       * invalidated) with the slot MARKED as the example set — the card's
+       * "Example" badge, the screen's example banner and the "Clear
+       * example" action read the flag.
+       */
+      adoptExampleFile: (slot: FileSlot, file: LoadedFile) => {
+        set(s => {
+          const exampleSlots = { ...s.exampleSlots, [slot]: true }
+          return {
+            ...withFile(s, slot, { ...file, joinOffers: [], vocabOffers: [], columnOffers: [] }),
+            fileRecalls: {
+              ...s.fileRecalls,
+              [slot]: { name: file.source.name, prepared: file.prepared },
+            },
+            validation: null,
+            exampleSlots,
+            exampleLoaded: anyExampleSlot(exampleSlots),
+          }
+        })
       },
 
       /** Remove a slot's file (recall cleared too; validation invalidated). */
       removeFile: (slot: FileSlot) => {
-        set(s => ({
-          ...withFile(s, slot, null),
-          fileRecalls: { ...s.fileRecalls, [slot]: null },
-          validation: null,
-          exampleLoaded: false,
-        }))
+        set(s => {
+          const exampleSlots = { ...s.exampleSlots, [slot]: false }
+          return {
+            ...withFile(s, slot, null),
+            fileRecalls: { ...s.fileRecalls, [slot]: null },
+            validation: null,
+            exampleSlots,
+            exampleLoaded: anyExampleSlot(exampleSlots),
+          }
+        })
+      },
+
+      /**
+       * "Clear example" (qa-fixes3 ITEM-4): remove every slot that holds
+       * the example set, forget the confirmed joins/mappings the example's
+       * validation built (they describe the example's columns, never the
+       * user's), return the screens to their empty state and drop the
+       * example-set handoff. A user's own file in a slot is NEVER touched.
+       */
+      clearExamples: () => {
+        set(s => {
+          const cleared: Pick<TxrIntakeState, FileSlot> = {
+            patients:
+              s.exampleSlots.patients === true
+                ? null
+                : s.patients,
+            measurements:
+              s.exampleSlots.measurements === true ? null : s.measurements,
+            predictMeasurements:
+              s.exampleSlots.predictMeasurements === true ? null : s.predictMeasurements,
+          }
+          const fileRecalls: FileRecalls = { ...s.fileRecalls }
+          for (const slot of ['patients', 'measurements', 'predictMeasurements'] as const) {
+            if (s.exampleSlots[slot] === true) fileRecalls[slot] = null
+          }
+          // The joins/mapping describe MEASUREMENT columns: clear them only
+          // when the example's measurement table left the flow (a mixed
+          // example patients + user-own measurements state keeps its
+          // confirmations; the pure example state adds none anyway — its
+          // synthetic markers carry no spelling variants and no ladder
+          // match).
+          const exampleMeasured =
+            s.exampleSlots.measurements === true ||
+            s.exampleSlots.predictMeasurements === true
+          return {
+            ...cleared,
+            fileRecalls,
+            joins: exampleMeasured ? [] : s.joins,
+            mapping: exampleMeasured ? [] : s.mapping,
+            validation: null,
+            exampleSlots: { ...BIRTH_EXAMPLE_SLOTS },
+            exampleLoaded: false,
+            pendingExampleSetId: null,
+          }
+        })
+      },
+
+      /** The ITEM-3 example-set handoff (qa-fixes3 ITEM-4). */
+      setPendingExampleSet: (setId: string | null) => {
+        set({ pendingExampleSetId: setId })
       },
 
       /**
@@ -489,6 +601,8 @@ const TxrIntakeDef = defineStore('TxrIntake', {
           validation: null,
           fileRecalls: { ...BIRTH_FILE_RECALLS },
           exampleLoaded: false,
+          exampleSlots: { ...BIRTH_EXAMPLE_SLOTS },
+          pendingExampleSetId: null,
         })
       },
 

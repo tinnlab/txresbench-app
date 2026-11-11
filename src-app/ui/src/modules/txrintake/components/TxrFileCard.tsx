@@ -74,6 +74,8 @@ export interface TxrFileCardProps {
   onRejectColumn: (offer: ColumnRenameOffer) => void
   onDownloadTemplate: () => void
   onDownloadExample: () => void
+  /** The card holds the example set's table (qa-fixes3 ITEM-4 — the badge). */
+  isExample?: boolean
 }
 
 /** The board's bordered card. */
@@ -372,7 +374,27 @@ export function TxrFileCard(props: TxrFileCardProps) {
   return (
     <section style={CARD} data-testid={`txr-intake-file-card-${kind}`}>
       <div style={CARD_LEFT}>
-        <h2 style={CARD_TITLE}>{spec.title}</h2>
+        <h2 style={CARD_TITLE}>
+          {spec.title}
+          {props.isExample === true ? (
+            <span
+              data-testid={`txr-file-card-example-${kind}`}
+              style={{
+                fontSize: 12.5,
+                padding: '2px 10px',
+                borderRadius: 999,
+                background: 'var(--txr-accent-soft)',
+                color: 'var(--txr-brand-ink)',
+                marginLeft: 10,
+                verticalAlign: 'middle',
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Example
+            </span>
+          ) : null}
+        </h2>
         <p style={CARD_DESC}>{spec.description}</p>
         <RoleTable roles={spec.roles} />
       </div>

@@ -21,6 +21,8 @@ import {
 import { fetchTemplateCsv, downloadText, templateFilename } from '../lib/download'
 import { ROUTE_CONVENTIONS } from '../module'
 import { TxrFileCard } from '../components/TxrFileCard'
+import { TxrUseExampleButton } from '../components/TxrUseExampleButton'
+import { CLEAR_EXAMPLE_LABEL, EXAMPLE_BANNER } from '../lib/example'
 import type { ColumnRenameOffer, JoinOffer, LoadedFile, VocabOffer } from '../types'
 
 /**
@@ -147,6 +149,7 @@ export function FilesPage() {
   const parameters = useStore(useTxrIntakeStore, s => s.parameters)
   const validation = useStore(useTxrIntakeStore, s => s.validation)
   const exampleLoaded = useStore(useTxrIntakeStore, s => s.exampleLoaded)
+  const exampleSlots = useStore(useTxrIntakeStore, s => s.exampleSlots)
   // R2-G1: the tab/title byte is the page's own h1.
   useDocumentTitle('Add your files')
 
@@ -196,6 +199,16 @@ export function FilesPage() {
   const handleRemove = useCallback((slot: Slot) => {
     setCardErrors(prev => ({ ...prev, [slot]: undefined }))
     TxrIntake.removeFile(slot)
+  }, [])
+
+  /** "Clear example" (qa-fixes3 ITEM-4): remove the example files (only
+   *  the example-flagged slots), forget the example's offers and return
+   *  the screen to its empty state — the user's own files are never
+   *  touched. */
+  const clearExamples = useCallback(() => {
+    setCardErrors(prev => ({ ...prev, patients: undefined, measurements: undefined }))
+    setValidateError(null)
+    TxrIntake.clearExamples()
   }, [])
 
   // The card hands the OFFER OBJECT through (the PROV-UI-INTAKE-5 contract);
@@ -378,12 +391,33 @@ export function FilesPage() {
         </p>
       </div>
 
-      {exampleLoaded ? (
-        <p data-testid="txr-intake-example-loaded" style={INTRO}>
-          Example data loaded — the two files above are the example set; replace them with your
-          own files at any time.
-        </p>
-      ) : null}
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 10,
+        }}
+      >
+        {exampleLoaded ? (
+          <p data-testid="txr-intake-example-loaded" style={{ ...INTRO, margin: 0 }}>
+            {EXAMPLE_BANNER} —{' '}
+            <Button
+              data-testid="txr-intake-clear-example"
+              variant="link"
+              style={{ padding: 0, color: 'var(--txr-brand)', fontWeight: 600 }}
+              onClick={clearExamples}
+            >
+              {CLEAR_EXAMPLE_LABEL}
+            </Button>{' '}
+            to start with your own.
+          </p>
+        ) : (
+          <span style={INTRO}></span>
+        )}
+        <TxrUseExampleButton path="train" />
+      </div>
 
       <TxrFileCard
         kind="patients"
@@ -391,6 +425,7 @@ export function FilesPage() {
         file={patients}
         busy={busySlot === 'patients'}
         error={cardErrors.patients ?? null}
+        isExample={exampleSlots.patients}
         onPick={file => void handlePick('patients', file)}
         onRemove={() => handleRemove('patients')}
         onAcceptJoin={acceptJoin}
@@ -409,6 +444,7 @@ export function FilesPage() {
         file={measurements}
         busy={busySlot === 'measurements'}
         error={cardErrors.measurements ?? null}
+        isExample={exampleSlots.measurements}
         onPick={file => void handlePick('measurements', file)}
         onRemove={() => handleRemove('measurements')}
         onAcceptJoin={acceptJoin}

@@ -74,6 +74,9 @@ export function TxrChangeFilesDialog({ mode, open, onOpenChange }: TxrChangeFile
   const patients = useStore(useTxrIntakeStore, s => s.patients)
   const measurements = useStore(useTxrIntakeStore, s => s.measurements)
   const predictMeasurements = useStore(useTxrIntakeStore, s => s.predictMeasurements)
+  // qa-fixes3 ITEM-4: the example badge rides every card mount, the E
+  // screen's included (the store's per-slot example fact).
+  const exampleSlots = useStore(useTxrIntakeStore, s => s.exampleSlots)
   const files: Record<CardMount['slot'], LoadedFile | null> = {
     patients,
     measurements,
@@ -104,6 +107,7 @@ export function TxrChangeFilesDialog({ mode, open, onOpenChange }: TxrChangeFile
             kind={card.kind}
             mode={mode}
             file={files[card.slot]}
+            isExample={exampleSlots[card.slot]}
             busy={false}
             error={null}
             onPick={handOff}

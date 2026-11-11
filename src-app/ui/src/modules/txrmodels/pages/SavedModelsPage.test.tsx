@@ -360,6 +360,20 @@ afterEach(() => {
 })
 
 describe('SavedModelsPage — TEST-MOD-10 (screen I)', () => {
+  it('the ITEM-3 example-set handoff ticks every row of that set and clears the fact (TEST-QF3-2)', async () => {
+    useTxrIntakeStore.setState({ pendingExampleSetId: 'set-a' })
+    renderPage()
+    await settle(0)
+    const selection = useTxrModelsStore.getState().selection
+    expect(selection.size).toBe(7)
+    expect(selection.has(fixtureModelId(1))).toBe(true)
+    expect(selection.has(fixtureModelId(7))).toBe(true)
+    // The other set's rows are NOT ticked.
+    expect(selection.has(fixtureModelId(8))).toBe(false)
+    // The handoff clears once applied (a dead handoff never sticks).
+    expect(useTxrIntakeStore.getState().pendingExampleSetId).toBeNull()
+  })
+
   it('renders the Step-4 header, the I checked-against line from the CONS-UM-11 validation and the totals', async () => {
     renderPage()
     await settle(0)
