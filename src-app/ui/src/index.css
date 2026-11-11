@@ -300,6 +300,64 @@ html.txr-shell-mode-shell #root {
   box-shadow: inset 0 0 0 2px var(--txr-brand);
 }
 
+/* app-shell ITEM-2 — the two-region body rows (the audit's per-route
+ * layout byte: the tile "Fixed top / Scroll regions / Fixed bottom"). The
+ * row is a flex column under 1024 px (the two regions stack, each taking
+ * its proportional share of the body) and a flex row from 1024 px (the
+ * board's side-by-side reading; the audit's three measured sizes are
+ * 1440x900, 1280x720 and 1024x768). The region frames carry the flex
+ * devisions; the page's own inline styles carry the padding/gap. */
+.txr-shell-regions-row {
+  flex-direction: column;
+}
+@media (min-width: 1024px) {
+  .txr-shell-regions-row {
+    flex-direction: row;
+  }
+}
+.txr-study-questions-region,
+.txr-study-panel-region,
+.txr-run-table-region,
+.txr-run-log-region {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+}
+.txr-run-table-region {
+  flex: 3 1 0;
+}
+.txr-run-log-region {
+  flex: 2 1 0;
+}
+
+/* app-shell ITEM-2 — the fixed-top / region-content chrome paddings at the
+ * phone width (the pages now own their frame slots; the OLD page-padding
+ * rules below are replaced by these — the root is the frame host, padding
+ * belongs to the slots). */
+@media (max-width: 640px) {
+  .txr-intake-page .txr-intake-page-top {
+    padding: 24px 16px 8px !important;
+  }
+  .txr-intake-page .txr-intake-page-body {
+    padding: 0 16px 20px !important;
+  }
+  .txr-run-page .txr-run-top {
+    padding: 20px 16px 0 !important;
+  }
+  .txr-run-page .txr-run-methods-content {
+    padding: 12px 16px 20px !important;
+  }
+  .txr-run-page .txr-run-regions {
+    padding: 0 16px !important;
+  }
+  .txr-run-page .txr-run-table-region {
+    flex: 1 1 auto !important;
+  }
+  .txr-run-page .txr-run-log-region {
+    flex: none !important;
+  }
+}
+
 /* QA-fixes ITEM-7 (RES-26): the results pages at phone width. The board's
  * results/compare screens are desktop-only (seven heatmap columns, the
  * outcome tab strip, the filter bar with its legend) — at 390 px the page
@@ -476,9 +534,6 @@ html.txr-shell-mode-shell #root {
  * description column can then take the width it needs), the preview table
  * scrolls inside its own box, and the panels stack full-width. */
 @media (max-width: 640px) {
-  .txr-intake-page {
-    padding: 24px 16px !important;
-  }
   .txr-intake-page .txr-intake-role-table {
     width: 100%;
   }
@@ -716,9 +771,6 @@ html.txr-shell-mode-shell #root {
  * touch targets are at least 44 px. Desktop is untouched (the inline
  * styles carry it). */
 @media (max-width: 640px) {
-  .txr-run-page {
-    padding: 20px 16px !important;
-  }
   .txr-run-page .txr-method-card {
     flex-direction: column;
     align-items: stretch;

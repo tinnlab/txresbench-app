@@ -21,7 +21,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import type { TxrRunMethod } from '@/api-client/types'
-import { TxrRunTable, type TxrRunTableProps } from './TxrRunTable'
+import { TxrRunStopAllControl, TxrRunTable, type TxrRunTableProps } from './TxrRunTable'
 import type { TxrRunRowAction } from './TxrRunRow'
 
 afterEach(() => {
@@ -50,10 +50,7 @@ function propsOf(overrides: Partial<TxrRunTableProps> = {}): TxrRunTableProps {
     atATime: 3,
     onAtATime: () => undefined,
     atATimeError: null,
-    onStopAll: () => undefined,
-    stopping: false,
     terminal: false,
-    actionError: null,
     ...overrides,
   }
 }
@@ -61,11 +58,10 @@ function propsOf(overrides: Partial<TxrRunTableProps> = {}): TxrRunTableProps {
 function renderTable(overrides: Partial<TxrRunTableProps> = {}) {
   const onAction = vi.fn()
   const onAtATime = vi.fn()
-  const onStopAll = vi.fn()
   const utils = render(
-    <TxrRunTable {...propsOf({ onAction, onAtATime, onStopAll, ...overrides })} />,
+    <TxrRunTable {...propsOf({ onAction, onAtATime, ...overrides })} />,
   )
-  return { ...utils, onAction, onAtATime, onStopAll }
+  return { ...utils, onAction, onAtATime }
 }
 
 describe('TxrRunTable — the per-method grid (TEST-RUN-21)', () => {
@@ -119,9 +115,40 @@ describe('TxrRunTable — the per-method grid (TEST-RUN-21)', () => {
   })
 })
 
-describe('TxrRunTable — Stop all + the confirm gate (TEST-RUN-21, DEC-10)', () => {
+describe('TxrRunTable — Stop all lives on the page\'s bottom bar (app-shell ITEM-2)', () => {
+  it('the table itself carries no Stop-all control (the audit byte moved it)', () => {
+    renderTable()
+    expect(screen.queryByTestId('txr-run-stop-all')).toBeNull()
+    expect(screen.queryByTestId('txr-run-action-error')).toBeNull()
+  })
+
+  it('a terminal run (RP-1) disables the lane pick — no live-run controls on a finished run', () => {
+    renderTable({ terminal: true })
+    for (const option of within(
+      screen.getByTestId('txr-run-at-a-time-control'),
+    ).getAllByRole('tab')) {
+      expect(option.getAttribute('aria-disabled')).toBe('true')
+    }
+  })
+})
+
+describe('TxrRunStopAllControl — the confirm gate (TEST-RUN-21, DEC-10; ITEM-2)', () => {
+  function renderControl(overrides: Partial<Parameters<typeof TxrRunStopAllControl>[0]> = {}) {
+    const onStopAll = vi.fn()
+    render(
+      <TxrRunStopAllControl
+        onStopAll={onStopAll}
+        stopping={false}
+        terminal={false}
+        actionError={null}
+        {...overrides}
+      />,
+    )
+    return { onStopAll }
+  }
+
   it('opens the confirmation and only reports the stop-all AFTER it', () => {
-    const { onStopAll } = renderTable()
+    const { onStopAll } = renderControl()
     fireEvent.click(screen.getByTestId('txr-run-stop-all'))
     expect(screen.getByTestId('txr-run-stop-all-confirm')).toBeTruthy()
     expect(onStopAll).not.toHaveBeenCalled()
@@ -131,33 +158,32 @@ describe('TxrRunTable — Stop all + the confirm gate (TEST-RUN-21, DEC-10)', ()
   })
 
   it('reports nothing on Cancel', () => {
-    const { onStopAll } = renderTable()
+    const { onStopAll } = renderControl()
     fireEvent.click(screen.getByTestId('txr-run-stop-all'))
     fireEvent.click(within(screen.getByTestId('txr-run-stop-all-confirm')).getByText('Cancel'))
     expect(onStopAll).not.toHaveBeenCalled()
   })
 
-  it('disables the at-a-time row while a run-level action is in flight', () => {
-    renderTable({ stopping: true })
-    for (const option of within(
-      screen.getByTestId('txr-run-at-a-time-control'),
-    ).getAllByRole('tab')) {
-      expect(option.getAttribute('aria-disabled')).toBe('true')
-    }
+  it('a run-level action in flight turns the button busy (kit loading: aria-busy, focus kept); a terminal run disables it', () => {
+    renderControl({ stopping: true })
+    const busy = screen.getByTestId('txr-run-stop-all')
+    expect(busy.getAttribute('aria-busy')).toBe('true')
+    expect(busy.getAttribute('aria-disabled')).toBe('true')
+    expect(busy.hasAttribute('disabled')).toBe(false)
+    cleanup()
+    renderControl({ terminal: true })
+    expect(screen.getByTestId('txr-run-stop-all').hasAttribute('disabled')).toBe(true)
   })
 
-  it('a terminal run (RP-1) disables Stop all and the lane pick — no controls on a finished run', () => {
-    renderTable({ terminal: true })
-    expect(screen.getByTestId('txr-run-stop-all').hasAttribute('disabled')).toBe(true)
-    for (const option of within(
-      screen.getByTestId('txr-run-at-a-time-control'),
-    ).getAllByRole('tab')) {
-      expect(option.getAttribute('aria-disabled')).toBe('true')
-    }
+  it('renders the run-level action error — a failed control is never silent', () => {
+    renderControl({ actionError: 'the run could not be stopped' })
+    expect(screen.getByTestId('txr-run-action-error').textContent).toBe(
+      'the run could not be stopped',
+    )
   })
 })
 
-describe('TxrRunTable — the grown error surfaces (DRIFT-1 ITEM-5 #1)', () => {
+describe('TxrRunTable — the grown error surface (DRIFT-1 ITEM-5 #1)', () => {
   it('passes a row error through: the row keeps its state, its action disables, the line renders', () => {
     renderTable({ rowErrors: { 'method-1': 'the method is not active' } })
     const action = screen.getByTestId('txr-run-action-method-1')
@@ -168,14 +194,10 @@ describe('TxrRunTable — the grown error surfaces (DRIFT-1 ITEM-5 #1)', () => {
     expect(screen.getByTestId('txr-run-action-method-2').hasAttribute('disabled')).toBe(false)
   })
 
-  it('renders the run-level action error and the lane pick\'s typed failure — never silent', () => {
+  it('renders the lane pick\'s typed failure — never silent', () => {
     renderTable({
-      actionError: 'the run could not be stopped',
       atATimeError: 'Could not change the number running at a time.',
     })
-    expect(screen.getByTestId('txr-run-action-error').textContent).toBe(
-      'the run could not be stopped',
-    )
     expect(screen.getByTestId('txr-run-at-a-time-error').textContent).toBe(
       'Could not change the number running at a time.',
     )

@@ -57,12 +57,15 @@ import {
 export const LOG_PANEL_RENDER_CAP = 200
 
 /** The board's aside look (right column, tinted, hairline left rule).
- *  Height-bounded by the page's definite-height frame; the lines area
- *  fills the rest and scrolls inside itself (RP-4). */
+ *  app-shell ITEM-2: the aside sits IN the page's Log ScrollRegion — the
+ *  `minHeight: 100%` fills the region's scrollport so the fixed chrome
+ *  (heading, filter, controls) never scrolls away and the lines area keeps
+ *  its bounded internal viewport (the ITEM-11 byte: the pre scrolls the
+ *  lines, the region is the log's zone). */
 const ASIDE: CSSProperties = {
   flex: '2 1 380px',
   minWidth: 0,
-  minHeight: 0,
+  minHeight: '100%',
   boxSizing: 'border-box',
   padding: '26px 28px',
   background: 'var(--txr-bg)',
