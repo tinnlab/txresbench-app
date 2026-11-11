@@ -469,10 +469,11 @@ describe('ITEM-6 F2/F3/F4/F12 — the mapping step, the no-data-rows gate, the p
       return Promise.resolve(resolved)
     })
     api.validate.mockImplementation(() => {
-      const key = useTxrIntakeStore.getState().measurements?.table.columns[0]
+      const columns = useTxrIntakeStore.getState().measurements?.table.columns ?? []
+      const renamed = columns.includes('patient_id')
       return Promise.resolve(
         validationFixture({
-          problems: key === 'patient_id' ? [a03Problem] : [row14Problem, row88Problem, a03Problem],
+          problems: renamed ? [a03Problem] : [row14Problem, row88Problem, a03Problem],
         }),
       )
     })
@@ -492,7 +493,8 @@ describe('ITEM-6 F2/F3/F4/F12 — the mapping step, the no-data-rows gate, the p
         c => (c[0] as FileInspectionRequest).kind === 'measurements',
       )
       expect(calls).toHaveLength(2)
-      expect((calls[1][0] as FileInspectionRequest).table.columns[0]).toBe('patient_id')
+      expect((calls[1][0] as FileInspectionRequest).table.columns).toContain('patient_id')
+      expect((calls[1][0] as FileInspectionRequest).table.columns).not.toContain('pid')
     })
     expect(screen.queryByTestId('txr-intake-column-offer-pid')).toBeNull()
     // The renamed file reads clean: the card's problems no longer include

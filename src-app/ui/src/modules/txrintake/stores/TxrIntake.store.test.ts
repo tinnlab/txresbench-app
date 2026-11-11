@@ -428,7 +428,8 @@ describe('ITEM-6 F2/F6 — the rename action, the "not now", the example fact', 
       from: 'pid',
       to: 'patient_id',
     })
-    expect(state().predictMeasurements?.table.columns[0]).toBe('patient_id')
+    expect(state().predictMeasurements?.table.columns).toContain('patient_id')
+    expect(state().predictMeasurements?.table.columns).not.toContain('pid')
     expect(state().predictMeasurements?.columnOffers).toEqual([])
     expect(state().validation).toBeNull()
   })
@@ -439,7 +440,8 @@ describe('ITEM-6 F2/F6 — the rename action, the "not now", the example fact', 
     TxrIntake.patchFile('measurements', { columnOffers: [...offerFor('pid')] })
     TxrIntake.applyValidation(validationOf(), TxrIntake.currentValidationKey())
     TxrIntake.rejectColumnOffer('measurements', 'pid')
-    expect(state().measurements?.table.columns[0]).toBe('pid')
+    expect(state().measurements?.table.columns).toContain('pid')
+    expect(state().measurements?.table.columns).not.toContain('patient_id')
     expect(state().measurements?.columnOffers).toEqual([])
     expect(state().validation).not.toBeNull()
   })
