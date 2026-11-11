@@ -1,14 +1,19 @@
 import { expect, test, type Page } from '@playwright/test'
 
 /**
- * TXR-METHOD-PICKER (qa-fixes3 ITEM-1) — the redesign's MEASURED browser
- * tier (the plan's 1440x900 / 1024x768 / 390x844, light and dark): the
- * picker page scrolls as ONE document (exactly one vertical scroll
- * container, no nested list box), a small runnable set keeps the page under
- * 1,500 px at 1440 with the Run button visible without scrolling, nothing
- * overflows horizontally at any size, and text + chip contrast is at least
- * 4.5:1 in both themes (computed from the resolved colours, never asserted
- * from the palette file).
+ * TXR-METHOD-PICKER (qa-fixes3 ITEM-1, re-pinned by app-shell ITEM-2) —
+ * the redesign's MEASURED browser tier (the plan's 1440x900 / 1024x768 /
+ * 390x844, light and dark). ITEM-2 made the E page a frame page, so the
+ * layout byte moved to the shell-wrapped surface (`txr-shell-route-*`,
+ * the app's real composition): the routed area fills the shell window
+ * (the page never scrolls), the ONE scroll container is the method-list
+ * ScrollRegion, the run bar is pinned in the bottom slot. The story
+ * surfaces without the shell remain the CONTENT walk host — a frame page
+ * there flows with the document and keeps no inner scroll box, which is
+ * exactly what the content walk needs. Nothing overflows horizontally at
+ * any size, and text + chip contrast is at least 4.5:1 in both themes
+ * (computed from the resolved colours, never asserted from the palette
+ * file).
  *
  * The module/cassette unit + gallery tiers pin the rules and the bytes
  * (`txr-list.spec.ts` for the picker, `txr-run.spec.ts` for the page); this
@@ -86,27 +91,55 @@ async function textContrast(page: Page, testId: string): Promise<number> {
   return contrast(pair.fg, pair.bg)
 }
 
-test.describe('the picker page is one document (1440x900, light + dark)', () => {
-  test('the full E story has exactly ONE vertical scroll container', async ({ page }) => {
+/** Give the gallery frame the test viewport's height (the shell's chain). */
+async function sizeFrame(page: Page, height: number): Promise<void> {
+  await page.evaluate(h => {
+    const frame = document.querySelector<HTMLElement>('[data-gallery-frame]')
+    if (!frame) throw new Error('no gallery frame')
+    frame.style.height = `${h}px`
+  }, height)
+  await page.waitForTimeout(200)
+}
+
+test.describe('the picker page inside the shell (1440x900, light + dark)', () => {
+  test('the shell-less story host stays a flowing page: NO inner scroll box, the document scrolls', async ({
+    page,
+  }) => {
     await openE(page, { width: 1440, height: 900 }, 'txr-run-e')
-    // The page's one document scroll: PAGE_MAIN (the old nested ~330 px list
-    // box is gone). This is measured AFTER the picker rendered (the page
-    // overflows at 26 runnable rows).
+    // The story surface renders the page WITHOUT the shell (the content walk
+    // host); a frame page there flows in the document — the ONE scroll the
+    // qa-fixes3 contract named is the document itself, never a nested box.
     const containers = await verticalScrollContainers(page)
-    expect(containers, 'vertical scroll containers').toBe(1)
+    expect(containers, 'inner vertical scroll containers').toBe(0)
+    const doc = await page.evaluate(
+      () => document.documentElement.scrollHeight > document.documentElement.clientHeight + 1,
+    )
+    expect(doc, 'the document scrolls (26 rows)').toBe(true)
   })
 
   for (const theme of ['light', 'dark'] as const) {
-    test(`six runnable methods: the page is under 1,500 px and the Run button is visible without scrolling (${theme})`, async ({
+    test(`the route byte: the routed area fills the shell window and the Run button is pinned (${theme})`, async ({
       page,
     }) => {
-      await openE(page, { width: 1440, height: 900 }, 'txr-run-e-small', theme)
+      await openE(page, { width: 1440, height: 900 }, 'txr-shell-route-choose-methods', theme)
+      await sizeFrame(page, 900)
       await expect(page.getByTestId('txr-method-picker')).toBeVisible()
 
-      const scrollHeight = await page
+      // ITEM-2: the page never scrolls — the routed area's height is the
+      // shell window's and its content stays inside it.
+      const routed = await page
         .getByTestId('txr-run')
-        .evaluate(el => Math.max(el.scrollHeight, document.documentElement.scrollHeight))
-      expect(scrollHeight, 'page height px at 1440').toBeLessThan(1_500)
+        .evaluate(el => ({
+          scroll: el.scrollHeight,
+          client: el.clientHeight,
+          doc: document.documentElement.scrollHeight,
+        }))
+      expect(routed.scroll, 'the routed area does not overflow').toBeLessThanOrEqual(
+        routed.client + 1,
+      )
+      // The document byte (the shell-mode overflow hidden, the gallery
+      // host's chrome sits above the frame — the raw byte is TEST-AS-3's).
+      expect(routed.doc, 'the document does not grow past the shell window').toBeLessThan(1_500)
 
       // The gallery frame adds its own chrome (the gallery header + the
       // story title) above the story, so the viewport-absolute bottom of

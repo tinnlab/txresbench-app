@@ -86,6 +86,12 @@ test.describe('txr-run-e — choose the methods and settings (TEST-RUN-24, qa-fi
     ).toBeVisible()
     const summary = page.getByTestId('txr-run-summary')
     await expect(summary).toBeVisible()
+    // app-shell ITEM-2: the default 1280x720 window is SHORT — the two
+    // cards answer the fixed-top byte by rendering COLLAPSED (the one-line
+    // summary form), so open them for the expanded pins below.
+    await expect(page.getByTestId('txr-run-summary-line')).toHaveCount(0)
+    await page.getByTestId('txr-run-summary-toggle').click()
+    await page.getByTestId('txr-run-settings-toggle').click()
     await expect(page.getByTestId('txr-run-summary-line')).toContainText('·')
     await expect(page.getByTestId('txr-run-summary-markers')).toContainText('Markers:')
     await page.getByTestId('txr-run-summary-details').click()

@@ -509,6 +509,13 @@ describe('txrhelp module (TEST-HELP-4)', () => {
       // header, the scroll restore, the breakpoint switch, the focus order
       // (TEST-AS-1's browser half).
       'src-app/ui/tests/gallery-e2e/txr-shell-primitives.spec.ts',
+      // The app-shell ITEM-2 spec (its own DRIFT-1): the six part-1 pages'
+      // measured routes — per route at 1440x900 / 1280x720 / 1024x768 the
+      // routed area fits, ONE-TWO regions, the header never moves, the
+      // sticky bytes (E section headers, F thead, the preview tables), the
+      // pinned bars, PageDown scrolls, and the 390x844 flow leg
+      // (TEST-AS-2's browser half).
+      'src-app/ui/tests/gallery-e2e/txr-shell-routes.spec.ts',
     ])
     expect(testsTouched.length).toBeLessThanOrEqual(sanctionedTests.size)
     for (const file of testsTouched) {

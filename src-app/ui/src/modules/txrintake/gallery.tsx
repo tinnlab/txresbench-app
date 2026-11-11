@@ -47,6 +47,7 @@ import type { ReactNode } from 'react'
 import { Route, Routes, useLocation } from 'react-router-dom'
 import { extendCassette, type ModuleGallery, type MockRequestContext } from '@ziee/gallery'
 import { parseCsvText } from '@/lib/txr-files/csv'
+import { AppShell } from '../txrshell/components/AppShell'
 import { StudyPage } from './pages/StudyPage'
 import { FilesPage } from './pages/FilesPage'
 import { PredictFilesPage } from './pages/PredictFilesPage'
@@ -345,6 +346,15 @@ function ExampleStepSeam({ path }: { path: string }) {
   )
 }
 
+/** The one story host for the app-shell ITEM-2 route byte: the REAL page
+ *  INSIDE the REAL shell, so the shell's mode class rides the document and
+ *  the page's regions get their definite heights from the routed area —
+ *  the same frame a clinician sees (the standalone story frames above
+ *  answer behaviour; these answer LAYOUT). */
+function ShellRouteView({ children }: { children: ReactNode }) {
+  return <AppShell>{children}</AppShell>
+}
+
 // ── the module's gallery seed ──
 
 export const gallery: ModuleGallery = {
@@ -433,6 +443,79 @@ export const gallery: ModuleGallery = {
       initialPath: '/narrow-390',
       component: lazy(() => Promise.resolve({ default: NarrowStoryView })),
       fullHeight: true,
+    },
+    // app-shell ITEM-2 — the route byte: each route inside the REAL shell
+    // (the audit's section-4 legs are driven by `txr-shell-routes.spec.ts`
+    // over these surfaces at the three desktop sizes + 390 flow).
+    {
+      slug: 'txr-shell-route-start',
+      title: 'Start (screen A) inside the shell',
+      note: 'The ITEM-2 route byte: the body is ONE scroll region (the audit\'s "fits in one screen; if the window is short, the body region scrolls"), the document never scrolls in shell mode, the header stays put while the region scrolls.',
+      path: '/',
+      initialPath: '/',
+      component: lazy(() =>
+        Promise.resolve({
+          default: () => (
+            <ShellRouteView>
+              <StartPage />
+            </ShellRouteView>
+          ),
+        }),
+      ),
+    },
+    {
+      slug: 'txr-shell-route-study',
+      title: 'Your study (screen B) inside the shell',
+      note: 'The ITEM-2 route byte: the step + title fixed, the questionnaire and the methods-fit panel EACH their own region (side by side at 1024+), the Continue / Skip / Use-example row pinned in the bottom bar.',
+      path: '/study',
+      initialPath: '/study',
+      component: lazy(() =>
+        Promise.resolve({
+          default: () => (
+            <ShellRouteView>
+              <StudyPage />
+            </ShellRouteView>
+          ),
+        }),
+      ),
+      setup: () => {
+        extendEligibilityForPreviewStory()
+        seedStudyAnswers()
+      },
+    },
+    {
+      slug: 'txr-shell-route-files',
+      title: 'Your files (screen C) inside the shell',
+      note: 'The ITEM-2 route byte: the step + title fixed, the two file cards in ONE region (each preview table its own bounded box with the sticky header), the file status + Continue pinned below.',
+      path: '*',
+      initialPath: '/files',
+      component: lazy(() =>
+        Promise.resolve({
+          default: () => (
+            <ShellRouteView>
+              <FilesPage />
+            </ShellRouteView>
+          ),
+        }),
+      ),
+      setup: () => seedValidatedFiles(),
+    },
+    {
+      slug: 'txr-shell-route-predict-files',
+      title: 'Add the patients to predict (screen N) inside the shell',
+      note: 'The ITEM-2 route byte: the step + title fixed, the one measurements card + the aside in ONE region, Continue pinned below.',
+      path: '*',
+      initialPath: '/predict-files',
+      component: lazy(() =>
+        Promise.resolve({
+          default: () => (
+            <ShellRouteView>
+              <PredictFilesPage />
+            </ShellRouteView>
+          ),
+        }),
+      ),
+      setup: () => seedPredictFile(),
     },
   ],
 }

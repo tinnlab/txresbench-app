@@ -105,11 +105,6 @@ const TABLE_REGION_CONTENT: CSSProperties = {
   minWidth: 0,
 }
 
-/** The resumed notice's full-width row (the page's flex-wrap layout).
- *  (superseded by the fixed top's own slot — the row style stays for
- *  layout parity inside the PAGE_TOP column.) */
-const NOTICE_ROW: CSSProperties = { flexBasis: '100%' }
-
 /** The DEC-18 one-line notice (the 409 resolution's handoff line). */
 const RESUMED_NOTICE_LINE = 'A run was already active — you are watching it now.'
 
