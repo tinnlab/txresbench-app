@@ -449,11 +449,11 @@ describe('ITEM-6 F2/F6 — the rename action, the "not now", the example fact', 
   it('the example fact is set by the start path and cleared by any adoption (F6)', () => {
     TxrIntake.reset()
     expect(state().exampleLoaded).toBe(false)
-    TxrIntake.setExampleLoaded(true)
+    TxrIntake.adoptExampleFile('measurements', fileWith(['patient_id', 'day']))
     expect(state().exampleLoaded).toBe(true)
     TxrIntake.adoptFile('measurements', fileWith(['patient_id', 'day']))
     expect(state().exampleLoaded).toBe(false)
-    TxrIntake.setExampleLoaded(true)
+    TxrIntake.adoptExampleFile('measurements', fileWith(['patient_id', 'day']))
     TxrIntake.removeFile('measurements')
     expect(state().exampleLoaded).toBe(false)
     TxrIntake.reset()

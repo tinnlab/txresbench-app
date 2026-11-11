@@ -28,8 +28,9 @@
  *   example carries the pfs/os pair every method learns on; the response
  *   pair is the optional second outcome of the same file (D48).
  *
- * Copy rule: location-neutral (qa-fixes2 ITEM-2) — no "on your computer",
- * and no status words in the copy (the module's INV-5 scan).
+ * Copy rule: location-neutral (qa-fixes2 ITEM-2) — the copy names no
+ * deployment location, and carries no status words (the module's INV-5
+ * scan).
  */
 import { ApiClient } from '@/api-client'
 import type { FileTableKind } from '@/api-client/types'

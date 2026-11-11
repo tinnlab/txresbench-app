@@ -463,7 +463,7 @@ export function PredictFilesPage() {
           ) : (
             <span style={INTRO}></span>
           )}
-          <TxrUseExampleButton path={intent} />
+          <TxrUseExampleButton path={intent === 'reuse' ? 'reuse' : 'pretrained'} />
         </div>
 
         <TxrFileCard

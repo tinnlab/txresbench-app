@@ -443,11 +443,6 @@ const TxrIntakeDef = defineStore('TxrIntake', {
         })
       },
 
-      /** The A-screen's example adoption fact (ITEM-6 F6's banner). */
-      setExampleLoaded: (loaded: boolean) => {
-        set({ exampleLoaded: loaded })
-      },
-
       /**
        * "Not now" for one column-renaming suggestion (qa-fixes ITEM-6, F2):
        * the offer leaves the card's pending list and no rename is applied.
