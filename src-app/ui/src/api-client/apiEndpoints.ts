@@ -129,6 +129,7 @@ export const ApiEndpoints = {
   'ModelSets.renameSet': 'PATCH /api/txr/model-sets/{id}',
   'Models.checkEligibility': 'POST /api/txr/models/eligibility',
   'Models.deleteModel': 'DELETE /api/txr/models/{id}',
+  'Models.exampleSet': 'POST /api/txr/models/example',
   'Models.exportModel': 'GET /api/txr/models/{id}/export',
   'Models.getModel': 'GET /api/txr/models/{id}',
   'Models.importModel': 'POST /api/txr/models/import',

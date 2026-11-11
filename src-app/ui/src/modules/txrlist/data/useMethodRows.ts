@@ -4,7 +4,7 @@
  *
  * `useMethodRows(inventory)` fetches `GET /api/methods` (the catalogue rows)
  * and `POST /api/methods/eligibility` (the verdicts for the host's current
- * analysis inventory) and joins them into the screen-E rows. It uses ONLY
+ * analysis inventory) and joins them into the screen-E cards (`TxrMethodCard[]`). It uses ONLY
  * the generated `ApiClient` (DEC-11) — no `fetch()`, no host literal, so
  * the network-allowlist guard stays green untouched (INV-4) — and the wire
  * shapes are the provider's generated types (never vendored, never
@@ -28,16 +28,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ApiClient } from '@/api-client'
 import type { InventoryEligibilityRequest } from '@/api-client/types'
-import type { TxrListRow } from '../types'
-import { buildMethodRows } from './methodRows'
+import type { TxrMethodCard } from '../types'
+import { buildMethodCards } from './methodRows'
 
 export interface UseMethodRowsResult {
-  /** The joined screen-E rows for the last loaded inventory. */
-  rows: TxrListRow[]
+  /** The joined screen-E cards for the last loaded inventory. */
+  cards: TxrMethodCard[]
   /** The eligibility response's `total_no_env` — the count of catalogue
-   *  methods with no published environment (the list still
-   *  shows them; the header counts them honestly — CM-1's "N are not
-   *  installed"). */
+   *  methods with no published environment (the picker's collapsed
+   *  "can't run" section counts them honestly). */
   noEnvCount: number
   /** True from the inventory change until the response lands. */
   loading: boolean
@@ -82,7 +81,7 @@ function errorMessage(err: unknown): string {
 
 export function useMethodRows(inventory: InventoryEligibilityRequest): UseMethodRowsResult {
   const key = useMemo(() => stableInventoryKey(inventory), [inventory])
-  const [rows, setRows] = useState<TxrListRow[]>([])
+  const [cards, setCards] = useState<TxrMethodCard[]>([])
   const [noEnvCount, setNoEnvCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -101,7 +100,7 @@ export function useMethodRows(inventory: InventoryEligibilityRequest): UseMethod
     ])
       .then(([list, eligibility]) => {
         if (cancelled) return
-        setRows(buildMethodRows(list.methods, eligibility))
+        setCards(buildMethodCards(list.methods, eligibility))
         setNoEnvCount(eligibility.total_no_env ?? 0)
         setLoading(false)
       })
@@ -122,5 +121,5 @@ export function useMethodRows(inventory: InventoryEligibilityRequest): UseMethod
     setRefresh(count => count + 1)
   }, [])
 
-  return { rows, noEnvCount, loading, error, refetch }
+  return { cards, noEnvCount, loading, error, refetch }
 }

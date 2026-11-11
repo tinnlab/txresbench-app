@@ -12,8 +12,9 @@ user's own `.txr` files.
 ## What is stored where
 
 The store is a plain directory layout under the app data root
-(`rootfs::data_root()` — the hidden `~/.txresbench` folder; D01), plus two
-module-owned SQLite tables (`txr_model_sets`, `txr_models`):
+(`rootfs::data_root()` — the hidden `~/.txresbench` folder; D01), plus three
+module-owned SQLite tables (`txr_model_sets`, `txr_models` — and the
+single-row `txr_example_set` of the one-click example saved set):
 
 | path | what it holds |
 |---|---|
@@ -57,6 +58,19 @@ time) equals the header's recorded digest, the declared byte size matches
 the restored count, and the container is within the byte cap (16 GiB). Any
 refusal writes nothing into the store. Exports are deterministic: the same
 artifacts produce identical bytes.
+
+## The example saved set
+
+`POST /api/txr/models/example` (qa-fixes3 ITEM-3) ensures a saved set named
+"Example models" exists: it deterministically picks up to three fast methods
+(published environment, under 30 s, can run on the example data), trains them
+through the engine's normal run path on the app's embedded example training
+table, and saves the produced models through the same save-models path — a
+REAL set, never a fixture (the store itself never trains; the run engine
+does). The single-row `txr_example_set` state remembers the creating run /
+ready set / failure reason, so the call returns the existing set on a second
+call, reports the run's job state while it trains, and recreates the set after
+it was deleted (a fresh run). The state row is the module's third table.
 
 ## Save and reuse
 

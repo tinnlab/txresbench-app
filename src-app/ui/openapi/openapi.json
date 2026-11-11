@@ -9118,7 +9118,7 @@
         "tags": [
           "file-validator"
         ],
-        "description": "The header-only template CSV for a screen-C file kind (`patients`: patient_id,pfs_days,pfs_event,os_days,os_event,age,sex,stage; `measurements`: patient_id,day,marker,value,unit) — served from the embedded bytes, never read from disk. Unknown kind → 404 INVALID_EXAMPLE_KIND.",
+        "description": "The header-only template CSV for a screen-C file kind (`patients`: patient_id,pfs_days,pfs_event,os_days,os_event,responder,response_day,age,sex,stage; `measurements`: patient_id,day,marker,value,unit) — served from the embedded bytes, never read from disk. Unknown kind → 404 INVALID_EXAMPLE_KIND.",
         "operationId": "FileValidation.template",
         "responses": {
           "403": {
@@ -9166,7 +9166,7 @@
         "tags": [
           "file-validator"
         ],
-        "description": "The full synthetic example CSV for a screen-C file kind (generated from the open benchmark data-synth world; ids J0000.., markers M1/M2 — never real patient data). Served from the embedded bytes. Unknown kind → 404 INVALID_EXAMPLE_KIND.",
+        "description": "The full synthetic example CSV for a file kind (generated from the app's seeded example simulator; ids J0000.., markers M1/M2/M3, unit a.u. — never real patient data). `patients` / `measurements` are the training pair (the C screen's two files); `predict-measurements` is the separate table of new patients to predict (the N screen's file: the same markers, no outcomes). Served from the embedded bytes. Unknown kind → 404 INVALID_EXAMPLE_KIND.",
         "operationId": "FileValidation.example",
         "responses": {
           "403": {
@@ -10933,6 +10933,58 @@
           },
           "404": {
             "description": "Unknown model id (MODEL_NOT_FOUND)"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "x-required-permissions": [
+          "jobs::use"
+        ]
+      }
+    },
+    "/api/txr/models/example": {
+      "post": {
+        "tags": [
+          "models"
+        ],
+        "description": "Ensure the example saved set exists (the one-click \"Use a model I saved\" path): the id of the set named \"Example models\", created on first call by training 3 fast methods (a published environment, under 30 s, can run on the example data) on the example training data through the normal run engine and the normal save-models path — a real saved set, never a fixture. A second call returns the existing set; a call while the run trains reports `creating` with the run's id + status (the UI polls this call); a failed attempt reports `failed` with the honest reason (the next call retries); deleting the set and calling again recreates it. 200 with the state; 500 EXAMPLE_VALIDATION_FAILED / EXAMPLE_RUN_START / EXAMPLE_STATE_READ / EXAMPLE_RUN_READ / EXAMPLE_STATE_WRITE for an engine-seam failure.",
+        "operationId": "Models.exampleSet",
+        "responses": {
+          "403": {
+            "description": "Forbidden - Missing required permission",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionError"
+                },
+                "example": {
+                  "details": {
+                    "required_permissions": [
+                      {
+                        "description": "Create, view, and stop your own analysis jobs",
+                        "name": "JobsUse",
+                        "value": "jobs::use"
+                      }
+                    ]
+                  },
+                  "error": "Missing required permission: jobs::use",
+                  "error_code": "INSUFFICIENT_PERMISSIONS"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "The example saved set's answer (qa-fixes3 ITEM-3): the caller asks \"give me\n the example models\" and gets the set id when it exists, the creating run's\n id + status while it trains (the call reports progress — the UI polls it),\n or the failed reason. `methods` is the deterministic fast-method pick the\n set was (or is being) trained with.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExampleSetResponse"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -17298,6 +17350,61 @@
           "cpus"
         ]
       },
+      "ExampleSetResponse": {
+        "description": "The example saved set's answer (qa-fixes3 ITEM-3): the caller asks \"give me\n the example models\" and gets the set id when it exists, the creating run's\n id + status while it trains (the call reports progress — the UI polls it),\n or the failed reason. `methods` is the deterministic fast-method pick the\n set was (or is being) trained with.",
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "methods": {
+            "description": "The deterministic fast-method pick (the plan's \"3 that run in under\n 30 s each\").",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "run_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "run_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "set_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ExampleSetState"
+          }
+        },
+        "required": [
+          "state",
+          "methods"
+        ]
+      },
+      "ExampleSetState": {
+        "description": "The example saved set's state (qa-fixes3 ITEM-3, `POST\n /api/txr/models/example`): `creating` (the run is training the methods),\n `ready` (the set exists) or `failed` (the honest reason is in the\n response's `error`; the next call retries).",
+        "type": "string",
+        "enum": [
+          "creating",
+          "ready",
+          "failed"
+        ]
+      },
       "ExportRequest": {
         "description": "`POST /provenance/export` — build a reproducibility bundle.",
         "type": "object",
@@ -19707,6 +19814,10 @@
         "description": "One method's full fact set — the `methods[]` entry of the committed catalogue\n and the `GET /api/methods/{id}` payload (PROV-MC-3's MethodDetail is exactly\n this entry).",
         "type": "object",
         "properties": {
+          "title": {
+            "description": "The short human name (qa-fixes3 ITEM-1): the generator derives it from\n the description's lead phrase, capped at [`MAX_METHOD_TITLE_CHARS`],\n falling back to the prettified id — never empty.",
+            "type": "string"
+          },
           "description": {
             "type": "string"
           },
@@ -19784,6 +19895,13 @@
           "paper_doi": {
             "type": "string"
           },
+          "paper_title": {
+            "description": "The primary paper's published title when the benchmark tree knows it\n (built from the literature store at generation time); `None` when\n unknown — the list row shows the derived `title`, never this blank.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "params": {
             "type": "object",
             "additionalProperties": true
@@ -19826,6 +19944,10 @@
           "spec_status": {
             "type": "string"
           },
+          "summary": {
+            "description": "The one-sentence summary (the description's first sentence, capped at\n [`MAX_METHOD_SUMMARY_CHARS`]) — never empty.",
+            "type": "string"
+          },
           "tasks": {
             "type": "array",
             "items": {
@@ -19853,6 +19975,8 @@
           "version",
           "group",
           "group_label",
+          "title",
+          "summary",
           "journal",
           "year",
           "citations",
@@ -20308,6 +20432,9 @@
         "description": "The list-row projection — the full PROV-MC-1 fact set minus the\n detail-only fields (description/software/licence/references/params and the\n internal-ish gate/env/fitted/saves_model/own_outputs facts). Named explicitly\n so a consumer binds the exact row vocabulary (the E-row performance text and\n the models-dialog warning bind named fields here).",
         "type": "object",
         "properties": {
+          "title": {
+            "type": "string"
+          },
           "container": {
             "type": "boolean"
           },
@@ -20358,6 +20485,12 @@
           "paper_doi": {
             "type": "string"
           },
+          "paper_title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "performance": {
             "anyOf": [
               {
@@ -20384,6 +20517,9 @@
           "spec_status": {
             "type": "string"
           },
+          "summary": {
+            "type": "string"
+          },
           "tasks": {
             "type": "array",
             "items": {
@@ -20406,6 +20542,8 @@
           "id",
           "group",
           "group_label",
+          "title",
+          "summary",
           "year",
           "language",
           "journal",

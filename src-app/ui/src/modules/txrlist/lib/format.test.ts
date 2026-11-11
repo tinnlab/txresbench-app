@@ -21,10 +21,15 @@
  * runtime expectations for the current set.
  */
 import { describe, expect, it } from 'vitest'
-import type { TxrRunStatus } from '../types'
+import type { TxrMethodNeeds, TxrMethodRank, TxrRunStatus } from '../types'
 import {
+  formatBenchmarkScore,
+  formatBenchmarkTooltip,
   formatCoverage,
   formatDurationShort,
+  formatEstimateLabel,
+  formatMethodCoverage,
+  formatMethodNeedsLine,
   formatMissingItem,
   formatReasonLine,
   formatRunHeadline,
@@ -264,5 +269,44 @@ describe('pluralize / runLabel', () => {
     expect(runLabel('model', 3)).toBe('Run 3 models')
     expect(runLabel('method', 1)).toBe('Run 1 method')
     expect(runLabel('model', 1)).toBe('Run 1 model')
+  })
+})
+
+describe('the E-picker copy formatters (qa-fixes3 ITEM-1)', () => {
+  it('formatEstimateLabel prefixes the short duration with "Estimated"', () => {
+    expect(formatEstimateLabel(12)).toBe('Estimated 12 s')
+    expect(formatEstimateLabel(45)).toBe('Estimated under 1 min')
+    expect(formatEstimateLabel(300)).toBe('Estimated about 5 min')
+  })
+
+  it('formatBenchmarkScore shows the median + the cohort count when known', () => {
+    const rank: TxrMethodRank = { median: 0.74, kind: 'c-index', nDatasets: 38 }
+    expect(formatBenchmarkScore(rank)).toBe('Benchmark score 0.74 (38 cohorts)')
+    expect(formatBenchmarkScore({ ...rank, nDatasets: 0 })).toBe('Benchmark score 0.74')
+  })
+
+  it('formatBenchmarkTooltip states exactly what the number is', () => {
+    expect(formatBenchmarkTooltip({ median: 0.74, kind: 'c-index', nDatasets: 38 })).toBe(
+      'The median concordance across the 38 datasets the method was tested on.',
+    )
+    expect(formatBenchmarkTooltip({ median: 0.79, kind: 'auc', nDatasets: 12 })).toBe(
+      'The median AUC across the 12 datasets the method was tested on.',
+    )
+    expect(formatBenchmarkTooltip({ median: 0.74, kind: 'c-index', nDatasets: 0 })).toBe(
+      'The median concordance from the benchmark.',
+    )
+  })
+
+  it('formatMethodNeedsLine joins the needs facts and prefixes the coverage for some-patients rows', () => {
+    const needs: TxrMethodNeeds = { markers: '3 markers', covariates: 'covariates optional', draws: '3+ draws' }
+    expect(formatMethodNeedsLine(needs, null)).toBe('Needs: 3 markers · covariates optional · 3+ draws')
+    expect(formatMethodNeedsLine(needs, 'Runs on 120 of 151 patients')).toBe(
+      'Runs on 120 of 151 patients · Needs: 3 markers · covariates optional · 3+ draws',
+    )
+  })
+
+  it('formatMethodCoverage reads the coverage facts plainly', () => {
+    expect(formatMethodCoverage({ eligible: 151, total: 151 })).toBe('Runs on all 151 patients')
+    expect(formatMethodCoverage({ eligible: 120, total: 151 })).toBe('Runs on 120 of 151 patients')
   })
 })

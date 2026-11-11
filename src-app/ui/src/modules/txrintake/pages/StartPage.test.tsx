@@ -4,9 +4,9 @@
  * cards (board Start.dc.html, DEC-13 copy), the learn card's LIVE runnable
  * count (CONS-UI-INTAKE-3) with its number-free degradation, the intent
  * navigation (pretrained/reuse → `/predict-files`, train → `/study`), the
- * banner's study link, "Try the example data" (DEC-20: train intent + both
- * example files adopted → `/files`), and the web-URL notice (DEC-12:
- * `http:` dev/web only).
+ * banner's study link, "Use example" on each card (qa-fixes3 ITEM-4: one
+ * click fills the path's intent + example files + answers and lands on the
+ * path's file step), and the web-URL notice (DEC-12: `http:` dev/web only).
  *
  * The ApiClient is mocked (the txrlist/Datasets-store precedent); the
  * example-data path runs the REAL PROV-FV-7 decode against inline CSV
@@ -24,6 +24,7 @@ import { __resetFetchCacheForTests } from '../data/fetchCache'
 const api = vi.hoisted(() => ({
   list: vi.fn(),
   example: vi.fn(),
+  exampleSet: vi.fn(),
 }))
 vi.mock('@/api-client', () => ({
   ApiClient: {
@@ -32,6 +33,9 @@ vi.mock('@/api-client', () => ({
     },
     FileValidation: {
       example: api.example,
+    },
+    Models: {
+      exampleSet: api.exampleSet,
     },
   },
 }))
@@ -48,6 +52,11 @@ const MEASUREMENTS_CSV = [
   'P0001,0,ldh,210,U/L',
   'P0001,14,LDH,260,U/L',
   'P0001,28,cea,3.1,ng/mL',
+].join('\n')
+
+const PREDICT_CSV = [
+  'patient_id,day,marker,value,unit',
+  'J1000,0,M1,1.2,a.u.',
 ].join('\n')
 
 /** The live runnable-set size the mocked list response reports. */
@@ -73,10 +82,21 @@ const store = () => useTxrIntakeStore.getState()
 beforeEach(() => {
   api.list.mockReset()
   api.example.mockReset()
+  api.exampleSet.mockReset()
   api.list.mockResolvedValue({ methods: [], total: RUNNABLE_COUNT })
-  api.example.mockImplementation(({ kind }: { kind: 'patients' | 'measurements' }) =>
-    Promise.resolve(kind === 'patients' ? PATIENTS_CSV : MEASUREMENTS_CSV),
+  api.example.mockImplementation(({ kind }: { kind: 'patients' | 'measurements' | 'predict-measurements' }) =>
+    Promise.resolve(
+      kind === 'patients' ? PATIENTS_CSV : kind === 'measurements' ? MEASUREMENTS_CSV : PREDICT_CSV,
+    ),
   )
+  api.exampleSet.mockResolvedValue({
+    state: 'ready',
+    set_id: 'set-1',
+    methods: ['kelim'],
+    run_id: undefined,
+    run_status: undefined,
+    error: undefined,
+  })
   window.localStorage.clear()
   store().reset()
   // ITEM-10: the count hook's module-level cache is one per-session key —
@@ -126,19 +146,17 @@ describe('StartPage (TEST-INT-11, ITEM-4)', () => {
 
   it('sets the intent and navigates from each card button', () => {
     renderStart()
-    fireEvent.click(
-      within(screen.getByTestId('txr-intake-start-card-pretrained')).getByRole('button'),
-    )
+    fireEvent.click(screen.getByTestId('txr-intake-start-card-pretrained-cta'))
     expect(routeAt()).toBe('/predict-files')
     expect(store().intent).toBe('pretrained')
     expect(store().mode).toBe('predict')
 
-    fireEvent.click(within(screen.getByTestId('txr-intake-start-card-train')).getByRole('button'))
+    fireEvent.click(screen.getByTestId('txr-intake-start-card-train-cta'))
     expect(routeAt()).toBe('/study')
     expect(store().intent).toBe('train')
     expect(store().mode).toBe('study')
 
-    fireEvent.click(within(screen.getByTestId('txr-intake-start-card-reuse')).getByRole('button'))
+    fireEvent.click(screen.getByTestId('txr-intake-start-card-reuse-cta'))
     expect(routeAt()).toBe('/predict-files')
     expect(store().intent).toBe('reuse')
     expect(store().mode).toBe('predict')
@@ -150,9 +168,9 @@ describe('StartPage (TEST-INT-11, ITEM-4)', () => {
     expect(routeAt()).toBe('/study')
   })
 
-  it('Try the example data: train intent + both example files adopted, then /files (DEC-20)', async () => {
+  it('Use example — learn: train intent + both example files + the filled answers, then /files', async () => {
     renderStart()
-    fireEvent.click(screen.getByTestId('txr-intake-start-example'))
+    fireEvent.click(screen.getByTestId('txr-use-example-train'))
 
     await waitFor(() => {
       expect(routeAt()).toBe('/files')
@@ -162,6 +180,11 @@ describe('StartPage (TEST-INT-11, ITEM-4)', () => {
     expect(api.example).toHaveBeenCalledWith({ kind: 'measurements' })
     expect(store().intent).toBe('train')
     expect(store().mode).toBe('study')
+    // Every study answer is filled consistently with the example family.
+    expect(store().study.disease).toBe('other')
+    expect(store().study.treatment).toBe('other-mixed')
+    expect(store().study.lastDrawDay).toBe(56)
+    expect(store().parameters.decision_day).toBe(56)
 
     const patients = store().patients
     expect(patients?.source.name).toBe('patients_example.csv')
@@ -182,6 +205,39 @@ describe('StartPage (TEST-INT-11, ITEM-4)', () => {
     expect(measurements?.source.name).toBe('measurements_example.csv')
     expect(measurements?.table.rows).toHaveLength(3)
     expect(measurements?.table.rows[2]?.[2]).toBe('cea')
+    // The C screen's banner fact + the per-slot badges.
+    expect(store().exampleLoaded).toBe(true)
+    expect(store().exampleSlots.patients).toBe(true)
+    expect(store().exampleSlots.measurements).toBe(true)
+  })
+
+  it('Use example — predict: pretrained intent + the example predict table, then /predict-files', async () => {
+    renderStart()
+    fireEvent.click(screen.getByTestId('txr-use-example-pretrained'))
+
+    await waitFor(() => {
+      expect(routeAt()).toBe('/predict-files')
+    })
+    expect(api.example).toHaveBeenCalledTimes(1)
+    expect(api.example).toHaveBeenCalledWith({ kind: 'predict-measurements' })
+    expect(store().intent).toBe('pretrained')
+    expect(store().mode).toBe('predict')
+    expect(store().predictMeasurements?.source.name).toBe('predict-measurements_example.csv')
+    expect(store().predictMeasurements?.table.rows[0]?.[0]).toBe('J1000')
+    expect(store().exampleSlots.predictMeasurements).toBe(true)
+  })
+
+  it('Use example — reuse: ensure the example set, tick it later, then /predict-files', async () => {
+    renderStart()
+    fireEvent.click(screen.getByTestId('txr-use-example-reuse'))
+
+    await waitFor(() => {
+      expect(routeAt()).toBe('/predict-files')
+    })
+    expect(api.exampleSet).toHaveBeenCalledTimes(1)
+    expect(store().intent).toBe('reuse')
+    expect(store().exampleSlots.predictMeasurements).toBe(true)
+    expect(store().pendingExampleSetId).toBe('set-1')
   })
 
   it('renders the web-URL notice only on a http: server context (DEC-12)', () => {
@@ -211,7 +267,7 @@ describe('StartPage (TEST-INT-11, ITEM-4)', () => {
 })
 
 
-describe('ITEM-6 L1/L2/L3/F6 — the banner link, the board dots, the distinct saved-model CTA, the example banner fact', () => {
+describe('ITEM-6 L1/L2/L3 — the banner link, the board dots, the distinct saved-model CTA', () => {
   it('the three path cards keep the board dots and the CTA bodies (L2, L3)', () => {
     renderStart()
     const bullets = screen.getByText('Works with a small cohort, and with no outcomes').closest('ul') as HTMLElement
@@ -223,25 +279,46 @@ describe('ITEM-6 L1/L2/L3/F6 — the banner link, the board dots, the distinct s
     expect(screen.getAllByText('Add the patients to predict')).toHaveLength(1)
   })
 
-  it('the example-data link renders flush with the banner paragraph (L1)', () => {
+  it('qa-fixes3 ITEM-4: one Use example button per card, the accessible names naming the paths, and the banner points at them', () => {
     renderStart()
-    const example = screen.getByTestId('txr-intake-start-example') as HTMLElement
-    expect(example.style.padding).toBe('0px')
+    expect(screen.getByTestId('txr-use-example-train')).toBeTruthy()
+    expect(screen.getByTestId('txr-use-example-pretrained')).toBeTruthy()
+    expect(screen.getByTestId('txr-use-example-reuse')).toBeTruthy()
+    expect(
+      screen.getByRole('button', { name: 'Use example data: predict with a pretrained model' }),
+    ).toBeTruthy()
+    expect(
+      screen.getByRole('button', { name: 'Use example data: learn from my data' }),
+    ).toBeTruthy()
+    expect(
+      screen.getByRole('button', { name: 'Use example data: use a model I saved' }),
+    ).toBeTruthy()
+    expect(screen.getByTestId('txr-intake-start-example-hint').textContent).toContain(
+      'Use example',
+    )
+    expect(screen.queryByTestId('txr-intake-start-example')).toBeNull()
   })
 
-  it('Try the example data records the example-loaded fact for the C banner (F6)', async () => {
+  it('Use example records the per-slot example fact; a user adoption clears only that slot (F6)', async () => {
     renderStart()
-    fireEvent.click(screen.getByTestId('txr-intake-start-example'))
+    fireEvent.click(screen.getByTestId('txr-use-example-train'))
     await waitFor(() => {
       expect(routeAt()).toBe('/files')
     })
     expect(store().exampleLoaded).toBe(true)
-    // An adoption of the user's OWN file clears the fact (the banner
-    // announces only the example that is still loaded — the FilesPage test
-    // renders the banner itself).
+    // An adoption of the user's OWN file clears that slot and the
+    // aggregate (the badge + banner announce only the example that is
+    // still loaded — the FilesPage test renders the banner itself).
     store().adoptFile(
       'patients',
       store().patients as NonNullable<ReturnType<typeof store>['patients']>,
+    )
+    expect(store().exampleSlots.patients).toBe(false)
+    expect(store().exampleSlots.measurements).toBe(true)
+    expect(store().exampleLoaded).toBe(true)
+    store().adoptFile(
+      'measurements',
+      store().measurements as NonNullable<ReturnType<typeof store>['measurements']>,
     )
     expect(store().exampleLoaded).toBe(false)
   })

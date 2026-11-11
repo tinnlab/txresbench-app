@@ -55,6 +55,10 @@ CONTRACT = "2.0"
 REGISTRY_PREFIX = "ghcr.io/tinnlab"
 
 SCHEMA_VERSION = 1
+# the qa-fixes3 ITEM-1 human-name fields (the plan's limits; the server types pin
+# the same constants as contract)
+MAX_TITLE_CHARS = 60
+MAX_SUMMARY_CHARS = 170
 GROUP_LABELS = {
     "response-call": "Response call",
     "response-probability": "Response probability",
@@ -156,6 +160,131 @@ def sanitize_value(v):
     return v
 
 
+# ---- human-name fields (qa-fixes3 ITEM-1) ----
+# The catalogue carries a short human `title`, a one-sentence `summary` and,
+# when the benchmark tree knows it, the primary paper's `paper_title` — the
+# row/About facts the redesigned method list shows. All three are derived at
+# BUILD time from the method's own `description` (the lead phrase / first
+# sentence) plus the literature store, so no app code ever reads the tree.
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z(])")
+_ABBREVIATION_TAILS = {
+    "al", "e.g", "i.e", "etc", "fig", "no", "dr", "vs", "esq", "inc", "ltd",
+    "mr", "mrs", "ms", "st", "vol",
+}
+
+
+def cut_phrase(text, limit):
+    """`text` cut at a word boundary to <= `limit` chars, trailing punctuation
+    stripped (the title/summary caps; never a mid-word cut, never empty for a
+    non-empty input)."""
+    t = re.sub(r"\s+", " ", (text or "")).strip()
+    if len(t) <= limit:
+        return t.rstrip(" ,;:.-()")
+    head = t[: limit + 1]
+    sp = head.rfind(" ", 0, limit + 1)
+    if sp > 0:
+        head = head[:sp]
+    return head.rstrip(" ,;:.-()")
+
+
+def first_sentence(text):
+    """The description's first sentence. The split rewinds after a known
+    abbreviation tail (`et al. (Gut 2017, ...` never splits at `al.`), so a
+    citation inside the sentence does not truncate it."""
+    parts = _SENTENCE_END.split((text or "").strip())
+    sentence = parts[0]
+    i = 1
+    while i < len(parts):
+        tail = sentence.strip().split()[-1].rstrip(".").lower() if sentence.strip() else ""
+        if tail in _ABBREVIATION_TAILS:
+            sentence = (sentence + " " + parts[i]).strip()
+            i += 1
+        else:
+            break
+    return sentence
+
+
+def prettify_id(mid):
+    """The id-prettified fallback (`cox-timevarying-slope` -> `Cox
+    Timevarying Slope`): the one stable, readable form when the description
+    yields no lead phrase."""
+    return " ".join(w.capitalize() for w in re.split(r"[-_]+", str(mid)) if w)
+
+
+def derive_title(mid, description):
+    """The plan's short human name: the description's lead phrase (its first
+    sentence, <= MAX_TITLE_CHARS at a word boundary), falling back to the
+    prettified id — never empty."""
+    d = sanitize_string(description or "")
+    t = cut_phrase(first_sentence(d), MAX_TITLE_CHARS) if d else ""
+    if not t:
+        t = cut_phrase(d, MAX_TITLE_CHARS) if d else ""
+    return t or prettify_id(mid)
+
+
+def derive_summary(description):
+    """The plan's one-sentence summary: the description's first sentence,
+    capped at MAX_SUMMARY_CHARS at a word boundary. `first_sentence` may be
+    empty for a degenerate description; the cap falls back to the lead phrase."""
+    d = sanitize_string(description or "")
+    s = cut_phrase(first_sentence(d), MAX_SUMMARY_CHARS) if d else ""
+    if not s and d:
+        s = cut_phrase(d, MAX_SUMMARY_CHARS)
+    return s
+
+
+_DOI_NORMALIZE = re.compile(r"^(?:doi:|https?://(?:dx\.)?doi\.org/)")
+
+
+def normalize_doi(raw):
+    """The DOI's canonical lookup form (lowercase, scheme/prefix stripped) —
+    the literature store's `**DOI:**` lines and the methods' `references`
+    spell the same DOI differently."""
+    d = _DOI_NORMALIZE.sub("", str(raw or "").lower().strip())
+    return re.sub(r"[\s]+", "", d)
+
+
+def load_paper_titles(literature_md_dir):
+    """DOI -> published title from the literature store's raw markdown
+    (build-time only; the dir need not exist — `paper_title` is then `None`
+    everywhere). The store is live-edited paper text, so the map is a
+    snapshot the committed catalogue pins (regen parity covers drift)."""
+    titles = {}
+    if not literature_md_dir.is_dir():
+        return titles
+    for f in sorted(literature_md_dir.glob("*.md")):
+        try:
+            title = None
+            doi = None
+            with open(f, encoding="utf-8", errors="replace") as fh:
+                for i, line in enumerate(fh):
+                    if i > 40:
+                        break
+                    if line.startswith("# ") and title is None:
+                        title = line[2:].strip()
+                    m = re.search(r"\*\*DOI:\*\*\s*(\S+)", line)
+                    if m and doi is None:
+                        doi = m.group(1)
+                    if title and doi:
+                        break
+            if title and doi:
+                titles.setdefault(normalize_doi(doi), title)
+        except (OSError, UnicodeError):
+            continue
+    return titles
+
+
+def derive_paper_title(manifest_doi, references, titles):
+    """The primary paper's title when the benchmark tree knows it: the
+    manifest's `paper_doi` first, then each reference, first hit wins; `None`
+    when nothing resolves (the plan's "when known")."""
+    for doi in [manifest_doi] + list(references or []):
+        t = titles.get(normalize_doi(doi))
+        if t:
+            return sanitize_string(t)
+    return None
+
+
 def hygiene_scan(value, where="."):
     """Hygiene violations (urls, stud tokens, status/placeholder tokens) in a value tree."""
     hits = []
@@ -253,6 +382,11 @@ class Registry:
             self.catalog_dir = self.root / "dev" / "analysis-catalog" / "datasets"
             self.runs_csv = self.root / "results" / "benchmark" / "runs.csv"
             self.scores_csv = self.root / "results" / "benchmark" / "scores.csv"
+        # the paper-title source (qa-fixes3 ITEM-1): the literature store's raw
+        # markdown carries the `# title` + `**DOI:**` per paper; the fixture
+        # registry ships no store, so `paper_title` is null under `--fixtures`.
+        self.literature_md_dir = (self.root / "literature-store" / "papers" / "_raw" / "md"
+                                  if not is_fixture else None)
 
     def check(self):
         missing = [str(p) for p in (self.methods_dir, self.gates_dir, self.manifest,
@@ -611,6 +745,8 @@ def build_catalogue(registry, marker_groups_tsv, model_warnings_tsv):
     timings = load_timings(registry.runs_csv)
     run_ids = sorted(m for m, g in gates.items() if g.get("pass") and g.get("image_digest"))
     perf = load_performance(registry.scores_csv, set(run_ids))
+    paper_titles = (load_paper_titles(registry.literature_md_dir)
+                    if registry.literature_md_dir is not None else {})
 
     # pre-pass: collect required (system, id) pairs -> vocabulary; keep the manifest's original
     # id casing for display (the match key is case-folded, the shipped id is not)
@@ -667,6 +803,9 @@ def build_catalogue(registry, marker_groups_tsv, model_warnings_tsv):
             "version": str(mj.get("version") or ""),
             "group": group,
             "group_label": GROUP_LABELS.get(group, group),
+            "title": derive_title(mid, mj.get("description") or ""),
+            "summary": derive_summary(mj.get("description") or ""),
+            "paper_title": derive_paper_title(row.get("paper_doi"), mj.get("references"), paper_titles),
             "journal": row.get("journal") or "",
             "year": _int_or(row.get("year"), 0),
             "citations": _int_or(row.get("citations_all_papers"), 0),
@@ -741,6 +880,14 @@ def selftest(fixtures_dir):
           all(m["id"] and isinstance(m["version"], str) and m["group"] and m["group_label"]
               and m["env"]["image"] and m["env"]["digest"] and isinstance(m["min_draws"], int)
               and isinstance(m["embeds_training_data"], bool) for m in catalogue["methods"]))
+    check("human-name fields: title + summary non-empty and within the caps; "
+          "paper_title null without a literature store (the fixture registry ships none)",
+          all(m["title"] and len(m["title"]) <= MAX_TITLE_CHARS
+              and m["summary"] and len(m["summary"]) <= MAX_SUMMARY_CHARS
+              and m["paper_title"] is None for m in catalogue["methods"]),
+          str([(m["id"], len(m["title"]), len(m["summary"])) for m in catalogue["methods"]
+               if not m["title"] or len(m["title"]) > MAX_TITLE_CHARS
+               or not m["summary"] or len(m["summary"]) > MAX_SUMMARY_CHARS]))
     check("runnable implies env fields",
           all(m["runnable"] and m["env"]["image"] and m["env"]["digest"] for m in catalogue["methods"]))
     by_id = {(m["system"].lower(), m["id"].lower()): m for m in catalogue["markers"]}
@@ -812,6 +959,34 @@ def _normalise(doc):
     return d
 
 
+def backfill_human_names(target, root):
+    """qa-fixes3 ITEM-1: add the three human-name fields to the COMMITTED
+    catalogue without regenerating it. The benchmark tree is live-edited, so a
+    full regen would silently resnapshot fields this item does not touch
+    (timing/performance/marker vocabulary — 656 field instances and 800 new
+    markers today), and the regen runbook reserves the live-tree run for the
+    owner. This mode derives the three fields from the SAME rules (the
+    generators' own functions below) and rewrites nothing else; the derived
+    facts are snapshot-consistent because the descriptions were verified to
+    match the committed bytes (a method whose method.json is absent keeps its
+    committed description as the derivation source)."""
+    doc = json.loads(target.read_text(encoding="utf-8"))
+    manifest = load_manifest(Registry(root, is_fixture=False).manifest)
+    titles = load_paper_titles(Registry(root, is_fixture=False).literature_md_dir)
+    for m in doc["methods"]:
+        mid = m["id"]
+        mj = read_method_json(Registry(root, is_fixture=False), mid) or {}
+        description = str(mj.get("description") or m.get("description") or "")
+        m["title"] = derive_title(mid, description)
+        m["summary"] = derive_summary(description)
+        m["paper_title"] = derive_paper_title(
+            (manifest.get(mid) or {}).get("paper_doi"), mj.get("references"), titles)
+    text = dump_to_text(doc)
+    target.write_text(text, encoding="utf-8")
+    print(f"human names backfilled into {target}: {len(doc['methods'])} methods")
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(
         description="Generate the TxResBench method catalogue (data/method-catalogue/catalogue.json)")
@@ -820,12 +995,18 @@ def main(argv=None):
     ap.add_argument("--check", action="store_true", help="generate and byte-compare with the target file")
     ap.add_argument("--selftest", action="store_true", help="run the generator invariants (TEST-MC-15/16)")
     ap.add_argument("--propose-groups", action="store_true", help="write a marker-groups proposal tsv")
+    ap.add_argument("--human-names", action="store_true",
+                    help="backfill the title/summary/paper_title fields of the committed catalogue "
+                         "without a full regeneration (the live-tree regen is the owner's runbook step)")
     ap.add_argument("--root", default=os.environ.get("SIGTRANS_ROOT", str(DEFAULT_SIGTRANS_ROOT)),
                     help="benchmark tree root (default SIGTRANS_ROOT or /data/share/pbya/sigtrans)")
     a = ap.parse_args(argv)
 
     if a.selftest:
         return selftest(SCRIPT_DIR / "fixtures")
+
+    if a.human_names:
+        return backfill_human_names(Path(a.out), Path(a.root))
 
     registry = Registry(SCRIPT_DIR / "fixtures" if a.fixtures else Path(a.root), is_fixture=a.fixtures)
     catalogue, warnings_out = build_catalogue(registry, SCRIPT_DIR / "marker-groups.tsv",

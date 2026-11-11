@@ -179,15 +179,81 @@ test.describe('txr-help — the measured layout at 1440x900', () => {
     await openHelp(page, { width: 1440, height: 900 })
     for (const id of SECTIONS) {
       await page.getByTestId(`txr-help-toc-${id}`).click()
+      // The hash effect's smooth scroll lands the heading at the 84 px
+      // scroll-margin — poll for the LANDING, not for the start: a naked
+      // read can beat the animation on a loaded box (the same one-off the
+      // 768 disclosure records below).
       await expect
         .poll(async () =>
           page.getByTestId(`txr-help-section-${id}`).evaluate(el => el.getBoundingClientRect().top),
         )
-        .toBeGreaterThanOrEqual(0)
+        .toBeLessThan(140)
       const top = await page.getByTestId(`txr-help-section-${id}`).evaluate(el => el.getBoundingClientRect().top)
       expect(top, `heading ${id} lands clear of the header`).toBeGreaterThanOrEqual(0)
       expect(top, `heading ${id} is fully visible`).toBeLessThan(140)
     }
+  })
+
+  test('the rail highlight follows the scroll — anchor, keyboard and wheel (ITEM-6 b)', async ({ page }) => {
+    await openHelp(page, { width: 1440, height: 900 })
+    const active = (id: string) => page.getByTestId(`txr-help-toc-${id}`)
+    // ANCHOR: clicking each contents link lands the rail on the same section
+    // (the owner-side defect: the rail stuck on "What TxResBench does").
+    for (const id of SECTIONS) {
+      await page.getByTestId(`txr-help-toc-${id}`).click()
+      await expect(active(id), `anchor scroll to ${id}`).toHaveAttribute('aria-current', 'true')
+    }
+    // KEYBOARD: Tab walks the page's controls — the browser scrolls to the
+    // focused element (a keyboard user's navigation; the scroll-table keys
+    // are the sticky rail's box's keys here, not the page's) — and the rail
+    // follows down to the last section (measured: a few Tabs reach the
+    // deep controls; the rail lands on the section they belong to).
+    await page.evaluate(() => {
+      ;(document.activeElement as HTMLElement | null)?.blur?.()
+      window.scrollTo(0, 0)
+    })
+    const pressUntil = async (key: string, id: string, tries: number) => {
+      for (let i = 0; i < tries; i++) {
+        if ((await active(id).getAttribute('aria-current')) === 'true') return
+        await page.keyboard.press(key)
+      }
+      await expect(active(id)).toHaveAttribute('aria-current', 'true')
+    }
+    await pressUntil('Tab', 'troubleshooting', 60)
+    await pressUntil('Shift+Tab', 'overview', 90)
+    // WHEEL: a continuous wheel scroll follows the sections as they pass the
+    // header line — wheel down two steps onto a mid-page section, then
+    // further, then all the way to the bottom, then all the way back.
+    await page.evaluate(() => window.scrollTo(0, 0))
+    await page.mouse.move(720, 500)
+    await page.mouse.wheel(0, 400)
+    await page.mouse.wheel(0, 400)
+    await expect(active('steps')).toHaveAttribute('aria-current', 'true')
+    await page.mouse.wheel(0, 400)
+    await expect(active('files')).toHaveAttribute('aria-current', 'true')
+    await page.mouse.wheel(0, 30000)
+    await expect(active('troubleshooting')).toHaveAttribute('aria-current', 'true')
+    await page.mouse.wheel(0, -30000)
+    await expect(active('overview')).toHaveAttribute('aria-current', 'true')
+  })
+
+  test('the quick-start row shares the grid\'s edges on desktop (ITEM-6 e)', async ({ page }) => {
+    await openHelp(page, { width: 1440, height: 900 })
+    const m = await page.evaluate(() => {
+      const quickstart = document.querySelector<HTMLElement>('[data-testid="txr-help-quickstart"]')!
+      const grid = document.querySelector<HTMLElement>('.txr-help-grid')!
+      const q = quickstart.getBoundingClientRect()
+      const g = grid.getBoundingClientRect()
+      return {
+        leftDelta: q.left - g.left,
+        rightDelta: q.right - g.right,
+      }
+    })
+    // The cards' row is capped at the grid's width and centred like it — the
+    // old row ran the page's full 1096 px and stuck out 48 px past the
+    // grid's edges.
+    expect(Math.abs(m.leftDelta)).toBeLessThanOrEqual(1)
+    expect(Math.abs(m.rightDelta)).toBeLessThanOrEqual(1)
   })
 
   test('the file tables scroll inside their own box (they never widen the column)', async ({ page }) => {
@@ -267,10 +333,18 @@ test.describe('txr-help — the breakpoints', () => {
     await openHelp(page, { width: 768, height: 1024 })
     await expect(page.getByTestId('txr-help-rail')).toHaveCount(0)
     await expect(page.getByTestId('txr-help-contents-toggle')).toBeVisible()
-    // Open it, click a link: the section lands below the header.
+    // Open it, click a link: the section lands below the header. The click
+    // is followed by the hash effect's scroll — a poll, not a naked read
+    // (the read can beat the effect on a loaded box, ITEM-6 records the
+    // one-off).
     await page.getByTestId('txr-help-contents-toggle').click()
     await expect(page.getByTestId('txr-help-contents-link-troubleshooting')).toBeVisible()
     await page.getByTestId('txr-help-contents-link-troubleshooting').click()
+    await expect
+      .poll(() =>
+        page.getByTestId('txr-help-section-troubleshooting').evaluate(el => el.getBoundingClientRect().top),
+      )
+      .toBeLessThan(140)
     const top = await page.getByTestId('txr-help-section-troubleshooting').evaluate(el => el.getBoundingClientRect().top)
     expect(top).toBeGreaterThanOrEqual(0)
     expect(top).toBeLessThan(140)
@@ -328,6 +402,36 @@ test.describe('txr-help — the breakpoints', () => {
       scroller.scrollTop = 2500
     })
     await expect(page.getByTestId('txr-help-backtop')).toBeVisible()
+  })
+})
+
+test.describe('txr-help — the quick-start example actions (qa-fixes3 ITEM-5)', () => {
+  test('each card carries its one-line "Try it with example data" action with the path\'s accessible name', async ({ page }) => {
+    await openHelp(page, { width: 1440, height: 900 })
+    const cards: Array<{ id: string; path: string; name: string }> = [
+      { id: 'pretrained', path: 'pretrained', name: 'Use example data: predict with a pretrained model' },
+      { id: 'learn', path: 'train', name: 'Use example data: learn from my data' },
+      { id: 'saved', path: 'reuse', name: 'Use example data: use a model I saved' },
+    ]
+    for (const card of cards) {
+      const frame = page.getByTestId(`txr-help-quickstart-${card.id}`)
+      await expect(frame.getByText('Try it with example data')).toBeVisible()
+      await expect(frame.getByRole('button', { name: card.name })).toBeVisible()
+      await expect(frame.getByTestId(`txr-use-example-${card.path}`)).toBeVisible()
+    }
+    // The example actions never widen the one-document page. The page-height
+    // pin (under 5,500 px) is NOT repeated here: it already fails on this
+    // branch's base — qa-fixes3 ITEM-2's help-content growth pushed the page
+    // past the qa-fixes2 ITEM-3 target without a browser-tier run noticing
+    // (recorded in DRIFT-1 ITEM-5 as the pre-existing condition). The new
+    // action adds ~32 px to that page.
+    const m = await page.evaluate(() => {
+      return {
+        bodyWidth: document.documentElement.scrollWidth,
+        viewportWidth: document.documentElement.clientWidth,
+      }
+    })
+    expect(m.bodyWidth - m.viewportWidth).toBeLessThanOrEqual(1)
   })
 })
 

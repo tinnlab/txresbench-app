@@ -311,6 +311,40 @@ mod tests {
         assert!(!c.methods.is_empty());
     }
 
+    /// TEST-MC-28 (qa-fixes3 ITEM-1): every shipped method carries the
+    /// human-name fields — a non-empty `title` within
+    /// [`MAX_METHOD_TITLE_CHARS`], a non-empty `summary` within
+    /// [`MAX_METHOD_SUMMARY_CHARS`], and `paper_title` either absent (the
+    /// generator's "when known" honesty) or non-empty. A generated file that
+    /// regresses (an empty title, an over-long summary) fails HERE, not at a
+    /// render.
+    #[test]
+    fn every_method_carries_human_name_fields_within_the_caps() {
+        use crate::modules::method_catalogue::types::{
+            MAX_METHOD_SUMMARY_CHARS, MAX_METHOD_TITLE_CHARS,
+        };
+        let c = ensure_loaded().expect("the committed catalogue must parse + validate");
+        let mut out_of_contract: Vec<String> = Vec::new();
+        for m in &c.methods {
+            if m.title.trim().is_empty() || m.title.chars().count() > MAX_METHOD_TITLE_CHARS {
+                out_of_contract.push(format!("{}: title {:?}", m.id, m.title));
+            }
+            if m.summary.trim().is_empty() || m.summary.chars().count() > MAX_METHOD_SUMMARY_CHARS {
+                out_of_contract.push(format!("{}: summary {:?}", m.id, m.summary));
+            }
+            if let Some(t) = &m.paper_title {
+                if t.trim().is_empty() {
+                    out_of_contract.push(format!("{}: empty paper_title", m.id));
+                }
+            }
+        }
+        assert!(
+            out_of_contract.is_empty(),
+            "human-name fields out of contract:\n{}",
+            out_of_contract.join("\n")
+        );
+    }
+
     /// TEST-MC-19: a corrupted / diverging first-party catalogue fails with a
     /// NAMED error — never a silently empty catalogue. The corrupted-byte case
     /// exercises the REAL loader (parse_catalogue is the boot path).
@@ -367,7 +401,9 @@ mod tests {
         format!(
             r#"{{
                 "id": "{id}", "version": "1.0.0", "group": "response-call",
-                "group_label": "Response call", "journal": "J", "year": 2026,
+                "group_label": "Response call", "title": "Rule", "summary": "A rule.",
+                "paper_title": null,
+                "journal": "J", "year": 2026,
                 "citations": 0, "language": "R", "paper_doi": "", "spec_status": "draft",
                 "frozen_model": false, "container": false, "runnable": true,
                 "gate": {{"pass": true, "report_name": "{id}.report.md"}},

@@ -295,7 +295,8 @@ fn schema_refuses_per_patient_and_per_dataset_fields() {
 
     let method_entry = r#"{
         "id": "fx-p", "version": "1.0.0", "group": "response-call",
-        "group_label": "Response call", "journal": "J", "year": 2026,
+        "group_label": "Response call", "title": "Rule", "summary": "A rule.",
+        "paper_title": null, "journal": "J", "year": 2026,
         "citations": 0, "language": "R", "paper_doi": "", "spec_status": "draft",
         "frozen_model": false, "container": false, "runnable": true,
         "gate": {"pass": true, "report_name": "p.report.md"},

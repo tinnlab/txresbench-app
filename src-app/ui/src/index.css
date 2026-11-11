@@ -139,14 +139,18 @@ html.dark .os-theme-dark {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent);
 }
 
-/* QA-fixes ITEM-7 (X2): the shell header at phone width. The board's header
- * is desktop-only: at 390 px the tagline wrapped to six lines and clipped,
- * and the nav pushed History/Help off-screen (the measured 526/817 px page
- * scrollWidth). Below 900 px the tagline yields (the brand stays — the
- * tagline is the least-needed byte and the longest); below 640 px the header
- * stacks: the brand row first, then the nav + Help row on its own line, so
- * all four destinations stay on-screen with no horizontal page scroll. The
- * desktop look above those widths is untouched (the inline styles carry it). */
+/* QA-fixes ITEM-7 (X2) + qa-fixes3 ITEM-6 (c): the shell header at narrow
+ * width. The board's header is ONE 56 px row; at 390 px the old stack put
+ * "Help" alone on the second row beside the theme icon (the owner-side
+ * review). Below 900 px the tagline yields (the brand stays — the tagline is
+ * the least-needed byte and the longest); below 640 px the header STAYS a
+ * single row: the nav becomes the flexible MIDDLE of that row — a
+ * horizontally scrollable strip (no wrap, no painted scrollbar; Tab reaches
+ * every destination and the browser scrolls the strip to the focused link)
+ * — while the brand and the theme switch never shrink and the switch
+ * collapses to its icon (the same yield rule as the tagline; the icon
+ * carries the state, the tooltip/accessible name the action). The desktop
+ * look above those widths is untouched (the inline styles carry it). */
 @media (max-width: 900px) {
   .txr-shell-tagline {
     display: none !important;
@@ -154,16 +158,40 @@ html.dark .os-theme-dark {
 }
 @media (max-width: 640px) {
   .txr-shell-header {
-    height: auto !important;
-    flex-wrap: wrap !important;
-    padding: 10px 16px !important;
-    row-gap: 6px;
+    flex-wrap: nowrap !important;
+    padding: 0 12px !important;
+    gap: 8px !important;
+    /* ITEM-6: ONE row at every width — the board's 56 px header byte. */
+    height: 56px !important;
   }
   .txr-shell-actions {
-    flex: 1 1 100% !important;
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    gap: 8px !important;
   }
-  /* qa-fixes2 ITEM-1: the theme switch at phone width. The stacked header row
-   * is the shell's own; the switch keeps its icon and collapses its state
+  .txr-shell-nav {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    min-width: 0 !important;
+    /* The 3 px kit focus ring must not be clipped by the overflow — the
+     * strip pads the links by the ring's width. */
+    padding: 3px;
+    /* The strip scrolls; it does not paint a bar (the destinations are the
+     * scroll affordance's own focus order — Tab scrolls it). */
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .txr-shell-nav::-webkit-scrollbar {
+    display: none;
+  }
+  .txr-shell-nav a {
+    flex-shrink: 0 !important;
+  }
+  .txr-shell-actions .txr-theme-toggle {
+    flex-shrink: 0 !important;
+  }
+  /* qa-fixes2 ITEM-1: the switch keeps its icon and collapses its state
    * label (the same yield rule as the tagline — the icon carries the state,
    * the tooltip/accessible name the action). The switch itself stays on
    * screen; the four destinations' on-screen sweep is above. */
@@ -577,4 +605,44 @@ html.dark .os-theme-dark {
 .txr-help-skip-link:focus {
   left: 12px !important;
   top: 12px !important;
+}
+
+/* qa-fixes3 ITEM-2 (d): the choose-methods page at phone width. The ITEM-2
+ * plan's phone layout: the files summary and the settings are COLLAPSIBLE
+ * cards (collapsed by default — their own inline styles implement the
+ * state; the page padding below gives the collapsed cards their room), the
+ * method row stacks its checkbox, title, chips and estimate as separate
+ * lines without clipping, the run bar is a compact two-line sticky bar and
+ * touch targets are at least 44 px. Desktop is untouched (the inline
+ * styles carry it). */
+@media (max-width: 640px) {
+  .txr-run-page {
+    padding: 20px 16px !important;
+  }
+  .txr-run-page .txr-method-card {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    min-height: 44px;
+  }
+  .txr-run-page .txr-method-card .txr-list-checkbox {
+    align-self: flex-start;
+  }
+  .txr-run-page .txr-method-preset,
+  .txr-run-page .txr-method-family {
+    min-height: 44px;
+  }
+  .txr-run-page .txr-run-bar {
+    padding: 8px 16px !important;
+    gap: 6px 12px !important;
+  }
+  .txr-run-page .txr-run-bar .txr-run-bar-action {
+    flex: 1 1 100% !important;
+    margin-left: 0 !important;
+    justify-content: space-between;
+  }
+  .txr-run-page .txr-run-bar .txr-run-bar-action button,
+  .txr-run-page .txr-run-bar .txr-run-bar-action label {
+    min-height: 44px;
+  }
 }

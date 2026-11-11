@@ -40,27 +40,41 @@ pub const PATIENTS_EXAMPLE_CSV: &[u8] = include_bytes!(concat!(
     "/../../data/file-validator/examples/patients.csv"
 ));
 
-/// The committed measurements example (3848 synthetic value rows).
+/// The committed measurements example (the synthetic example family's
+/// training measurements — 2958 value rows).
 pub const MEASUREMENTS_EXAMPLE_CSV: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../../data/file-validator/examples/measurements.csv"
 ));
 
+/// The committed predict-measurements example (qa-fixes3 ITEM-3's third
+/// example table: the NEW patients to predict — the same markers M1/M2/M3,
+/// no outcomes; the N screen's file shape).
+pub const PREDICT_MEASUREMENTS_EXAMPLE_CSV: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../data/file-validator/examples/predict-measurements.csv"
+));
+
 /// The patients file's column spec (the one header every patients asset must
 /// carry — templates and examples are generated from the same spec).
+/// qa-fixes3 ITEM-3: the optional response columns (`responder`,
+/// `response_day` — D48's "response columns are optional") joined the spec
+/// because the example family carries BOTH outcomes (response + survival).
 pub const PATIENTS_TEMPLATE_HEADER: &str =
-    "patient_id,pfs_days,pfs_event,os_days,os_event,age,sex,stage";
+    "patient_id,pfs_days,pfs_event,os_days,os_event,responder,response_day,age,sex,stage";
 
 /// The measurements file's column spec (same header rule as above).
 pub const MEASUREMENTS_TEMPLATE_HEADER: &str = "patient_id,day,marker,value,unit";
 
-/// The four embedded CSVs as one unit (the boot check's input, and the
+/// The six embedded CSVs as one unit (the boot check's input, and the
 /// endpoint layer's byte source — PROV-FV-4 serves these bytes verbatim).
+/// The sixth member is the ITEM-3 predict-measurements example.
 pub struct EmbeddedAssets {
     pub patients_template: &'static [u8],
     pub measurements_template: &'static [u8],
     pub patients_example: &'static [u8],
     pub measurements_example: &'static [u8],
+    pub predict_measurements_example: &'static [u8],
 }
 
 /// The embedded assets of this build (const — the include_bytes! values are
@@ -70,6 +84,7 @@ pub const ASSETS: EmbeddedAssets = EmbeddedAssets {
     measurements_template: MEASUREMENTS_TEMPLATE_CSV,
     patients_example: PATIENTS_EXAMPLE_CSV,
     measurements_example: MEASUREMENTS_EXAMPLE_CSV,
+    predict_measurements_example: PREDICT_MEASUREMENTS_EXAMPLE_CSV,
 };
 
 /// The boot-check facts of one asset (what `_checked` actually verified, so a
@@ -93,6 +108,7 @@ pub struct AssetFacts {
     pub measurements_template: AssetFact,
     pub patients_example: AssetFact,
     pub measurements_example: AssetFact,
+    pub predict_measurements_example: AssetFact,
 }
 
 /// A named asset-check failure. Every variant carries the asset's name and a
@@ -220,6 +236,15 @@ pub fn check(assets: &EmbeddedAssets) -> Result<AssetFacts, AssetsError> {
             assets.measurements_example,
             MEASUREMENTS_TEMPLATE_HEADER,
         )?,
+        // The predict-measurements example (ITEM-3) carries the SAME
+        // measurements column spec — the predict file is the N screen's file
+        // shape, so a generator change that reorders its columns fails boot
+        // here too.
+        predict_measurements_example: check_one(
+            "data/file-validator/examples/predict-measurements.csv",
+            assets.predict_measurements_example,
+            MEASUREMENTS_TEMPLATE_HEADER,
+        )?,
     })
 }
 
@@ -244,7 +269,7 @@ mod tests {
 
     #[test]
     fn the_real_embed_passes_the_boot_check_with_expected_counts() {
-        let facts = check(&ASSETS).expect("the committed four CSVs must pass the boot check");
+        let facts = check(&ASSETS).expect("the committed six CSVs must pass the boot check");
         // The board column specs (PROV-FV-4, TEST-FV-20).
         assert_eq!(
             facts.patients_template.header_line,
@@ -255,17 +280,23 @@ mod tests {
             MEASUREMENTS_TEMPLATE_HEADER
         );
         // Templates are header-row only (one line each); the examples carry the
-        // synthetic source's own counts (300 patients / 3848 measurement rows).
+        // family's own counts (100 training patients / 2959 measurement rows /
+        // 269 predict rows — the ITEM-3 seeded family).
         assert_eq!(facts.patients_template.line_count, 1);
         assert_eq!(facts.measurements_template.line_count, 1);
-        assert_eq!(facts.patients_example.line_count, 301);
-        assert_eq!(facts.measurements_example.line_count, 3849);
+        assert_eq!(facts.patients_example.line_count, 101);
+        assert_eq!(facts.measurements_example.line_count, 2960);
+        assert_eq!(facts.predict_measurements_example.line_count, 270);
         assert!(facts.patients_template.byte_len > 0);
         // The example headers agree with the template specs (the generator
         // emits one board spec for both).
         assert_eq!(facts.patients_example.header_line, PATIENTS_TEMPLATE_HEADER);
         assert_eq!(
             facts.measurements_example.header_line,
+            MEASUREMENTS_TEMPLATE_HEADER
+        );
+        assert_eq!(
+            facts.predict_measurements_example.header_line,
             MEASUREMENTS_TEMPLATE_HEADER
         );
     }
@@ -277,6 +308,7 @@ mod tests {
             measurements_template: MEASUREMENTS_TEMPLATE_CSV,
             patients_example: PATIENTS_EXAMPLE_CSV,
             measurements_example: MEASUREMENTS_EXAMPLE_CSV,
+            predict_measurements_example: PREDICT_MEASUREMENTS_EXAMPLE_CSV,
         };
         let err = check(&assets).expect_err("an empty asset must fail the boot check");
         assert_eq!(err.code(), "FILE_VALIDATOR_ASSET_EMPTY");
@@ -290,6 +322,7 @@ mod tests {
             measurements_template: MEASUREMENTS_TEMPLATE_CSV,
             patients_example: PATIENTS_EXAMPLE_CSV,
             measurements_example: MEASUREMENTS_EXAMPLE_CSV,
+            predict_measurements_example: PREDICT_MEASUREMENTS_EXAMPLE_CSV,
         };
         assert_eq!(
             check(&assets).expect_err("must fail").code(),
@@ -304,6 +337,7 @@ mod tests {
             measurements_template: MEASUREMENTS_TEMPLATE_CSV,
             patients_example: PATIENTS_EXAMPLE_CSV,
             measurements_example: MEASUREMENTS_EXAMPLE_CSV,
+            predict_measurements_example: PREDICT_MEASUREMENTS_EXAMPLE_CSV,
         };
         let err = check(&assets).expect_err("a broken column spec must fail the boot check");
         assert_eq!(err.code(), "FILE_VALIDATOR_ASSET_HEADER");
@@ -319,6 +353,7 @@ mod tests {
             measurements_template: MEASUREMENTS_TEMPLATE_CSV,
             patients_example: b"patient_id,day\n",
             measurements_example: MEASUREMENTS_EXAMPLE_CSV,
+            predict_measurements_example: PREDICT_MEASUREMENTS_EXAMPLE_CSV,
         };
         assert_eq!(
             check(&assets).expect_err("example header mismatch").code(),
@@ -333,6 +368,7 @@ mod tests {
             measurements_template: b"patient_id,day,marker,value,unit\n\0",
             patients_example: PATIENTS_EXAMPLE_CSV,
             measurements_example: MEASUREMENTS_EXAMPLE_CSV,
+            predict_measurements_example: PREDICT_MEASUREMENTS_EXAMPLE_CSV,
         };
         assert_eq!(
             check(&assets).expect_err("a NUL byte must fail").code(),
@@ -356,6 +392,10 @@ mod tests {
         assert_eq!(ASSETS.measurements_template, MEASUREMENTS_TEMPLATE_CSV);
         assert_eq!(ASSETS.patients_example, PATIENTS_EXAMPLE_CSV);
         assert_eq!(ASSETS.measurements_example, MEASUREMENTS_EXAMPLE_CSV);
+        assert_eq!(
+            ASSETS.predict_measurements_example,
+            PREDICT_MEASUREMENTS_EXAMPLE_CSV
+        );
         let pat = std::str::from_utf8(PATIENTS_TEMPLATE_CSV).expect("utf-8");
         assert!(pat.starts_with(PATIENTS_TEMPLATE_HEADER));
         assert!(pat.ends_with('\n'));

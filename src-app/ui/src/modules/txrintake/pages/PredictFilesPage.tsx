@@ -21,6 +21,8 @@ import {
 import { fetchTemplateCsv, downloadText, templateFilename } from '../lib/download'
 import { ROUTE_CONVENTIONS } from '../module'
 import { TxrFileCard } from '../components/TxrFileCard'
+import { TxrUseExampleButton } from '../components/TxrUseExampleButton'
+import { CLEAR_EXAMPLE_LABEL, EXAMPLE_BANNER } from '../lib/example'
 import type { ColumnRenameOffer, JoinOffer, LoadedFile, VocabOffer } from '../types'
 
 /**
@@ -214,6 +216,8 @@ export function PredictFilesPage() {
   const mapping = useStore(useTxrIntakeStore, s => s.mapping)
   const parameters = useStore(useTxrIntakeStore, s => s.parameters)
   const validation = useStore(useTxrIntakeStore, s => s.validation)
+  const exampleLoaded = useStore(useTxrIntakeStore, s => s.exampleLoaded)
+  const exampleSlots = useStore(useTxrIntakeStore, s => s.exampleSlots)
   // R2-G1: the tab/title byte is the page's own h1.
   useDocumentTitle('Add the patients to predict')
   // The J "Use" handoff (RES-21): the id + display label ride the URL (the
@@ -264,6 +268,15 @@ export function PredictFilesPage() {
   const handleRemove = useCallback(() => {
     setCardError(null)
     TxrIntake.removeFile('predictMeasurements')
+  }, [])
+
+  /** "Clear example" (qa-fixes3 ITEM-4): remove the example measurements
+   *  and return the screen to its empty state — the user's own file is
+   *  never touched. */
+  const clearExamples = useCallback(() => {
+    setCardError(null)
+    setValidateError(null)
+    TxrIntake.clearExamples()
   }, [])
 
   // The card hands the OFFER OBJECT through (the PROV-UI-INTAKE-5 contract);
@@ -425,12 +438,41 @@ export function PredictFilesPage() {
           </p>
         ) : null}
 
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10,
+          }}
+        >
+          {exampleLoaded ? (
+            <p data-testid="txr-intake-example-loaded" style={{ ...INTRO, margin: 0 }}>
+              {EXAMPLE_BANNER} —{' '}
+              <Button
+                data-testid="txr-intake-clear-example"
+                variant="link"
+                style={{ padding: 0, color: 'var(--txr-brand)', fontWeight: 600 }}
+                onClick={clearExamples}
+              >
+                {CLEAR_EXAMPLE_LABEL}
+              </Button>{' '}
+              to start with your own.
+            </p>
+          ) : (
+            <span style={INTRO}></span>
+          )}
+          <TxrUseExampleButton path={intent === 'reuse' ? 'reuse' : 'pretrained'} />
+        </div>
+
         <TxrFileCard
           kind="measurements"
           mode="predict"
           file={file}
           busy={busy}
           error={cardError}
+          isExample={exampleSlots.predictMeasurements}
           onPick={picked => void handlePick('measurements', picked)}
           onRemove={handleRemove}
           onAcceptJoin={acceptJoin}

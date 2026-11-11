@@ -53,6 +53,7 @@
  */
 import type {
   EligibilityResponse,
+  ExampleSetResponse,
   FileInspection,
   FileProblem,
   FileTableKind,
@@ -347,12 +348,27 @@ function markerColumnsOf(
   for (const [key, spellings] of spellingGroups) {
     const nRows = spellings.reduce((sum, s) => sum + (maps.get(s)?.rows ?? 0), 0)
     const match = vocabularyMatchFor(key)
+    // The unit the table itself carries (qa-fixes3 ITEM-5: the use-example
+    // family's markers are `a.u.` — the mock never invents a unit the rows
+    // do not carry; the ldh/cea fixtures carry theirs in every row, so the
+    // old literal is exactly the fallback for a unitless table).
+    const firstRow = dataRows(table).find(row => (row[2] ?? '').toLowerCase() === key)
+    const unit =
+      (firstRow?.[4] ?? '').trim() !== ''
+        ? String(firstRow![4]).trim()
+        : key === 'cea'
+          ? 'ng/mL'
+          : 'U/L'
     columns.push({
       key,
       spellings,
       n_rows: nRows,
-      unit: key === 'cea' ? 'ng/mL' : 'U/L',
-      unit_status: 'matches',
+      unit,
+      // The unit the table carries vs the mock vocabulary's known family:
+      // the ldh/cea columns match ('U/L'/'ng/mL'); the use-example family's
+      // 'a.u.' is the honest unknown (the real validator's A04 warning).
+      unit_status:
+        unit === 'U/L' || unit === 'ng/mL' ? 'matches' : 'unknown',
       coverage: {
         patients_with_value: 1,
         patients_with_baseline: distinctPatients(table),
@@ -543,6 +559,20 @@ export function txrValidateResponse(body: FixtureValidationBody): ValidationResp
   if (hasJoinSpellings && !joinedKeys.has('ldh')) {
     problems.push(A03_PROBLEM)
   }
+  // qa-fixes3 ITEM-5: the unit the validator cannot class (the use-example
+  // family's 'a.u.' — the server's A04 warning, never an error; the ldh/cea
+  // fixtures carry the vocabulary's own units, so the old stories see no
+  // new problem).
+  for (const column of markerColumns) {
+    if (column.unit !== 'U/L' && column.unit !== 'ng/mL') {
+      problems.push({
+        code: 'A04',
+        severity: 'warning',
+        column: column.key,
+        message: `column \`${column.key}\` unit '${column.unit}' is not a recognizable unit family — no scale assumption is made`,
+      })
+    }
+  }
 
   return {
     problems,
@@ -690,6 +720,93 @@ export const TXR_INTAKE_FIXTURE_BUNDLE: TxrIntakeFixtureBundle = {
   predict: TXR_INTAKE_PREDICT_CSV,
   templatePatients: TXR_INTAKE_TEMPLATE_CSV.patients,
   templateMeasurements: TXR_INTAKE_TEMPLATE_CSV.measurements,
+}
+
+// ── the use-example family (qa-fixes3 ITEM-5) ───────────────────────────────
+
+/**
+ * The story's example family — a REDUCED copy of the shipped example
+ * family's SHAPE (the file-validator's committed example bytes: ids
+ * `J0000..` for the training patients and `J1000..` for the predict
+ * patients, markers `M1`/`M2`/`M3` in the synthetic `a.u.` unit, the
+ * family's draw days, both outcome pairs). The gallery cannot import the
+ * server-side bytes (they are outside the UI root), and byte identity is
+ * the server material test's own pin — the story proves the ONE-CLICK
+ * flow, never the generator.
+ *
+ * The family's own facts (pinned in `lib/example.ts`): draws before
+ * treatment always (−28/−14), four or more during treatment
+ * (0/21/42/56), last draw 56 — every row below carries them, so the
+ * example answers the buttons fill are the story's own bytes.
+ */
+export interface TxrIntakeExampleBundle {
+  patients: string
+  measurements: string
+  predictMeasurements: string
+}
+
+/** The training family's draw days (the shipped family's day set). */
+const EXAMPLE_TRAIN_DAYS = [-28, -14, 0, 21, 42, 56, 84, 126, 252, 336] as const
+/** The predict family's draw days (the shipped predict table's day set). */
+const EXAMPLE_PREDICT_DAYS = [-14, 0, 21, 42, 56, 84] as const
+/** The example's marker column spellings (never a vocabulary match). */
+export const TXR_INTAKE_EXAMPLE_MARKERS = ['M1', 'M2', 'M3'] as const
+/** The story family's training patient count (the shipped family: 100). */
+const EXAMPLE_TRAIN_PATIENTS = 24
+/** The story family's predict patient count (the shipped family: 15). */
+const EXAMPLE_PREDICT_PATIENTS = 15
+
+/** The patients table of the story's example family (the shipped header). */
+export const TXR_INTAKE_EXAMPLE_PATIENTS_CSV = ((): string => {
+  const lines = [
+    'patient_id,pfs_days,pfs_event,os_days,os_event,responder,response_day,age,sex,stage',
+  ]
+  for (let n = 0; n < EXAMPLE_TRAIN_PATIENTS; n += 1) {
+    lines.push(
+      [
+        `J${String(n).padStart(4, '0')}`,
+        String(120 + ((n * 31) % 360)),
+        String(n % 2 === 0 ? 1 : 0),
+        String(240 + ((n * 17) % 480)),
+        String(n % 4 === 0 ? 0 : 1),
+        String(n % 3 === 0 ? 1 : 0),
+        String(49 + ((n * 7) % 40)),
+        String(38 + ((n * 3) % 46)),
+        n % 2 === 0 ? 'F' : 'M',
+        ['I', 'II', 'III', 'IV'][n % 4],
+      ].join(','),
+    )
+  }
+  return lines.join('\n')
+})()
+
+/** One measurements text of the story's example family. */
+function buildExampleMeasurementsCsv(patientPrefix: string, patientCount: number, days: readonly number[]): string {
+  const lines = ['patient_id,day,marker,value,unit']
+  for (let n = 0; n < patientCount; n += 1) {
+    for (const day of days) {
+      for (const marker of TXR_INTAKE_EXAMPLE_MARKERS) {
+        lines.push(
+          [patientPrefix + String(n).padStart(4, '0'), String(day), marker, (2.5 + ((n + day) % 9)).toFixed(1), 'a.u.'].join(','),
+        )
+      }
+    }
+  }
+  return lines.join('\n')
+}
+
+/** The story's example family (the cassette's Use-example answer). */
+export const TXR_INTAKE_EXAMPLE_BUNDLE: TxrIntakeExampleBundle = {
+  patients: TXR_INTAKE_EXAMPLE_PATIENTS_CSV,
+  measurements: buildExampleMeasurementsCsv('J', EXAMPLE_TRAIN_PATIENTS, EXAMPLE_TRAIN_DAYS),
+  predictMeasurements: buildExampleMeasurementsCsv('J1', EXAMPLE_PREDICT_PATIENTS, EXAMPLE_PREDICT_DAYS),
+}
+
+/** The ITEM-3 example set's ready answer (the reuse story's cassette). */
+export const TXR_INTAKE_EXAMPLE_SET: ExampleSetResponse = {
+  state: 'ready',
+  set_id: 'example-set-1',
+  methods: ['kelim', 'regression-growth-equation', 'ctdna-clearance-timing-three-group'],
 }
 
 // The header constant the generator writes (kept for the tests' byte pins).

@@ -62,23 +62,46 @@ use crate::modules::model_store::types::ImportOutcome;
 use crate::modules::permissions::{with_permission, RequirePermissions};
 
 use super::eligibility;
+use super::example;
 use super::repository::ModelStoreRepository;
 use super::store;
 use super::types::{
-    ModelDetail, ModelEligibilityRequest, ModelEligibilityResponse, ModelListQuery,
-    ModelListResponse, ModelRequestError, ModelSaveResponse, ModelSetListResponse, ModelSummary,
-    RenameRequest, ResolveRequest, ResolveResponse, SaveModelsRequest, SetDeleteQuery,
-    SetSummary,
+    ExampleSetResponse, ModelDetail, ModelEligibilityRequest, ModelEligibilityResponse,
+    ModelListQuery, ModelListResponse, ModelRequestError, ModelSaveResponse, ModelSetListResponse,
+    ModelSummary, RenameRequest, ResolveRequest, ResolveResponse, SaveModelsRequest,
+    SetDeleteQuery, SetSummary,
 };
 
 /// The import/export stream chunk (the workstore's `STREAM_CHUNK_BYTES`
 /// precedent — never a whole-container buffer).
 const STREAM_CHUNK_BYTES: usize = 64 * 1024;
 
+/// The module-held state the example-set route needs beyond the framework's
+/// pool extension: the engine's seams for the example run (the same trait
+/// objects `orchestrator::start_run` consumes — the run is a REAL run through
+/// the normal engine path). Layered by [`super::ModelStoreModule::register_routes`].
+#[derive(Clone)]
+pub struct ExampleRunState {
+    pub runtime: std::sync::Arc<crate::modules::execution_engine::runtime::RunRuntime>,
+    pub env: std::sync::Arc<dyn crate::modules::execution_engine::orchestrator::EnvProvider>,
+    pub executor: std::sync::Arc<dyn crate::modules::execution_engine::orchestrator::MethodExecutor>,
+}
+
+impl ExampleRunState {
+    /// The seams as the example module's state machine consumes them.
+    fn seams(&self) -> crate::modules::model_store::example::ExampleRunSeams {
+        crate::modules::model_store::example::ExampleRunSeams {
+            runtime: self.runtime.clone(),
+            env: self.env.clone(),
+            executor: self.executor.clone(),
+        }
+    }
+}
+
 /// The module's route set under `/api/txr/` (registered by
 /// `register_routes`; no root catch-all — the `/api` prefix stays the
 /// framework's).
-pub fn model_store_routes() -> ApiRouter {
+pub fn model_store_routes(state: ExampleRunState) -> ApiRouter {
     ApiRouter::new()
         .api_route("/txr/models/save", post_with(save_models, save_models_docs))
         .api_route("/txr/models/import", post_with(import_model, import_model_docs).layer(DefaultBodyLimit::disable()))
@@ -108,6 +131,17 @@ pub fn model_store_routes() -> ApiRouter {
             "/txr/models/eligibility",
             post_with(check_eligibility, check_eligibility_docs),
         )
+        .api_route(
+            "/txr/models/example",
+            post_with(example_set, example_set_docs),
+        )
+        // NOTE: the example route is registered after `/txr/models/{id}` (its
+        // siblings' method set: GET/PATCH/DELETE) — a POST on the literal
+        // `example` segment is unambiguous in axum (different method), and
+        // listing it AFTER the parameter route keeps the fixed segment from
+        // shadowing the id routes' POST-free surface (the route inventory
+        // pin in the module's tests names the order).
+        .layer(axum::Extension(state))
 }
 
 /// The `ModelRequestError` 400 layer (one mapping, every request-validation
@@ -520,6 +554,37 @@ async fn check_eligibility(
         .await
         .map_err(e)?;
     Ok((StatusCode::OK, Json(resp)))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// qa-fixes3 ITEM-3 — POST /api/txr/models/example
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// `POST /api/txr/models/example` (200) — ensure the example saved set
+/// exists: the id of the set named "Example models", created on first call by
+/// training a few fast methods (the deterministic 3-under-30-s pick) on the
+/// example data through the normal run engine + the normal save-models path.
+/// A second call returns the existing set; while the run trains it reports
+/// the run's id + status (the UI's job state — it polls this call); a failed
+/// run reports `failed` with the reason and the next call retries; deleting
+/// the set + calling again recreates it.
+async fn example_set(
+    auth: RequirePermissions<(JobsUse,)>,
+    Extension(pool): Extension<SqlitePool>,
+    Extension(state): Extension<ExampleRunState>,
+) -> ApiResult<Json<ExampleSetResponse>> {
+    let resp = example::ensure_example_set(&pool, &state.seams(), auth.user.id)
+        .await
+        .map_err(e)?;
+    Ok((StatusCode::OK, Json(resp)))
+}
+
+fn example_set_docs(op: TransformOperation) -> TransformOperation {
+    with_permission::<(JobsUse,)>(op)
+        .description("Ensure the example saved set exists (the one-click \"Use a model I saved\" path): the id of the set named \"Example models\", created on first call by training 3 fast methods (a published environment, under 30 s, can run on the example data) on the example training data through the normal run engine and the normal save-models path — a real saved set, never a fixture. A second call returns the existing set; a call while the run trains reports `creating` with the run's id + status (the UI polls this call); a failed attempt reports `failed` with the honest reason (the next call retries); deleting the set and calling again recreates it. 200 with the state; 500 EXAMPLE_VALIDATION_FAILED / EXAMPLE_RUN_START / EXAMPLE_STATE_READ / EXAMPLE_RUN_READ / EXAMPLE_STATE_WRITE for an engine-seam failure.")
+        .id("Models.exampleSet")
+        .tag("models")
+        .response::<200, Json<ExampleSetResponse>>()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

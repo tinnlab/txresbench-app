@@ -10,15 +10,14 @@ import { TxrThemeToggle } from './TxrThemeToggle'
  *
  * The palette is the app's token layer (`assets/txr-theme.css`) — never a hex
  * literal — so the header follows the dark theme with the pages (RM-1, RES-25).
- * The responsive half (qa-fixes ITEM-7, X2): the board's header is desktop-only
- * (one 56 px row). Under 900 px the tagline yields (the longest, least-needed
- * byte — the brand stays); under 640 px the header stacks into two rows (brand
- * row, then nav + Help + the theme switch) so the four destinations and the
- * switch never leave the screen. Those rules live in index.css against the
- * `.txr-shell-*` hooks below, because a media query cannot touch an inline
- * style; the theme switch's own label collapse (icon stays) is the same
- * device, against its `.txr-theme-toggle-*` hooks. The desktop look above the
- * breakpoints is the byte this file declares.
+ * The responsive half (qa-fixes ITEM-7, X2; single-row byte: qa-fixes3 ITEM-6):
+ * the board's header is ONE 56 px row. Under 900 px the tagline yields (the
+ * longest, least-needed byte — the brand stays); under 640 px the row stays a
+ * single row — the nav becomes a horizontally scrollable strip (index.css
+ * against the `.txr-shell-*` hooks below; a media query cannot touch an
+ * inline style) and the theme switch collapses to its icon (`.txr-theme-toggle-*`
+ * hooks). The desktop look above the breakpoints is the byte this file
+ * declares.
  *
  * The analysis screens themselves are a later build step; the routes registered
  * against this layout render their own content.
@@ -54,7 +53,7 @@ export function TxrShell({ children }: { children: ReactNode }) {
       >
         <div
           className="txr-shell-brand-group"
-          style={{ display: 'flex', alignItems: 'baseline', gap: 12, minWidth: 0 }}
+          style={{ display: 'flex', alignItems: 'baseline', gap: 12, minWidth: 0, flexShrink: 0 }}
         >
           <Link
             to="/"
@@ -82,8 +81,7 @@ export function TxrShell({ children }: { children: ReactNode }) {
             aria-label="Main"
             className="txr-shell-nav"
             style={{ display: 'flex', flexWrap: 'wrap', gap: 4, fontSize: 14 }}
-          >
-            <NavLink
+          >            <NavLink
               to="/"
               end
               className="txr-nav-link"

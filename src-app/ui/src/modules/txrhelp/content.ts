@@ -49,27 +49,39 @@ export const QUICK_START: readonly QuickStartCard[] = [
     eyebrow: 'Quickest',
     title: 'Predict with a pretrained model',
     text: 'Add the blood measurements of the patients you want predictions for. The app shows which pretrained models can run on them.',
-    screen: 'Screen N — Predict files',
+    screen: 'Predict files',
     route: '/predict-files',
     cta: 'Add the patients to predict',
+    tryExample: {
+      label: 'Try it with example data',
+      path: 'pretrained',
+    },
   },
   {
     id: 'learn',
     eyebrow: 'Most flexible',
     title: 'Learn from my data',
-    text: 'Train the methods on your own patients with known outcomes, then predict new patients. Select as many methods as you like.',
-    screen: 'Screen B — Your study',
+    text: 'Train the methods on your own patients with known outcomes, then predict new patients. One card sets what to predict; the list shows which methods can run and how long they take.',
+    screen: 'Your study',
     route: '/study',
     cta: 'Add my data',
+    tryExample: {
+      label: 'Try it with example data',
+      path: 'train',
+    },
   },
   {
     id: 'saved',
     eyebrow: 'Repeat a past analysis',
     title: 'Use a model I saved',
     text: 'Add the patients to predict, then pick any of the models you trained before. No need to upload the training data again.',
-    screen: 'Screen N — Predict files',
+    screen: 'Predict files',
     route: '/predict-files',
     cta: 'Predict with a model I saved',
+    tryExample: {
+      label: 'Try it with example data',
+      path: 'reuse',
+    },
   },
 ]
 
@@ -110,7 +122,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
               'Pick the way in: a pretrained model, learn from my data, or a model I saved.',
               'The three cards name what each way needs.',
             ],
-            screen: 'Screen A — Start',
+            screen: 'Start',
             details: [
               {
                 kind: 'bullets',
@@ -130,7 +142,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
               'Answer the seven question groups: disease, treatment, what to predict, markers, and the three draw questions.',
               'The "N of M methods fit" panel updates as you answer.',
             ],
-            screen: 'Screen B — Your study',
+            screen: 'Your study',
             details: [
               {
                 kind: 'bullets',
@@ -148,7 +160,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
               'Add a patients table and a measurements table; with a model, only the measurements of the patients to predict.',
               'Each file is checked the moment you choose it. Problems are listed under the card.',
             ],
-            screen: 'Screen C — Your files',
+            screen: 'Your files',
             details: [
               {
                 kind: 'bullets',
@@ -166,12 +178,12 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
               'Pick the methods, set the run settings, and click "Run N methods". The running screen shows each method\'s state live.',
               'You can leave. The run continues and stays in History.',
             ],
-            screen: 'Screen D/E — Methods and running',
+            screen: 'Methods and running',
             details: [
               {
                 kind: 'bullets',
                 items: [
-                  '"Run at a time" sets how many methods run side by side; a lower number uses less memory and CPU.',
+                  '"More settings" sets how many methods run side by side and how many CPUs; a lower number uses less memory and CPU.',
                   '"Save the trained models" keeps each trained method for later runs.',
                   'When a method finishes, its predictions appear: "See the results".',
                 ],
@@ -247,7 +259,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
             },
           ],
           exampleRows:
-            'patient_id,pfs_days,pfs_event,os_days,os_event,age,sex,stage\nJ0000,203,1,203,1,47,F,III\nJ0001,358,0,358,0,30,F,III\nJ0002,406,1,406,1,72,F,III',
+            'patient_id,pfs_days,pfs_event,os_days,os_event,responder,response_day,age,sex,stage\nJ0000,472,1,808,1,0,35,77,M,III\nJ0001,145,1,242,1,0,63,46,M,II\nJ0002,60,1,527,0,1,59,64,M,II',
         },
       },
       {
@@ -289,7 +301,7 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
             },
           ],
           exampleRows:
-            'patient_id,day,marker,value,unit\nJ0000,0,M1,12.4,a.u.\nJ0000,0,M2,4.6,a.u.\nJ0000,21,M1,16.2,a.u.',
+            'patient_id,day,marker,value,unit\nJ0000,-28,M1,8.1,a.u.\nJ0000,-28,M2,18.1,a.u.\nJ0000,-28,M3,29.5,a.u.',
         },
       },
       {
@@ -319,20 +331,21 @@ export const HELP_SECTIONS: readonly HelpSection[] = [
     blocks: [
       {
         kind: 'paragraph',
-        text: 'On step 4 you pick the published methods to run. Each row shows the method\'s name and publication, its group, an estimated time, and whether it can run on your file. The methods are grouped into four families: response call, response probability, static risk and dynamic risk.',
+        text: 'On step 4 you first see one line about your files — how many patients and events, which markers, and the range of draw days — then the "What do you want to predict?" card, where the four settings carry one line of plain help each. The list shows the published methods that can run on your data and file: each row is the method\'s short name, its one-sentence summary, its family and language, an estimated time, and — when the benchmark has one — its score. The methods are grouped into four families: response call, response probability, static risk and dynamic risk.',
       },
       {
         kind: 'bullets',
         items: [
-          'The estimate is the benchmark\'s measured runtime scaled to your file — about 150 patients and 4 CPUs are the reference, so more patients or fewer CPUs lengthen the estimate. The bottom bar sums your selection; the estimate lines say they are estimates.',
-          'With "Run at a time" you choose how many methods run side by side; a lower number uses less memory and CPU. "Save the trained models" keeps each trained method so you can reuse it without re-training.',
-          'A method that cannot run is never silent: its row is greyed out with the reason — a marker missing from your file, not enough draws, extra inputs your file lacks, an outcome column your file lacks, or units that do not match.',
+          'The estimate is the benchmark\'s measured runtime scaled to your file — about 150 patients and 4 CPUs are the reference, so more patients or fewer CPUs lengthen the estimate. The run bar sums your selection; the estimate lines say they are estimates. "More settings" explains this and sets the CPUs and how many methods run at once.',
+          '"Save the trained models" in the run bar keeps each trained method so you can use it later without re-training. The analyses always run with one fixed seed, so the same settings give the same numbers.',
+          'Methods that cannot run are never silent — they sit in a collapsed section at the bottom, one chip per reason: no published environment, a marker the file does not have (the chip names it), an outcome the file does not have, not enough draws per patient, or extra inputs the file lacks. Each expands into the rows with the reason and the one-line fix.',
+          'When a setting changes, the list re-checks your files and settings: the methods that still fit keep their tick, and the ones that no longer fit are unticked with a note naming how many.',
         ],
       },
       {
         kind: 'callout',
         tone: 'tip',
-        text: 'The notice under the list is part of the app: predictions are for research, not for deciding a patient\'s treatment.',
+        text: 'The notice under the list is part of the app: predictions are for research, not for deciding a patient\'s treatment. The Run button stays disabled, with "Select at least one method" beside it, until you tick a method.',
       },
     ],
   },

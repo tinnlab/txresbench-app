@@ -30,7 +30,7 @@
  * the search and the back-to-top control.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Button, Input, Collapsible, CollapsibleContent, CollapsibleTrigger } from '@ziee/kit'
 import { FiAlertTriangle, FiArrowUp, FiCheckCircle, FiInfo } from 'react-icons/fi'
 import { ApiClient } from '@/api-client'
@@ -39,6 +39,15 @@ import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
 import { STATE_LABEL, STATE_TONE } from '@/modules/txrrun/lib/format'
 import { formatRunHeadline } from '@/modules/txrlist/lib/format'
 import { TXRLIST_STATUS_COLORS } from '@/modules/txrlist/components/TxrListRow'
+// qa-fixes3 ITEM-5: the quick-start cards' one-line example action reuses
+// the SAME button the Start screen's cards use (the one shared "Use
+// example" flow). The import goes through the sibling module's internals —
+// the `txrrun`/`txrlist` precedent — and `txrhelp` does NOT declare
+// `txrintake` in its framework dependencies: the intake module already
+// declares `txrhelp`, so the declared edge would be the loader's
+// `Circular dependency detected` (the cycle the qa-fixes2 ITEM-3 plan
+// already recorded for `txrrun`).
+import { TxrUseExampleButton } from '@/modules/txrintake/components/TxrUseExampleButton'
 import {
   ELIGIBILITY_STATUSES,
   HELP_SECTIONS,
@@ -51,6 +60,12 @@ import {
 } from '../content'
 import { helpPath } from '../routes'
 import type { FileCardContent, HelpBlock, HelpProblemEntry, ProblemGroup, StepCard } from '../types'
+
+/** The intake route the example action lands on (the one-click promise of
+ *  qa-fixes3 ITEM-4: the file step whose own flow validates the adopted
+ *  tables; the destination literals mirror the Start screen's own). */
+const EXAMPLE_FILES_ROUTE = '/files'
+const EXAMPLE_PREDICT_FILES_ROUTE = '/predict-files'
 
 /** The page shell (the app's own palette — R2-H6: the kit token layer's
  *  near-black dark background is NOT the app's page colour). */
@@ -881,6 +896,7 @@ function sectionText(section: (typeof HELP_SECTIONS)[number]): string {
 
 export function HelpPage() {
   const location = useLocation()
+  const navigate = useNavigate()
   // The per-route title system (R2-G1) — ITEM-3's local effect is now the
   // shell's one hook: the same "Help — TxResBench" byte, with the previous
   // title restored on unmount like every other route.
@@ -944,25 +960,66 @@ export function HelpPage() {
     if (section !== null) setActiveSection(section.id)
   }, [location.hash, documentHash])
 
-  // The rail's current-section highlight (a scroll listener, rAF-throttled).
-  // Captured: inner scroll containers (the app-shell pane, the gallery tier's
-  // bounded frame) do not bubble scroll events to the window.
+  // The rail's current-section highlight (qa-fixes3 ITEM-6): an
+  // IntersectionObserver over the section HEADINGS + one shared position
+  // computation. The owner-side review measured the rail stuck on "What
+  // TxResBench does" while the reader was at "Troubleshooting". The rule is
+  // the rail's promise — "the lowest section whose heading is at the top":
+  // the current section is the LAST one (page order) whose heading's top is
+  // at or above the sticky-header line (96 px, just past the 84 px
+  // scroll-margin every anchor lands at); while none is, the first section
+  // is current.
+  // The observer is the plan's device (the heading's own position against
+  // the viewport — it fires on a jump whose scroll never reaches the
+  // window listener, keyboard End or an anchor scroll in a frame), and it
+  // re-reads the REAL positions on every change so no entry can carry a
+  // stale one; the capture-phase scroll listener keeps the per-pixel
+  // case exact (an IO entry fires only when a heading crosses the
+  // viewport edges — a heading sitting at 84 px between two entries is
+  // the listener's byte). jsdom has no IntersectionObserver: the unit tier
+  // only renders, the browser tier measures the spy.
+  const SCROLLSPY_LINE = 96
+  const updateActiveSection = useCallback(() => {
+    let current = HELP_SECTIONS[0].id
+    for (const section of HELP_SECTIONS) {
+      const el = document.getElementById(section.id)
+      if (el !== null && el.getBoundingClientRect().top <= SCROLLSPY_LINE) {
+        current = section.id
+      }
+    }
+    setActiveSection(current)
+  }, [])
   useEffect(() => {
-    const threshold = 120
+    if (typeof IntersectionObserver !== 'undefined') {
+      const headings = HELP_SECTIONS.flatMap(section => {
+        const heading = document.getElementById(section.id)?.querySelector('h2')
+        return heading instanceof Element ? [heading] : []
+      })
+      if (headings.length > 0) {
+        const observer = new IntersectionObserver(() => updateActiveSection(), { threshold: 0 })
+        for (const heading of headings) observer.observe(heading)
+        // Re-created when the search narrows the sections: hidden sections
+        // unmount (their headings are gone) and remount with NEW elements on
+        // clear — the observer must be watching the live ones.
+        return () => observer.disconnect()
+      }
+    }
+    return undefined
+  }, [sectionsVisible, updateActiveSection])
+
+  // The back-to-top control's visibility (+ the per-pixel side of the
+  // highlight, above): a rAF-throttled capture listener reading the real
+  // scroller — an inner scroll container (the app-shell pane, the gallery
+  // tier's bounded frame) does not bubble scroll events to the window,
+  // hence the capture phase.
+  useEffect(() => {
     let frame: number | null = null
     const update = () => {
       frame = null
       const scroller = mainRef.current !== null ? helpScroller(mainRef.current) : null
       const scrollTop = scroller !== null ? scroller.scrollTop : window.scrollY
       setShowBackTop(scrollTop > 600)
-      let current = HELP_SECTIONS[0].id
-      for (const section of HELP_SECTIONS) {
-        const el = document.getElementById(section.id)
-        if (el !== null && el.getBoundingClientRect().top <= threshold) {
-          current = section.id
-        }
-      }
-      setActiveSection(current)
+      updateActiveSection()
     }
     const onScroll = () => {
       if (frame !== null) return
@@ -974,7 +1031,7 @@ export function HelpPage() {
       window.removeEventListener('scroll', onScroll, { capture: true })
       if (frame !== null) cancelAnimationFrame(frame)
     }
-  }, [])
+  }, [updateActiveSection])
 
   const railVisible = useRailVisible()
 
@@ -1035,7 +1092,18 @@ export function HelpPage() {
         {quickStartVisible ? (
           <div
             data-testid="txr-help-quickstart"
-            style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12, margin: '0 0 18px' }}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+              gap: 12,
+              // qa-fixes3 ITEM-6 (e): the row's width is the GRID's width,
+              // not the page's — the quick-start cards used to run the full
+              // 1096 px inner column while the rail + content grid below is
+              // capped at 1048 px, so the cards stuck out 48 px past the
+              // text-column edges on desktop. Same cap, same centring.
+              maxWidth: 1048,
+              margin: '0 auto 18px',
+            }}
           >
             {QUICK_START.map(card => (
               <section
@@ -1071,6 +1139,20 @@ export function HelpPage() {
                   <Link to={card.route} data-testid={`txr-help-quickstart-cta-${card.id}`} style={{ color: 'var(--txr-brand)', fontWeight: 600, fontSize: 13.5 }}>
                     {card.cta} →
                   </Link>
+                  {/* qa-fixes3 ITEM-5: the card's one-line example action —
+                      the same one-click "Use example" flow the Start screen's
+                      card runs, landing on the path's file step. */}
+                  <TxrUseExampleButton
+                    path={card.tryExample.path}
+                    label={card.tryExample.label}
+                    onDone={() =>
+                      navigate(
+                        card.tryExample.path === 'train'
+                          ? EXAMPLE_FILES_ROUTE
+                          : EXAMPLE_PREDICT_FILES_ROUTE,
+                      )
+                    }
+                  />
                 </div>
               </section>
             ))}
@@ -1089,6 +1171,7 @@ export function HelpPage() {
                     <Link
                       to={helpPath(section.id)}
                       data-testid={`txr-help-toc-${section.id}`}
+                      aria-current={activeSection === section.id ? 'true' : undefined}
                       onClick={() => setContentsOpen(false)}
                       style={{
                         display: 'block',

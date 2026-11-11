@@ -141,12 +141,21 @@ fn example_model_json() -> Value {
         })
         .collect();
 
-    // The features table folded from the distinct markers.
+    // The features table folded from the distinct markers of the family
+    // (ITEM-3's example grows M3 beside M1/M2 — the fold derives the rows
+    // from the measurements, never a hard-coded pair).
+    let mut seen: Vec<String> = Vec::new();
+    for j in 1..m.len() {
+        let marker = m[j][m_col("marker")].trim().to_string();
+        if !seen.contains(&marker) {
+            seen.push(marker);
+        }
+    }
     let mut features: Vec<Value> = Vec::new();
-    for marker in ["M1", "M2"] {
+    for marker in seen {
         let i = (1..m.len())
             .find(|j| m[*j][m_col("marker")].trim() == marker)
-            .expect("the example carries M1 and M2");
+            .expect("the example carries the distinct marker");
         features.push(json!({
             "feature": cell_json(&m, m_header, i, m_col("marker")),
             "unit": cell_json(&m, m_header, i, m_col("unit")),

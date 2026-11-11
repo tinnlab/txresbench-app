@@ -18,6 +18,10 @@ token.actions.githubusercontent.com
 # `https://github.com/tinnlab/txresbench-models/releases/download/...` is
 # the asset GET; covered by this entry.)
 github.com
+# Any https:// doi.org literal in the source is the method card's
+# user-opened paper link; the app never dials it (the same class as the
+# github.com documentation-link entry above — a browser-opened href).
+doi.org
 # The pretrained-catalogue boot/on-demand catalogue refresh
 # (`https://tinnlab.github.io/txresbench-app/pretrained-catalogue.json` —
 # the GitHub Pages site hosting the served copy, PROV-landing-site-3).

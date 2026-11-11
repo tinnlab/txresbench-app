@@ -428,7 +428,8 @@ describe('ITEM-6 F2/F6 — the rename action, the "not now", the example fact', 
       from: 'pid',
       to: 'patient_id',
     })
-    expect(state().predictMeasurements?.table.columns[0]).toBe('patient_id')
+    expect(state().predictMeasurements?.table.columns).toContain('patient_id')
+    expect(state().predictMeasurements?.table.columns).not.toContain('pid')
     expect(state().predictMeasurements?.columnOffers).toEqual([])
     expect(state().validation).toBeNull()
   })
@@ -439,7 +440,8 @@ describe('ITEM-6 F2/F6 — the rename action, the "not now", the example fact', 
     TxrIntake.patchFile('measurements', { columnOffers: [...offerFor('pid')] })
     TxrIntake.applyValidation(validationOf(), TxrIntake.currentValidationKey())
     TxrIntake.rejectColumnOffer('measurements', 'pid')
-    expect(state().measurements?.table.columns[0]).toBe('pid')
+    expect(state().measurements?.table.columns).toContain('pid')
+    expect(state().measurements?.table.columns).not.toContain('patient_id')
     expect(state().measurements?.columnOffers).toEqual([])
     expect(state().validation).not.toBeNull()
   })
@@ -447,14 +449,89 @@ describe('ITEM-6 F2/F6 — the rename action, the "not now", the example fact', 
   it('the example fact is set by the start path and cleared by any adoption (F6)', () => {
     TxrIntake.reset()
     expect(state().exampleLoaded).toBe(false)
-    TxrIntake.setExampleLoaded(true)
+    TxrIntake.adoptExampleFile('measurements', fileWith(['patient_id', 'day']))
     expect(state().exampleLoaded).toBe(true)
     TxrIntake.adoptFile('measurements', fileWith(['patient_id', 'day']))
     expect(state().exampleLoaded).toBe(false)
-    TxrIntake.setExampleLoaded(true)
+    TxrIntake.adoptExampleFile('measurements', fileWith(['patient_id', 'day']))
     TxrIntake.removeFile('measurements')
     expect(state().exampleLoaded).toBe(false)
     TxrIntake.reset()
     expect(state().exampleLoaded).toBe(false)
+  })
+})
+
+describe('qa-fixes3 ITEM-4 — the per-slot example fact, the clear action and the set handoff', () => {
+  it('adoptExampleFile marks the slot (and the aggregate), a user adoption only clears that slot', () => {
+    TxrIntake.reset()
+    TxrIntake.adoptExampleFile('predictMeasurements', loadedFile('predict-measurements_example.csv'))
+    expect(state().exampleSlots.predictMeasurements).toBe(true)
+    expect(state().exampleSlots.measurements).toBe(false)
+    expect(state().exampleLoaded).toBe(true)
+
+    // A user's own drop into the slot clears ONLY the slot (the example is
+    // gone there); the aggregate follows.
+    TxrIntake.adoptFile('predictMeasurements', loadedFile('mine.csv'))
+    expect(state().exampleSlots.predictMeasurements).toBe(false)
+    expect(state().exampleLoaded).toBe(false)
+  })
+
+  it('clearExamples removes only the example-flagged slots and resets the offers + handoff', () => {
+    TxrIntake.reset()
+    TxrIntake.adoptExampleFile('patients', loadedFile('patients_example.csv'))
+    TxrIntake.adoptExampleFile('measurements', loadedFile('measurements_example.csv'))
+    // The user's own predict file is in the third slot — the clear must
+    // never touch it.
+    TxrIntake.adoptFile('predictMeasurements', loadedFile('predict.csv'))
+    TxrIntake.setPendingExampleSet('set-1')
+    TxrIntake.acceptJoin(joinOffer)
+
+    TxrIntake.clearExamples()
+
+    expect(state().patients).toBeNull()
+    expect(state().measurements).toBeNull()
+    expect(state().predictMeasurements?.source.name).toBe('predict.csv')
+    expect(state().exampleLoaded).toBe(false)
+    expect(state().exampleSlots).toEqual({
+      patients: false,
+      measurements: false,
+      predictMeasurements: false,
+    })
+    // The example's measurement table left the flow — the confirmed
+    // offers (an artifact of the removed files) are forgotten; the set
+    // handoff is dropped.
+    expect(state().joins).toEqual([])
+    expect(state().pendingExampleSetId).toBeNull()
+    // The user's own file's recall survives.
+    expect(state().fileRecalls.predictMeasurements?.name).toBe('predict.csv')
+  })
+
+  it('clearExamples keeps the confirmed joins of a kept own measurements file', () => {
+    TxrIntake.reset()
+    TxrIntake.adoptExampleFile('patients', loadedFile('patients_example.csv'))
+    TxrIntake.adoptFile('measurements', loadedFile('mine.csv'))
+    TxrIntake.acceptJoin(joinOffer)
+
+    TxrIntake.clearExamples()
+
+    expect(state().patients).toBeNull()
+    expect(state().measurements?.source.name).toBe('mine.csv')
+    expect(state().joins).toEqual([joinOffer])
+  })
+
+  it('the set handoff is a non-persisted field: set + clear through the two actions', () => {
+    TxrIntake.reset()
+    expect(state().pendingExampleSetId).toBeNull()
+    TxrIntake.setPendingExampleSet('set-7')
+    expect(state().pendingExampleSetId).toBe('set-7')
+    TxrIntake.setPendingExampleSet(null)
+    expect(state().pendingExampleSetId).toBeNull()
+    TxrIntake.reset()
+    expect(state().pendingExampleSetId).toBeNull()
+    expect(state().exampleSlots).toEqual({
+      patients: false,
+      measurements: false,
+      predictMeasurements: false,
+    })
   })
 })

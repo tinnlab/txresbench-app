@@ -63,18 +63,19 @@
 
 pub mod container;
 pub mod eligibility;
+pub mod example;
 pub mod repository;
 pub mod routes;
 pub mod store;
 pub mod types;
 
 pub use types::{
-    CovariateFacts, ExportTarget, ImportOutcome, MarkerFacts, ModelDetail, ModelEligibility,
-    ModelEligibilityRequest, ModelEligibilityResponse, ModelListQuery, ModelListResponse,
-    ModelProvenance, ModelReason, ModelReasonCode, ModelRequestError, ModelRequestErrorCode,
-    ModelSaveResponse, ModelSetListResponse, ModelStoreLimits, ModelSummary, ModelWarning,
-    ModelWarningCode, RenameRequest, ResolveRequest, ResolveResponse, ResolvedAsset,
-    SaveModelsRequest, SaveTarget, SetDeleteQuery, SetSummary,
+    CovariateFacts, ExampleSetResponse, ExampleSetState, ExportTarget, ImportOutcome,
+    MarkerFacts, ModelDetail, ModelEligibility, ModelEligibilityRequest, ModelEligibilityResponse,
+    ModelListQuery, ModelListResponse, ModelProvenance, ModelReason, ModelReasonCode,
+    ModelRequestError, ModelRequestErrorCode, ModelSaveResponse, ModelSetListResponse,
+    ModelStoreLimits, ModelSummary, ModelWarning, ModelWarningCode, RenameRequest, ResolveRequest,
+    ResolveResponse, ResolvedAsset, SaveModelsRequest, SaveTarget, SetDeleteQuery, SetSummary,
 };
 
 use std::sync::Arc;
@@ -88,14 +89,23 @@ use ziee_framework::{AppModule, ModuleContext, ModuleEntry, MODULE_ENTRIES};
 /// The module instance. It holds the process pool for the boot-time work this
 /// node owns (CONS-MS-1/2: `database::get_database_pool`'s single pool; the
 /// routes receive the same pool as the `axum::Extension<SqlitePool>` the
-/// framework layers), mirroring the `execution_engine` module's shape.
+/// framework layers), mirroring the `execution_engine` module's shape, plus
+/// the example-set run seams (qa-fixes3 ITEM-3: the SHARED process run
+/// runtime [`execution_engine::runtime::RunRuntime::global`], the real env
+/// provider and the real method executor — the same trait objects the engine's
+/// run routes hold; the store never runs methods itself, it hands the example
+/// run to the engine's normal path).
 pub struct ModelStoreModule {
     pool: Option<Arc<SqlitePool>>,
+    example_run: Option<routes::ExampleRunState>,
 }
 
 impl ModelStoreModule {
     pub fn new() -> Self {
-        Self { pool: None }
+        Self {
+            pool: None,
+            example_run: None,
+        }
     }
 }
 
@@ -123,20 +133,41 @@ impl AppModule for ModelStoreModule {
         // tree store on first write, never at init (a boot that only lists
         // models must not require a writable data dir).
         let pool: Arc<SqlitePool> = ctx.db_pool.clone();
-        self.pool = Some(pool);
+        self.pool = Some(pool.clone());
+        // The example-set seams (qa-fixes3 ITEM-3): the SHARED run runtime
+        // (the engine installs the same instance — an example run streams and
+        // stops through the run routes' registry), the real env provider and
+        // the real method executor — the same trait objects `start_run`
+        // consumes. Installed at init like the engine's (the openapi-gen path
+        // runs the same init with the lazy pool; nothing here queries).
+        self.example_run = Some(routes::ExampleRunState {
+            runtime: std::sync::Arc::clone(
+                crate::modules::execution_engine::runtime::global(),
+            ),
+            env: crate::modules::execution_engine::orchestrator::real_env_provider(),
+            executor: std::sync::Arc::new(
+                crate::modules::execution_engine::orchestrator::StackMethodExecutor::new(
+                    (*pool).clone(),
+                ),
+            ),
+        });
         tracing::info!("model store module initialized");
         Ok(())
     }
 
     fn register_routes(&self, router: ApiRouter) -> ApiRouter {
-        // The routes of PROV-MS-2..MS-7 register under
-        // `/api/txr/models*` + `/api/txr/model-sets*` (the app-owned free
-        // namespace) with the reused `JobsUse` permission (DEC-14 — no new
-        // permission, A10 not triggered; the engine's gate). The doc ids
+        // The routes of PROV-MS-2..MS-7 + the ITEM-3 example set register
+        // under `/api/txr/models*` + `/api/txr/model-sets*` (the app-owned
+        // free namespace) with the reused `JobsUse` permission (DEC-14 — no
+        // new permission, A10 not triggered; the engine's gate). The doc ids
         // they bind are `types::ROUTE_DOC_IDS`; the routes' own suite pins
         // the registered set to that vocabulary. Resolve (PROV-MS-8) and
         // eligibility (PROV-MS-9) join here with ITEM-6's `eligibility.rs`.
-        router.merge(routes::model_store_routes())
+        let state = self
+            .example_run
+            .clone()
+            .expect("init installs the example seams before register_routes");
+        router.merge(routes::model_store_routes(state))
     }
 }
 

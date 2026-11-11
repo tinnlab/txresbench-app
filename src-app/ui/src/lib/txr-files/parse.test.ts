@@ -101,19 +101,19 @@ describe('parseCsvFile', () => {
 })
 
 describe('the committed material through the shared decoder', () => {
-  it('reads the committed measurements example (3848 value rows)', async () => {
+  it('reads the committed measurements example (2958 value rows)', async () => {
     const text = csvFixture('../../../../../data/file-validator/examples/measurements.csv')
     const table = await parseCsvFile(new File([text], 'measurements.csv'), {
       kind: 'measurements',
     })
     expect(table.header_row).toBe(1)
     expect(table.columns).toEqual(['patient_id', 'day', 'marker', 'value', 'unit'])
-    expect(table.rows).toHaveLength(3848)
+    expect(table.rows).toHaveLength(2959)
     // Raw text entries: the marker/unit spellings survive the decode untouched.
     // The byte pin is the regenerated example (qa-fixes ITEM-6, F6): the
     // generator rounds whole days and 1-decimal values for display, so the
     // first row reads the rounded bytes the committed file now carries.
-    expect(table.rows[0]).toEqual(['J0000', '0', 'M1', '12.4', 'a.u.'])
+    expect(table.rows[0]).toEqual(['J0000', '-28', 'M1', '8.1', 'a.u.'])
   })
 
   it('reads the committed patients template (header only) in the patients shape', async () => {
@@ -126,6 +126,8 @@ describe('the committed material through the shared decoder', () => {
       'pfs_event',
       'os_days',
       'os_event',
+      'responder',
+      'response_day',
       'age',
       'sex',
       'stage',

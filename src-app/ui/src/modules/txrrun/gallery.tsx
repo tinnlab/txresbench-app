@@ -68,8 +68,11 @@ import {
   TXRRUN_RUN_F,
   TXRRUN_STREAM_RUN_IDS,
   txrrunMethodDetail,
+  txrrunSmallEligibility,
+  txrrunSmallMethods,
   txrrunOnRequest,
   txrrunRecordRequest,
+  txrrunRecheckEligibility,
   txrrunRequestLogLine,
   txrrunRunSummary,
   txrrunSeedValidatedIntake,
@@ -196,6 +199,74 @@ function FStoryView({ runId, narrow = false }: { runId: string; narrow?: boolean
   )
 }
 
+/**
+ * The small-method E story's seed: the validated intake + a session-scoped
+ * cassette extension that answers the catalogue, the eligibility and the
+ * estimate with the SIX-method fixture set (ITEM-1's measured height test:
+ * every method runs, so the page is short and the Run button is visible
+ * without scrolling).
+ */
+function seedSmallMethods(): void {
+  txrrunSeedValidatedIntake()
+  extendCassette({
+    'MethodCatalogue.list': { methods: txrrunSmallMethods(), total: 6 },
+    'MethodCatalogue.eligibility': txrrunSmallEligibility,
+    'MethodCatalogue.estimate': (ctx: { body?: unknown }) => {
+      const ids = ((ctx.body ?? {}) as { method_ids?: string[] }).method_ids ?? []
+      return {
+        at_a_time: 3,
+        cpus: 4,
+        methods: ids.map(id => ({ id, estimated_seconds: 45, estimate_quality: 'measured' })),
+        total_seconds: ids.length * 45,
+        schedule_seconds: ids.length * 45,
+      }
+    },
+  })
+}
+
+/** The small-method E story view (the page mounted only after the seed). */
+function ESmallStoryView() {
+  return (
+    <SeedGate seed={seedSmallMethods}>
+      <ChooseMethodsPage />
+    </SeedGate>
+  )
+}
+
+/**
+ * The ITEM-2 re-check story's seed: the small set plus a DECISION-DAY-AWARE
+ * eligibility — the set is fully runnable at the fixture's decision day
+ * (56), and one method becomes cannot-run when the user picks day 28, so
+ * the browser test can drive the recompute + the untick toast (a settings
+ * change that changes the eligibility) over the real page.
+ */
+function seedRecheckMethods(): void {
+  txrrunSeedValidatedIntake()
+  extendCassette({
+    'MethodCatalogue.list': { methods: txrrunSmallMethods(), total: 6 },
+    'MethodCatalogue.eligibility': txrrunRecheckEligibility,
+    'MethodCatalogue.estimate': (ctx: { body?: unknown }) => {
+      const ids = ((ctx.body ?? {}) as { method_ids?: string[] }).method_ids ?? []
+      return {
+        at_a_time: 3,
+        cpus: 4,
+        methods: ids.map(id => ({ id, estimated_seconds: 45, estimate_quality: 'measured' })),
+        total_seconds: ids.length * 45,
+        schedule_seconds: ids.length * 45,
+      }
+    },
+  })
+}
+
+/** The ITEM-2 re-check story view. */
+function ERecheckStoryView() {
+  return (
+    <SeedGate seed={seedRecheckMethods}>
+      <ChooseMethodsPage />
+    </SeedGate>
+  )
+}
+
 // ── the module's gallery seed ──────────────────────────────────────────────
 
 /**
@@ -240,10 +311,28 @@ export const gallery: ModuleGallery = {
     {
       slug: 'txr-run-e',
       title: 'Choose the methods and settings (screen E)',
-      note: 'The board\'s Step 4 with the validated fixture file pair: the Patients/Measurements slot lines with Change files, the four settings rows (Predict, Decision day, Look ahead to, Extra inputs + More settings), the shared list over the catalogue cassette (38 rows; the board\'s first rows verbatim; the can-run/some/cannot verdicts), the four group chips, and the bottom bar (selected count, the estimate total, run at a time, save models, the research notice, Run).',
+      note: 'The board\'s Step 4 with the validated fixture file pair: the Patients/Measurements slot lines with Change files, the four settings rows (Predict, Decision day, Look ahead to, Extra inputs + More settings), the ITEM-1 method picker over the catalogue cassette (the 38-entry fixture set; the board\'s first rows verbatim; the ready-to-run default with the recommended selection ticked; the family sections with the sticky headers and Show-more; the collapsed can\'t-run section with the per-reason chips and expansion), and the bottom bar (selected count, the estimate total, run at a time, save models, the research notice, Run).',
       path: '/choose-methods',
       initialPath: '/choose-methods',
       component: lazy(() => Promise.resolve({ default: EStoryView })),
+      fullHeight: true,
+    },
+    {
+      slug: 'txr-run-e-small',
+      title: 'Screen E — six runnable methods',
+      note: 'The ITEM-1 measured story: six runnable methods across the four families (the page stays under 1,500 px at 1440 and the Run button is visible without scrolling), the recommended selection ticked on arrival.',
+      path: '/choose-methods',
+      initialPath: '/choose-methods',
+      component: lazy(() => Promise.resolve({ default: ESmallStoryView })),
+      fullHeight: true,
+    },
+    {
+      slug: 'txr-run-e-recheck',
+      title: 'Screen E — a settings change re-checks the methods',
+      note: 'The ITEM-2 story: the small set is fully runnable at the fixture\'s decision day; picking day 28 makes one method no longer fit — the list re-checks with the re-check line, the method is unticked and the toast names it, and the run bar reads the new selection.',
+      path: '/choose-methods',
+      initialPath: '/choose-methods',
+      component: lazy(() => Promise.resolve({ default: ERecheckStoryView })),
       fullHeight: true,
     },
     {

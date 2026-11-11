@@ -71,6 +71,7 @@ const api = vi.hoisted(() => ({
   listMethods: vi.fn(),
   eligibility: vi.fn(),
   estimate: vi.fn(),
+  detail: vi.fn(),
   createRun: vi.fn(),
   listRuns: vi.fn(),
   getPrefs: vi.fn(),
@@ -87,6 +88,7 @@ vi.mock('@/api-client', () => ({
       list: api.listMethods,
       eligibility: api.eligibility,
       estimate: api.estimate,
+      detail: api.detail,
     },
     History: {
       getPreferences: api.getPrefs,
@@ -172,6 +174,9 @@ function catalogue(): MethodSummary[] {
       language: 'R',
       group: 'response-probability',
       group_label: 'Response probability',
+      title: 'Direct on-treatment response rule',
+      summary: 'A direct on-treatment response rule from the fixture paper.',
+      paper_title: 'The fixture response paper',
       journal: 'Example Journal',
       runnable: true,
       spec_status: 'final',
@@ -196,6 +201,8 @@ function catalogue(): MethodSummary[] {
       language: 'R',
       group: 'dynamic-risk',
       group_label: 'Dynamic risk',
+      title: 'Dynamic random forest',
+      summary: 'A dynamic random forest fixture method.',
       journal: 'Example Journal',
       runnable: true,
       spec_status: 'final',
@@ -219,6 +226,8 @@ function catalogue(): MethodSummary[] {
       language: 'R',
       group: 'response-call',
       group_label: 'Response call',
+      title: 'Two-week Ki-67 four-group rule',
+      summary: 'A rule that groups patients by the Ki-67 change after two weeks.',
       journal: 'Example Journal',
       runnable: true,
       spec_status: 'final',
@@ -370,13 +379,25 @@ async function settle(ms = 0): Promise<void> {
   })
 }
 
-/** Select the row by its checkbox (the shared list's own toggle). */
+/** Select the method by its card checkbox (the picker's own toggle). */
 async function selectRow(key: string): Promise<void> {
   await act(async () => {
-    fireEvent.click(screen.getByTestId(`txr-list-checkbox-${key}`))
+    fireEvent.click(screen.getByTestId(`txr-method-checkbox-${key}`))
     await Promise.resolve()
   })
   await settle(0)
+}
+
+/** The page arrives with the recommended set ticked; a per-row test first
+ *  clears it, then ticks the row it means (a click on an already-ticked
+ *  row would unselect — the toggle is a toggle). */
+async function chooseOnly(key: string): Promise<void> {
+  await act(async () => {
+    fireEvent.click(screen.getByTestId('txr-method-preset-none'))
+    await Promise.resolve()
+  })
+  await settle(0)
+  await selectRow(key)
 }
 
 beforeEach(() => {
@@ -394,6 +415,14 @@ beforeEach(() => {
   api.listMethods.mockResolvedValue({ methods: catalogue(), total: 3 })
   api.eligibility.mockResolvedValue(eligibility())
   api.estimate.mockResolvedValue({ total_seconds: 50, schedule_seconds: 50 })
+  api.detail.mockReset()
+  api.detail.mockResolvedValue({
+    id: 'direct-on',
+    description: 'A long fixture description of the direct on-treatment rule.',
+    journal: 'Example Journal',
+    year: 2021,
+    paper_doi: '10.0000/example',
+  })
   api.createRun.mockResolvedValue({ id: 'run-1' } as unknown as TxrRunSummary)
   api.listRuns.mockResolvedValue({
     runs: [],
@@ -591,159 +620,172 @@ describe('ChooseMethodsPage settings wiring (ITEM-7)', () => {
   })
 })
 
-describe('ChooseMethodsPage list + create path (ITEM-8, TEST-RUN-17)', () => {
-  it('hosts the shared selection list fed by the inventory hooks — the one list, the research notice, the estimate bar', async () => {
+describe('ChooseMethodsPage method picker + create path (qa-fixes3 ITEM-1 / TEST-RUN-17)', () => {
+  it('hosts the picker fed by the inventory hooks: ready-to-run default, nothing red, the estimate bar', async () => {
     api.getConfig.mockResolvedValue({ config: null })
     seedStore()
     renderPage()
     await settle()
 
-    // INV-3: the shared list component is THE list (the txr-list surface,
-    // never a bespoke row build in this module).
-    expect(screen.getByTestId('txr-run-list')).toBeTruthy()
-    expect(screen.getByTestId('txr-list')).toBeTruthy()
-    expect(screen.getByTestId('txr-list-bottom-bar')).toBeTruthy()
-    expect(screen.getByTestId('txr-list-selected-count').textContent).toBe('0 methods selected')
+    expect(screen.getByTestId('txr-method-picker')).toBeTruthy()
+    expect(screen.getByTestId('txr-run-bar')).toBeTruthy()
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('2 methods selected')
 
     // The board lead paragraph is data-filled from the inventory (INV-6:
     // the fixture's own 18, never the board's 151).
     expect(screen.getByTestId('txr-run-intro').textContent).toContain('your 18 patients')
 
-    // The rows: the catalogue's runnable + cannot rows with their verdicts.
-    expect(screen.getByTestId('txr-list-row-direct-on').textContent).toContain('Can run')
-    expect(screen.getByTestId('txr-list-row-direct-on').textContent).toContain('all 18 patients')
-    expect(screen.getByTestId('txr-list-row-ki67-two-week-four-group').textContent).toContain(
-      'needs Ki-67, not in your file',
+    // The default view: ready-to-run sections only; the cannot card lives in
+    // the collapsed can\'t-run section — "Cannot run" is never printed.
+    expect(screen.getByTestId('txr-method-ready-heading').textContent).toBe('Ready to run (2)')
+    const probability = screen.getByTestId('txr-method-section-response-probability')
+    expect(probability).toBeTruthy()
+    expect(probability.textContent).toContain('Direct on-treatment response rule')
+    expect(document.body.textContent).not.toContain('Cannot run')
+    expect(screen.getByTestId('txr-method-cannot-heading').textContent).toBe(
+      "1 method can't run on this data",
     )
 
     // The research notice is the module's ONE constant, on the bar.
     expect(screen.getByText(RESEARCH_NOTICE)).toBeTruthy()
   })
 
-  it('the bar total is the estimate response, never a client-time computation (INV-4)', async () => {
+  it('on arrival the deterministic recommended set is ticked; the bar total is the estimate response (INV-4)', async () => {
     api.getConfig.mockResolvedValue({ config: null })
     seedStore()
     renderPage()
     await settle()
 
-    await selectRow('direct-on')
-    // One debounced estimate call with the screen's patients/at-a-time/CPUs.
+    // The auto-seed fired BEFORE any user interaction: the recommendation
+    // (both runnable methods — the fixture has two, one per family) is
+    // ticked and the one debounced estimate call carries them.
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('2 methods selected')
     await settle(250)
-    // Auto CPU: the field is omitted so the SERVER resolves the run's own
-    // count (CM-7's one source of truth — the old 4-CPU client default was
-    // what made the bar disagree with the running header).
     expect(api.estimate).toHaveBeenCalledWith({
-      method_ids: ['direct-on'],
+      method_ids: ['direct-on', 'dynforest'],
       patients: 18,
       cpus: undefined,
       at_a_time: 3,
     })
-    // The bar's total line is the estimate response through the provider's
-    // own long formatter (the segment also carries the at-a-time label —
-    // the board's own bar line).
-    expect(screen.getByTestId('txr-list-total-time').textContent).toContain(
-      'under 1 minute in total',
+    expect(screen.getByTestId('txr-run-bar-time').textContent).toContain(
+      'under 1 min (3 at a time)',
     )
-    expect(screen.getByTestId('txr-list-selected-count').textContent).toBe('1 method selected')
   })
 
-  it('the group chips wire the builder to the host filter: toggle active, filter the row set', async () => {
+  it('the preset control changes the selection and the count; a manual tick is Custom', async () => {
     api.getConfig.mockResolvedValue({ config: null })
     seedStore()
     renderPage()
     await settle()
 
-    const probability = screen.getByTestId('txr-list-filter-response-probability')
-    const dynamic = screen.getByTestId('txr-list-filter-dynamic-risk')
-    expect(probability.textContent).toContain('Response probability')
-    expect(probability.textContent).toContain('1')
-    expect(dynamic.textContent).toContain('1')
-    expect(probability.getAttribute('aria-pressed')).toBe('false')
-
-    await act(async () => {
-      fireEvent.click(probability)
-      await Promise.resolve()
-    })
-    expect(probability.getAttribute('aria-pressed')).toBe('true')
-    // The filter is the host's: the probability row stays, the dynamic-risk
-    // row is gone.
-    expect(screen.getByTestId('txr-list-row-direct-on')).toBeTruthy()
-    expect(screen.queryByTestId('txr-list-row-dynforest')).toBeNull()
-    expect(screen.queryByTestId('txr-list-row-ki67-two-week-four-group')).toBeNull()
-
-    // A second click toggles the filter off — one chip active at a time.
-    await act(async () => {
-      fireEvent.click(probability)
-      await Promise.resolve()
-    })
-    expect(probability.getAttribute('aria-pressed')).toBe('false')
-    expect(screen.getByTestId('txr-list-row-dynforest')).toBeTruthy()
-  })
-
-  it('the All and Can run pills are real filters: All clears both, Can run shows only runnable rows (CM-3)', async () => {
-    api.getConfig.mockResolvedValue({ config: null })
-    seedStore()
-    renderPage()
-    await settle()
-
-    const all = screen.getByTestId('txr-list-filter-all')
-    const canRun = screen.getByTestId('txr-list-filter-can-run')
-    expect(all.textContent).toBe('All 3')
-    expect(canRun.textContent).toBe('Can run 2')
-    expect(all.getAttribute('aria-pressed')).toBe('true')
-
-    // Can run on: the cannot row (ki67) is filtered out of the view.
-    await act(async () => {
-      fireEvent.click(canRun)
-      await Promise.resolve()
-    })
-    expect(canRun.getAttribute('aria-pressed')).toBe('true')
-    expect(all.getAttribute('aria-pressed')).toBe('false')
-    expect(screen.getByTestId('txr-list-row-direct-on')).toBeTruthy()
-    expect(screen.queryByTestId('txr-list-row-ki67-two-week-four-group')).toBeNull()
-    expect(screen.getByTestId('txr-list-filter-can-run').textContent).toBe('Can run 2')
-
-    // The group filter composes with Can run; All clears BOTH.
-    await act(async () => {
-      fireEvent.click(screen.getByTestId('txr-list-filter-dynamic-risk'))
-      await Promise.resolve()
-    })
-    expect(screen.getByTestId('txr-list-row-dynforest')).toBeTruthy()
-    expect(screen.queryByTestId('txr-list-row-direct-on')).toBeNull()
-    await act(async () => {
-      fireEvent.click(all)
-      await Promise.resolve()
-    })
-    expect(all.getAttribute('aria-pressed')).toBe('true')
-    expect(canRun.getAttribute('aria-pressed')).toBe('false')
-    expect(screen.getByTestId('txr-list-row-direct-on')).toBeTruthy()
-    expect(screen.getByTestId('txr-list-row-ki67-two-week-four-group')).toBeTruthy()
-  })
-
-  it('states the no-published-environment count above the list (CM-1)', async () => {
-    api.getConfig.mockResolvedValue({ config: null })
-    const eligibilityWithNoEnv = eligibility()
-    eligibilityWithNoEnv.total_no_env = 2
-    api.eligibility.mockResolvedValue(eligibilityWithNoEnv)
-    seedStore()
-    renderPage()
-    await settle()
-
-    expect(screen.getByTestId('txr-run-no-env-line').textContent).toBe(
-      "2 of 3 methods have no published environment and can't start.",
+    expect(screen.getByTestId('txr-method-preset-recommended').getAttribute('aria-pressed')).toBe(
+      'true',
     )
-    expect(screen.getByTestId('txr-list-filter-can-run').textContent).toBe('Can run 2')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-method-preset-none'))
+      await Promise.resolve()
+    })
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('0 methods selected')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-method-preset-all'))
+      await Promise.resolve()
+    })
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('2 methods selected')
+
+    // The auto-recommendation is OFF once the user has touched the selection:
+    // a settings change (an eligibility refetch) never re-treads the user's
+    // own choice — the All preset stays the active segment.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-method-preset-none'))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByTestId('txr-run-settings-endpoint-opt-os'), {
+        button: 0,
+        pointerType: 'mouse',
+      })
+      fireEvent.click(screen.getByTestId('txr-run-settings-endpoint-opt-os'))
+      await Promise.resolve()
+    })
+    await settle(RUN_CONFIG_DEBOUNCE_MS + 50)
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('0 methods selected')
   })
+
+  it('search and the family multi-filter restrict the sections and restore', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore()
+    renderPage()
+    await settle()
+
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('txr-method-search'), { target: { value: 'dynamic' } })
+      await Promise.resolve()
+    })
+    expect(screen.queryByTestId('txr-method-section-response-probability')).toBeNull()
+    expect(screen.getByTestId('txr-method-section-dynamic-risk')).toBeTruthy()
+
+    await act(async () => {
+      fireEvent.change(screen.getByTestId('txr-method-search'), { target: { value: '' } })
+      await Promise.resolve()
+    })
+    expect(screen.getByTestId('txr-method-section-dynamic-risk')).toBeTruthy()
+
+    const chip = screen.getByTestId('txr-method-family-dynamic-risk')
+    await act(async () => {
+      fireEvent.click(chip)
+      await Promise.resolve()
+    })
+    expect(chip.getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('txr-method-section-dynamic-risk')).toBeTruthy()
+    expect(screen.queryByTestId('txr-method-section-response-probability')).toBeNull()
+    await act(async () => {
+      fireEvent.click(chip)
+      await Promise.resolve()
+    })
+    expect(screen.getByTestId('txr-method-section-response-probability')).toBeTruthy()
+  })
+
+  it('a reason chip expands its can\'t-run list with the one-line fix naming the marker', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore()
+    renderPage()
+    await settle()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-method-reason-marker'))
+      await Promise.resolve()
+    })
+    const row = screen.getByTestId('txr-method-cannot-row-ki67-two-week-four-group')
+    expect(row.textContent).toContain('needs Ki-67, not in your file')
+    expect(row.textContent).toContain('Add a column named Ki-67')
+  })
+
+  it('the row About disclosure opens in place with the method facts', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore()
+    renderPage()
+    await settle()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-method-about-toggle-direct-on'))
+      await Promise.resolve()
+    })
+    await settle()
+    const about = screen.getByTestId('txr-method-about-direct-on')
+    expect(about).toBeTruthy()
+    expect(about.textContent).toContain('Example Journal, 2021')
+  })
+
 
   it('Run posts the frozen request and navigates to the new run runningPath on 202', async () => {
     api.getConfig.mockResolvedValue({ config: null })
     seedStore()
     renderPage()
     await settle()
-    await selectRow('direct-on')
+    await chooseOnly('direct-on')
 
     await act(async () => {
-      fireEvent.click(screen.getByTestId('txr-list-run'))
+      fireEvent.click(screen.getByTestId('txr-run-bar-run'))
       await Promise.resolve()
     })
     // The create chain is all microtasks (the engine answer + the
@@ -783,11 +825,11 @@ describe('ChooseMethodsPage list + create path (ITEM-8, TEST-RUN-17)', () => {
     seedStore()
     renderPage()
     await settle()
-    await selectRow('direct-on')
+    await chooseOnly('direct-on')
     await selectRow('dynforest')
 
     await act(async () => {
-      fireEvent.click(screen.getByTestId('txr-list-run'))
+      fireEvent.click(screen.getByTestId('txr-run-bar-run'))
       await Promise.resolve()
     })
     await settle(0)
@@ -797,7 +839,7 @@ describe('ChooseMethodsPage list + create path (ITEM-8, TEST-RUN-17)', () => {
       'direct-on is no longer in the method catalogue — it was removed from the selection.',
     )
     // The named row left the selection; the other stays.
-    expect(screen.getByTestId('txr-list-selected-count').textContent).toBe('1 method selected')
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('1 method selected')
     expect(api.listRuns).not.toHaveBeenCalled()
   })
 
@@ -807,13 +849,13 @@ describe('ChooseMethodsPage list + create path (ITEM-8, TEST-RUN-17)', () => {
     seedStore()
     renderPage()
     await settle()
-    await selectRow('direct-on')
+    await chooseOnly('direct-on')
 
     // The local catalogue DOES know the row — neither attribution source
     // names a stale method, so the run was not created and the choice is
     // kept for the retry.
     await act(async () => {
-      fireEvent.click(screen.getByTestId('txr-list-run'))
+      fireEvent.click(screen.getByTestId('txr-run-bar-run'))
       await Promise.resolve()
     })
     await settle(0)
@@ -821,7 +863,7 @@ describe('ChooseMethodsPage list + create path (ITEM-8, TEST-RUN-17)', () => {
     expect(screen.getByTestId('txr-run-create-error').textContent).toBe(
       RUN_METHODS_GONE_LINE,
     )
-    expect(screen.getByTestId('txr-list-selected-count').textContent).toBe('1 method selected')
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('1 method selected')
   })
 
   it('a 409 RUN_ALREADY_ACTIVE resolves through listRuns to the active run runningPath (DEC-18)', async () => {
@@ -839,10 +881,10 @@ describe('ChooseMethodsPage list + create path (ITEM-8, TEST-RUN-17)', () => {
     seedStore()
     renderPage()
     await settle()
-    await selectRow('direct-on')
+    await chooseOnly('direct-on')
 
     await act(async () => {
-      fireEvent.click(screen.getByTestId('txr-list-run'))
+      fireEvent.click(screen.getByTestId('txr-run-bar-run'))
       await Promise.resolve()
     })
     await settle(0)
@@ -860,10 +902,10 @@ describe('ChooseMethodsPage list + create path (ITEM-8, TEST-RUN-17)', () => {
     seedStore()
     renderPage()
     await settle()
-    await selectRow('direct-on')
+    await chooseOnly('direct-on')
 
     await act(async () => {
-      fireEvent.click(screen.getByTestId('txr-list-run'))
+      fireEvent.click(screen.getByTestId('txr-run-bar-run'))
       await Promise.resolve()
     })
     await settle(0)
@@ -881,9 +923,13 @@ describe('ChooseMethodsPage list + create path (ITEM-8, TEST-RUN-17)', () => {
     seedStore()
     renderPage()
     await settle()
+    // The ITEM-2 bar disables Run when nothing is selected (that state is
+    // its own pin); the engine-400 surface is reached through a selection
+    // the engine then rejects — a stale selection between render and click.
+    await chooseOnly('direct-on')
 
     await act(async () => {
-      fireEvent.click(screen.getByTestId('txr-list-run'))
+      fireEvent.click(screen.getByTestId('txr-run-bar-run'))
       await Promise.resolve()
     })
     await settle(0)
@@ -891,9 +937,9 @@ describe('ChooseMethodsPage list + create path (ITEM-8, TEST-RUN-17)', () => {
     expect(screen.getByTestId('txr-run-create-error').textContent).toBe(
       'EMPTY_METHODS: choose at least one method',
     )
-    // The empty run attempt never navigates; the rows keep their values.
+    // The rejected run never navigates; the rows keep their values.
     expect(screen.getByTestId('route-location').textContent).toBe('/choose-methods')
-    expect(screen.getByTestId('txr-list-row-direct-on')).toBeTruthy()
+    expect(screen.getByTestId('txr-method-card-direct-on')).toBeTruthy()
   })
 
   it('the transient null-validation state renders the pending line, never a fabricated inventory', async () => {
@@ -906,7 +952,7 @@ describe('ChooseMethodsPage list + create path (ITEM-8, TEST-RUN-17)', () => {
     expect(screen.queryByTestId('txr-list')).toBeNull()
     // The page is NOT flipped to the empty state (the inputs are there).
     expect(screen.queryByTestId('txr-run-empty')).toBeNull()
-    expect(screen.getByTestId('txr-run-slots')).toBeTruthy()
+    expect(screen.getByTestId('txr-run-summary')).toBeTruthy()
   })
 })
 
@@ -917,10 +963,10 @@ describe('ChooseMethodsPage keep-copies (TEST-RUN-36)', () => {
     seedStore()
     renderPage()
     await settle()
-    await selectRow('direct-on')
+    await chooseOnly('direct-on')
 
     await act(async () => {
-      fireEvent.click(screen.getByTestId('txr-list-run'))
+      fireEvent.click(screen.getByTestId('txr-run-bar-run'))
       await Promise.resolve()
     })
     await settle(0)
@@ -936,15 +982,194 @@ describe('ChooseMethodsPage keep-copies (TEST-RUN-36)', () => {
     seedStore()
     renderPage()
     await settle()
-    await selectRow('direct-on')
+    await chooseOnly('direct-on')
 
     await act(async () => {
-      fireEvent.click(screen.getByTestId('txr-list-run'))
+      fireEvent.click(screen.getByTestId('txr-run-bar-run'))
       await Promise.resolve()
     })
     await settle(0)
     await settle(0)
     expect(api.createRun).toHaveBeenCalledTimes(1)
     expect(api.createRun.mock.calls[0][0].input.keep_copies).toBe(true)
+  })
+})
+
+describe('ChooseMethodsPage ITEM-2 — the summary line, the settings sentence and the eligibility recompute', () => {
+  it('renders the compact files summary with the marker names and the Details full list', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore()
+    renderPage()
+    await settle()
+
+    // The plan's one line over the fixture's own facts (18 patients · 7
+    // events · 1 marker — the fixture ldh column — draws 0..28).
+    expect(screen.getByTestId('txr-run-summary-line').textContent).toBe(
+      '18 patients · 7 events · 1 marker · draws from day 0 to 28 (3 different days)',
+    )
+    expect(screen.getByTestId('txr-run-summary-markers').textContent).toBe('Markers: ldh')
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-run-summary-details'))
+      await Promise.resolve()
+    })
+    expect(screen.getByTestId('txr-run-summary-details-measurements').textContent).toContain(
+      'draws at day 0, 14, 28',
+    )
+    expect(screen.getByTestId('txr-run-summary-details-patients').textContent).toContain(
+      '18 patients · 7 events',
+    )
+  })
+
+  it('the settings card title and the live sentence match the selected values', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore()
+    renderPage()
+    await settle()
+
+    expect(screen.getByTestId('txr-run-settings-title').textContent).toBe(
+      'What do you want to predict?',
+    )
+    expect(screen.getByTestId('txr-run-settings-sentence').textContent).toBe(
+      'Progression or death within 238 days, from the blood draws up to day 84.',
+    )
+
+    // Change the outcome and the horizon: the sentence is the selection's.
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByTestId('txr-run-settings-endpoint-opt-os'), {
+        button: 0,
+        pointerType: 'mouse',
+      })
+      fireEvent.click(screen.getByTestId('txr-run-settings-endpoint-opt-os'))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByTestId('txr-run-settings-look-ahead-opt-365'), {
+        button: 0,
+        pointerType: 'mouse',
+      })
+      fireEvent.click(screen.getByTestId('txr-run-settings-look-ahead-opt-365'))
+      await Promise.resolve()
+    })
+    expect(screen.getByTestId('txr-run-settings-sentence').textContent).toBe(
+      'Death within 365 days, from the blood draws up to day 84.',
+    )
+  })
+
+  it('the eligibility request carries the settings (decision day + extra inputs), and a change refetches with the re-check state', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore()
+    renderPage()
+    await settle()
+
+    // The screen's inventory: the validation facts with the settings'
+    // decision day (84 — the intake's fresh answer) and the covariates off.
+    const firstCall = api.eligibility.mock.calls[0][0]
+    expect(firstCall.inventory.decision_day).toBe(84)
+    expect(firstCall.inventory.covariates).toEqual([])
+
+    // A decision-day change recomputes: the inventory key changed, so the
+    // adapter refetches and the re-check line is visible while in flight.
+    let resolveSecond!: (value: unknown) => void
+    api.eligibility.mockImplementationOnce(
+      () =>
+        new Promise(resolve => {
+          resolveSecond = resolve
+        }),
+    )
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByTestId('txr-run-settings-decision-day-opt-28'), {
+        button: 0,
+        pointerType: 'mouse',
+      })
+      fireEvent.click(screen.getByTestId('txr-run-settings-decision-day-opt-28'))
+      await Promise.resolve()
+    })
+    expect(screen.getByTestId('txr-method-refreshing')).toBeTruthy()
+    await act(async () => {
+      resolveSecond(eligibility())
+      await Promise.resolve()
+    })
+    await settle()
+    expect(screen.queryByTestId('txr-method-refreshing')).toBeNull()
+    const lastCall = api.eligibility.mock.calls[api.eligibility.mock.calls.length - 1][0]
+    expect(lastCall.inventory.decision_day).toBe(28)
+  })
+
+  it('a method that stops being eligible is unticked with the toast; the still-eligible stay', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    // The recommendation ticks both runnable methods; the SECOND answer (a
+    // decision-day change) marks direct-on as cannot-run — the eligibility
+    // churn the plan's untick message names.
+    api.eligibility
+      .mockResolvedValueOnce(eligibility())
+      .mockResolvedValueOnce({
+        ...eligibility(),
+        methods: eligibility().methods.map(method =>
+          method.id === 'direct-on'
+            ? { ...method, status: 'cannot_run', coverage: { eligible: 0, total: 18, fraction: 0 }, reasons: [{ code: 'DECISION_DAY_UNMET' }] }
+            : method,
+        ),
+      })
+    const { Toaster } = await import('@ziee/kit')
+    seedStore()
+    render(
+      <MemoryRouter initialEntries={['/choose-methods']}>
+        <Toaster />
+        <ChooseMethodsPage />
+        <LocationProbe />
+      </MemoryRouter>,
+    )
+    await settle()
+    await settle(250)
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('2 methods selected')
+
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByTestId('txr-run-settings-decision-day-opt-28'), {
+        button: 0,
+        pointerType: 'mouse',
+      })
+      fireEvent.click(screen.getByTestId('txr-run-settings-decision-day-opt-28'))
+      await Promise.resolve()
+    })
+    await settle()
+    await settle(250)
+    // direct-on left the selection; dynforest stayed.
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('1 method selected')
+    expect(screen.getByText('1 method no longer fits these settings')).toBeTruthy()
+  })
+
+  it('the run bar is disabled with the reason when nothing is selected', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore()
+    renderPage()
+    await settle()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-method-preset-none'))
+      await Promise.resolve()
+    })
+    expect(screen.getByTestId('txr-run-bar-run').getAttribute('disabled')).not.toBeNull()
+    expect(screen.getByTestId('txr-run-bar-empty-reason').textContent).toBe(
+      'Select at least one method',
+    )
+    expect(screen.getByTestId('txr-run-bar-count').textContent).toBe('0 methods selected')
+  })
+
+  it('More settings opens in place: CPUs, the lanes, the estimate fact and the fixed-seed fact', async () => {
+    api.getConfig.mockResolvedValue({ config: null })
+    seedStore()
+    renderPage()
+    await settle()
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('txr-run-settings-more'))
+      await Promise.resolve()
+    })
+    expect(screen.getByTestId('txr-run-settings-cpus')).toBeTruthy()
+    expect(screen.getByTestId('txr-run-settings-at-a-time')).toBeTruthy()
+    expect(screen.getByTestId('txr-run-settings-estimate-explained').textContent).toContain(
+      'scaled to your file',
+    )
+    expect(screen.getByTestId('txr-run-settings-seed-fact').textContent).toContain('fixed seed')
   })
 })

@@ -241,11 +241,14 @@ describe('txrmodels module (TEST-MOD-01)', () => {
     // `total_no_env`/`cpus` eligibility+estimate fields) and the
     // regenerated `openapi.json` — the ONLY two generated files this item
     // moves; the pins stay strict for anything else under either prefix.
+    // The qa-fixes3 ITEM-3 client surface (its DRIFT-1): the regenerated
+    // `apiEndpoints.ts` carries the new `Models.exampleSet` route.
     expect(
       touched.filter(
         p =>
           p.startsWith('src-app/ui/src/api-client/') &&
-          p !== 'src-app/ui/src/api-client/types.ts',
+          p !== 'src-app/ui/src/api-client/types.ts' &&
+          p !== 'src-app/ui/src/api-client/apiEndpoints.ts',
       ),
     ).toEqual([])
     expect(
@@ -264,6 +267,11 @@ describe('txrmodels module (TEST-MOD-01)', () => {
           p.startsWith('scripts/') &&
           p !== 'scripts/dev-registry/make-real-inputs.py' &&
           p !== 'scripts/dev-registry/make_real_inputs.test.py' &&
+          // qa-fixes3 ITEM-5 (the e2e-real --example mode): the driver's
+          // three-flow extension + its unit test (scripts/dev-registry/
+          // e2e-real.py + e2e_real.test.py).
+          p !== 'scripts/dev-registry/e2e-real.py' &&
+          p !== 'scripts/dev-registry/e2e_real.test.py' &&
           p !== 'scripts/file-validator/gen_material.py' &&
           p !== 'scripts/file-validator/fixtures/expected/examples/patients.csv' &&
           p !== 'scripts/file-validator/fixtures/expected/examples/measurements.csv' &&
@@ -271,7 +279,20 @@ describe('txrmodels module (TEST-MOD-01)', () => {
           // qa-fixes2 ITEM-2 (location-neutral copy): the notice generator's
           // header reword — "the TxResBench application", not "desktop
           // application" (the generated THIRD-PARTY-NOTICES.md follows).
-          p !== 'scripts/third-party.py' ,
+          p !== 'scripts/third-party.py' &&
+          // qa-fixes3 ITEM-1 (the catalogue's human-name fields): the
+          // catalogue generator's title/summary/paper_title derivation +
+          // the regenerated fixture-mode expected bytes. Nothing else under
+          // scripts/ moves for this item.
+          p !== 'scripts/method-catalogue/gen_method_catalogue.py' &&
+          p !== 'scripts/method-catalogue/fixtures/expected-catalogue.json' &&
+          // qa-fixes3 ITEM-3 (the example family, its DRIFT-1): the
+          // generator's rewrite, the regenerated fixture expected bytes
+          // (incl. the new predict file) and the allowlist's doi.org
+          // entry (the ITEM-1 paper link the guard flagged).
+          p !== 'scripts/file-validator/fixtures/expected/examples/predict-measurements.csv' &&
+          p !== 'scripts/file-validator/fixtures/expected/templates/patients.csv' &&
+          p !== 'scripts/network-allowlist.txt',
       ),
     ).toEqual([])
     // qa-fixes ITEM-7 (X1): the built-CSS url check — one script file
@@ -306,6 +327,10 @@ describe('txrmodels module (TEST-MOD-01)', () => {
         p =>
           p.startsWith('src-app/server/') &&
           p !== 'src-app/server/src/modules/method_catalogue/types.rs' &&
+          // qa-fixes3 ITEM-1 (the catalogue's human-name fields): the
+          // `Method`/`MethodSummary` wire additions' serialization pins
+          // (`catalogue.rs`, with `types.rs` above).
+          p !== 'src-app/server/src/modules/method_catalogue/catalogue.rs' &&
           p !== 'src-app/server/src/modules/method_catalogue/eligibility.rs' &&
           p !== 'src-app/server/src/modules/method_catalogue/estimate.rs' &&
           p !== 'src-app/server/src/modules/method_catalogue/routes.rs' &&
@@ -313,6 +338,9 @@ describe('txrmodels module (TEST-MOD-01)', () => {
           p !== 'src-app/server/src/modules/model_store/types.rs' &&
           p !== 'src-app/server/src/modules/pretrained_catalogue/types.rs' &&
           p !== 'src-app/server/tests/method_catalogue/api_test.rs' &&
+          // qa-fixes3 ITEM-1 (the catalogue's human-name fields): the
+          // integration fixtures carry the three new required fields.
+          p !== 'src-app/server/tests/method_catalogue/catalogue_hygiene_test.rs' &&
           p !== 'src-app/server/src/modules/execution_engine/types.rs' &&
           p !== 'src-app/server/src/modules/execution_engine/routes.rs' &&
           p !== 'src-app/server/src/modules/execution_engine/README.md' &&
@@ -328,6 +356,27 @@ describe('txrmodels module (TEST-MOD-01)', () => {
           p !== 'src-app/server/src/modules/file_validator/catalog.rs' &&
           p !== 'src-app/server/tests/file_validator/rules_test.rs' &&
           p !== 'src-app/server/tests/model_store/api_test.rs' &&
+          // qa-fixes3 ITEM-3 (the example data + the example saved set,
+          // its DRIFT-1): the file_validator example endpoint's third kind
+          // (assets/routes/README + the pinned material tests), the shared
+          // engine run-runtime seam, the model_store example-set module
+          // (state machine + migration + routes/types/repository + the
+          // integration suite) and the regenerated api-test pins.
+          p !== 'src-app/server/src/modules/execution_engine/mod.rs' &&
+          p !== 'src-app/server/src/modules/execution_engine/runtime.rs' &&
+          p !== 'src-app/server/src/modules/file_validator/README.md' &&
+          p !== 'src-app/server/src/modules/file_validator/assets.rs' &&
+          p !== 'src-app/server/src/modules/file_validator/routes.rs' &&
+          p !== 'src-app/server/src/modules/model_store/README.md' &&
+          p !== 'src-app/server/src/modules/model_store/example.rs' &&
+          p !== 'src-app/server/src/modules/model_store/migrations/202610270001_txr_example_set.sql' &&
+          p !== 'src-app/server/src/modules/model_store/mod.rs' &&
+          p !== 'src-app/server/src/modules/model_store/repository.rs' &&
+          p !== 'src-app/server/src/modules/model_store/routes.rs' &&
+          p !== 'src-app/server/tests/file_validator/api_test.rs' &&
+          p !== 'src-app/server/tests/file_validator/material_test.rs' &&
+          p !== 'src-app/server/tests/model_store/example_test.rs' &&
+          p !== 'src-app/server/tests/model_store/mod.rs' &&
           // qa-fixes2 ITEM-7 (R2-04): the K row's `predicted` doc grows
           // the distinct-patient meaning — history_store/types.rs.
           p !== 'src-app/server/src/modules/history_store/types.rs',

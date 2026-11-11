@@ -33,9 +33,12 @@ import type {
 } from '@/api-client/types'
 import type { RunSettings } from './settings'
 import {
+  COVARIATES_DISABLED_REASON,
   DEFAULT_RUN_SETTINGS,
+  SETTING_HELP,
   SETTING_OPTIONS,
   mergeRunSettings,
+  settingsSentence,
   toRunConfig,
 } from './settings'
 import { buildRunRequest } from './runRequest'
@@ -246,6 +249,27 @@ describe('buildRunRequest (TEST-RUN-06)', () => {
     const request = buildRunRequest('train', input, DEFAULT_RUN_SETTINGS, ['a'])
     expect(request.input).toBe(input)
     expect(request.input).toEqual(input)
+  })
+})
+
+describe('the ITEM-2 settings card copy (qa-fixes3 ITEM-2 b)', () => {
+  it('the live sentence reads the selected values (the plan\u2019s byte example)', () => {
+    expect(
+      settingsSentence({ endpoint: 'pfs', decision_day: 56, look_ahead_day: 238 }),
+    ).toBe('Progression or death within 238 days, from the blood draws up to day 56.')
+    expect(
+      settingsSentence({ endpoint: 'os', decision_day: 84, look_ahead_day: 365 }),
+    ).toBe('Death within 365 days, from the blood draws up to day 84.')
+  })
+
+  it('the four rows carry their one-line helps, and the absent-file reason names the file fact', () => {
+    expect(SETTING_HELP.endpoint).toBeTruthy()
+    expect(SETTING_HELP.decision_day).toBe('The day you decide, counted from the start of treatment.')
+    expect(SETTING_HELP.look_ahead_day).toBe(
+      'How far after the decision day you want the prediction to hold.',
+    )
+    expect(SETTING_HELP.covariates).toBe('Other columns of your file the methods may use.')
+    expect(COVARIATES_DISABLED_REASON).toBe('your file has no extra-input columns')
   })
 })
 

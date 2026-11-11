@@ -20,6 +20,7 @@ import {
 } from '../lib/format'
 import { descriptiveSentence, hasStudyAnswers, PREVIEW_ANSWER_INVITE } from '../lib/preview'
 import { formatNoEnvLine } from '@/modules/txrlist/lib/format'
+import { TxrUseExampleButton } from '../components/TxrUseExampleButton'
 import type { DiseaseId, OutcomeId, TreatmentId } from '../types'
 
 /**
@@ -479,6 +480,10 @@ export function StudyPage() {
             >
               Skip the questions
             </Button>
+            {/* qa-fixes3 ITEM-4: one click fills every answer consistently
+                with the example family and lands on the files step with the
+                example tables adopted (the step's own flow validates them). */}
+            <TxrUseExampleButton path="train" onDone={() => navigate(FILES_ROUTE)} />
           </div>
         </section>
 

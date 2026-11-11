@@ -126,13 +126,14 @@ impl AppModule for ExecutionEngineModule {
         let pool: Arc<SqlitePool> = ctx.db_pool.clone();
         self.pool = Some(pool.clone());
 
-        // The per-run runtime (ITEM-8): one instance per module, the
-        // broadcaster + run-stop registry the drive loops and the SSE routes
-        // share. The real env provider + the real method executor (ITEM-9)
-        // are installed the same way — the run route hands both to
-        // `orchestrator::start_run` (the env seam's accessor is the
-        // `jobs::seams` install precedent).
-        self.runtime = Some(Arc::new(runtime::RunRuntime::new()));
+        // The per-run runtime (ITEM-8): the process's ONE instance (the
+        // model_store example-set seam shares it — a run started by
+        // `POST /api/txr/models/example` must stream + stop through the same
+        // registry the run routes read). The real env provider + the real
+        // method executor (ITEM-9) are installed the same way — the run route
+        // hands both to `orchestrator::start_run` (the env seam's accessor is
+        // the `jobs::seams` install precedent).
+        self.runtime = Some(Arc::clone(runtime::global()));
         self.env = Some(orchestrator::real_env_provider());
         self.executor = Some(Arc::new(orchestrator::StackMethodExecutor::new(
             (*pool).clone(),

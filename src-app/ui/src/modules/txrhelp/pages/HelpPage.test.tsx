@@ -86,6 +86,56 @@ describe('HelpPage render (TEST-HELP-3)', () => {
     }
   })
 
+  it('the rail wires the section-heading observer, and the first section is current at rest (ITEM-6)', () => {
+    // jsdom has no IntersectionObserver and no layout (the real spy — the
+    // per-section scroll answer — is the browser tier's measure); this
+    // guards the wiring: the page observes every section heading and starts
+    // on the first section.
+    const instances: Array<{ callback: IntersectionObserverCallback; observed: Element[] }> = []
+    class FakeIntersectionObserver {
+      callback: IntersectionObserverCallback
+      observed: Element[] = []
+      constructor(callback: IntersectionObserverCallback) {
+        this.callback = callback
+        instances.push(this)
+      }
+      observe(target: Element) {
+        this.observed.push(target)
+      }
+      unobserve() {}
+      disconnect() {}
+      takeRecords() {
+        return []
+      }
+      root = null
+      rootMargin = ''
+      thresholds = []
+    }
+    vi.stubGlobal('IntersectionObserver', FakeIntersectionObserver)
+    // jsdom lays out nothing: without a model, every section's
+    // getBoundingClientRect returns 0 and the spy would claim the LAST
+    // section. Give the sections far-below tops so the at-rest answer is
+    // the honest first-section fallback.
+    const realRect = Element.prototype.getBoundingClientRect
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      if (this.id !== '' && HELP_SECTIONS.some(s => s.id === this.id)) {
+        return { top: 1000, bottom: 1000, left: 0, right: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}) } as DOMRect
+      }
+      return realRect.call(this)
+    })
+    renderHelp()
+    const spy = instances[0]
+    expect(spy).toBeTruthy()
+    expect(spy.observed.length).toBe(HELP_SECTIONS.length)
+    const toc = screen.getByRole('navigation', { name: 'On this page' })
+    expect(
+      within(toc)
+        .getAllByRole('link')
+        .find(link => link.getAttribute('aria-current') === 'true')!
+        .getAttribute('data-testid'),
+    ).toBe('txr-help-toc-overview')
+  })
+
   it('a deep link scrolls its entry into view and expands it (the intake problems link target)', () => {
     renderHelp(['/help#problem-r03'])
     const target = document.getElementById('problem-r03')

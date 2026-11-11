@@ -84,90 +84,104 @@ async function rowStatusBlock(row: Locator) {
   })
 }
 
-test.describe('txr-list-e — screen E, adapter-fed (TEST-UL-12)', () => {
-  test('cassette-fed rows, built-in counts, selection → estimate total → Run callback', async ({
+test.describe('txr-list-e — the redesigned method picker (TEST-UL-12, qa-fixes3 ITEM-1)', () => {
+  test('picker sections, recommended seeding, presets, search, can\'t-run reasons, Run callback', async ({
     page,
   }) => {
     await page.goto(`${GALLERY}txr-list-e`)
 
-    // The list renders after the hooks' (instant-ish) cassette response.
-    await expect(page.getByTestId('txr-list')).toBeVisible()
-    await expect(page.getByTestId('txr-list-row-direct-on')).toBeVisible()
+    // The picker renders after the hooks' (instant-ish) cassette response.
+    await expect(page.getByTestId('txr-method-picker')).toBeVisible()
+    await expect(page.getByTestId('txr-method-card-direct-on')).toBeVisible()
 
-    // ── the board's row bytes (Busy.dc.html), one row per aspect ──
-    const row = await page.getByTestId('txr-list-row-direct-on').textContent()
+    // ── the redesigned row: title, monospace id, family/language chips,
+    //    estimate, benchmark score, needs line (per the fixture facts) ──
+    const row = await page.getByTestId('txr-method-card-direct-on').textContent()
     for (const needle of [
+      'Direct on-treatment response rule',
       'direct-on',
-      'Paper 2021, R',
       'Response probability',
-      'Can run',
-      'all 151 patients',
-      'about 2 min',
-      'About',
+      'R',
+      'Estimated about 2 min',
+      'Benchmark score 0.74 (38 cohorts)',
+      'Needs: 3 markers',
     ]) {
       expect(row, `row direct-on must carry ${needle!}`).toContain(needle!)
     }
-    // The monospace id is the board's byte, not a theme font.
+    // The id is the monospace byte, not a theme font. The redesigned row
+    // renders the id in a `<span>` (the same line as the title) — the scan
+    // matches any element, span or div, so a later markup change does not
+    // mute the pin.
     const nameFont = await page
-      .getByTestId('txr-list-row-direct-on')
+      .getByTestId('txr-method-card-direct-on')
       .evaluate(el => {
-        const div = Array.from(el.querySelectorAll('div')).find(d =>
+        const mono = Array.from(el.querySelectorAll('*')).find(d =>
           getComputedStyle(d).fontFamily.includes('Source Code Pro'),
         )
-        return div === undefined ? null : getComputedStyle(div).fontFamily
+        return mono === undefined ? null : getComputedStyle(mono).fontFamily
       })
     expect(nameFont).toContain('Source Code Pro')
 
-    // The `some` row: the fixture's ONE adjusted number (dynforest 840 s) and
-    // the board's partial-coverage line (EXAMPLE-UL-2).
-    const someRow = await page.getByTestId('txr-list-row-dynforest').textContent()
-    for (const needle of [
-      'Can run for some patients',
-      'needs 3 or more draws; 120 of 151 have them',
-      'about 14 min',
-    ]) {
-      expect(someRow, `row dynforest must carry ${needle!}`).toContain(needle!)
-    }
-
-    // The `cannot` row: board line + disabled checkbox that never ticks.
-    // The row carries NO estimate (qa-fixes ITEM-2 CM-4: a method that
-    // cannot run has no time — the estimate never computed one).
-    const cannotRow = await page.getByTestId('txr-list-row-cox-ctdna-status-rfs').textContent()
-    for (const needle of ['Cannot run', 'needs LDH, not in your file']) {
-      expect(cannotRow, `row cox-ctdna-status-rfs must carry ${needle!}`).toContain(needle!)
-    }
-    expect(cannotRow, 'a cannot-run row carries no estimate').not.toContain('min')
-    await expect(page.getByTestId('txr-list-checkbox-cox-ctdna-status-rfs')).toHaveAttribute(
-      'data-disabled',
-      '',
+    // ── the default view: ready-to-run only; "Cannot run" is never printed ──
+    await expect(page.getByTestId('txr-method-ready-heading')).toHaveText('Ready to run (26)')
+    expect(await page.locator('body').innerText()).not.toContain('Cannot run')
+    await expect(page.getByTestId('txr-method-cannot-heading')).toHaveText(
+      "12 methods can't run on this data",
     )
-    await expect(page.getByTestId('txr-list-checkbox-cox-ctdna-status-rfs')).toHaveAttribute(
-      'aria-checked',
-      'false',
+    const sectionOrder = await page
+      .locator('[data-testid^="txr-method-section-"]')
+      .evaluateAll(els =>
+        els
+          .map(el => el.getAttribute('data-testid'))
+          .filter(
+            t =>
+              t !== null &&
+              !t.includes('header') &&
+              !t.includes('-select-all') &&
+              !t.includes('-more'),
+          ),
+      )
+    expect(sectionOrder).toEqual([
+      'txr-method-section-response-call',
+      'txr-method-section-response-probability',
+      'txr-method-section-static-risk',
+      'txr-method-section-dynamic-risk',
+    ])
+
+    // ── the recommended preselection: deterministic, ticked on arrival ──
+    await expect(page.getByTestId('txr-list-selected-count')).toHaveText('8 methods selected')
+    await expect(page.getByTestId('txr-method-preset-recommended')).toHaveAttribute(
+      'aria-pressed',
+      'true',
     )
 
-    // ── built-in count chips (26 of 38 can run: 21 fit + 5 partial) ──
-    await expect(page.getByTestId('txr-list-filter-all')).toHaveText('All 38')
-    await expect(page.getByTestId('txr-list-filter-can-run')).toHaveText('Can run 26')
-
-    // ── the bar before any selection: 0 selected, the "…" total slot ──
+    // ── presets change the selection and the count ──
+    await page.getByTestId('txr-method-preset-none').click()
     await expect(page.getByTestId('txr-list-selected-count')).toHaveText('0 methods selected')
-    // The at-a-time segment renders INSIDE the total-time slot on E (the
-    // board's "· run <n> at a time" line), so the slot is "…" + the segment.
-    await expect(page.getByTestId('txr-list-total-time')).toContainText('…')
-    // The E screen's bar carries the at-a-time + save controls (absent on D/I).
-    await expect(page.getByTestId('txr-list-at-a-time')).toBeVisible()
-    await expect(page.getByTestId('txr-list-save-models')).toBeVisible()
+    await page.getByTestId('txr-method-preset-all').click()
+    await expect(page.getByTestId('txr-list-selected-count')).toHaveText('26 methods selected')
+    await expect(page.getByTestId('txr-list-run')).toHaveText('Run 26 methods')
 
-    // ── check the first five enabled rows → the pinned 840-s total ──
-    for (const id of E_FIRST_FIVE_KEYS) {
-      await page.getByTestId(`txr-list-checkbox-${id}`).click()
-    }
-    await expect(page.getByTestId('txr-list-selected-count')).toHaveText('5 methods selected')
-    // The total slot also carries the at-a-time segment on E (see above), so
-    // the assert is CONTAINS for the pinned total line.
-    await expect(page.getByTestId('txr-list-total-time')).toContainText(E_TOTAL_TEXT)
-    await expect(page.getByTestId('txr-list-run')).toHaveText('Run 5 methods')
+    // ── search and the family filter restrict and restore ──
+    await page.getByTestId('txr-method-search').fill('dynamic')
+    await expect(page.getByTestId('txr-method-card-dynforest')).toBeVisible()
+    await expect(page.getByTestId('txr-method-card-direct-on')).toHaveCount(0)
+    await page.getByTestId('txr-method-search').fill('')
+    await expect(page.getByTestId('txr-method-card-direct-on')).toBeVisible()
+
+    // ── per-reason expansion: a marker chip names the missing column ──
+    await page.getByTestId('txr-method-reason-marker').click()
+    const cannotRow = await page
+      .getByTestId('txr-method-cannot-row-cox-ctdna-status-rfs')
+      .textContent()
+    expect(cannotRow).toContain('needs LDH, not in your file')
+    expect(cannotRow).toContain('Add a column named LDH')
+
+    // ── every row checkbox carries the method title as its name ──
+    await expect(page.getByTestId('txr-method-checkbox-direct-on')).toHaveAttribute(
+      'aria-label',
+      'Select Direct on-treatment response rule',
+    )
 
     // ── Run emits exactly the selected keys + the current options ──
     await page.getByTestId('txr-list-run').click()
@@ -178,15 +192,9 @@ test.describe('txr-list-e — screen E, adapter-fed (TEST-UL-12)', () => {
       atATime: number
       saveModels: boolean
     }
-    expect(result.keys, `run keys (${resultText})`).toEqual(E_FIRST_FIVE_KEYS)
+    expect(result.keys).toHaveLength(26)
     expect(result.atATime).toBe(3)
     expect(result.saveModels).toBe(false)
-
-    // ── the host group chip narrows the rows; the selection never shrinks ──
-    await page.getByTestId('txr-list-filter-Response probability').click()
-    await expect(page.getByTestId('txr-list-row-glm-chem-probability')).toBeVisible()
-    await expect(page.getByTestId('txr-list-row-cox-timevarying-slope')).toHaveCount(0)
-    await expect(page.getByTestId('txr-list-selected-count')).toHaveText('5 methods selected')
   })
 })
 

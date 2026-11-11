@@ -265,3 +265,100 @@ describe('TxrSettingsBlock (E settings rows, TEST-RUN-15)', () => {
     }
   })
 })
+
+describe('TxrSettingsBlock ITEM-2 — the "What do you want to predict?" card', () => {
+  it('renders the card title, the live sentence and the four one-line helps', () => {
+    render(
+      <TxrSettingsBlock
+        value={fixtureValue}
+        covariates={presentCovariates}
+        onChange={() => undefined}
+        onMoreSettings={() => undefined}
+      />,
+    )
+    expect(screen.getByTestId('txr-run-settings-title').textContent).toBe(
+      'What do you want to predict?',
+    )
+    expect(screen.getByTestId('txr-run-settings-sentence').textContent).toBe(
+      'Progression or death within 238 days, from the blood draws up to day 56.',
+    )
+    for (const help of [
+      'The day you decide, counted from the start of treatment.',
+      'How far after the decision day you want the prediction to hold.',
+      'Other columns of your file the methods may use.',
+    ]) {
+      expect(screen.getByText(help)).toBeTruthy()
+    }
+  })
+
+  it('the sentence follows the row values (Death only + day 365 + day 84)', () => {
+    render(
+      <TxrSettingsBlock
+        value={{ ...fixtureValue, endpoint: 'os', decision_day: 84, look_ahead_day: 365 }}
+        covariates={presentCovariates}
+        onChange={() => undefined}
+        onMoreSettings={() => undefined}
+      />,
+    )
+    expect(screen.getByTestId('txr-run-settings-sentence').textContent).toBe(
+      'Death within 365 days, from the blood draws up to day 84.',
+    )
+  })
+
+  it('the Extra-inputs switch is disabled with the reason when the file has no covariate column', () => {
+    render(
+      <TxrSettingsBlock
+        value={fixtureValue}
+        covariates={{ names: [], availability: 'absent' }}
+        onChange={() => undefined}
+        onMoreSettings={() => undefined}
+      />,
+    )
+    const switchEl = screen.getByTestId('txr-run-settings-covariates')
+    const switchControl = (
+      switchEl.matches('[role="switch"]') ? switchEl : switchEl.querySelector('[role="switch"]')
+    ) as HTMLElement | null
+    expect(switchControl).toBeTruthy()
+    // Base UI marks the disabled state on the native control / its root.
+    expect(switchControl!.hasAttribute('data-disabled') || switchControl!.hasAttribute('disabled')).toBe(true)
+    expect(
+      screen.getByTestId('txr-run-settings-covariates-disabled-reason').textContent,
+    ).toBe('your file has no extra-input columns')
+    expect(screen.getByTestId('txr-run-settings-covariate-names').textContent).toBe(
+      'no extra inputs in your file',
+    )
+  })
+
+  it('More settings opens in place: CPUs, the lanes and the two quiet facts', async () => {
+    render(
+      <TxrSettingsBlock
+        value={fixtureValue}
+        covariates={presentCovariates}
+        onChange={() => undefined}
+        onMoreSettings={() => undefined}
+      />,
+    )
+    await clickKit(screen.getByTestId('txr-run-settings-more'))
+    expect(screen.getByTestId('txr-run-settings-at-a-time')).toBeTruthy()
+    expect(screen.getByTestId('txr-run-settings-at-a-time-opt-3').getAttribute('data-state')).toBe('on')
+    expect(screen.getByTestId('txr-run-settings-estimate-explained').textContent).toContain(
+      'measured benchmark run times',
+    )
+    expect(screen.getByTestId('txr-run-settings-seed-fact').textContent).toContain('fixed seed')
+  })
+
+  it('the lanes control reports through onMoreSettings', async () => {
+    const onMoreSettings = vi.fn()
+    render(
+      <TxrSettingsBlock
+        value={fixtureValue}
+        covariates={presentCovariates}
+        onChange={() => undefined}
+        onMoreSettings={onMoreSettings}
+      />,
+    )
+    await clickKit(screen.getByTestId('txr-run-settings-more'))
+    await clickKit(screen.getByTestId('txr-run-settings-at-a-time-opt-2'))
+    expect(onMoreSettings).toHaveBeenLastCalledWith({ at_a_time: 2 })
+  })
+})

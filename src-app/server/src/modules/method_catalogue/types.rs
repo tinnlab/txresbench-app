@@ -33,6 +33,11 @@ pub const DEFAULT_ESTIMATE_CPUS: u32 = 4;
 /// `at_a_time` (DEC-7 / the bottom-bar schedule).
 pub const DEFAULT_ESTIMATE_AT_A_TIME: u32 = 3;
 
+/// The human-name field caps (qa-fixes3 ITEM-1; the generator derives the
+/// values under the SAME constants — `scripts/method-catalogue/gen_method_catalogue.py`).
+pub const MAX_METHOD_TITLE_CHARS: usize = 60;
+pub const MAX_METHOD_SUMMARY_CHARS: usize = 170;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Catalogue data model (PROV-MC-1)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -317,6 +322,17 @@ pub struct Method {
     pub version: String,
     pub group: MethodGroup,
     pub group_label: String,
+    /// The short human name (qa-fixes3 ITEM-1): the generator derives it from
+    /// the description's lead phrase, capped at [`MAX_METHOD_TITLE_CHARS`],
+    /// falling back to the prettified id — never empty.
+    pub title: String,
+    /// The one-sentence summary (the description's first sentence, capped at
+    /// [`MAX_METHOD_SUMMARY_CHARS`]) — never empty.
+    pub summary: String,
+    /// The primary paper's published title when the benchmark tree knows it
+    /// (built from the literature store at generation time); `None` when
+    /// unknown — the list row shows the derived `title`, never this blank.
+    pub paper_title: Option<String>,
     pub journal: String,
     pub year: u32,
     pub citations: u32,
@@ -390,6 +406,9 @@ pub struct MethodSummary {
     pub id: String,
     pub group: MethodGroup,
     pub group_label: String,
+    pub title: String,
+    pub summary: String,
+    pub paper_title: Option<String>,
     pub year: u32,
     pub language: String,
     pub journal: String,
@@ -419,6 +438,9 @@ impl MethodSummary {
             id: m.id.clone(),
             group: m.group,
             group_label: m.group_label.clone(),
+            title: m.title.clone(),
+            summary: m.summary.clone(),
+            paper_title: m.paper_title.clone(),
             year: m.year,
             language: m.language.clone(),
             journal: m.journal.clone(),

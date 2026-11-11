@@ -193,11 +193,16 @@ describe('txrhelp module (TEST-HELP-4)', () => {
     // `total_no_env`/`cpus` eligibility+estimate fields) and the
     // regenerated `openapi.json` — the ONLY two generated files this item
     // moves; the pins stay strict for anything else under either prefix.
+    // The qa-fixes3 ITEM-3 client surface (its own DRIFT-1): the
+    // regenerated `apiEndpoints.ts` carries the new `Models.exampleSet`
+    // route + `types.ts` the `ExampleSetState`/`ExampleSetResponse`
+    // shapes.
     expect(
       touched.filter(
         p =>
           p.startsWith('src-app/ui/src/api-client/') &&
-          p !== 'src-app/ui/src/api-client/types.ts',
+          p !== 'src-app/ui/src/api-client/types.ts' &&
+          p !== 'src-app/ui/src/api-client/apiEndpoints.ts',
       ),
     ).toEqual([])
     expect(
@@ -223,7 +228,28 @@ describe('txrhelp module (TEST-HELP-4)', () => {
           // qa-fixes2 ITEM-2 (location-neutral copy): the notice generator's
           // header reword — "the TxResBench application", not "desktop
           // application" (the generated THIRD-PARTY-NOTICES.md follows).
-          p !== 'scripts/third-party.py' ,
+          p !== 'scripts/third-party.py' &&
+          // qa-fixes3 ITEM-1 (the catalogue's human-name fields): the
+          // catalogue generator's title/summary/paper_title derivation +
+          // the regenerated fixture-mode expected bytes.
+          p !== 'scripts/method-catalogue/gen_method_catalogue.py' &&
+          p !== 'scripts/method-catalogue/fixtures/expected-catalogue.json' &&
+          // qa-fixes3 ITEM-3 (the example family, its DRIFT-1): the
+          // generator's ITEM-3 rewrite (seeded family, the separate
+          // predict table, the 10-column patients header), the regenerated
+          // fixture expected bytes (including the new predict file) and
+          // the network allowlist's doi.org entry (the ITEM-1 paper link
+          // the guard flagged — the same user-opened-link class as
+          // github.com).
+          p !== 'scripts/file-validator/fixtures/expected/examples/predict-measurements.csv' &&
+          p !== 'scripts/file-validator/fixtures/expected/templates/patients.csv' &&
+          p !== 'scripts/network-allowlist.txt' &&
+          // qa-fixes3 ITEM-5 (its own DRIFT-1): the real-data driver's
+          // --example mode (the three use-example flows over the API) and
+          // its unit test — scripts/dev-registry/e2e-real.py +
+          // scripts/dev-registry/e2e_real.test.py.
+          p !== 'scripts/dev-registry/e2e-real.py' &&
+          p !== 'scripts/dev-registry/e2e_real.test.py',
       ),
     ).toEqual([])
     // qa-fixes ITEM-7 (X1): the built-CSS url check — one script file
@@ -264,6 +290,8 @@ describe('txrhelp module (TEST-HELP-4)', () => {
           p !== 'src-app/server/src/modules/execution_engine/orchestrator.rs' &&
           p !== 'src-app/server/src/modules/model_store/types.rs' &&
           p !== 'src-app/server/src/modules/pretrained_catalogue/types.rs' &&
+          p !== 'src-app/server/src/modules/method_catalogue/catalogue.rs' &&
+          p !== 'src-app/server/tests/method_catalogue/catalogue_hygiene_test.rs' &&
           p !== 'src-app/server/tests/method_catalogue/api_test.rs' &&
           p !== 'src-app/server/src/modules/execution_engine/types.rs' &&
           p !== 'src-app/server/src/modules/execution_engine/routes.rs' &&
@@ -280,6 +308,27 @@ describe('txrhelp module (TEST-HELP-4)', () => {
           p !== 'src-app/server/src/modules/file_validator/catalog.rs' &&
           p !== 'src-app/server/tests/file_validator/rules_test.rs' &&
           p !== 'src-app/server/tests/model_store/api_test.rs' &&
+          // qa-fixes3 ITEM-3 (the example data + the example saved set,
+          // its DRIFT-1): the file_validator example endpoint's third kind
+          // (assets/routes/README + the pinned material tests), the shared
+          // engine run-runtime seam, the model_store example-set module
+          // (state machine + migration + routes/types/repository + the
+          // integration suite) and the regenerated api-test pins.
+          p !== 'src-app/server/src/modules/execution_engine/mod.rs' &&
+          p !== 'src-app/server/src/modules/execution_engine/runtime.rs' &&
+          p !== 'src-app/server/src/modules/file_validator/README.md' &&
+          p !== 'src-app/server/src/modules/file_validator/assets.rs' &&
+          p !== 'src-app/server/src/modules/file_validator/routes.rs' &&
+          p !== 'src-app/server/src/modules/model_store/README.md' &&
+          p !== 'src-app/server/src/modules/model_store/example.rs' &&
+          p !== 'src-app/server/src/modules/model_store/migrations/202610270001_txr_example_set.sql' &&
+          p !== 'src-app/server/src/modules/model_store/mod.rs' &&
+          p !== 'src-app/server/src/modules/model_store/repository.rs' &&
+          p !== 'src-app/server/src/modules/model_store/routes.rs' &&
+          p !== 'src-app/server/tests/file_validator/api_test.rs' &&
+          p !== 'src-app/server/tests/file_validator/material_test.rs' &&
+          p !== 'src-app/server/tests/model_store/example_test.rs' &&
+          p !== 'src-app/server/tests/model_store/mod.rs' &&
           // qa-fixes2 ITEM-7 (R2-04): the K row's `predicted` doc grows
           // the distinct-patient meaning — history_store/types.rs.
           p !== 'src-app/server/src/modules/history_store/types.rs',
@@ -370,6 +419,12 @@ describe('txrhelp module (TEST-HELP-4)', () => {
     const sanctionedTests = new Set([
       'src-app/ui/tests/gallery-e2e/txr-help.spec.ts',
       'src-app/ui/tests/gallery-e2e/txr-run.spec.ts',
+      // The qa-fixes3 ITEM-1 spec (its own DRIFT-1): the measured browser
+      // tier of the redesign — the one-scroll-document, the under-1,500 px
+      // page, the no-horizontal-overflow sweep and the resolved-colour
+      // contrast floor in both themes (the E-story assertions ride the
+      // sanctioned txr-run / txr-list specs).
+      'src-app/ui/tests/gallery-e2e/txr-method-picker.spec.ts',
       'src-app/ui/tests/e2e/txrrun/run.spec.ts',
       'src-app/ui/tests/gallery-e2e/txr-results.spec.ts',
       'src-app/ui/tests/e2e/txr-results/results.spec.ts',
@@ -426,6 +481,12 @@ describe('txrhelp module (TEST-HELP-4)', () => {
       // page — the media rules answer the window) and the R2-01 font pin
       // (the portalled confirm dialog carries the app face).
       'src-app/ui/tests/gallery-e2e/txr-history.spec.ts',
+      // The qa-fixes3 ITEM-5 spec (its own DRIFT-1): the ONE-CLICK example
+      // proof — per path, on a fresh start, click Use example → the landing
+      // step (the file step) is filled + Continue enabled → Continue reaches
+      // the next step (TEST-QF3-3's browser leg; the story answers the
+      // example-family cassette + the ITEM-3 ready set).
+      'src-app/ui/tests/gallery-e2e/txr-use-example.spec.ts',
     ])
     expect(testsTouched.length).toBeLessThanOrEqual(sanctionedTests.size)
     for (const file of testsTouched) {

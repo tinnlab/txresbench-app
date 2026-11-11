@@ -29,6 +29,14 @@ import type { ValidationResponse } from '@/api-client/types'
 /** The three board slot kinds, in the board's row order. */
 export type TxrSlotKind = 'patients' | 'measurements' | 'predict'
 
+/** The board's slot labels, verbatim (the old chip row's words — the
+ *  Details disclosure's own vocabulary, moved here with the builder). */
+export const SLOT_KIND_LABEL: Record<TxrSlotKind, string> = {
+  patients: 'Patients',
+  measurements: 'Measurements',
+  predict: 'Predict',
+}
+
 /** The snapshot fields the slot line + missing-piece logic read. */
 export type TxrSlotSnapshot = Pick<
   IntakeSnapshot,
