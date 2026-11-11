@@ -84,7 +84,7 @@ describe('TxrShell header (TEST-QF-7, X2)', () => {
     )
   })
 
-  it('carries the responsive hooks the index.css block keys on (tagline + wrap + stack + toggle label)', () => {
+  it('carries the responsive hooks the index.css block keys on (tagline + single row + strip + toggle label)', () => {
     const { header, brandGroup, tagline, actions, nav, toggle } = headerOf()
     // The class hooks the media rules select (index.css @media blocks).
     expect(header.className).toContain('txr-shell-header')
@@ -96,12 +96,16 @@ describe('TxrShell header (TEST-QF-7, X2)', () => {
     expect(toggle.querySelector('.txr-theme-toggle-label')).not.toBeNull()
   })
 
-  it('the narrow rules exist in index.css: the tagline yields first, the header stacks below 640, the toggle label collapses', () => {
+  it('the narrow rules exist in index.css: the tagline yields first, the header stays ONE row, the toggle label collapses', () => {
     const index = readFileSync(resolve(HERE, '../../index.css'), 'utf8')
     expect(index).toContain('@media (max-width: 900px)')
     expect(/@media \(max-width: 900px\)\s*\{\s*\.txr-shell-tagline\s*\{[^}]*display: none/.test(index)).toBe(true)
-    expect(/@media \(max-width: 640px\)\s*\{[^}]*\.txr-shell-header\s*\{[^}]*height: auto/.test(index)).toBe(true)
-    expect(/\.txr-shell-actions\s*\{[^}]*flex: 1 1 100%/.test(index)).toBe(true)
+    // qa-fixes3 ITEM-6 (c): the phone header is ONE 56 px row — the nav
+    // becomes the scrollable middle (the strip), never a wrapped second line.
+    expect(/@media \(max-width: 640px\)\s*\{[^}]*\.txr-shell-header\s*\{[^}]*height: 56px/.test(index)).toBe(true)
+    expect(/\.txr-shell-header\s*\{[^}]*flex-wrap: nowrap/.test(index)).toBe(true)
+    expect(/\.txr-shell-nav\s*\{[^}]*overflow-x: auto/.test(index)).toBe(true)
+    expect(/\.txr-shell-actions\s*\{[^}]*flex: 1 1 auto/.test(index)).toBe(true)
     // ITEM-1's own narrow byte: the switch's label hides, the icon stays.
     expect(
       /@media \(max-width: 640px\)\s*\{[\s\S]*?\.txr-theme-toggle\s+\.txr-theme-toggle-label\s*\{[^}]*display: none/.test(
