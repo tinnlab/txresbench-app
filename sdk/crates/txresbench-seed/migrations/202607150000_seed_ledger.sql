@@ -1,4 +1,4 @@
--- txresbench-seed: the seed_ledger — the single, table-agnostic record of WHICH rows the
+-- ziee-seed: the seed_ledger — the single, table-agnostic record of WHICH rows the
 -- declarative seed engine owns. Domain-neutral (names no app table): apps register their
 -- own SeedProviders + data (decision N9); this table only records ownership by
 -- `(section, natural_key)`.

@@ -1,15 +1,15 @@
 -- Infrastructure backend config (#63) — the admin-configurable,
 -- ENCRYPTED-at-rest config for the object-store (S3/GCS) and compute
 -- (Kubernetes) backends, promoting the 12-factor env selection
--- (TXR_WORKSTORE_BACKEND / S3_* / AWS_* ; KUBECONFIG / TXR_K8S_NAMESPACE /
--- TXR_WORKER_IMAGE) to singleton DB rows an admin can set/rotate + test
+-- (CYTO_WORKSTORE_BACKEND / S3_* / AWS_* ; KUBECONFIG / CYTO_K8S_NAMESPACE /
+-- CYTO_WORKER_IMAGE) to singleton DB rows an admin can set/rotate + test
 -- through the UI — SQLite dialect port (ITEM-9, sqlite-store) of
 -- `src/modules/workstore/migrations/202608290090_infra_config.sql`.
 --
 -- SECURITY (#60/#63 precedent with the pgcrypto reference DROPPED — see the
 -- port note): the cloud/cluster CREDENTIALS (S3 access-key/secret-key;
 -- kubeconfig/cluster-token) are stored ENCRYPTED at rest as ciphertext
--- bytes via `txresbench_framework::secret::encrypt_secret` (keyed by
+-- bytes via `ziee_framework::secret::encrypt_secret` (keyed by
 -- `secrets.storage_key`). The plaintext is NEVER stored in a column, NEVER
 -- returned by the GET (masked view only), NEVER logged; read back via
 -- `decrypt_secret`. When `secrets.storage_key` is unset the app runs in
@@ -41,7 +41,7 @@
 CREATE TABLE infra_object_store (
     singleton              INTEGER PRIMARY KEY DEFAULT 1,
     -- Backend selection (plaintext): 'local' | 's3'. NULL ⇒ fall back to
-    -- TXR_WORKSTORE_BACKEND env (compat mode).
+    -- CYTO_WORKSTORE_BACKEND env (compat mode).
     backend                TEXT,
     -- Cloud provider when backend='s3' (plaintext): 's3' | 'gcs'.
     provider               TEXT,
@@ -72,9 +72,9 @@ CREATE TABLE infra_compute (
     backend                TEXT,
     -- Cluster API endpoint (plaintext, informational/display).
     cluster_endpoint       TEXT,
-    -- Kubernetes namespace (plaintext). NULL ⇒ TXR_K8S_NAMESPACE env / 'default'.
+    -- Kubernetes namespace (plaintext). NULL ⇒ CYTO_K8S_NAMESPACE env / 'default'.
     namespace              TEXT,
-    -- Worker/job image (plaintext). NULL ⇒ TXR_WORKER_IMAGE env.
+    -- Worker/job image (plaintext). NULL ⇒ CYTO_WORKER_IMAGE env.
     worker_image           TEXT,
     -- Encrypted kubeconfig ciphertext; NULL when unconfigured.
     kubeconfig_ciphertext  BLOB,

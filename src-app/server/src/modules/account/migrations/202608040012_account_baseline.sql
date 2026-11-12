@@ -41,7 +41,7 @@
 --     CONFLICT target) and `idx_account_members_user`.
 
 -- Ordering: prefix 202608040012 sorts ABOVE the app's current max
--- (202608040011) and ABOVE the txresbench-auth schema+seed, so `users` + the
+-- (202608040011) and ABOVE the ziee-auth schema+seed, so `users` + the
 -- `Users` group already exist when this applies.
 -- CONSEQUENCE (unchanged from the Postgres file): a database created before
 -- the squash MUST BE RECREATED — see the "SQUASHED BASELINE" section of

@@ -1,5 +1,5 @@
 -- Squashed module baseline (MIGRATE-squash / N3.1 / N7) — SQLite dialect.
--- Auth structural tables (txresbench-auth owns identity schema).
+-- Auth structural tables (ziee-auth owns identity schema).
 --
 -- SQLite port notes (the engine swap, DEC-8 type map):
 --   * uuid -> BLOB (16 raw bytes; sqlx's sqlite `Uuid` mapping encodes/decodes

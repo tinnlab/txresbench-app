@@ -1,7 +1,7 @@
 -- Generic, domain-agnostic notification inbox (SDK notification feature) —
 -- SQLite dialect.
 --
--- PROPOSED SDK CONTRIBUTION (see SDK_GAPS): the former txresbench-chat-specific
+-- PROPOSED SDK CONTRIBUTION (see SDK_GAPS): the former ziee-chat-specific
 -- FK-nullable columns (scheduled_task_id / workflow_run_id / conversation_id)
 -- are replaced by ONE `payload jsonb` column, so a module contributes its own
 -- notification `kind` + kind-specific payload without the SDK schema knowing any
