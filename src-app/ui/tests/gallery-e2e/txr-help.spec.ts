@@ -404,23 +404,24 @@ test.describe('txr-help — the breakpoints', () => {
 
   test('[768x1024] no rail: the Contents disclosure replaces it, no overlap, no overflow', async ({ page }) => {
     await openHelp(page, { width: 768, height: 1024 })
+    await bindHelpFrame(page, 1024)
     await expect(page.getByTestId('txr-help-rail')).toHaveCount(0)
     await expect(page.getByTestId('txr-help-contents-toggle')).toBeVisible()
-    // Open it, click a link: the section lands below the header. The click
-    // is followed by the hash effect's scroll — a poll, not a naked read
-    // (the read can beat the effect on a loaded box, ITEM-6 records the
-    // one-off).
+    // Open it, click a link: the section lands flush at the REGION's top
+    // (app-shell ITEM-3 — scroll-margin 0 in shell mode; the frame's fixed
+    // top sits above the region). The click is followed by the hash
+    // effect's scroll — a poll, not a naked read (the read can beat the
+    // effect on a loaded box, ITEM-6 records the one-off).
     await page.getByTestId('txr-help-contents-toggle').click()
     await expect(page.getByTestId('txr-help-contents-link-troubleshooting')).toBeVisible()
     await page.getByTestId('txr-help-contents-link-troubleshooting').click()
     await expect
-      .poll(() =>
-        page.getByTestId('txr-help-section-troubleshooting').evaluate(el => el.getBoundingClientRect().top),
-      )
-      .toBeLessThan(140)
-    const top = await page.getByTestId('txr-help-section-troubleshooting').evaluate(el => el.getBoundingClientRect().top)
-    expect(top).toBeGreaterThanOrEqual(0)
-    expect(top).toBeLessThan(140)
+      .poll(() => sectionSeparationFromRegion(page, 'troubleshooting'))
+      .toBeLessThanOrEqual(2)
+    expect(
+      await sectionSeparationFromRegion(page, 'troubleshooting'),
+      'the section lands flush at the region top',
+    ).toBeLessThanOrEqual(2)
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
     expect(overflow).toBeLessThanOrEqual(1)
   })
