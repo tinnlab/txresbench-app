@@ -1,7 +1,8 @@
 # The DOMAIN-PURITY gate, in CI.
 #
 # ── WHY THIS FILE EXISTS (WS-R5 §2) ─────────────────────────────────────────────────
-# Before it, `.github/workflows/` contained exactly ONE workflow (`env-images.yml`) and
+# Before it, `.github/workflows/` contained exactly ONE workflow (the single-cell
+# `env-images.yml`, removed by the strip node ITEM-2) and
 # nothing in it referenced the guard, `npm run check` or `cargo test`. Four rounds of
 # ratchet work — the shrink-only baseline, the scan floors, the MUST_SCAN witnesses, the
 # format pins, the certification ledger — were enforced only by a human choosing to run
@@ -19,10 +20,7 @@
 # ── WHAT RUNS, AND IN WHICH ORDER ───────────────────────────────────────────────────
 #   1. the JS guard, with `--require-full-scan` (see the note on that flag below)
 #   2. the guard's own test suite — 116 tests, incl. the un-gameability plants
-#   3. the workspace packages' own suites (`scripts/check-package-suites.mjs`) — see the
-#      tenancy note on that step; it is not a domain check, it is here because this job
-#      is the only test-running runner and already pays for submodules + `npm ci`
-#   4. `npm run check` — the wider FE gate the guard is one link of
+#   3. `npm run check` — the wider FE gate the guard is one link of
 #   (and, in the `rust` job) the Rust twin (`cargo test … domain_surface`)
 #
 # `--require-full-scan` is what makes step 1 an assertion rather than an invocation. The
@@ -93,9 +91,9 @@ jobs:
       # skipping this suite". A self-skip reporting ok would be exactly the unrun-and-
       # wrong failure this workflow's header was written about (CARD-10).
       #
-      # ubuntu-latest ships python3 but no numpy. This is the same dependency the
-      # `python3 -m pytest src-app/packages` gate needs, so it is pinned to the same
-      # floor rather than left to the runner image's defaults.
+      # ubuntu-latest ships python3 but no numpy. The committed Zarr fixture
+      # generator (core/workstore, until the strip node's ITEM-4 removes it) needs
+      # it, so it is pinned here rather than left to the runner image's defaults.
       - name: python3 + numpy (the fixture generator's real deps)
         run: python3 -m pip install --quiet 'numpy>=1.24'
 
@@ -128,29 +126,7 @@ jobs:
         working-directory: src-app/ui
         run: node --test scripts/lint-no-domain-in-builtin.test.mjs
 
-      # STEP 3. The WORKSPACE PACKAGES' own suites (`just check-packages`).
-      #
-      # TENANCY, stated because this workflow's NAME no longer bounds its contents: this
-      # is not a domain check. It lives here because this job is already the repo's only
-      # test-running runner, it already does the `submodules: recursive` + `npm ci` that
-      # these suites need, and the header's own argument applies verbatim — "a guard
-      # nobody invokes is not a guard", and the two enforcers differ only by COST. A
-      # separate workflow would buy attribution we already get from the step name, at the
-      # price of a second checkout + `npm ci`.
-      #
-      # SUBMODULES ARE LOAD-BEARING HERE TOO, and more sharply than for the steps above:
-      # `@txresbench/viz` imports `@txresbench/kit`, which IS `sdk/packages/kit`. With the `sdk`
-      # submodule uninitialised, 6 of viz's 207 test files fail with
-      # `Cannot find package '@txresbench/kit'` — a RED that says nothing about the code. The
-      # `submodules: recursive` on the checkout above is what keeps this step honest.
-      #
-      # Runs BEFORE `npm run check` for the same reason step 1 does: it is fast (~15s
-      # local) and specific, so a package-suite regression should be reported here rather
-      # than found at the end of the slowest chain.
-      - name: the workspace packages' own suites (check-packages)
-        run: node scripts/check-package-suites.mjs
-
-      # STEP 4. The wider FE gate the guard is one link of (tsc, the action lints, the
+      # STEP 3. The wider FE gate the guard is one link of (tsc, the action lints, the
       # layer-boundary guard, the unit suites). Runs LAST because it is the slowest and
       # the least specific — a domain regression should be reported by step 1, not found
       # at the end of a five-minute chain.

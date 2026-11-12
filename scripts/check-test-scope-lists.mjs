@@ -20,7 +20,7 @@
  *   FUNCTIONS, because that list stops being true the moment a test is added
  *   next to one of them.
  *
- * ## The five checks
+ * ## The three checks
  *
  *   1. DECLARED — every `src-app/server/tests/<dir>/` that contains a test is
  *      declared as a `mod` in `integration_tests.rs`. An undeclared directory is
@@ -28,19 +28,23 @@
  *   2. NO PER-TEST FILTERS — no `cargo test --test integration_tests` invocation in
  *      the justfile names an individual test function. (This is the literal
  *      `check-domain` defect: it named 3 functions, and `domain_surface` has 28.)
- *   3. SKIP-GATED COVERAGE — every module holding a `record_skip(` test is reachable
- *      by `just test-sandbox`'s default filter. Those tests print `ok` when the host
- *      cannot run them; the no-skip recipe is the only thing that makes them speak,
- *      so a module it does not reach is a module whose skips are permanent.
- *   4. REAL-COMPUTE COVERAGE — every `tests/e2e/` directory holding a
- *      `REAL_COMPUTE`-gated spec is in `just e2e-processors`' default dir list.
- *   5. TAG NARROWING DISCLOSED — a playwright config that narrows a run by TAG
+ *   3. TAG NARROWING DISCLOSED — a playwright config that narrows a run by TAG
  *      (`grepInvert: /@acceptance/`) must announce the narrowing, derive the excluded
  *      set rather than hardcode spec paths, and have a recipe that positively selects
- *      the tag. Checks 1-4 ask "is this unit run at all"; this asks the question a
+ *      the tag. Checks 1-2 ask "is this unit run at all"; this asks the question a
  *      narrowed run makes it possible to get wrong — "does this run's OUTPUT admit it
  *      covered less than the suite". The shipped defect: `@acceptance` was excluded by
  *      default and the banner named 1 of the 5 spec files carrying it, with no count.
+ *
+ * ## The checks REMOVED with the strip node (ITEM-2)
+ *
+ * Checks 3 (SKIP-GATED COVERAGE, over `just test-sandbox`'s default filter) and
+ * 4 (REAL-COMPUTE COVERAGE, over `just e2e-processors`' default dir list) policed
+ * the single-cell analysis-rootfs tiers: every skip-gated module (analysis,
+ * dataset, provenance, workstore, sandbox's OCI tests) and every REAL_COMPUTE e2e
+ * directory belonged to the removed processor platform, and the two recipes are
+ * deleted with it (ITEM-2). A hand-list guard over a deleted tier would redden on
+ * nothing and mean nothing; the tiers' subjects leave the tree in ITEM-3/4.
  *
  * ## Fail-closed
  *
@@ -67,9 +71,7 @@ const JUSTFILE = path.join(ROOT, 'justfile')
 
 /** Floors. Coverage may grow; it may not silently collapse. */
 const MIN_TEST_MODULES = 15
-const MIN_SKIP_GATED_MODULES = 5
-const MIN_REAL_COMPUTE_DIRS = 4
-const MIN_CARGO_INVOCATIONS = 3
+const MIN_CARGO_INVOCATIONS = 2
 
 const failures = []
 const fail = (check, msg) => failures.push(`[${check}] ${msg}`)
@@ -181,123 +183,6 @@ for (const inv of invocations) {
           `${modules.get(owner).size} tests; a test added beside this one is silently never run. ` +
           `Filter the MODULE (\`${owner}\`) instead.`,
       )
-    }
-  }
-}
-
-// ─────────────── 3. every skip-gated module is in the no-skip run ────────────
-
-/**
- * The skip-gate API, DERIVED — `record_skip` plus every `hardening_common` helper
- * whose body calls it. Matching the literal `record_skip(` alone is not enough and
- * this guard's own floor proved it: `provenance` gates through
- * `skip_no_rootfs as hc_skip_no_rootfs`, so a text search for the call site found
- * four modules where there are five. A guard that hand-picks its own criterion is
- * the same disease it exists to catch.
- */
-const HC = path.join(SERVER_TESTS, 'dataset/hardening_common.rs')
-const hcSrc = readFileSync(HC, 'utf8')
-const skipHelpers = new Set(['record_skip'])
-{
-  const fnStarts = [...hcSrc.matchAll(/^pub (?:async )?fn ([A-Za-z0-9_]+)/gm)]
-  for (let i = 0; i < fnStarts.length; i++) {
-    const from = fnStarts[i].index
-    const to = i + 1 < fnStarts.length ? fnStarts[i + 1].index : hcSrc.length
-    if (hcSrc.slice(from, to).includes('record_skip(')) skipHelpers.add(fnStarts[i][1])
-  }
-}
-
-/**
- * A module is skip-gated if it CALLS `record_skip` directly, or imports/qualifies any
- * derived helper off `hardening_common` (aliases resolved to the original name — the
- * import list is parsed, so a generic helper name like `gate` cannot false-positive
- * on an unrelated local identifier).
- */
-const skipGated = new Set()
-for (const [m] of modules) {
-  for (const f of rustFilesUnder(path.join(SERVER_TESTS, m))) {
-    const src = readFileSync(f, 'utf8')
-    if (src.includes('record_skip(')) {
-      skipGated.add(m)
-      continue
-    }
-    const imported = new Set()
-    for (const grp of src.matchAll(/hardening_common::\{([^}]*)\}/g)) {
-      for (const part of grp[1].split(',')) {
-        const name = part.trim().split(/\s+as\s+/)[0].trim()
-        if (name) imported.add(name)
-      }
-    }
-    for (const q of src.matchAll(/hardening_common::([A-Za-z0-9_]+)/g)) imported.add(q[1])
-    if ([...imported].some((n) => skipHelpers.has(n))) skipGated.add(m)
-  }
-}
-
-if (skipGated.size < MIN_SKIP_GATED_MODULES) {
-  fail(
-    'floor',
-    `found only ${skipGated.size} skip-gated modules (floor ${MIN_SKIP_GATED_MODULES}) — ` +
-      `the \`record_skip(\` scan collapsed`,
-  )
-}
-
-const sandboxDefault = just.match(/^test-sandbox FILTER="([^"]*)"/m)
-if (!sandboxDefault) {
-  fail('skip-gated', 'could not find the `test-sandbox FILTER=` default in the justfile')
-} else {
-  const covered = new Set(
-    sandboxDefault[1]
-      .split(/\s+/)
-      .filter(Boolean)
-      .map((t) => t.split('::')[0]),
-  )
-  for (const m of [...skipGated].sort()) {
-    if (!covered.has(m)) {
-      fail(
-        'skip-gated',
-        `\`${m}\` holds skip-gated tests but \`just test-sandbox\`'s default filter ` +
-          `("${sandboxDefault[1]}") does not reach it — those skips can never become failures`,
-      )
-    }
-  }
-}
-
-// ───────────── 4. every REAL_COMPUTE e2e dir is in the processor tier ────────
-
-if (existsSync(E2E_DIR)) {
-  const realCompute = new Set()
-  const walkE2e = (d, top) => {
-    for (const e of readdirSync(d, { withFileTypes: true })) {
-      const p = path.join(d, e.name)
-      if (e.isDirectory()) walkE2e(p, top ?? e.name)
-      else if (/\.(spec|ts)$|\.ts$/.test(e.name) && top && readFileSync(p, 'utf8').includes('REAL_COMPUTE')) {
-        realCompute.add(top)
-      }
-    }
-  }
-  walkE2e(E2E_DIR, null)
-
-  if (realCompute.size < MIN_REAL_COMPUTE_DIRS) {
-    fail(
-      'floor',
-      `found only ${realCompute.size} REAL_COMPUTE e2e dirs (floor ${MIN_REAL_COMPUTE_DIRS}) — ` +
-        `the e2e scan collapsed`,
-    )
-  }
-
-  const dirsLine = just.match(/dirs="((?:tests\/e2e\/[^\s"]+\s*)+)"/)
-  if (!dirsLine) {
-    fail('real-compute', 'could not find the `e2e-processors` default dirs list in the justfile')
-  } else {
-    const listed = new Set(dirsLine[1].trim().split(/\s+/).map((d) => d.replace(/^tests\/e2e\//, '')))
-    for (const d of [...realCompute].sort()) {
-      if (!listed.has(d)) {
-        fail(
-          'real-compute',
-          `tests/e2e/${d}/ holds REAL_COMPUTE-gated specs but \`just e2e-processors\`' default ` +
-            `dir list does not include it — those specs skip, and a skip fails that tier by design`,
-        )
-      }
     }
   }
 }
@@ -441,7 +326,7 @@ if (existsSync(UI_DIR)) {
 
 const scanned =
   `${testModules.length} server test modules, ${fnOwner.size} test fns, ` +
-  `${invocations.length} cargo invocations, ${skipGated.size} skip-gated modules`
+  `${invocations.length} cargo invocations`
 
 if (failures.length) {
   console.error(`\ncheck-test-scope-lists: FAIL (${failures.length}) — scanned ${scanned}\n`)

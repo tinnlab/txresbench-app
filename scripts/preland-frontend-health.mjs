@@ -34,7 +34,8 @@
  * TRIGGER
  * -------
  * Runs only when the diff vs the base (default `origin/main`) touches a frontend
- * path: `src-app/ui/`, `src-app/libs/`, or `src-app/packages/<p>/ui/`.
+ * path: `src-app/ui/` or `src-app/libs/` (the `src-app/packages/*/ui/` arm was
+ * removed with the processor package tree, strip node ITEM-2).
  * A backend-only branch SKIPS entirely and costs nothing.
  *
  * FOLLOW-UP (recorded, NOT implemented)
@@ -218,7 +219,6 @@ console.log(`== preland-frontend-health (base ${BASE}, repo ${REPO}) ==`)
 const FRONTEND_PATTERNS = [
   /^src-app\/ui\//,
   /^src-app\/libs\//,
-  /^src-app\/packages\/[^/]+\/ui\//,
 ]
 
 function changedFiles() {
@@ -253,7 +253,7 @@ const feTouched = changed.filter(f => FRONTEND_PATTERNS.some(re => re.test(f)))
 if (!feTouched.length && !FORCE) {
   console.log(
     `  SKIP  trigger        ${changed.length} changed file(s), none under ` +
-      `src-app/{ui,libs}/ or src-app/packages/*/ui/ — backend-only diff.`,
+      `src-app/{ui,libs}/ — backend-only diff.`,
   )
   console.log('== RESULT: SKIP (no frontend surface in this diff) ==')
   process.exit(0)

@@ -132,11 +132,24 @@ GUARD_GLOBS=('scripts/check-*.sh' 'scripts/check-*.mjs' 'scripts/lib/*' 'scripts
 # (schema + structural rules + regen parity), the surface the runtime fetches layers by —
 # exactly the "a guard that decides what the app runs" standing the network allowlist pins
 # above; the floor moves with the set it guards, as every entry above this one says.
-MIN_GUARDS=35
 # ITEM-7 (method-env-images): 34 -> 35 with `scripts/lib/method-env-verify.sh` —
 # the behavioral layer verifier the publish path gates on (pinned for the same
 # reason env-image-verify.sh and env-id-grammar.sh are: it is guard logic under
 # a `scripts/lib/` name), in the same diff that adds it.
+# strip node ITEM-2: 35 -> 16. Twenty guards are REMOVED with their subjects (the
+# single-cell processor packages, env-rootfs recipes + pins, coercion corpus,
+# workstore wire, design-citations): check-derived-vocabulary (+controls),
+# check-design-citations (+controls), check-env-loop, check-kinds-zero-core,
+# check-manifest-version-claims (+controls), check-no-legacy-wire,
+# check-package-suites (+controls), check-processor-seed-versions,
+# check-recipe-pins (+controls), check-viz-producer-magnitudes, the
+# coercion-parity four, and scripts/lib/zero-core-surface.txt. The pin ledger is
+# re-derived with --update in the same diff (as the map prescribes: every removed
+# guard updates the ledger in the same commit that removes it); the surviving set
+# is 16 — it includes `check-naming.sh`, which was on disk but unpinned since the
+# rebrand commit, i.e. this re-pin also heals that inherited red — and the floor
+# moves with the set it guards, exactly as every entry above demands.
+MIN_GUARDS=16
 
 MODE='verify'
 case "${1:-}" in
