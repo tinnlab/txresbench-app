@@ -50,9 +50,15 @@ REVERSE = [
 SKIP_NAMES = ('LICENSE', 'NOTICE', 'THIRD-PARTY-NOTICES.md')
 SKIP_PATHS = ('.lifecycle/', 'scripts/rename/', 'sdk/RENAME-MAP.md', 'sdk/CONTRIBUTING-UPSTREAM.md')
 
+# Migration SQL is never rewritten: an applied migration is byte-frozen (sqlx
+# stores its checksum in every database and refuses to start when the file
+# changes, comments included). See src-app/server/src/database.rs.
+MIGRATION_SQL = re.compile(r'(^|/)migrations(-pg)?/[^/]+\.sql$')
+
 def skip(path):
     base = os.path.basename(path)
-    return path.startswith(SKIP_PATHS) or any(base.startswith(n) for n in SKIP_NAMES)
+    return (path.startswith(SKIP_PATHS) or any(base.startswith(n) for n in SKIP_NAMES)
+            or bool(MIGRATION_SQL.search(path)))
 
 def apply(text, rules):
     for pat, rep in rules:

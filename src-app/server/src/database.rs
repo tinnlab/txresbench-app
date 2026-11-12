@@ -167,4 +167,61 @@ mod tests {
             "bundled SQLite is {version} ({number}), expected >= 3.46.0"
         );
     }
+
+    /// Applied migrations are immutable, comments included (see
+    /// [`MERGED_MIGRATOR`]): a database that ran a migration refuses to start
+    /// once the file's bytes change. `data/migration-checksums.txt` pins the
+    /// checksum of every migration in the embedded chain (the SHA-384 sqlx
+    /// stores in each database), so such an edit fails here instead of at the
+    /// next boot of every existing database. The repository rename once edited
+    /// comments in six applied migrations and no test noticed.
+    #[test]
+    fn applied_migrations_keep_their_checksums() {
+        use std::collections::BTreeMap;
+        let lock = include_str!("../data/migration-checksums.txt");
+        let pinned: BTreeMap<i64, String> = lock
+            .lines()
+            .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+            .map(|l| {
+                let mut parts = l.split_whitespace();
+                let version = parts.next().and_then(|v| v.parse().ok()).expect("a version");
+                let checksum = parts.next().expect("a checksum").to_string();
+                (version, checksum)
+            })
+            .collect();
+        let embedded: BTreeMap<i64, (String, String)> = super::MERGED_MIGRATOR
+            .iter()
+            .map(|m| (m.version, (hex::encode(&m.checksum), m.description.to_string())))
+            .collect();
+
+        let changed: Vec<String> = embedded
+            .iter()
+            .filter_map(|(v, (sum, desc))| match pinned.get(v) {
+                Some(p) if p != sum => Some(format!("{v} ({desc})")),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            changed.is_empty(),
+            "applied migration(s) changed: {changed:?}. Restore their exact bytes (git show \
+             <commit>:<path>); change the schema with a NEW migration instead"
+        );
+        let removed: Vec<&i64> = pinned.keys().filter(|v| !embedded.contains_key(v)).collect();
+        assert!(
+            removed.is_empty(),
+            "migration(s) {removed:?} are pinned but no longer in the chain; an applied \
+             migration must never be removed"
+        );
+        let added: Vec<String> = embedded
+            .iter()
+            .filter(|(v, _)| !pinned.contains_key(v))
+            .map(|(v, (sum, desc))| format!("{v} {sum}  ({desc})"))
+            .collect();
+        assert!(
+            added.is_empty(),
+            "new migration(s) are not pinned yet; append to src-app/server/data/\
+             migration-checksums.txt:\n{}",
+            added.join("\n")
+        );
+    }
 }

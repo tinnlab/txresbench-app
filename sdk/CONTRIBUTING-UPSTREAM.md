@@ -17,4 +17,4 @@ converted to TxResBench names (see `sdk/RENAME-MAP.md`).
 1. Apply the upstream patch to a scratch checkout of this repository's `sdk/` directory.
 2. Run `python3 scripts/rename/apply.py --root <that checkout>` to convert it to TxResBench names, then review and commit it here.
 
-`scripts/check-naming.sh` fails when a predecessor name appears anywhere outside the map, this guide, the tool and the notice files.
+`scripts/check-naming.sh` fails when a predecessor name appears anywhere outside the map, this guide, the tool, the notice files, the check itself and migration SQL files. The rename tool never rewrites migration SQL: an applied migration is byte-frozen, comments included (see `src-app/server/src/database.rs`).
