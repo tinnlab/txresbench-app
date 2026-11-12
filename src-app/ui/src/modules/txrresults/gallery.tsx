@@ -44,6 +44,7 @@
 import { lazy, useEffect, useRef, type ReactNode } from 'react'
 import { useStore } from 'zustand'
 import { jsonResponse, type ModuleGallery, type SpecialRoute } from '@ziee/gallery'
+import { AppShell } from '@/modules/txrshell/components/AppShell'
 import { ResultsPage } from './pages/ResultsPage'
 import { MethodResultsPage } from './pages/MethodResultsPage'
 import { TxrResults, useTxrResultsStore } from './stores/Results.store'
@@ -111,6 +112,32 @@ const HStory = lazy(() =>
 )
 const ResultsStory = lazy(() => Promise.resolve({ default: ResultsPage }))
 const MethodsStory = lazy(() => Promise.resolve({ default: MethodResultsPage }))
+
+// ── the app-shell ITEM-3 route surfaces (the real page INSIDE the real
+//    shell — the audit section-4 legs of `txr-shell-routes.spec.ts`) ────────
+
+const ShellGStory = lazy(() =>
+  Promise.resolve({
+    default: () => (
+      <AppShell>
+        <WithAppliedViewState apply={applyGView}>
+          <ResultsPage />
+        </WithAppliedViewState>
+      </AppShell>
+    ),
+  }),
+)
+const ShellHStory = lazy(() =>
+  Promise.resolve({
+    default: () => (
+      <AppShell>
+        <WithAppliedViewState apply={applyHView}>
+          <MethodResultsPage />
+        </WithAppliedViewState>
+      </AppShell>
+    ),
+  }),
+)
 
 // ── the story-seeding cassette (the five Txr operations, all fixture-driven) ──
 
@@ -234,6 +261,30 @@ export const gallery: ModuleGallery = {
       path: '/analysis/:runId/results/compare',
       initialPath: `/analysis/${TXR_RUN_H.id}/results/compare`,
       component: HStory,
+    },
+    {
+      slug: 'txr-shell-route-results',
+      title: 'Results (screen G) inside the shell',
+      note: 'The app-shell ITEM-3 route byte: the summary header + the search/sort/methods bar fixed, the heatmap in the ONE region (sticky first column + sticky header against the region, the card no longer has its own scrollport), the Showing-N-of-M + Show-all + Download + Save actions in the fixed bottom bar. The audit section-4 legs (test: `txr-shell-routes.spec.ts`).',
+      path: '/analysis/:runId/results',
+      initialPath: `/analysis/${TXR_RUN_G.id}/results`,
+      component: ShellGStory,
+    },
+    {
+      slug: 'txr-shell-route-compare',
+      title: 'Results compare (screen H) inside the shell',
+      note: 'The app-shell ITEM-3 route byte: the method heading + outcome tabs fixed, the bars table in the ONE region (the sticky thead pins to the region), the actions pinned in the fixed bottom bar.',
+      path: '/analysis/:runId/results/compare',
+      initialPath: `/analysis/${TXR_RUN_H.id}/results/compare`,
+      component: ShellHStory,
+    },
+    {
+      slug: 'txr-shell-route-method',
+      title: 'Results one method (screen H) inside the shell',
+      note: 'The app-shell ITEM-3 route byte: the same frame on the one-method view — the single method tab, the sticky thead, the Save-this-model action pinned.',
+      path: '/analysis/:runId/results/methods/:methodId',
+      initialPath: `/analysis/${TXR_RUN_H.id}/results/methods/${TXR_RUN_H.methods[0].method_id}`,
+      component: ShellHStory,
     },
   ],
 }

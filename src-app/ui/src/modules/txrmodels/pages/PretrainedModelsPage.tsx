@@ -585,7 +585,7 @@ export function PretrainedModelsPage() {
         ) : null}
       </div>
       {toolbar !== null ? (
-        <div className="txr-models-d-toolbar" style={TOOLBAR_SLOT}>
+        <div className="txr-models-d-toolbar" data-testid="txr-models-d-toolbar" style={TOOLBAR_SLOT}>
           {toolbar}
         </div>
       ) : null}

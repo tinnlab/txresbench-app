@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test'
 
 /**
- * TEST-AS-2 (ITEM-2 half) — the app-shell route byte of the audit's
- * section 4, driven over the shell-wrapped route surfaces
- * (`txr-shell-route-*`): each of the six part-1 pages INSIDE the real
- * shell at 1440x900, 1280x720 and 1024x768.
+ * TEST-AS-2 (ITEM-2 half + app-shell ITEM-3's half) — the app-shell route
+ * byte of the audit's section 4, driven over the shell-wrapped route
+ * surfaces (`txr-shell-route-*`): each of the fourteen shell pages INSIDE
+ * the real shell at 1440x900, 1280x720 and 1024x768.
  *
  * Measured legs (per route × size):
  *  · the document is in the shell-mode rules (the overflow-hidden byte the
@@ -24,12 +24,21 @@ import { expect, test } from '@playwright/test'
  *    bar is visible at all times" leg, asserted positionally since the
  *    gallery host clips the frame's bottom).
  *
+ * ITEM-3's half (the part-2 pages): the results heatmap's pinned patient
+ * column + sticky header ride the region, the H bars table's sticky thead,
+ * the J inventory table's sticky thead, the D/I shared-list frames (toolbar
+ * fixed above the region, counters + Run pinned), the history list frame
+ * (its footer bar pinned), and the help article — the rail's spy follows
+ * the region, an anchor lands flush at its top (scroll-margin 0 in shell
+ * mode) and the print byte prints the whole article.
+ *
  * The 390x844 flow-mode leg: the document scrolls, the header is sticky
  * and ONE 56 px row (the audit's flow byte).
  *
  * The full 14-route matrix with long-table fixtures (95 / 300 rows), the
  * Back-scroll-restore leg and the real desktop screenshots are ITEM-4's
- * spec (TEST-AS-3); this spec owns the six pages of ITEM-2.
+ * spec (TEST-AS-3); this spec owns the part-1 pages of ITEM-2 and the
+ * part-2 pages of ITEM-3.
  */
 const GALLERY = '/gallery.html?surface='
 
@@ -45,6 +54,14 @@ const SURFACES = [
   { slug: 'txr-shell-route-predict-files', label: 'Predict files', regions: 1 },
   { slug: 'txr-shell-route-choose-methods', label: 'Choose methods', regions: 1 },
   { slug: 'txr-shell-route-running', label: 'Running', regions: 1 },
+  { slug: 'txr-shell-route-results', label: 'Results', regions: 1 },
+  { slug: 'txr-shell-route-compare', label: 'Compare', regions: 1 },
+  { slug: 'txr-shell-route-method', label: 'Method', regions: 1 },
+  { slug: 'txr-shell-route-history', label: 'History', regions: 1 },
+  { slug: 'txr-shell-route-models', label: 'Models', regions: 1 },
+  { slug: 'txr-shell-route-saved-models', label: 'Saved models', regions: 1 },
+  { slug: 'txr-shell-route-pretrained-models', label: 'Pretrained models', regions: 1 },
+  { slug: 'txr-shell-route-help', label: 'Help', regions: 1 },
 ] as const
 
 const SIZES = [
@@ -318,4 +335,299 @@ test('route Start at 390x844 (flow): the document scrolls, the header is sticky 
   expect(flow.scrollY, 'the document scrolls in flow mode').toBeGreaterThan(0)
   expect(flow.headerPosition).toBe('sticky')
   expect(flow.headerHeight).toBe(56)
+})
+
+// ── ITEM-3: the part-2 route bytes ──────────────────────────────────────────
+
+test('route Results: the heatmap corner header sticks to the region, the patient column pins while the table scrolls horizontally, the count + actions stay in the fixed bottom bar', async ({
+  page,
+}) => {
+  // 768x768 (the shell floor's width): the ten-column table (773 px) is
+  // wider than the region here — the only shell size where the patient
+  // column's pin actually engages (the vertical case is the corner
+  // header's top pin, measured after a 400 px scroll).
+  await page.setViewportSize({ width: 768, height: 768 })
+  await page.goto(`${GALLERY}txr-shell-route-results`, { waitUntil: 'domcontentloaded' })
+  await page.waitForTimeout(SETTLE)
+  await sizeFrame(page, 768)
+
+  const label = 'Patient predictions'
+  await scrollRegionTo(page, label, 400)
+  const sticky = await page.evaluate(() => {
+    const region = document.querySelector<HTMLElement>('[aria-label="Patient predictions"]')!
+    const table = region.querySelector<HTMLElement>('[data-testid="txr-heatmap"]')!
+    const corner = table.querySelector<HTMLElement>('thead th')!
+    const anyCell = table.querySelector<HTMLElement>('tbody td')!
+    const regionTop = region.getBoundingClientRect().top
+    return {
+      cornerPosition: getComputedStyle(corner).position,
+      cornerDelta: Math.abs(corner.getBoundingClientRect().top - regionTop),
+      cellPosition: getComputedStyle(anyCell).position,
+      scrollTop: region.scrollTop,
+    }
+  })
+  expect(sticky.scrollTop).toBeGreaterThan(0)
+  expect(sticky.cornerPosition, 'the corner header is sticky').toBe('sticky')
+  expect(sticky.cornerDelta, 'the corner header sticks to the region top').toBeLessThanOrEqual(2)
+  expect(sticky.cellPosition, 'the row cells never stick').not.toBe('sticky')
+
+  // The pinned patient column: while the table scrolls 200 px right, the
+  // patient cell pins at the REGION's left edge (sticky left:0 against the
+  // scrollport — it leaves the card's edge behind) and a method value
+  // travels with the table.
+  const pin = await page.evaluate(() => {
+    const region = document.querySelector<HTMLElement>('[aria-label="Patient predictions"]')!
+    const card = region.querySelector<HTMLElement>('[data-testid="txr-heatmap"]')!
+    const table = card.querySelector<HTMLElement>('table')!
+    const cell = table.querySelector<HTMLElement>('tbody th[scope="row"]')!
+    const value = table.querySelector<HTMLElement>('td[data-testid$="-direct-on"]')!
+    const valueX = value.getBoundingClientRect().left
+    region.scrollLeft = 200
+    return {
+      hOverflow: region.scrollWidth > region.clientWidth,
+      scrollLeft: region.scrollLeft,
+      pinDelta: Math.abs(cell.getBoundingClientRect().left - region.getBoundingClientRect().left),
+      valueMoved: value.getBoundingClientRect().left - valueX,
+    }
+  })
+  expect(pin.hOverflow, 'at 768 the heatmap overflows horizontally').toBe(true)
+  expect(pin.scrollLeft).toBeGreaterThan(0)
+  expect(pin.pinDelta, 'the patient column pins at the region left').toBeLessThanOrEqual(3)
+  expect(pin.valueMoved, 'the method columns travel with the table').toBeLessThan(-50)
+
+  // The count/Show-all + actions never leave the frame while the region
+  // scrolls (the audit's "Showing n of N" + download + save byte).
+  const bar = await page.getByTestId('txr-results-bar').boundingBox()
+  const frame = await page.locator('[data-gallery-frame]').boundingBox()
+  expect(bar).not.toBeNull()
+  expect(bar!.y, 'the bar stays inside the frame').toBeGreaterThanOrEqual(frame!.y)
+  expect(bar!.y + bar!.height, 'the bar stays inside the frame').toBeLessThanOrEqual(
+    frame!.y + frame!.height + 1,
+  )
+  expect(await page.getByTestId('txr-heatmap-count').textContent()).toContain('Showing')
+})
+
+test('route Compare: the bars table thead sticks to the region top, the actions stay pinned', async ({
+  page,
+}) => {
+  // 640 px of shell height (the 520 floor still holds): the region actually
+  // overflows, so the thead pin engages (900 fits the fixture table).
+  await page.setViewportSize({ width: 1440, height: 640 })
+  await page.goto(`${GALLERY}txr-shell-route-compare`, { waitUntil: 'domcontentloaded' })
+  await page.waitForTimeout(SETTLE)
+  await sizeFrame(page, 640)
+
+  await scrollRegionTo(page, 'Methods', 400)
+  const sticky = await page.evaluate(() => {
+    const region = document.querySelector<HTMLElement>('[aria-label="Methods"]')!
+    const table = region.querySelector<HTMLElement>('[data-testid="txr-bars"]')!
+    const th = table.querySelector<HTMLElement>('thead th')!
+    const anyCell = table.querySelector<HTMLElement>('tbody td')!
+    const regionTop = region.getBoundingClientRect().top
+    return {
+      overflow: table.scrollHeight > region.clientHeight,
+      thPosition: getComputedStyle(th).position,
+      thDelta: Math.abs(th.getBoundingClientRect().top - regionTop),
+      cellPosition: getComputedStyle(anyCell).position,
+    }
+  })
+  expect(sticky.overflow, 'the 640-frame region scrolls').toBe(true)
+  expect(sticky.thPosition, 'the bars thead is sticky').toBe('sticky')
+  expect(sticky.thDelta, 'the thead sticks to the region top').toBeLessThanOrEqual(2)
+  expect(sticky.cellPosition).not.toBe('sticky')
+
+  const bar = await page.getByTestId('txr-results-bar').boundingBox()
+  const frame = await page.locator('[data-gallery-frame]').boundingBox()
+  expect(bar).not.toBeNull()
+  expect(bar!.y + bar!.height).toBeLessThanOrEqual(frame!.y + frame!.height + 1)
+})
+
+test('route Method: the one-method frame pins its Heading in the fixed top and Save this model in the bar', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 640 })
+  await page.goto(`${GALLERY}txr-shell-route-method`, { waitUntil: 'domcontentloaded' })
+  await page.waitForTimeout(SETTLE)
+  await sizeFrame(page, 640)
+
+  await scrollRegionTo(page, 'Methods', 300)
+  const heading = await page.getByTestId('txr-results-method-heading').boundingBox()
+  const region = await page.locator('[aria-label="Methods"]').boundingBox()
+  expect(heading).not.toBeNull()
+  expect(heading!.y, 'the method heading sits ABOVE the region').toBeLessThan(region!.y)
+  const save = await page.getByTestId('txr-results-save-one-model')
+  await expect(save).toBeVisible()
+})
+
+test('route History: the toolbar stays above the region, the list scrolls inside it, the footer bar never leaves the frame', async ({
+  page,
+}) => {
+  // 640: the fixture family is six runs; the industry rows page + the
+  // running row + the copy-cleared row page the region past 640.
+  await page.setViewportSize({ width: 1440, height: 640 })
+  await page.goto(`${GALLERY}txr-shell-route-history`, { waitUntil: 'domcontentloaded' })
+  await page.waitForTimeout(SETTLE)
+  await sizeFrame(page, 640)
+
+  await scrollRegionTo(page, 'History', 300)
+  const toolbar = await page.getByTestId('txr-history-toolbar').boundingBox()
+  const region = await page.locator('[aria-label="History"]').boundingBox()
+  expect(toolbar).not.toBeNull()
+  expect(toolbar!.y, 'the toolbar sits ABOVE the region').toBeLessThan(region!.y)
+  const scrollTop = await page
+    .locator('[aria-label="History"]')
+    .evaluate(el => el.scrollTop)
+  expect(scrollTop, 'the history list scrolls inside the region').toBeGreaterThan(0)
+  const bar = await page.getByTestId('txr-history-footer-bar').boundingBox()
+  const frame = await page.locator('[data-gallery-frame]').boundingBox()
+  expect(bar).not.toBeNull()
+  expect(bar!.y + bar!.height).toBeLessThanOrEqual(frame!.y + frame!.height + 1)
+})
+
+test('route Models: the inventory table thead sticks to the region top, the footnotes stay pinned', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 640 })
+  await page.goto(`${GALLERY}txr-shell-route-models`, { waitUntil: 'domcontentloaded' })
+  await page.waitForTimeout(SETTLE)
+  await sizeFrame(page, 640)
+
+  await scrollRegionTo(page, 'Your models', 300)
+  const sticky = await page.evaluate(() => {
+    const region = document.querySelector<HTMLElement>('[aria-label="Your models"]')!
+    const th = region.querySelector<HTMLElement>('thead th')!
+    const regionTop = region.getBoundingClientRect().top
+    return {
+      overflow: region.scrollHeight > region.clientHeight,
+      thPosition: getComputedStyle(th).position,
+      thDelta: Math.abs(th.getBoundingClientRect().top - regionTop),
+    }
+  })
+  expect(sticky.overflow, 'the inventory region scrolls').toBe(true)
+  expect(sticky.thPosition, 'the inventory thead is sticky').toBe('sticky')
+  expect(sticky.thDelta, 'the thead sticks to the region top').toBeLessThanOrEqual(2)
+  const bar = await page.getByTestId('txr-models-j-footer-bar').boundingBox()
+  const frame = await page.locator('[data-gallery-frame]').boundingBox()
+  expect(bar).not.toBeNull()
+  expect(bar!.y + bar!.height).toBeLessThanOrEqual(frame!.y + frame!.height + 1)
+})
+
+test('route Saved models: the toolbar is fixed above the region, the rows render, the counters + Run stay pinned', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto(`${GALLERY}txr-shell-route-saved-models`, { waitUntil: 'domcontentloaded' })
+  await page.waitForTimeout(SETTLE)
+  await sizeFrame(page, 900)
+  // The shared list's rows render inside the region (the virtualizer's
+  // scrollport is the region — the split works end to end).
+  const rows = await page.locator('[data-testid^="txr-list-row-"]').count()
+  expect(rows, 'the saved-model rows render').toBeGreaterThan(0)
+  const toolbar = await page.getByTestId('txr-models-i-toolbar').boundingBox()
+  const region = await page.locator('[aria-label="Saved models"]').boundingBox()
+  expect(toolbar).not.toBeNull()
+  expect(toolbar!.y, 'the toolbar sits ABOVE the region').toBeLessThan(region!.y)
+  const bar = await page.getByTestId('txr-models-i-bar').boundingBox()
+  const frame = await page.locator('[data-gallery-frame]').boundingBox()
+  expect(bar).not.toBeNull()
+  expect(bar!.y + bar!.height).toBeLessThanOrEqual(frame!.y + frame!.height + 1)
+  await expect(page.getByTestId('txr-list-run')).toHaveText('Run 0 models')
+})
+
+test('route Pretrained models: the list frame pins its toolbar above the region and the counters + Run in the bar', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 640 })
+  await page.goto(`${GALLERY}txr-shell-route-pretrained-models`, { waitUntil: 'domcontentloaded' })
+  await page.waitForTimeout(SETTLE)
+  await sizeFrame(page, 640)
+
+  const rows = await page.locator('[data-testid^="txr-list-row-"]').count()
+  expect(rows, 'the catalogue rows render').toBeGreaterThan(0)
+  await scrollRegionTo(page, 'Models to choose', 200)
+  const toolbar = await page.getByTestId('txr-models-d-toolbar').boundingBox()
+  const region = await page.locator('[aria-label="Models to choose"]').boundingBox()
+  expect(toolbar).not.toBeNull()
+  expect(toolbar!.y, 'the toolbar sits ABOVE the region').toBeLessThan(region!.y)
+  const bar = await page.getByTestId('txr-models-d-bar').boundingBox()
+  const frame = await page.locator('[data-gallery-frame]').boundingBox()
+  expect(bar).not.toBeNull()
+  expect(bar!.y + bar!.height).toBeLessThanOrEqual(frame!.y + frame!.height + 1)
+})
+
+test('route Help: the rail follows the region, an anchor lands flush at its top, the print byte prints the article', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto(`${GALLERY}txr-shell-route-help`, { waitUntil: 'domcontentloaded' })
+  await page.waitForTimeout(SETTLE)
+  await sizeFrame(page, 900)
+
+  // The spy: with the scrollport at the top the FIRST section is current;
+  // scrolled to the last section (its heading at the 96 px line) the rail
+  // follows — the intersection observer's root is the region itself. The
+  // scroll event is rAF-throttled, so the read comes AFTER the spy's tick.
+  const atRest = await page.evaluate(() => {
+    const el = document.querySelector<HTMLElement>('.txr-help-rail [aria-current="true"]')
+    return el?.getAttribute('data-testid') ?? null
+  })
+  expect(atRest, 'at rest the first section is current').toBe('txr-help-toc-overview')
+  const scrolled = await page.evaluate(() => {
+    const region = document.querySelector<HTMLElement>('[aria-label="Help content"]')!
+    const last = document.getElementById('troubleshooting')!
+    region.scrollTop = last.offsetTop - 40
+    return region.scrollTop
+  })
+  expect(scrolled, 'the region scrolled').toBeGreaterThan(0)
+  await page.waitForTimeout(400)
+  const afterScroll = await page.evaluate(() =>
+    document
+      .querySelector<HTMLElement>('.txr-help-rail [aria-current="true"]')!
+      .getAttribute('data-testid')!,
+  )
+  expect(afterScroll, 'the rail follows the scrolled-to section').toBe(
+    'txr-help-toc-troubleshooting',
+  )
+
+  // The anchor: a rail link scrolls its section flush to the region's top
+  // (scroll-margin 0 in shell mode — the fixed top sits ABOVE the region).
+  // The scroll is SMOOTH, so the position is polled to its settle.
+  await page.getByTestId('txr-help-toc-files').click()
+  await expect
+    .poll(
+      async () =>
+        page.evaluate(() => {
+          const region = document.querySelector<HTMLElement>('[aria-label="Help content"]')!
+          const section = document.getElementById('files')!
+          return Math.abs(
+            section.getBoundingClientRect().top - region.getBoundingClientRect().top,
+          )
+        }),
+      { timeout: 15_000 },
+    )
+    .toBeLessThanOrEqual(2)
+  const anchor = await page.evaluate(() => {
+    const section = document.getElementById('files')!
+    return { scrollMargin: getComputedStyle(section).scrollMarginTop }
+  })
+  expect(anchor.scrollMargin, 'shell-mode anchors have no scroll margin').toBe('0px')
+
+  // The print byte: the shell's fixed document and the region's inline
+  // height/overflow yield — the full article prints.
+  await page.emulateMedia({ media: 'print' })
+  const print = await page.evaluate(() => {
+    const region = document.querySelector<HTMLElement>('[aria-label="Help content"]')!
+    return {
+      htmlOverflow: getComputedStyle(document.documentElement).overflow,
+      regionOverflow: getComputedStyle(region).overflowY,
+      regionHeight: region.getBoundingClientRect().height,
+      regionScrollHeight: region.scrollHeight,
+    }
+  })
+  expect(print.htmlOverflow, 'the document is not clipped in print').toBe('visible')
+  expect(print.regionOverflow, 'the region does not clip in print').toBe('visible')
+  expect(print.regionHeight, 'the printed region is the full article').toBeGreaterThanOrEqual(
+    print.regionScrollHeight - 1,
+  )
+  await page.emulateMedia({ media: 'screen' })
 })

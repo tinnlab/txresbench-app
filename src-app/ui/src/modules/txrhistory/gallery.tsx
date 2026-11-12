@@ -61,6 +61,7 @@ import { lazy, useEffect, useRef, useState, type CSSProperties, type ReactNode }
 import { Route, Routes, useLocation } from 'react-router-dom'
 import { useStore } from 'zustand'
 import { extendCassette, type MockRequestContext, type ModuleGallery } from '@ziee/gallery'
+import { AppShell } from '@/modules/txrshell/components/AppShell'
 import { HistoryPage } from './pages/HistoryPage'
 import { TxrHistory, useTxrHistory } from './index'
 import {
@@ -223,6 +224,39 @@ function HistoryStory({
         <RequestSeam />
       </SeedGate>
     </section>
+  )
+}
+
+/** The shell route surface (ITEM-3): the real page INSIDE the real shell
+ *  with NO gallery pane and NO section wrapper — the page's 100% height
+ *  chain must reach the shell's routed area (a wrapper of auto height
+ *  would collapse the frame and the region would grow with its content
+ *  instead of scrolling). */
+function ShellHistoryView() {
+  return (
+    <>
+      <SeedGate seed={seedFamily}>
+        <AppShell>
+          <Routes>
+            <Route
+              path="/history"
+              element={
+                <>
+                  <HistoryPage />
+                  <WhenLoaded apply={() => void TxrHistory.expand(TXHISTORY_RUN_BOARD_TRAIN.id)} />
+                </>
+              }
+            />
+            <Route path="/analysis/:runId/results" element={<LandedAt />} />
+            <Route path="/analysis/:runId/running" element={<LandedAt />} />
+            <Route path="/choose-methods" element={<LandedAt />} />
+            <Route path="/models" element={<LandedAt />} />
+            <Route path="*" element={<LandedAt />} />
+          </Routes>
+        </AppShell>
+      </SeedGate>
+      <RequestSeam />
+    </>
   )
 }
 
@@ -529,6 +563,14 @@ export const gallery: ModuleGallery = {
         }),
       ),
       fullHeight: true,
+    },
+    {
+      slug: 'txr-shell-route-history',
+      title: 'History (screen K) inside the shell',
+      note: 'The app-shell ITEM-3 route byte: the title + search + filters fixed, the run list in the ONE region (with the inline action-error above it), the usage + retention statement pinned in the fixed bottom bar, the dialogs outside the frame. The audit section-4 legs (test: `txr-shell-routes.spec.ts`).',
+      path: '/*',
+      initialPath: '/history',
+      component: lazy(() => Promise.resolve({ default: ShellHistoryView })),
     },
   ],
 }

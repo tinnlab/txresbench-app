@@ -580,7 +580,7 @@ export function SavedModelsPage() {
         <TxrUseExampleButton path="reuse" onDone={() => navigate(predictFilesPath())} />
       </div>
       {toolbar !== null ? (
-        <div className="txr-models-i-toolbar" style={TOOLBAR_SLOT}>
+        <div className="txr-models-i-toolbar" data-testid="txr-models-i-toolbar" style={TOOLBAR_SLOT}>
           {toolbar}
         </div>
       ) : null}
