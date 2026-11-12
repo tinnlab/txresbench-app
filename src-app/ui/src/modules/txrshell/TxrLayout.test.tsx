@@ -12,7 +12,7 @@
  * menu button below 700 px, a skip link as the FIRST tab stop, and the
  * two-mode document rules (`txr-shell-mode-*` on <html>).
  */
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, render } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { readFileSync } from 'node:fs'
@@ -150,5 +150,83 @@ describe('AppShell header (TEST-AS-1)', () => {
     expect(/\.txr-shell-skip-link:focus-visible\s*\{[^}]*left: 12px/.test(index)).toBe(true)
     // The flow-mode sticky header.
     expect(index).toContain('.txr-app-shell-flow .txr-shell-header')
+  })
+})
+
+/**
+ * The macOS desktop title bar: Tauri's overlay title bar puts the traffic
+ * lights over the header's left end and gives the page every mouse event,
+ * so in that window (and only there) the header keeps the traffic lights'
+ * strip clear and is the window's drag region. The drag itself is Tauri's
+ * injected script (it reads `data-tauri-drag-region`), not app code, so the
+ * pins are the attribute, the class and the index.css inset.
+ */
+describe('AppShell header on the macOS desktop window', () => {
+  const MAC_UA =
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)'
+  const WINDOWS_UA =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0'
+
+  function renderHeader({ tauri, ua }: { tauri: boolean; ua: string }) {
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(ua)
+    const w = window as unknown as { __TAURI__?: unknown }
+    if (tauri) w.__TAURI__ = { core: { invoke: vi.fn() } }
+    else delete w.__TAURI__
+    const view = render(
+      <MemoryRouter initialEntries={['/']}>
+        <ThemeContext.Provider value={LIGHT_THEME}>
+          <TxrShell>
+            <div data-testid="txr-shell-content" />
+          </TxrShell>
+        </ThemeContext.Provider>
+      </MemoryRouter>,
+    )
+    return view.container.querySelector<HTMLElement>('.txr-shell-header')!
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    delete (window as unknown as { __TAURI__?: unknown }).__TAURI__
+    document.documentElement.classList.remove('txr-shell-mode-shell', 'txr-shell-mode-flow')
+  })
+
+  it('makes the whole header the drag region and marks it for the traffic-light inset', () => {
+    const header = renderHeader({ tauri: true, ua: MAC_UA })
+    // "deep": a mousedown anywhere in the header's subtree drags the window,
+    // except on links/buttons (Tauri's script lets those through).
+    expect(header.getAttribute('data-tauri-drag-region')).toBe('deep')
+    expect(header.classList.contains('txr-shell-header-macos')).toBe(true)
+    // The controls stay controls: none of them claims the drag itself, and
+    // each is an element Tauri's script treats as clickable (A / BUTTON).
+    const controls = header.querySelectorAll<HTMLElement>('a, button')
+    expect(controls.length).toBeGreaterThanOrEqual(6) // brand + 4 nav links + theme switch
+    for (const control of controls) {
+      expect(control.hasAttribute('data-tauri-drag-region')).toBe(false)
+    }
+    expect(header.querySelector('[data-tauri-drag-region]')).toBeNull()
+  })
+
+  it('leaves the header unchanged in a browser on a Mac', () => {
+    const header = renderHeader({ tauri: false, ua: MAC_UA })
+    expect(header.hasAttribute('data-tauri-drag-region')).toBe(false)
+    expect(header.className).toBe('txr-shell-header')
+    expect(header.style.padding).toBe('0px 28px')
+  })
+
+  it('leaves the header unchanged in the Windows desktop window', () => {
+    const header = renderHeader({ tauri: true, ua: WINDOWS_UA })
+    expect(header.hasAttribute('data-tauri-drag-region')).toBe(false)
+    expect(header.className).toBe('txr-shell-header')
+  })
+
+  it('index.css clears the traffic lights (close button at x = 20, three buttons, a gap) at every width', () => {
+    const index = readFileSync(resolve(HERE, '../../index.css'), 'utf8')
+    const rule = /\.txr-shell-header\.txr-shell-header-macos\s*\{([^}]*)\}/.exec(index)
+    expect(rule).not.toBeNull()
+    const inset = /padding-left:\s*(\d+)px\s*!important/.exec(rule![1])
+    expect(inset).not.toBeNull()
+    // 20 (the inset in src-app/desktop/tauri/src/lib.rs) + ~54 (the three
+    // buttons) — anything at or below 74 puts the brand under the zoom button.
+    expect(Number(inset![1])).toBeGreaterThan(74)
   })
 })
