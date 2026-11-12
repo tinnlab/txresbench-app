@@ -167,11 +167,6 @@ mime_guess = "2.0"
 # package enters `Cargo.lock`, and it is outside every guard's denylist.
 regex = "1"
 
-# bwrap/seccomp/PDEATHSIG/pipe primitives — Linux-only (the sandbox is
-# Linux-first, DEC-3). Gated so macOS/Windows still compile.
-[target.'cfg(target_os = "linux")'.dependencies]
-libc = "0.2"
-
 # The bundled SQLite C library symbols, as a REGULAR dependency (sqlite-store
 # ITEM-17): the SQLite port of `account::seat::assert_serializable_context`'s
 # "is this connection inside a transaction" probe is the engine's own
@@ -186,6 +181,10 @@ libc = "0.2"
 # `sqlite3_libversion*` floor probe (dev-dep below); the entry is shared, no new
 # line enters `Cargo.lock`.
 libsqlite3-sys = { version = "0.30.1", features = ["bundled"] }
+# bwrap/seccomp/PDEATHSIG/pipe primitives — Linux-only (the sandbox is
+# Linux-first, DEC-3). Gated so macOS/Windows still compile.
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
 
 [dependencies.sandbox-seccomp]
 path = "../../sdk/crates/sandbox-seccomp"
