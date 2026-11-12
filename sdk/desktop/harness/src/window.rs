@@ -56,7 +56,9 @@ fn popout_new_window_response(
 /// live here.
 #[derive(Clone, Debug)]
 pub struct WindowConfig {
-    /// Window title (txresbench passes `""` — the titlebar is drawn by the web UI).
+    /// Window title. It names the window in the Window menu, Mission Control
+    /// and the accessibility tree; on macOS it is not drawn (`hidden_title`
+    /// below) — the overlay title bar is drawn by the web UI.
     pub title: String,
     /// Initial inner size `(width, height)` in logical px.
     pub inner_size: (f64, f64),
@@ -208,10 +210,17 @@ pub fn create_main_window(app_handle: &tauri::AppHandle, config: &WindowConfig) 
     // x=20 matches the standard inset Apple uses in Notes / Finder /
     // Mail; the earlier x=12 sat too close to the window edge and
     // read as "tighter than other macOS apps".
+    // The web page runs under the overlay, so the page draws the title bar:
+    // it keeps the traffic lights clear and marks its own drag region
+    // (`data-tauri-drag-region` — the webview covers the title-bar strip and
+    // takes its clicks, so AppKit's own title-bar drag never starts). The
+    // native title is hidden — AppKit would otherwise draw it centred over
+    // the page's own header.
     #[cfg(target_os = "macos")]
     {
         main_window_builder = main_window_builder
             .title_bar_style(tauri::TitleBarStyle::Overlay)
+            .hidden_title(true)
             .decorations(true)
             .traffic_light_position(tauri::LogicalPosition::new(
                 config.traffic_light_position.0,

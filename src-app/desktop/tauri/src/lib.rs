@@ -59,13 +59,20 @@ pub fn register_invoke_handler<R: tauri::Runtime>(
 /// comfortably above the bound. (The window config lives HERE, not in
 /// `tauri.conf.json`: its `app.windows` is empty by design and the harness
 /// `WindowConfig` builds the window — the conf file would be a dead pin.)
+///
+/// The macOS traffic lights sit over the UI's 56 px shell header (the
+/// overlay title bar): x = 20 is the close button's left edge — the UI's
+/// `.txr-shell-header-macos` inset in `src-app/ui/src/index.css` clears the
+/// three buttons from there — and y = 26 puts the 16 px buttons at
+/// 20..36 px, centred on the header (measured on macOS 27: y = 22 gave
+/// 16..32, 4 px above the header's centre line).
 pub(crate) fn desktop_window_config() -> WindowConfig {
     WindowConfig {
         title: "TxResBench".to_string(),
         inner_size: (1200.0, 800.0),
         min_inner_size: (1000.0, 640.0),
         effect_radius: 8.0,
-        traffic_light_position: (20.0, 22.0),
+        traffic_light_position: (20.0, 26.0),
         enable_popout_windows: true,
     }
 }
@@ -177,6 +184,44 @@ mod tests {
         assert!(
             w >= 768.0 && h >= 520.0,
             "the floor must clear the app-shell shell-mode bound",
+        );
+    }
+
+    /// The macOS traffic lights and the UI's shell header are one layout: the
+    /// header's `.txr-shell-header-macos` inset (`src-app/ui/src/index.css`)
+    /// is computed from x = 20 (+ the 54 px of buttons + a gap), and y = 26
+    /// centres the buttons on the 56 px header. Moving either value without
+    /// the CSS puts the brand under the buttons or the buttons off-centre.
+    #[test]
+    fn traffic_lights_match_the_ui_header_inset() {
+        assert_eq!(
+            desktop_window_config().traffic_light_position,
+            (20.0, 26.0),
+            "the traffic-light position is mirrored by the UI's \
+             .txr-shell-header-macos inset (src-app/ui/src/index.css); \
+             change both together",
+        );
+        const INDEX_CSS: &str = include_str!("../../../ui/src/index.css");
+        assert!(
+            INDEX_CSS.contains(".txr-shell-header.txr-shell-header-macos"),
+            "the UI's macOS header inset rule is gone from index.css",
+        );
+    }
+
+    /// The macOS overlay title bar leaves window dragging to the page: the UI
+    /// header's `data-tauri-drag-region` makes Tauri's drag script invoke
+    /// `start_dragging`, which the main window may only call with this grant
+    /// (a double-click's `internal_toggle_maximize` is in `core:window:default`).
+    #[test]
+    fn default_capabilities_grant_window_dragging() {
+        const CAPS: &str = include_str!("../capabilities/default.json");
+        assert!(
+            CAPS.contains("\"core:window:allow-start-dragging\""),
+            "the main window must be allowed to start a window drag",
+        );
+        assert!(
+            CAPS.contains("\"core:window:default\""),
+            "core:window:default carries internal_toggle_maximize (double-click zoom)",
         );
     }
 
