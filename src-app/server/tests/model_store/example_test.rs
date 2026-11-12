@@ -15,6 +15,7 @@ use uuid::Uuid;
 
 use super::{owner_token, pool};
 use crate::common::TestServer;
+use txresbench::modules::execution_engine::bundle::method_marker_set;
 use txresbench::modules::execution_engine::orchestrator::{
     self, EnvProvider, MethodExecutor, MethodRunContext, MethodOutcome, ProducedModelFacts,
 };
@@ -286,15 +287,16 @@ fn example_family_is_deterministic_and_passes_the_validator() {
 
 /// TEST-QF3-1 (b) — the fast-method pick: deterministic, at most 3, each with
 /// a published environment, saving models, a `CanRun` verdict on the example
-/// inventory, and a catalogue estimate under 30 s at the example's patient
-/// count.
+/// inventory, a marker set the run's bundle builder accepts on the example
+/// rows, and a catalogue estimate under 30 s at the example's patient count.
 #[test]
 fn pick_is_deterministic_three_fast_saving_methods() {
     let validation = example::example_validation().expect("validates");
     let inventory = validation.inventory;
     let patients = validation.patients.as_ref().map(|p| p.rows).unwrap_or(0);
-    let a = example::pick_fast_methods(&inventory, patients);
-    let b = example::pick_fast_methods(&inventory, patients);
+    let train = example::example_canonical_bundle().expect("canonical rows");
+    let a = example::pick_fast_methods(&inventory, patients, &train);
+    let b = example::pick_fast_methods(&inventory, patients, &train);
     assert_eq!(a, b, "the pick is deterministic");
     assert_eq!(a.len(), EXAMPLE_METHOD_CAP.min(3), "pick: {a:?}");
     assert!(!a.is_empty(), "the shipped catalogue yields at least one fast method");
@@ -311,6 +313,13 @@ fn pick_is_deterministic_three_fast_saving_methods() {
         assert!(method.saves_model, "{id} saves a model");
         let verdict = verdicts.methods.iter().find(|m| &m.id == id).expect("verdict");
         assert_eq!(verdict.status, EligibilityStatus::CanRun, "{id}");
+        // The run's own per-method marker rule on the example rows (the
+        // example carries three main markers).
+        if let Err(e) =
+            method_marker_set(&train, &method.markers, method.required_markers.as_ref())
+        {
+            panic!("{id} is refused by the run's marker rule: {e}");
+        }
         let seconds = estimate_seconds_for(method, patients, REFERENCE_CPUS);
         assert!(
             seconds < EXAMPLE_METHOD_SECONDS_MAX,
@@ -323,6 +332,10 @@ fn pick_is_deterministic_three_fast_saving_methods() {
         .methods
         .iter()
         .filter(|m| m.status == EligibilityStatus::CanRun && runtime_env_available(&m.id))
+        .filter(|m| {
+            let method = cat.method(&m.id).expect("catalogue method");
+            method_marker_set(&train, &method.markers, method.required_markers.as_ref()).is_ok()
+        })
         .collect();
     assert!(
         runnable.len() > EXAMPLE_METHOD_CAP,
