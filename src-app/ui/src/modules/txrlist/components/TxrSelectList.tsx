@@ -469,7 +469,6 @@ export function TxrSelectList({
 
   const compose = layout ?? ((parts: TxrSelectListLayoutParts) => (
     <div
-      data-testid="txr-list"
       style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}
     >
       {parts.toolbar}
@@ -478,6 +477,11 @@ export function TxrSelectList({
     </div>
   ))
 
+  // The list's ONE root contract: the `txr-list` testid rides the outer
+  // wrapper (the standalone composition's flex column lives INSIDE it) —
+  // the default compose above carries no testid of its own, so a standalone
+  // mount has exactly one `txr-list` and the layout split's mount (the
+  // wrapper + the host's frame) also has exactly one.
   return (
     <div data-testid="txr-list" style={{ height: '100%', minHeight: 0 }}>
       {compose({ toolbar, rows: rowsSlot, bottomBar: bar })}

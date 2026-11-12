@@ -252,7 +252,7 @@ test('route Running: the table thead sticks to the region top; the log is the se
     .evaluate(el => getComputedStyle(el).overflowY)
   expect(preOverflow).toBe('auto')
 
-  // The thead is sticky INSIDE the method region (per-cell, opaque surface).
+  // The thead is sticky INSIDE the method region (per-th, opaque surface).
   // At 900 the 6-row table fits the region exactly and sticky never engages,
   // so shrink the window to a 640-px shell (the 520 floor still holds) whose
   // region ACTUALLY overflows, then scroll — sticky engages only once the
@@ -357,36 +357,36 @@ test('route Results: the heatmap corner header sticks to the region, the patient
     const region = document.querySelector<HTMLElement>('[aria-label="Patient predictions"]')!
     const table = region.querySelector<HTMLElement>('[data-testid="txr-heatmap"]')!
     const corner = table.querySelector<HTMLElement>('thead th')!
-    const anyCell = table.querySelector<HTMLElement>('tbody td')!
+    const anyValue = table.querySelector<HTMLElement>('tbody td')!
     const regionTop = region.getBoundingClientRect().top
     return {
       cornerPosition: getComputedStyle(corner).position,
       cornerDelta: Math.abs(corner.getBoundingClientRect().top - regionTop),
-      cellPosition: getComputedStyle(anyCell).position,
+      valuePosition: getComputedStyle(anyValue).position,
       scrollTop: region.scrollTop,
     }
   })
   expect(sticky.scrollTop).toBeGreaterThan(0)
   expect(sticky.cornerPosition, 'the corner header is sticky').toBe('sticky')
   expect(sticky.cornerDelta, 'the corner header sticks to the region top').toBeLessThanOrEqual(2)
-  expect(sticky.cellPosition, 'the row cells never stick').not.toBe('sticky')
+  expect(sticky.valuePosition, 'the row values never stick').not.toBe('sticky')
 
   // The pinned patient column: while the table scrolls 200 px right, the
-  // patient cell pins at the REGION's left edge (sticky left:0 against the
+  // patient column pins at the REGION's left edge (sticky left:0 against the
   // scrollport — it leaves the card's edge behind) and a method value
   // travels with the table.
   const pin = await page.evaluate(() => {
     const region = document.querySelector<HTMLElement>('[aria-label="Patient predictions"]')!
     const card = region.querySelector<HTMLElement>('[data-testid="txr-heatmap"]')!
     const table = card.querySelector<HTMLElement>('table')!
-    const cell = table.querySelector<HTMLElement>('tbody th[scope="row"]')!
+    const patientCol = table.querySelector<HTMLElement>('tbody th[scope="row"]')!
     const value = table.querySelector<HTMLElement>('td[data-testid$="-direct-on"]')!
     const valueX = value.getBoundingClientRect().left
     region.scrollLeft = 200
     return {
       hOverflow: region.scrollWidth > region.clientWidth,
       scrollLeft: region.scrollLeft,
-      pinDelta: Math.abs(cell.getBoundingClientRect().left - region.getBoundingClientRect().left),
+      pinDelta: Math.abs(patientCol.getBoundingClientRect().left - region.getBoundingClientRect().left),
       valueMoved: value.getBoundingClientRect().left - valueX,
     }
   })
@@ -422,19 +422,19 @@ test('route Compare: the bars table thead sticks to the region top, the actions 
     const region = document.querySelector<HTMLElement>('[aria-label="Methods"]')!
     const table = region.querySelector<HTMLElement>('[data-testid="txr-bars"]')!
     const th = table.querySelector<HTMLElement>('thead th')!
-    const anyCell = table.querySelector<HTMLElement>('tbody td')!
+    const anyValue = table.querySelector<HTMLElement>('tbody td')!
     const regionTop = region.getBoundingClientRect().top
     return {
       overflow: table.scrollHeight > region.clientHeight,
       thPosition: getComputedStyle(th).position,
       thDelta: Math.abs(th.getBoundingClientRect().top - regionTop),
-      cellPosition: getComputedStyle(anyCell).position,
+      valuePosition: getComputedStyle(anyValue).position,
     }
   })
   expect(sticky.overflow, 'the 640-frame region scrolls').toBe(true)
   expect(sticky.thPosition, 'the bars thead is sticky').toBe('sticky')
   expect(sticky.thDelta, 'the thead sticks to the region top').toBeLessThanOrEqual(2)
-  expect(sticky.cellPosition).not.toBe('sticky')
+  expect(sticky.valuePosition).not.toBe('sticky')
 
   const bar = await page.getByTestId('txr-results-bar').boundingBox()
   const frame = await page.locator('[data-gallery-frame]').boundingBox()

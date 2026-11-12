@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 
 /**
  * TXRHELP — the Help page's real-browser guard (qa-fixes2 ITEM-3, TEST-QF2-2,
@@ -91,7 +91,11 @@ async function openHelp(page: Page, size: { width: number; height: number }, sur
   await page.setViewportSize(size)
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.goto(`${GALLERY}${surface}&theme=${theme}`, { waitUntil: 'domcontentloaded' })
-  await expect(page.getByTestId('txr-help')).toBeVisible()
+  // The first test on a freshly booted server pays the whole graph's
+  // transform (the header's own budget note) — the visibility wait gets the
+  // spec's documented clock, never the 20 s fast-loop default (a cold
+  // first load on a loaded box has outrun the default).
+  await expect(page.getByTestId('txr-help')).toBeVisible({ timeout: 240_000 })
 }
 
 /** Two boxes overlap when their rects intersect (a shared edge is not an overlap). */
@@ -112,6 +116,46 @@ function contrast(fg: [number, number, number], bg: [number, number, number]): n
   const l1 = luminance(fg)
   const l2 = luminance(bg)
   return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05)
+}
+
+/** The page's ONE ScrollRegion — the article's scrollport (app-shell ITEM-3). */
+function helpRegion(page: Page): Locator {
+  return page.getByRole('region', { name: 'Help content' })
+}
+
+/**
+ * Give the page's height chain a definite height so the page's frame byte is
+ * the layout under test: the fullHeight story leaves the gallery frame at
+ * content height, which makes the page's main height:100% resolve to auto —
+ * the region would then never be the scrollport (the fixed top would not be
+ * fixed and the region-based spy/back-to-top have nothing to read). The
+ * shell-routes spec sizes the frame the same way (`sizeFrame`) before it
+ * measures a route; the height passed here is the test viewport's.
+ */
+async function bindHelpFrame(page: Page, height: number) {
+  await page.evaluate(h => {
+    const main = document.querySelector<HTMLElement>('[data-testid="txr-help"]')
+    if (main === null) throw new Error('no txr-help main')
+    let node: HTMLElement | null = main
+    while (node !== null && !node.matches('[data-gallery-frame]')) {
+      node.style.height = `${h}px`
+      node = node.parentElement as HTMLElement | null
+    }
+    if (node !== null) node.style.height = `${h}px`
+  }, height)
+  await page.waitForTimeout(200)
+}
+
+/** The section's landing offset from the region's top edge (the flush byte). */
+function sectionSeparationFromRegion(page: Page, id: string) {
+  return page.evaluate(sectionId => {
+    const region = document.querySelector<HTMLElement>('[aria-label="Help content"]')
+    const section = document.getElementById(sectionId)
+    if (region === null || section === null) return Number.NaN
+    return Math.abs(
+      section.getBoundingClientRect().top - region.getBoundingClientRect().top,
+    )
+  }, id)
 }
 
 test.describe('txr-help — the full page (TEST-QA-4 shape, kept)', () => {
@@ -144,7 +188,7 @@ test.describe('txr-help — the measured layout at 1440x900', () => {
       const column = document.querySelector<HTMLElement>('.txr-help-content-column')!
       const h1 = document.querySelector<HTMLElement>('[data-testid="txr-help"] h1')!
       const first = document.querySelector<HTMLElement>('[data-testid="txr-help-section-overview"] p')!
-      const main = document.querySelector<HTMLElement>('[data-testid="txr-help"]')!
+      const region = document.querySelector<HTMLElement>('[aria-label="Help content"]')!
       const rect = (el: Element) => {
         const r = el.getBoundingClientRect()
         return { x: r.x, y: r.y + window.scrollY, width: r.width, height: r.height, bottom: r.height + r.y }
@@ -154,7 +198,14 @@ test.describe('txr-help — the measured layout at 1440x900', () => {
         column: rect(column),
         h1: rect(h1),
         first: rect(first),
-        pageHeight: main.scrollHeight,
+        // The article byte moved into the region with the refactor (app-shell
+        // ITEM-3): the fixed top is no longer part of the scrolled content,
+        // so the page-height target is the region's scrollHeight — the
+        // content a reader actually scrolls (the old main.scrollHeight
+        // measure was the pre-refactor whole-page byte; the total measured
+        // 5649 px on this branch's base, recorded in DRIFT-1 ITEM-5, and the
+        // article alone is the region's 5451 px target).
+        pageHeight: region.scrollHeight,
         bodyWidth: document.documentElement.scrollWidth,
         viewportWidth: document.documentElement.clientWidth,
       }
@@ -177,25 +228,34 @@ test.describe('txr-help — the measured layout at 1440x900', () => {
 
   test('every contents anchor lands with its heading fully visible below the header', async ({ page }) => {
     await openHelp(page, { width: 1440, height: 900 })
+    // The frame byte (ITEM-3): the fixed top stays put while the REGION
+    // scrolls, and the shell-mode anchors carry scroll-margin 0 — the
+    // landing is FLUSH AT THE REGION'S TOP (the pinned header sits above the
+    // region, so "below the header" is region-relative now).
+    await bindHelpFrame(page, 900)
     for (const id of SECTIONS) {
       await page.getByTestId(`txr-help-toc-${id}`).click()
-      // The hash effect's smooth scroll lands the heading at the 84 px
-      // scroll-margin — poll for the LANDING, not for the start: a naked
-      // read can beat the animation on a loaded box (the same one-off the
-      // 768 disclosure records below).
-      await expect
-        .poll(async () =>
-          page.getByTestId(`txr-help-section-${id}`).evaluate(el => el.getBoundingClientRect().top),
-        )
-        .toBeLessThan(140)
-      const top = await page.getByTestId(`txr-help-section-${id}`).evaluate(el => el.getBoundingClientRect().top)
-      expect(top, `heading ${id} lands clear of the header`).toBeGreaterThanOrEqual(0)
-      expect(top, `heading ${id} is fully visible`).toBeLessThan(140)
+      // The hash effect's scroll lands the heading at the region's top —
+      // poll for the LANDING, not for the start: a naked read can beat the
+      // animation on a loaded box (the same one-off the 768 disclosure
+      // records below).
+      await expect.poll(() => sectionSeparationFromRegion(page, id)).toBeLessThanOrEqual(2)
+      // The shell-mode scroll margin is 0 (flush); the heading is fully
+      // visible at the region's top edge.
+      expect(await sectionSeparationFromRegion(page, id), `heading ${id} lands flush`).toBeLessThanOrEqual(2)
+      expect(
+        await page.evaluate(sectionId => getComputedStyle(document.getElementById(sectionId)!).scrollMarginTop, id),
+        `heading ${id} has no scroll margin in shell mode`,
+      ).toBe('0px')
     }
   })
 
   test('the rail highlight follows the scroll — anchor, keyboard and wheel (ITEM-6 b)', async ({ page }) => {
     await openHelp(page, { width: 1440, height: 900 })
+    // The frame byte (ITEM-3): the spy's root and its 96 px line are the
+    // REGION's — the story must run with the height chain definite (the
+    // region below scrolls), so the scrollport is the byte under test.
+    await bindHelpFrame(page, 900)
     const active = (id: string) => page.getByTestId(`txr-help-toc-${id}`)
     // ANCHOR: clicking each contents link lands the rail on the same section
     // (the owner-side defect: the rail stuck on "What TxResBench does").
@@ -210,7 +270,8 @@ test.describe('txr-help — the measured layout at 1440x900', () => {
     // deep controls; the rail lands on the section they belong to).
     await page.evaluate(() => {
       ;(document.activeElement as HTMLElement | null)?.blur?.()
-      window.scrollTo(0, 0)
+      const region = document.querySelector<HTMLElement>('[aria-label="Help content"]')
+      if (region !== null) region.scrollTop = 0
     })
     const pressUntil = async (key: string, id: string, tries: number) => {
       for (let i = 0; i < tries; i++) {
@@ -222,11 +283,17 @@ test.describe('txr-help — the measured layout at 1440x900', () => {
     await pressUntil('Tab', 'troubleshooting', 60)
     await pressUntil('Shift+Tab', 'overview', 90)
     // WHEEL: a continuous wheel scroll follows the sections as they pass the
-    // header line — wheel down two steps onto a mid-page section, then
-    // further, then all the way to the bottom, then all the way back.
-    await page.evaluate(() => window.scrollTo(0, 0))
+    // header line — the sections' region offsets are (measured) 477 px
+    // (steps) and 841 px (files), so one wheel step crosses the 96 px line
+    // onto the first mid-page section, the second onto the next, then all
+    // the way to the bottom, then all the way back. The region is the
+    // scrollport under the pointer (the frame's fixed top sits above it), so
+    // the wheel drives the region.
+    await page.evaluate(() => {
+      const region = document.querySelector<HTMLElement>('[aria-label="Help content"]')
+      if (region !== null) region.scrollTop = 0
+    })
     await page.mouse.move(720, 500)
-    await page.mouse.wheel(0, 400)
     await page.mouse.wheel(0, 400)
     await expect(active('steps')).toHaveAttribute('aria-current', 'true')
     await page.mouse.wheel(0, 400)
@@ -304,10 +371,16 @@ test.describe('txr-help — the measured layout at 1440x900', () => {
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await page.goto(`${GALLERY}txr-help#problem-r07`, { waitUntil: 'domcontentloaded' })
     await expect(page.getByTestId('txr-help')).toBeVisible()
+    // The mount-time landing ran against the unbounded story (the window was
+    // the scroller); re-run the anchor scroll with the chain definite so the
+    // landing byte is the region's (the frame's fixed top above it).
+    await bindHelpFrame(page, 900)
     await expect(page.getByTestId('txr-help-accordion-trigger-R07')).toHaveAttribute('aria-expanded', 'true')
-    const top = await page.getByTestId('txr-help-problem-problem-r07').evaluate(el => el.getBoundingClientRect().top)
-    expect(top).toBeGreaterThanOrEqual(0)
-    expect(top).toBeLessThan(140)
+    await page.evaluate(() => {
+      document.getElementById('problem-r07')?.scrollIntoView({ block: 'start' })
+    })
+    await expect.poll(() => sectionSeparationFromRegion(page, 'problem-r07')).toBeLessThanOrEqual(2)
+    expect(await sectionSeparationFromRegion(page, 'problem-r07'), 'the entry lands flush').toBeLessThanOrEqual(2)
     // Its meaning is visible (the panel is open).
     await expect(page.getByTestId('txr-help-problem-problem-r07').getByText(/patient_id repeats in the patients table/i)).toBeVisible()
   })
@@ -387,19 +460,14 @@ test.describe('txr-help — the breakpoints', () => {
       })
     expect(tableWrap.scrollable, 'the table wraps and scrolls inside its pane').toBeGreaterThan(0)
     expect(tableWrap.fits, 'the table wrapper stays inside the 390 frame').toBeLessThanOrEqual(1)
-    // Back to top appears after scrolling — the real scroller is the pane
-    // that actually scrolls (the app-shell area, or here the document), not
-    // the window by default.
-    await page.evaluate(() => {
-      const isScrollable = (el: Element): boolean => {
-        const ov = getComputedStyle(el).overflowY
-        return (ov === 'auto' || ov === 'scroll' || ov === 'hidden') && el.scrollHeight - el.clientHeight > 1
-      }
-      const root = document.querySelector('[data-testid="txr-help"]')!
-      let node: Element | null = root
-      while (node !== null && !isScrollable(node)) node = node.parentElement
-      const scroller = node ?? document.scrollingElement ?? document.documentElement
-      scroller.scrollTop = 2500
+    // Back to top appears after scrolling — the frame's REGION is the
+    // real scroller (the page's frame byte: one region, region-driven
+    // back-to-top; the story's own summary said the region is bounded in
+    // the fullHeight frame, and the bind makes the chain definite the same
+    // way the shell-routes spec's sizeFrame does).
+    await bindHelpFrame(page, 844)
+    await helpRegion(page).evaluate(el => {
+      el.scrollTop = 2500
     })
     await expect(page.getByTestId('txr-help-backtop')).toBeVisible()
   })

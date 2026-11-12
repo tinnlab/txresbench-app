@@ -52,7 +52,12 @@ export const gallery: ModuleGallery = {
           ),
         }),
       ),
-      fullHeight: true,
+      // The app-shell ITEM-3 frame byte: the page is a frame page (fixed
+      // top + ONE region) — the story frame must be BOUNDED (the old
+      // unbounded fullHeight frame made the page's 100% chain resolve auto
+      // and the region never scroll; the app byte's own host is the
+      // txr-shell-route-help surface, and the spec's frame bind measures
+      // the definite chain here too).
     },
     {
       slug: 'txr-help-narrow-390',
@@ -74,7 +79,8 @@ export const gallery: ModuleGallery = {
           ),
         }),
       ),
-      fullHeight: true,
+      // The same frame byte at the phone width (the bounded frame, see the
+      // txr-help entry).
     },
     {
       slug: 'txr-shell-route-help',
