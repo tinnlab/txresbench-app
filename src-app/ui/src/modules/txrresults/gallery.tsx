@@ -37,6 +37,10 @@
  *   DEC-18 state machine's three states (409 / 404 / network error).
  * - `txr-results-narrow-390`: the H compare content on the board's mobile
  *   width (no horizontal page overflow).
+ * - `txr-shell-route-results-long` / `txr-shell-route-compare-long` /
+ *   `txr-shell-route-method-long`: the app-shell ITEM-4 long-table surfaces
+ *   (300-row heatmap, 95-row compare and one-method tables) — the audit
+ *   section-4 "scroll the table by 500 px" byte's fixtures.
  *
  * DEV-ONLY: this file is picked up by the dev gallery's `import.meta.glob`
  * (`src/dev/gallery/main.tsx`) and is never in a production bundle path.
@@ -58,6 +62,8 @@ import {
   TXR_RUN_HFEW,
   TXR_RUN_NOCHANCE,
   TXR_RUN_RUNNING,
+  TXR_RUN_G_LONG,
+  TXR_RUN_H_LONG,
   TXR_RUNS,
   TXR_CSV,
   TXR_LOGS,
@@ -132,6 +138,32 @@ const ShellHStory = lazy(() =>
     default: () => (
       <AppShell>
         <WithAppliedViewState apply={applyHView}>
+          <MethodResultsPage />
+        </WithAppliedViewState>
+      </AppShell>
+    ),
+  }),
+)
+// The ITEM-4 long-table twins: the same frames over the 300-row / 95-row
+// fixture runs with the row window OPEN (Show all) — the audit section-4
+// "scroll the table by 500 px" byte needs the full table scrollport, not the
+// board's bounded row window.
+const ShellGStoryLong = lazy(() =>
+  Promise.resolve({
+    default: () => (
+      <AppShell>
+        <WithAppliedViewState apply={() => TxrResults.setPatientLimit(-1)}>
+          <ResultsPage />
+        </WithAppliedViewState>
+      </AppShell>
+    ),
+  }),
+)
+const ShellHStoryLong = lazy(() =>
+  Promise.resolve({
+    default: () => (
+      <AppShell>
+        <WithAppliedViewState apply={() => TxrResults.setPatientLimit(-1)}>
           <MethodResultsPage />
         </WithAppliedViewState>
       </AppShell>
@@ -285,6 +317,30 @@ export const gallery: ModuleGallery = {
       path: '/analysis/:runId/results/methods/:methodId',
       initialPath: `/analysis/${TXR_RUN_H.id}/results/methods/${TXR_RUN_H.methods[0].method_id}`,
       component: ShellHStory,
+    },
+    {
+      slug: 'txr-shell-route-results-long',
+      title: 'Results (screen G) inside the shell — 300 patients',
+      note: 'The app-shell ITEM-4 long-table byte (the audit\'s "scroll the table region by 500 px" leg): the G frame over the 300-row fixture run with the row window OPEN — the heatmap\'s sticky header + pinned patient column answer the region, the whole table in the ONE region.',
+      path: '/analysis/:runId/results',
+      initialPath: `/analysis/${TXR_RUN_G_LONG.id}/results`,
+      component: ShellGStoryLong,
+    },
+    {
+      slug: 'txr-shell-route-compare-long',
+      title: 'Results compare (screen H) inside the shell — 95 rows',
+      note: 'The app-shell ITEM-4 long-table byte: the H compare frame over the 95-row fixture run — the bars table\'s thead sticks to the region top after a 500 px scroll.',
+      path: '/analysis/:runId/results/compare',
+      initialPath: `/analysis/${TXR_RUN_H_LONG.id}/results/compare`,
+      component: ShellHStoryLong,
+    },
+    {
+      slug: 'txr-shell-route-method-long',
+      title: 'Results one method (screen H) inside the shell — 95 rows',
+      note: 'The app-shell ITEM-4 long-table byte on the one-method view: the same 95-row fixture run, the single method tab, the sticky thead.',
+      path: '/analysis/:runId/results/methods/:methodId',
+      initialPath: `/analysis/${TXR_RUN_H_LONG.id}/results/methods/${TXR_RUN_H_LONG.methods[0].method_id}`,
+      component: ShellHStoryLong,
     },
   ],
 }
