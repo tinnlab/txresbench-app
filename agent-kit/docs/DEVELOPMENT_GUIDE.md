@@ -11,8 +11,8 @@
 
 ```
 <app>/
-├─ sdk/                # git submodule → ziee-ai/sdk (PINNED)
-├─ agent-kit/          # git submodule → ziee-ai/agent-kit (lifecycle + skills + docs)
+├─ sdk/                # the SDK crates and packages
+├─ agent-kit/          # lifecycle + skills + docs
 ├─ Cargo.toml          # workspace: src-app/server; `exclude = ["sdk"]` (nested workspace)
 ├─ package.json        # npm workspaces: sdk/packages/* + src-app/ui
 ├─ src-app/
@@ -38,7 +38,6 @@ Two mixed-language boundaries to keep straight: the Rust workspace **excludes**
 ## 2. Bring-up
 
 ```bash
-git submodule update --init      # sdk + agent-kit (both pinned)
 npm install                      # hoists deps for sdk/packages/* + the UI
 cd src-app && docker compose up -d   # the shared build-DB cluster
 ```

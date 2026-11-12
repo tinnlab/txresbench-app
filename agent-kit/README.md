@@ -1,8 +1,7 @@
 # agent-kit
 
-The **shared agent-development infrastructure** for `ziee-ai` apps — one evolving
-source of truth for the feature-lifecycle methodology, so it stops being
-copy-pasted (and diverging) across N apps.
+The agent-development tooling this app is built with: the feature-lifecycle
+methodology, its skills and its scripts.
 
 It holds:
 

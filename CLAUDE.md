@@ -155,5 +155,3 @@ and the orchestrator runs the gate and merges.
 - **"A contribution declares exactly one `env`"** — strong circumstantial evidence
   (`provenance/export/methods.rs:2453,2474`; `sandbox/env_image.rs:26,483`) but no schema-level
   assertion has been read. Verify before relying on it.
-- **`sdk` submodule drift**: `.gitmodules:1-4` pins branch `cyto`, but the checkout is on
-  `heads/cyto-fix`. A pin should track `cyto`, not a fix branch — check containment before branching.
