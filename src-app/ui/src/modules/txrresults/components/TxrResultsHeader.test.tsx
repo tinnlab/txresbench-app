@@ -14,7 +14,7 @@
 // number is a fact), and every callback is a spy — no store, no ApiClient,
 // no network (INV-3/5).
 
-import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import type { AppEvents } from '@ziee/framework/events'
@@ -26,7 +26,7 @@ import type {
   TxrRunMethod,
 } from '@/api-client/types'
 import { buildColumns } from '../lib/heatmap'
-import { TxrResultsHeader } from './TxrResultsHeader'
+import { TxrResultsBar, TxrResultsHeader } from './TxrResultsHeader'
 import { TxrCannotRunBanner } from './TxrCannotRunBanner'
 import { TxrOutcomeTabs } from './TxrOutcomeTabs'
 import { TxrMethodFilterBar } from './TxrMethodFilterBar'
@@ -289,47 +289,110 @@ describe('TxrResultsHeader (TEST-UR-4 — title, subtitle, actions)', () => {
     expect(view.getByTestId('txr-results-header').textContent).toContain('Predictions')
   })
 
-  it('disables the download button exactly when predictions are unavailable (409) and not on a network error', () => {
-    const view = renderHeader({ predictionsError: 'unavailable' })
-    expect(view.getByTestId('txr-results-download').hasAttribute('disabled')).toBe(true)
-    cleanup()
-    const network = renderHeader({ predictionsError: 'network' })
-    expect(network.getByTestId('txr-results-download').hasAttribute('disabled')).toBe(false)
-    cleanup()
-    const enabled = renderHeader({ predictionsError: null })
-    expect(enabled.getByTestId('txr-results-download').hasAttribute('disabled')).toBe(false)
-  })
-
-  it('renders the board action labels and keeps the board keyboard order (download → save → new)', () => {
+  it('renders the header as the summary: title + subtitle + New analysis (app-shell ITEM-3)', () => {
     const view = renderHeader()
     const header = view.getByTestId('txr-results-header')
+    expect(view.getByTestId('txr-results-new-analysis').textContent).toBe('New analysis')
+    // The data actions left the header (the fixed bottom bar carries them).
+    const buttons = within(header).getAllByRole('button')
+    expect(buttons.map(b => b.getAttribute('data-testid'))).toEqual(['txr-results-new-analysis'])
+    expect(view.queryByTestId('txr-results-download')).toBeNull()
+    expect(view.queryByTestId('txr-results-save-models')).toBeNull()
+  })
+
+  it('the new-analysis button navigates to the app root', () => {
+    const view = renderHeader()
+    fireEvent.click(view.getByTestId('txr-results-new-analysis'))
+    expect(view.getByTestId('test-location').textContent).toBe('/')
+  })
+})
+
+// ── The fixed bottom bar (app-shell ITEM-3) — the actions + the count ───────
+
+function renderBar(
+  props: Partial<Parameters<typeof TxrResultsBar>[0]> = {},
+  run: TxrRunDetail = runFixture(),
+) {
+  return render(
+    <TxrResultsBar
+      shownCount={100}
+      totalCount={500}
+      onShowAll={() => {}}
+      download={{
+        label: 'Download all predictions (CSV)',
+        disabled: false,
+        onClick: vi.fn(),
+      }}
+      save={{ mode: 'run', count: run.models.length }}
+      run={run}
+      {...props}
+    />,
+  )
+}
+
+describe('TxrResultsBar (app-shell ITEM-3 — the fixed bottom bar: count + actions)', () => {
+  it('renders "Showing N of M patients." and the Show all link while the window is capped', () => {
+    const view = renderBar({ shownCount: 100, totalCount: 500, onShowAll: () => {} })
+    expect(view.getByTestId('txr-heatmap-count').textContent).toBe('Showing 100 of 500 patients.')
+    const link = view.getByTestId('txr-heatmap-show-more')
+    expect(link.textContent).toBe('Show all 500')
+    expect(link.tagName).toBe('BUTTON')
+  })
+
+  it('reports Show all through onShowAll — the host raises the patient limit', () => {
+    const onShowAll = vi.fn()
+    renderBar({ shownCount: 100, totalCount: 500, onShowAll })
+    fireEvent.click(screen.getByTestId('txr-heatmap-show-more'))
+    expect(onShowAll).toHaveBeenCalledTimes(1)
+  })
+
+  it('hides the Show all link and the count once every row is shown / no match (no dead action)', () => {
+    renderBar({ shownCount: 500, totalCount:500, onShowAll: null })
+    expect(screen.queryByTestId('txr-heatmap-show-more')).toBeNull()
+    expect(screen.getByTestId('txr-heatmap-count').textContent).toBe('Showing 500 of 500 patients.')
+    cleanup()
+    renderBar({ shownCount: 0, totalCount: 0, onShowAll: null })
+    expect(screen.getByTestId('txr-heatmap-count').textContent).toBe('')
+    expect(screen.queryByTestId('txr-heatmap-show-more')).toBeNull()
+  })
+
+  it('renders the board action labels in the board keyboard order (download → save)', () => {
+    const view = renderBar()
+    const bar = within(view.getByTestId('txr-results-bar'))
     expect(view.getByTestId('txr-results-download').textContent).toBe('Download all predictions (CSV)')
     expect(view.getByTestId('txr-results-save-models').textContent).toBe(
       ['Save the models (', `${FINISHED_IDS.length}`, ')'].join(''),
     )
-    expect(view.getByTestId('txr-results-new-analysis').textContent).toBe('New analysis')
-    // The header's focusables are the three actions in the board's order.
-    const buttons = within(header).getAllByRole('button')
-    expect(buttons.map(b => b.getAttribute('data-testid'))).toEqual([
+    expect(bar.getAllByRole('button').map(b => b.getAttribute('data-testid'))).toEqual([
+      'txr-heatmap-show-more',
       'txr-results-download',
       'txr-results-save-models',
-      'txr-results-new-analysis',
     ])
   })
 
-  it('renders the H board download label when the page passes it', () => {
-    const view = renderHeader({ downloadLabel: 'Download predictions (CSV)' })
+  it('disables the download button exactly when predictions are unavailable (409)', () => {
+    const view = renderBar({ download: { label: 'Download all predictions (CSV)', disabled: true, onClick: vi.fn() } })
+    expect(view.getByTestId('txr-results-download').hasAttribute('disabled')).toBe(true)
+  })
+
+  it('renders the H board download label and the one-method save entry', () => {
+    const view = renderBar({
+      download: { label: 'Download predictions (CSV)', disabled: false, onClick: vi.fn() },
+      save: { mode: 'one', methodId: FINISHED_IDS[0] },
+    })
     expect(view.getByTestId('txr-results-download').textContent).toBe('Download predictions (CSV)')
+    expect(view.getByTestId('txr-results-save-one-model').textContent).toBe('Save this model')
+    expect(view.queryByTestId('txr-results-save-models')).toBeNull()
   })
 
   it('omits the save-models button when the run produced no models (save_models: false)', () => {
-    const view = renderHeader({ run: runFixture({ models: [] }) })
+    const view = renderBar({ save: null }, runFixture({ models: [] }))
     expect(view.queryByTestId('txr-results-save-models')).toBeNull()
     expect(view.getByTestId('txr-results-download')).toBeTruthy()
   })
 
   it('the save-models click emits txr:save-models-requested with the run id + the finished method ids', async () => {
-    const view = renderHeader()
+    const view = renderBar()
     const received: AppEvents['txr:save-models-requested'][] = []
     const off = useEventBusStore
       .getState()
@@ -348,16 +411,10 @@ describe('TxrResultsHeader (TEST-UR-4 — title, subtitle, actions)', () => {
     })
   })
 
-  it('the new-analysis button navigates to the app root', () => {
-    const view = renderHeader()
-    fireEvent.click(view.getByTestId('txr-results-new-analysis'))
-    expect(view.getByTestId('test-location').textContent).toBe('/')
-  })
-
   it('reports the download click to the page wiring (ITEM-10 owns the CSV)', () => {
     const onDownload = vi.fn()
-    const view = renderHeader({ onDownload })
-    fireEvent.click(view.getByTestId('txr-results-download'))
+    renderBar({ download: { label: 'Download all predictions (CSV)', disabled: false, onClick: onDownload } })
+    fireEvent.click(screen.getByTestId('txr-results-download'))
     expect(onDownload).toHaveBeenCalledTimes(1)
   })
 })

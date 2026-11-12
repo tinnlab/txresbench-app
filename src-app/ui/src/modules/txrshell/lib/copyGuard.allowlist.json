@@ -2,6 +2,11 @@
   "why": "One entry per line of a scanned file that legitimately carries a banned phrase. Every entry MUST be a developer-facing code comment or doc prose (rule (e) of the qa-fixes2 ITEM-2 plan: technical wording about the host in developer-facing comments may stay). A user-visible string is never allow-listed. The entry's `line` is the trimmed line; the second guard test verifies every entry still matches the tree, so a reworded phrase cannot leave a dead entry behind.",
   "entries": [
     {
+      "file": "src-app/ui/src/modules/txrintake/components/TxrFileCard.tsx",
+      "line": "*  tall preview scrolls inside its box and the header never leaves it (the",
+      "reason": "Developer-facing comment about the preview table's own scroll box (app-shell ITEM-2c — the audit's bounded-preview byte), describing clamped framing, not where the app runs; rule (e)."
+    },
+    {
       "file": "src-app/ui/src/modules/txrintake/gallery.tsx",
       "line": "* four stories rendered offline, one seeded surface per board state, entirely",
       "reason": "Dev-only gallery harness comment (the story seeds the real store without a backend); not user-visible."

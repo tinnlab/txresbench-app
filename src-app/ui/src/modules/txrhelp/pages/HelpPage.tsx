@@ -2,14 +2,20 @@
  * HelpPage — the TxResBench Help screen (`/help`), rebuilt as product
  * documentation (qa-fixes2 ITEM-3, R2-H1/H2/H3/H4/H5/H6/H8/H9).
  *
- * Layout: desktop (>=1024 px) is a two-column grid — the sticky "On this
- * page" rail (240 px, scrolls independently, the current section
- * highlighted, never overlapping the article) and a content column capped
- * at 760 px (60-75 char lines), the grid centred in the window; under 1024
- * px the rail becomes a "Contents" disclosure at the top (collapsed) and a
- * floating "Back to top". The responsive/print half of the layout lives in
- * `index.css` against the `.txr-help-*` hooks (a media query cannot touch
- * an inline style — the shell header's device, repeated for this page).
+ * Layout (app-shell ITEM-3, the audit's /help row): the frame's fixed top
+ * carries the eyebrow/title/purpose + the search; ONE region hosts the
+ * article — the quick-start row and the desktop (>=1024 px) two-column
+ * grid: the sticky "On this page" rail (240 px, sticks at the region's
+ * top, does NOT scroll itself — the region is) and a content column capped
+ * at 760 px (60-75 char lines), the grid centred in the region. The scroll
+ * spy's root and its line are the REGION's, the anchors' scroll-margin is
+ * mode-dependent (0 in shell — the region's top already sits below the
+ * fixed chrome; 84 in flow — the sticky header), and the print byte
+ * prints the whole article. Under 1024 px the rail becomes a "Contents"
+ * disclosure at the top (collapsed) and a floating "Back to top". The
+ * responsive/print half of the layout lives in `index.css` against the
+ * `.txr-help-*` hooks (a media query cannot touch an inline style — the
+ * shell header's device, repeated for this page).
  *
  * Top of page: title, one-line purpose, the search box (filters sections
  * and troubleshooting entries, highlights matches, a "no results" state)
@@ -36,6 +42,10 @@ import { FiAlertTriangle, FiArrowUp, FiCheckCircle, FiInfo } from 'react-icons/f
 import { ApiClient } from '@/api-client'
 import type { FileTableKind } from '@/api-client/types'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
+import { PageFrame } from '@/modules/txrshell/components/PageFrame'
+import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
+import { useScrollRegionElement } from '@/modules/txrshell/components/ScrollRegionContext'
+import { useShellMode } from '@/modules/txrshell/lib/shellMode'
 import { STATE_LABEL, STATE_TONE } from '@/modules/txrrun/lib/format'
 import { formatRunHeadline } from '@/modules/txrlist/lib/format'
 import { TXRLIST_STATUS_COLORS } from '@/modules/txrlist/components/TxrListRow'
@@ -67,18 +77,31 @@ import type { FileCardContent, HelpBlock, HelpProblemEntry, ProblemGroup, StepCa
 const EXAMPLE_FILES_ROUTE = '/files'
 const EXAMPLE_PREDICT_FILES_ROUTE = '/predict-files'
 
-/** The page shell (the app's own palette — R2-H6: the kit token layer's
- *  near-black dark background is NOT the app's page colour). */
-const PAGE: CSSProperties = {
-  flexGrow: 1,
-  padding: '24px 24px 56px',
+/** The page's flex spine (the frame fills the routed area; the palette is
+ *  the page's own — R2-H6: the kit token layer's near-black dark
+ *  background is NOT the app's page colour). */
+const PAGE_OUTER: CSSProperties = {
+  height: '100%',
+  minHeight: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  minWidth: 0,
   background: 'var(--txr-surface)',
   color: 'var(--txr-text)',
   fontFamily: "'Source Sans 3', system-ui, sans-serif",
   fontSize: 14.5,
   lineHeight: 1.45,
 }
-const PAGE_INNER: CSSProperties = { maxWidth: 1096, margin: '0 auto' }
+
+/** The fixed top's own padding (title + purpose + search — the audit row's
+ *  fixed byte; the article's space below is the region's own). */
+const PAGE_TOP: CSSProperties = { padding: '24px 24px 12px' }
+
+/** The ONE scroll region's content padding (the region scrolls, the padding rides). */
+const REGION_CONTENT: CSSProperties = { padding: '12px 24px 56px' }
+
+/** The centred column both the fixed top and the article share. */
+const PAGE_INNER: CSSProperties = { maxWidth: 1096, margin: '0 auto', width: '100%' }
 
 const EYEBROW: CSSProperties = {
   fontSize: 12,
@@ -137,24 +160,17 @@ function useRailVisible(): boolean {
   return visible
 }
 
-/** The element that actually scrolls the help page: the nearest ancestor
- *  that is genuinely scrollable (an `auto|scroll|hidden` overflow AND a
- *  scrollable size — an `overflow: visible` element reports a tall
- *  scrollHeight without being able to scroll), falling back to the document.
- *  The back-to-top control, its visibility and the section highlight all use
- *  THIS element — in the app shell the pane scrolls, not the window. */
-function isScrollable(el: Element): boolean {
-  const ov = getComputedStyle(el).overflowY
-  return (ov === 'auto' || ov === 'scroll' || ov === 'hidden') && el.scrollHeight - el.clientHeight > 1
-}
-
-function helpScroller(from: Element): Element {
-  let node: Element | null = from
-  while (node !== null) {
-    if (isScrollable(node)) return node
-    node = node.parentElement
-  }
-  return document.scrollingElement ?? document.documentElement
+/** The page's ONE scrollport: the frame's region publishes its node to
+ *  the ScrollRegionContext — but the page sits ABOVE the region (the
+ *  provider is the region's own scope), so this tiny component INSIDE the
+ *  region reads the published node and hands it up to the page (the
+ *  TxrSelectList row-stream's own seam, the DataTable wiring; DEC-3). The
+ *  page's scroll listener, the spy's root and the back-to-top all use the
+ *  bridged node — the article scrolls the REGION, never the window. */
+function RegionBridge({ regionRef }: { regionRef: React.RefObject<HTMLDivElement | null> }) {
+  const region = useScrollRegionElement()
+  regionRef.current = region?.current ?? null
+  return null
 }
 
 /** Highlight the query matches inside a text (the search's highlighter). */
@@ -715,11 +731,16 @@ function Section({
   query: string
   children?: ReactNode
 }) {
+  // The anchor's scroll-margin (ITEM-3): 0 in shell mode — the frame's
+  // fixed top is ABOVE the region, so an anchor lands flush at the
+  // region's top — and 84 px in flow mode, where the whole article scrolls
+  // under the shell's sticky header.
+  const mode = useShellMode()
   return (
     <section
       id={section.id}
       data-testid={`txr-help-section-${section.id}`}
-      style={{ scrollMarginTop: 84, marginBottom: 26 }}
+      style={{ scrollMarginTop: mode === 'shell' ? 0 : 84, marginBottom: 26 }}
     >
       <h2 style={SECTION_HEADING}>
         <Highlight text={section.title} query={query} />
@@ -754,11 +775,13 @@ function ProblemEntry({
         : group === 'error_or_warning'
           ? 'var(--txr-warning)'
           : 'var(--txr-muted)'
+  // The anchor's scroll-margin, the same mode byte the sections use.
+  const mode = useShellMode()
   return (
     <div
       id={entry.anchor}
       data-testid={`txr-help-problem-${entry.anchor}`}
-      style={{ scrollMarginTop: 84, borderLeft: `3px solid ${tone}`, margin: '0 0 6px' }}
+      style={{ scrollMarginTop: mode === 'shell' ? 0 : 84, borderLeft: `3px solid ${tone}`, margin: '0 0 6px' }}
     >
       <Collapsible open={open} onOpenChange={() => onToggle(entry.code)}>
         <CollapsibleTrigger
@@ -907,7 +930,10 @@ export function HelpPage() {
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
   const [showBackTop, setShowBackTop] = useState(false)
   const [contentsOpen, setContentsOpen] = useState(false)
-  const mainRef = useRef<HTMLElement | null>(null)
+  // The article's scrollport (Item-3): the frame's region, bridged up by
+  // the RegionBridge below — the listeners, the spy and the back-to-top
+  // all read THIS node, never a walk up the ancestors.
+  const regionRef = useRef<HTMLDivElement | null>(null)
 
   const q = query.trim().toLowerCase()
 
@@ -966,24 +992,28 @@ export function HelpPage() {
   // TxResBench does" while the reader was at "Troubleshooting". The rule is
   // the rail's promise — "the lowest section whose heading is at the top":
   // the current section is the LAST one (page order) whose heading's top is
-  // at or above the sticky-header line (96 px, just past the 84 px
-  // scroll-margin every anchor lands at); while none is, the first section
-  // is current.
+  // at or above the spy line — 96 px past the REGION's top edge (ITEM-3:
+  // the line is a region-relative byte; the frame's fixed top sits ABOVE
+  // the region, so a heading flushed at the region's top reads 0 and an
+  // anchor lands ~0 — the 96 px window is the pre-click look-ahead, 12 px
+  // of region padding + the heading's breathing room); while none is, the
+  // first section is current.
   // The observer is the plan's device (the heading's own position against
-  // the viewport — it fires on a jump whose scroll never reaches the
-  // window listener, keyboard End or an anchor scroll in a frame), and it
-  // re-reads the REAL positions on every change so no entry can carry a
-  // stale one; the capture-phase scroll listener keeps the per-pixel
-  // case exact (an IO entry fires only when a heading crosses the
-  // viewport edges — a heading sitting at 84 px between two entries is
-  // the listener's byte). jsdom has no IntersectionObserver: the unit tier
-  // only renders, the browser tier measures the spy.
+  // the region — it fires on a jump whose scroll never reaches the
+  // listener, keyboard End or an anchor scroll), and it re-reads the REAL
+  // positions on every change so no entry can carry a stale one; the
+  // capture-phase scroll listener keeps the per-pixel case exact (an IO
+  // entry fires only when a heading crosses the region's edges — a heading
+  // sitting between two entries is the listener's byte). jsdom has no
+  // IntersectionObserver: the unit tier only renders, the browser tier
+  // measures the spy.
   const SCROLLSPY_LINE = 96
   const updateActiveSection = useCallback(() => {
+    const scrollerTop = regionRef.current?.getBoundingClientRect().top ?? 0
     let current = HELP_SECTIONS[0].id
     for (const section of HELP_SECTIONS) {
       const el = document.getElementById(section.id)
-      if (el !== null && el.getBoundingClientRect().top <= SCROLLSPY_LINE) {
+      if (el !== null && el.getBoundingClientRect().top - scrollerTop <= SCROLLSPY_LINE) {
         current = section.id
       }
     }
@@ -996,7 +1026,14 @@ export function HelpPage() {
         return heading instanceof Element ? [heading] : []
       })
       if (headings.length > 0) {
-        const observer = new IntersectionObserver(() => updateActiveSection(), { threshold: 0 })
+        const observer = new IntersectionObserver(() => updateActiveSection(), {
+          threshold: 0,
+          // The region is the observer's root (ITEM-3): the entries answer
+          // the region's edges, the same clipping rectangle the reader's
+          // scrollport is (a null root would answer the viewport — the
+          // frame's fixed top would shift the line off the region's).
+          root: regionRef.current ?? null,
+        })
         for (const heading of headings) observer.observe(heading)
         // Re-created when the search narrows the sections: hidden sections
         // unmount (their headings are gone) and remount with NEW elements on
@@ -1009,14 +1046,14 @@ export function HelpPage() {
 
   // The back-to-top control's visibility (+ the per-pixel side of the
   // highlight, above): a rAF-throttled capture listener reading the real
-  // scroller — an inner scroll container (the app-shell pane, the gallery
-  // tier's bounded frame) does not bubble scroll events to the window,
-  // hence the capture phase.
+  // scroller — the frame's region (a scroll event does not bubble to the
+  // window, hence the capture phase; the app-shell pane no longer scrolls
+  // once the page owns its region).
   useEffect(() => {
     let frame: number | null = null
     const update = () => {
       frame = null
-      const scroller = mainRef.current !== null ? helpScroller(mainRef.current) : null
+      const scroller = regionRef.current
       const scrollTop = scroller !== null ? scroller.scrollTop : window.scrollY
       setShowBackTop(scrollTop > 600)
       updateActiveSection()
@@ -1039,7 +1076,7 @@ export function HelpPage() {
     const reduce =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true
-    const scroller = mainRef.current !== null ? helpScroller(mainRef.current) : null
+    const scroller = regionRef.current
     if (scroller instanceof HTMLElement) {
       scroller.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' })
     } else {
@@ -1050,7 +1087,7 @@ export function HelpPage() {
   const quickStartVisible = q === '' || QUICK_START.some(card => card.title.toLowerCase().includes(q))
 
   return (
-    <main ref={mainRef} style={PAGE} data-testid="txr-help">
+    <main style={PAGE_OUTER} data-testid="txr-help">
       <a
         href="#txr-help-content"
         className="txr-help-skip-link"
@@ -1067,193 +1104,213 @@ export function HelpPage() {
       >
         Skip to content
       </a>
-      <div style={PAGE_INNER} id="txr-help-content">
-        <div style={EYEBROW}>TxResBench</div>
-        <h1 style={TITLE}>Help</h1>
-        <p data-testid="txr-help-purpose" style={PURPOSE}>
-          How TxResBench works, what each screen does, and what to do when a file is flagged.
-        </p>
+      <PageFrame
+        testId="txr-help-frame"
+        top={
+          <div className="txr-help-top" style={PAGE_TOP}>
+            <div style={PAGE_INNER}>
+              <div style={EYEBROW}>TxResBench</div>
+              <h1 style={TITLE}>Help</h1>
+              <p data-testid="txr-help-purpose" style={PURPOSE}>
+                How TxResBench works, what each screen does, and what to do when a file is flagged.
+              </p>
 
-        <form
-          role="search"
-          className="txr-help-search"
-          onSubmit={event => event.preventDefault()}
-          style={{ margin: '0 0 14px', maxWidth: 420 }}
-        >
-          <Input
-            data-testid="txr-help-search-input"
-            aria-label="Search help"
-            placeholder="Search help — try “duplicate rows”"
-            value={query}
-            onChange={event => setQuery(event.target.value)}
-          />
-        </form>
-
-        {quickStartVisible ? (
-          <div
-            data-testid="txr-help-quickstart"
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-              gap: 12,
-              // qa-fixes3 ITEM-6 (e): the row's width is the GRID's width,
-              // not the page's — the quick-start cards used to run the full
-              // 1096 px inner column while the rail + content grid below is
-              // capped at 1048 px, so the cards stuck out 48 px past the
-              // text-column edges on desktop. Same cap, same centring.
-              maxWidth: 1048,
-              margin: '0 auto 18px',
-            }}
-          >
-            {QUICK_START.map(card => (
-              <section
-                key={card.id}
-                data-testid={`txr-help-quickstart-${card.id}`}
-                style={{
-                  ...CARD,
-                  border: '1px solid var(--txr-border)',
-                  padding: '11px 14px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 6,
-                }}
+              <form
+                role="search"
+                className="txr-help-search"
+                onSubmit={event => event.preventDefault()}
+                style={{ margin: '0 0 14px', maxWidth: 420 }}
               >
-                <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--txr-muted)' }}>
-                  {card.eyebrow}
-                </div>
-                <h2 style={{ margin: 0, fontFamily: "'Source Serif 4', Georgia, serif", fontWeight: 600, fontSize: 16.5, lineHeight: 1.25 }}>
-                  {card.title}
-                </h2>
-                <p style={{ margin: 0, color: 'var(--txr-text-2)', fontSize: 13 }}>{card.text}</p>
-                <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 6, paddingTop: 4 }}>
-                  <span
+                <Input
+                  data-testid="txr-help-search-input"
+                  aria-label="Search help"
+                  placeholder="Search help — try “duplicate rows”"
+                  value={query}
+                  onChange={event => setQuery(event.target.value)}
+                />
+              </form>
+            </div>
+          </div>
+        }
+        body={
+          <ScrollRegion
+            label="Help content"
+            className="txr-help-region"
+            testId="txr-help-region"
+          >
+            <div id="txr-help-content" style={REGION_CONTENT}>
+              <div style={PAGE_INNER}>
+                <RegionBridge regionRef={regionRef} />
+                {quickStartVisible ? (
+                  <div
+                    data-testid="txr-help-quickstart"
                     style={{
-                      ...PILL,
-                      alignSelf: 'flex-start',
-                      background: 'var(--txr-accent-soft)',
-                      color: 'var(--txr-brand-ink)',
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                      gap: 12,
+                      // qa-fixes3 ITEM-6 (e): the row's width is the GRID's
+                      // width, not the page's — the quick-start cards used to
+                      // run the full 1096 px inner column while the rail +
+                      // content grid below is capped at 1048 px, so the cards
+                      // stuck out 48 px past the text-column edges on
+                      // desktop. Same cap, same centring.
+                      maxWidth: 1048,
+                      margin: '0 auto 18px',
                     }}
                   >
-                    {card.screen}
-                  </span>
-                  <Link to={card.route} data-testid={`txr-help-quickstart-cta-${card.id}`} style={{ color: 'var(--txr-brand)', fontWeight: 600, fontSize: 13.5 }}>
-                    {card.cta} →
-                  </Link>
-                  {/* qa-fixes3 ITEM-5: the card's one-line example action —
-                      the same one-click "Use example" flow the Start screen's
-                      card runs, landing on the path's file step. */}
-                  <TxrUseExampleButton
-                    path={card.tryExample.path}
-                    label={card.tryExample.label}
-                    onDone={() =>
-                      navigate(
-                        card.tryExample.path === 'train'
-                          ? EXAMPLE_FILES_ROUTE
-                          : EXAMPLE_PREDICT_FILES_ROUTE,
-                      )
-                    }
-                  />
-                </div>
-              </section>
-            ))}
-          </div>
-        ) : null}
-
-        <div className="txr-help-grid">
-          {railVisible ? (
-            <nav aria-label="On this page" className="txr-help-rail" data-testid="txr-help-rail">
-              <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--txr-muted)' }}>
-                On this page
-              </p>
-              <ul style={{ display: 'flex', flexDirection: 'column', gap: 1, margin: 0, padding: 0, listStyle: 'none' }}>
-                {HELP_SECTIONS.map(section => (
-                  <li key={section.id}>
-                    <Link
-                      to={helpPath(section.id)}
-                      data-testid={`txr-help-toc-${section.id}`}
-                      aria-current={activeSection === section.id ? 'true' : undefined}
-                      onClick={() => setContentsOpen(false)}
-                      style={{
-                        display: 'block',
-                        padding: '4px 8px',
-                        borderRadius: 6,
-                        fontSize: 13,
-                        color: activeSection === section.id ? 'var(--txr-brand-ink)' : 'var(--txr-text-2)',
-                        fontWeight: activeSection === section.id ? 700 : 400,
-                        textDecoration: 'none',
-                        background: activeSection === section.id ? 'var(--txr-accent-soft)' : 'transparent',
-                      }}
-                    >
-                      {section.title}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </nav>
-          ) : null}
-
-          <div className="txr-help-content-column">
-            {!railVisible ? (
-              <div className="txr-help-contents-toggle">
-                <Collapsible open={contentsOpen} onOpenChange={setContentsOpen}>
-                  <CollapsibleTrigger
-                    className="txr-help-accordion-trigger"
-                    data-testid="txr-help-contents-toggle"
-                    style={{ padding: '8px 12px', border: '1px solid var(--txr-border)', borderRadius: 8, background: 'var(--txr-surface-dim)' }}
-                  >
-                    <span style={{ fontWeight: 600, fontSize: 13.5 }}>Contents</span>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent>
-                    <ul style={{ display: 'flex', flexDirection: 'column', gap: 1, margin: '6px 0 0', padding: '6px 8px', listStyle: 'none', border: '1px solid var(--txr-border)', borderRadius: 8, background: 'var(--txr-surface)' }}>
-                      {HELP_SECTIONS.map(section => (
-                        <li key={section.id}>
-                          <Link
-                            to={helpPath(section.id)}
-                            data-testid={`txr-help-contents-link-${section.id}`}
-                            onClick={() => setContentsOpen(false)}
-                            style={{ display: 'block', padding: '4px 8px', borderRadius: 6, fontSize: 13, color: 'var(--txr-text-2)', textDecoration: 'none' }}
+                    {QUICK_START.map(card => (
+                      <section
+                        key={card.id}
+                        data-testid={`txr-help-quickstart-${card.id}`}
+                        style={{
+                          ...CARD,
+                          border: '1px solid var(--txr-border)',
+                          padding: '11px 14px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 6,
+                        }}
+                      >
+                        <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--txr-muted)' }}>
+                          {card.eyebrow}
+                        </div>
+                        <h2 style={{ margin: 0, fontFamily: "'Source Serif 4', Georgia, serif", fontWeight: 600, fontSize: 16.5, lineHeight: 1.25 }}>
+                          {card.title}
+                        </h2>
+                        <p style={{ margin: 0, color: 'var(--txr-text-2)', fontSize: 13 }}>{card.text}</p>
+                        <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 6, paddingTop: 4 }}>
+                          <span
+                            style={{
+                              ...PILL,
+                              alignSelf: 'flex-start',
+                              background: 'var(--txr-accent-soft)',
+                              color: 'var(--txr-brand-ink)',
+                            }}
                           >
-                            {section.title}
+                            {card.screen}
+                          </span>
+                          <Link to={card.route} data-testid={`txr-help-quickstart-cta-${card.id}`} style={{ color: 'var(--txr-brand)', fontWeight: 600, fontSize: 13.5 }}>
+                            {card.cta} →
                           </Link>
-                        </li>
-                      ))}
-                    </ul>
-                  </CollapsibleContent>
-                </Collapsible>
-              </div>
-            ) : null}
+                          {/* qa-fixes3 ITEM-5: the card's one-line example action —
+                              the same one-click "Use example" flow the Start screen's
+                              card runs, landing on the path's file step. */}
+                          <TxrUseExampleButton
+                            path={card.tryExample.path}
+                            label={card.tryExample.label}
+                            onDone={() =>
+                              navigate(
+                                card.tryExample.path === 'train'
+                                  ? EXAMPLE_FILES_ROUTE
+                                  : EXAMPLE_PREDICT_FILES_ROUTE,
+                              )
+                            }
+                          />
+                        </div>
+                      </section>
+                    ))}
+                  </div>
+                ) : null}
 
-            {sectionsVisible.map(section =>
-              section.id === 'troubleshooting' ? (
-                <Section key={section.id} section={section} query={query}>
-                  <Troubleshooting query={query} expanded={expanded} onToggle={toggleProblem} />
-                </Section>
-              ) : (
-                <Section key={section.id} section={section} query={query} />
-              ),
-            )}
+                <div className="txr-help-grid">
+                  {railVisible ? (
+                    <nav aria-label="On this page" className="txr-help-rail" data-testid="txr-help-rail">
+                      <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--txr-muted)' }}>
+                        On this page
+                      </p>
+                      <ul style={{ display: 'flex', flexDirection: 'column', gap: 1, margin: 0, padding: 0, listStyle: 'none' }}>
+                        {HELP_SECTIONS.map(section => (
+                          <li key={section.id}>
+                            <Link
+                              to={helpPath(section.id)}
+                              data-testid={`txr-help-toc-${section.id}`}
+                              aria-current={activeSection === section.id ? 'true' : undefined}
+                              onClick={() => setContentsOpen(false)}
+                              style={{
+                                display: 'block',
+                                padding: '4px 8px',
+                                borderRadius: 6,
+                                fontSize: 13,
+                                color: activeSection === section.id ? 'var(--txr-brand-ink)' : 'var(--txr-text-2)',
+                                fontWeight: activeSection === section.id ? 700 : 400,
+                                textDecoration: 'none',
+                                background: activeSection === section.id ? 'var(--txr-accent-soft)' : 'transparent',
+                              }}
+                            >
+                              {section.title}
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                    </nav>
+                  ) : null}
 
-            {sectionsVisible.length === 0 ? (
-              <div
-                data-testid="txr-help-no-results"
-                style={{
-                  padding: '18px 16px',
-                  border: '1px dashed var(--txr-border)',
-                  borderRadius: 10,
-                  background: 'var(--txr-bg)',
-                  color: 'var(--txr-text-2)',
-                }}
-              >
-                No match for “{query}” in the Help pages.{' '}
-                <Button variant="link" data-testid="txr-help-clear-search" onClick={() => setQuery('')}>
-                  Clear the search
-                </Button>
-                . Try a problem code such as R07, or a word like “duplicate”.
+                  <div className="txr-help-content-column">
+                    {!railVisible ? (
+                      <div className="txr-help-contents-toggle">
+                        <Collapsible open={contentsOpen} onOpenChange={setContentsOpen}>
+                          <CollapsibleTrigger
+                            className="txr-help-accordion-trigger"
+                            data-testid="txr-help-contents-toggle"
+                            style={{ padding: '8px 12px', border: '1px solid var(--txr-border)', borderRadius: 8, background: 'var(--txr-surface-dim)' }}
+                          >
+                            <span style={{ fontWeight: 600, fontSize: 13.5 }}>Contents</span>
+                          </CollapsibleTrigger>
+                          <CollapsibleContent>
+                            <ul style={{ display: 'flex', flexDirection: 'column', gap: 1, margin: '6px 0 0', padding: '6px 8px', listStyle: 'none', border: '1px solid var(--txr-border)', borderRadius: 8, background: 'var(--txr-surface)' }}>
+                              {HELP_SECTIONS.map(section => (
+                                <li key={section.id}>
+                                  <Link
+                                    to={helpPath(section.id)}
+                                    data-testid={`txr-help-contents-link-${section.id}`}
+                                    onClick={() => setContentsOpen(false)}
+                                    style={{ display: 'block', padding: '4px 8px', borderRadius: 6, fontSize: 13, color: 'var(--txr-text-2)', textDecoration: 'none' }}
+                                  >
+                                    {section.title}
+                                  </Link>
+                                </li>
+                              ))}
+                            </ul>
+                          </CollapsibleContent>
+                        </Collapsible>
+                      </div>
+                    ) : null}
+
+                    {sectionsVisible.map(section =>
+                      section.id === 'troubleshooting' ? (
+                        <Section key={section.id} section={section} query={query}>
+                          <Troubleshooting query={query} expanded={expanded} onToggle={toggleProblem} />
+                        </Section>
+                      ) : (
+                        <Section key={section.id} section={section} query={query} />
+                      ),
+                    )}
+
+                    {sectionsVisible.length === 0 ? (
+                      <div
+                        data-testid="txr-help-no-results"
+                        style={{
+                          padding: '18px 16px',
+                          border: '1px dashed var(--txr-border)',
+                          borderRadius: 10,
+                          background: 'var(--txr-bg)',
+                          color: 'var(--txr-text-2)',
+                        }}
+                      >
+                        No match for “{query}” in the Help pages.{' '}
+                        <Button variant="link" data-testid="txr-help-clear-search" onClick={() => setQuery('')}>
+                          Clear the search
+                        </Button>
+                        . Try a problem code such as R07, or a word like “duplicate”.
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
               </div>
-            ) : null}
-          </div>
-        </div>
-      </div>
+            </div>
+          </ScrollRegion>
+        }
+      />
 
       {showBackTop ? (
         <Button

@@ -6,6 +6,9 @@ import { ApiClient } from '@/api-client'
 import type { FileTableKind } from '@/api-client/types'
 import { useStore } from 'zustand'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
+import { PageFrame } from '@/modules/txrshell/components/PageFrame'
+import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
+import { PageFooterBar } from '@/modules/txrshell/components/PageFooterBar'
 import { TxrIntake, useTxrIntakeStore } from '../stores/TxrIntake.store'
 import {
   cardProblems,
@@ -66,20 +69,39 @@ import type { ColumnRenameOffer, JoinOffer, LoadedFile, VocabOffer } from '../ty
 
 const STUDY_ROUTE = '/study'
 
-const PAGE_CONTAINER: CSSProperties = {
-  flexGrow: 1,
+/** The page's frame host. */
+const PAGE_ROOT: CSSProperties = {
+  height: '100%',
+  minHeight: 0,
+  minWidth: 0,
+  display: 'flex',
+  flexDirection: 'column',
+}
+
+const PAGE_TOP: CSSProperties = {
   boxSizing: 'border-box',
-  padding: '40px 48px',
+  padding: '40px 48px 10px',
   maxWidth: 1280,
   margin: '0 auto',
   width: '100%',
-  display: 'flex',
-  flexWrap: 'wrap',
-  alignItems: 'flex-start',
 }
 
 /** The page container's phone class (the ITEM-6 narrow block in index.css). */
 const PAGE_CONTAINER_CLASS = 'txr-intake-page'
+
+/** The body region's content: the card column and the aside side by side on
+ *  wide windows (the same flex-wrap the old two-column row used), inside ONE
+ *  scroll region (the audit's "/files, /predict-files: the cards"). */
+const BODY_CONTENT: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  alignItems: 'flex-start',
+  boxSizing: 'border-box',
+  padding: '0 48px 24px',
+  maxWidth: 1280,
+  margin: '0 auto',
+  width: '100%',
+}
 
 /** The board's left main column (the card + the Continue footer). */
 const MAIN_COLUMN: CSSProperties = {
@@ -417,135 +439,149 @@ export function PredictFilesPage() {
   return (
     <div
       role="main"
-      style={PAGE_CONTAINER}
+      style={PAGE_ROOT}
       className={PAGE_CONTAINER_CLASS}
       data-testid="txr-intake-predict-files"
     >
-      <div style={MAIN_COLUMN}>
-        <div>
-          <div style={STEP_LINE}>Step 3 of 4</div>
-          <h1 style={TITLE}>Add the patients to predict</h1>
-          <p style={INTRO}>
-            Only their blood measurements. Used only for the analyses you start. Match the
-            example; we check the file as soon as you choose it.
-          </p>
-        </div>
+      <PageFrame
+        top={
+          <div className="txr-intake-top txr-intake-page-top" style={PAGE_TOP}>
+            <div>
+              <div style={STEP_LINE}>Step 3 of 4</div>
+              <h1 style={TITLE}>Add the patients to predict</h1>
+              <p style={INTRO}>
+                Only their blood measurements. Used only for the analyses you start. Match the
+                example; we check the file as soon as you choose it.
+              </p>
+            </div>
 
-        {pendingUseId !== null ? (
-          <p data-testid="txr-intake-pending-use" style={INTRO}>
-            You chose the model &ldquo;{pendingUseName ?? 'this model'}&rdquo;. Add its
-            patients&rsquo; measurements to predict.
-          </p>
-        ) : null}
+            {pendingUseId !== null ? (
+              <p data-testid="txr-intake-pending-use" style={INTRO}>
+                You chose the model &ldquo;{pendingUseName ?? 'this model'}&rdquo;. Add its
+                patients&rsquo; measurements to predict.
+              </p>
+            ) : null}
 
-        <div
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 10,
-          }}
-        >
-          {exampleLoaded ? (
-            <p data-testid="txr-intake-example-loaded" style={{ ...INTRO, margin: 0 }}>
-              {EXAMPLE_BANNER} —{' '}
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 10,
+              }}
+            >
+              {exampleLoaded ? (
+                <p data-testid="txr-intake-example-loaded" style={{ ...INTRO, margin: 0 }}>
+                  {EXAMPLE_BANNER} —{' '}
+                  <Button
+                    data-testid="txr-intake-clear-example"
+                    variant="link"
+                    style={{ padding: 0, color: 'var(--txr-brand)', fontWeight: 600 }}
+                    onClick={clearExamples}
+                  >
+                    {CLEAR_EXAMPLE_LABEL}
+                  </Button>{' '}
+                  to start with your own.
+                </p>
+              ) : (
+                <span style={INTRO}></span>
+              )}
+              <TxrUseExampleButton path={intent === 'reuse' ? 'reuse' : 'pretrained'} />
+            </div>
+          </div>
+        }
+        body={
+          <ScrollRegion label="Your file" className="txr-predict-files-region">
+            <div className="txr-intake-page-body" style={BODY_CONTENT}>
+              <div style={MAIN_COLUMN}>
+                <TxrFileCard
+                  kind="measurements"
+                  mode="predict"
+                  file={file}
+                  busy={busy}
+                  error={cardError}
+                  isExample={exampleSlots.predictMeasurements}
+                  onPick={picked => void handlePick('measurements', picked)}
+                  onRemove={handleRemove}
+                  onAcceptJoin={acceptJoin}
+                  onRejectJoin={rejectJoin}
+                  onAcceptVocab={acceptVocab}
+                  onRejectVocab={rejectVocab}
+                  onAcceptColumn={acceptColumn}
+                  onRejectColumn={rejectColumn}
+                  onDownloadTemplate={() => void downloadCsv('template')}
+                  onDownloadExample={() => void downloadCsv('example')}
+                />
+              </div>
+
+              <aside style={ASIDE} data-testid="txr-intake-aside">
+                <div style={ASIDE_EYEBROW}>What the models look for</div>
+                <p style={ASIDE_PARA}>
+                  {/* R2-12: the aside's lead must name the path the Continue takes —
+                      the board's "pretrained models" byte is the pretrained path's;
+                      a saved-model flow reads its own words. */}
+                  {intent === 'reuse'
+                    ? 'After you add the file we check which of your saved models can run on it. These are the draws most models use:'
+                    : 'After you add the file we check which pretrained models can run on it. These are the draws most models use:'}
+                </p>
+                <ul style={ASIDE_LIST}>
+                  <li style={ASIDE_ITEM}>
+                    <b>Before treatment</b> (day 0): needed by almost all models
+                  </li>
+                  <li style={ASIDE_ITEM}>
+                    <b>Early on treatment</b> (about day 14 to 28): needed by the models that look at
+                    change
+                  </li>
+                  <li style={ASIDE_ITEM}>
+                    <b>Markers</b>: ctDNA, LDH, blood counts and tumour markers are the most used. The
+                    more you measured, the more models can run
+                  </li>
+                  <li style={ASIDE_ITEM}>
+                    <b>Units</b>: add the unit column so we can check that the scale matches the model
+                  </li>
+                </ul>
+                <div style={ASIDE_NOTE}>
+                  Not sure what you have?{' '}
+                  <Link data-testid="txr-intake-aside-study" style={ASIDE_LINK} to={STUDY_ROUTE}>
+                    Answer the questions about your study
+                  </Link>{' '}
+                  on the previous screen, or just add the file: nothing is lost if some models cannot run.
+                </div>
+                <div style={ASIDE_FOOTER}>No outcomes are needed, and no patients file.</div>
+              </aside>
+            </div>
+          </ScrollRegion>
+        }
+        bottom={
+          <PageFooterBar className="txr-intake-footer-bar">
+            <div style={{ ...FOOTER, width: '100%' }} className="txr-intake-footer">
+              <span style={FOOTER_LABEL}>
+                {file === null
+                  ? 'Add the measurements file to check which models can run on it.'
+                  : validation === null
+                    ? 'We check the file as soon as you choose it.'
+                    : !canContinue
+                      ? 'Fix the problems to continue.'
+                      : 'The file checks out — continue to the models.'}
+              </span>
+              {validateError !== null ? (
+                <span role="alert" style={PAGE_ERROR}>
+                  {validateError}
+                </span>
+              ) : null}
               <Button
-                data-testid="txr-intake-clear-example"
-                variant="link"
-                style={{ padding: 0, color: 'var(--txr-brand)', fontWeight: 600 }}
-                onClick={clearExamples}
+                data-testid="txr-intake-continue"
+                style={PRIMARY_BUTTON}
+                disabled={!canContinue}
+                onClick={continueFlow}
               >
-                {CLEAR_EXAMPLE_LABEL}
-              </Button>{' '}
-              to start with your own.
-            </p>
-          ) : (
-            <span style={INTRO}></span>
-          )}
-          <TxrUseExampleButton path={intent === 'reuse' ? 'reuse' : 'pretrained'} />
-        </div>
-
-        <TxrFileCard
-          kind="measurements"
-          mode="predict"
-          file={file}
-          busy={busy}
-          error={cardError}
-          isExample={exampleSlots.predictMeasurements}
-          onPick={picked => void handlePick('measurements', picked)}
-          onRemove={handleRemove}
-          onAcceptJoin={acceptJoin}
-          onRejectJoin={rejectJoin}
-          onAcceptVocab={acceptVocab}
-          onRejectVocab={rejectVocab}
-          onAcceptColumn={acceptColumn}
-          onRejectColumn={rejectColumn}
-          onDownloadTemplate={() => void downloadCsv('template')}
-          onDownloadExample={() => void downloadCsv('example')}
-        />
-
-        <div style={FOOTER} className="txr-intake-footer">
-          <span style={FOOTER_LABEL}>
-            {file === null
-              ? 'Add the measurements file to check which models can run on it.'
-              : validation === null
-                ? 'We check the file as soon as you choose it.'
-                : !canContinue
-                  ? 'Fix the problems to continue.'
-                  : 'The file checks out — continue to the models.'}
-          </span>
-          {validateError !== null ? (
-            <span role="alert" style={PAGE_ERROR}>
-              {validateError}
-            </span>
-          ) : null}
-          <Button
-            data-testid="txr-intake-continue"
-            style={PRIMARY_BUTTON}
-            disabled={!canContinue}
-            onClick={continueFlow}
-          >
-            Continue: choose models
-          </Button>
-        </div>
-      </div>
-
-      <aside style={ASIDE} data-testid="txr-intake-aside">
-        <div style={ASIDE_EYEBROW}>What the models look for</div>
-        <p style={ASIDE_PARA}>
-          {/* R2-12: the aside's lead must name the path the Continue takes —
-              the board's "pretrained models" byte is the pretrained path's;
-              a saved-model flow reads its own words. */}
-          {intent === 'reuse'
-            ? 'After you add the file we check which of your saved models can run on it. These are the draws most models use:'
-            : 'After you add the file we check which pretrained models can run on it. These are the draws most models use:'}
-        </p>
-        <ul style={ASIDE_LIST}>
-          <li style={ASIDE_ITEM}>
-            <b>Before treatment</b> (day 0): needed by almost all models
-          </li>
-          <li style={ASIDE_ITEM}>
-            <b>Early on treatment</b> (about day 14 to 28): needed by the models that look at
-            change
-          </li>
-          <li style={ASIDE_ITEM}>
-            <b>Markers</b>: ctDNA, LDH, blood counts and tumour markers are the most used. The
-            more you measured, the more models can run
-          </li>
-          <li style={ASIDE_ITEM}>
-            <b>Units</b>: add the unit column so we can check that the scale matches the model
-          </li>
-        </ul>
-        <div style={ASIDE_NOTE}>
-          Not sure what you have?{' '}
-          <Link data-testid="txr-intake-aside-study" style={ASIDE_LINK} to={STUDY_ROUTE}>
-            Answer the questions about your study
-          </Link>{' '}
-          on the previous screen, or just add the file: nothing is lost if some models cannot run.
-        </div>
-        <div style={ASIDE_FOOTER}>No outcomes are needed, and no patients file.</div>
-      </aside>
+                Continue: choose models
+              </Button>
+            </div>
+          </PageFooterBar>
+        }
+      />
     </div>
   )
 }

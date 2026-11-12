@@ -5,9 +5,15 @@
  * segment omitted when the fact is unknown), the concurrency line ("N run at
  * a time on M CPUs" — DEC-4/OWNER-1: the board's memory segment is omitted,
  * the engine exposes only `memory_total_bytes` and nothing tells us the
- * application's live footprint), the "See the results" link (DEC-12) and the
- * research-use caption (DEC-11, ONE constant — the same string E's bar
- * renders).
+ * application's live footprint), and the research-use caption (DEC-11, ONE
+ * constant — the same string E's bar renders).
+ *
+ * app-shell ITEM-2 — the SEE-THE-RESULTS affordance moved to the page's
+ * fixed bottom bar (the audit route table's "Stop all / See results" row);
+ * this header keeps the summary facts only. DEC-12's rule (live exactly
+ * when `predictions_ready || ≥1 finished row`) is enforced where the link
+ * now lives — the page renders it only with the same `predictionsReady`
+ * fact.
  *
  * The component is PRESENTATIONAL, exactly as the frozen props scope it:
  * every string here is pre-formatted by the page (INV-4 — the time-left
@@ -24,23 +30,11 @@
  * — once it is over. A terminal run's title never claims the run is still
  * running.
  *
- * "See the results" lives beside the title, visible exactly when the page
- * says the run has something to show (DEC-12's rule — the page passes
- * `predictions_ready || ≥1 finished row` as `predictionsReady`): the link
- * target is `txrresults`' own `resultsPath(runId)` builder (CONS-UI-RUN-15,
- * PROV-UR-1 — the provider declares this consumer; never a URL literal),
- * and the click also reports through the host's `onSeeResults` (the same
- * navigation the page owns — one affordance, one path). The link reads in
- * the board's link tone (RP-8: it was bold dark text, indistinguishable
- * from a caption).
- *
  * The board's overall two-segment progress bar is NOT here: neither the
  * frozen header nor the counts-strip props carry an overall percentage
  * (the board's 37 % is a design example; see DRIFT-1 ITEM-9).
  */
 import type { CSSProperties } from 'react'
-import { Link } from 'react-router-dom'
-import { resultsPath } from '@/modules/txrresults/routes'
 import type { TxrRunStatus } from '@/api-client/types'
 import { RESEARCH_NOTICE } from '../lib/format'
 
@@ -76,13 +70,6 @@ const FOOTER_ROW: CSSProperties = {
   alignItems: 'baseline',
   justifyContent: 'space-between',
   gap: 8,
-}
-
-const SEE_RESULTS: CSSProperties = {
-  fontSize: 14,
-  fontWeight: 400,
-  color: 'var(--txr-brand)',
-  textDecoration: 'none',
 }
 
 const NOTICE: CSSProperties = { fontSize: 13, color: 'var(--txr-muted)' }
@@ -139,13 +126,6 @@ export interface TxrRunHeaderProps {
   atATime: number | null
   /** The detected CPU count (null — omit the "on M CPUs" segment). */
   cpus: number | null
-  /** DEC-12's effective readiness (`predictions_ready` OR ≥1 finished row —
-   *  the page computes the OR; this header renders exactly what it is told). */
-  predictionsReady: boolean
-  /** The run id — the "See the results" link's target builder argument. */
-  runId: string
-  /** The host's own navigation (the same run the link points to — one affordance). */
-  onSeeResults: () => void
 }
 
 export function TxrRunHeader({
@@ -155,9 +135,6 @@ export function TxrRunHeader({
   estimateWord,
   atATime,
   cpus,
-  predictionsReady,
-  runId,
-  onSeeResults,
 }: TxrRunHeaderProps) {
   // The board's time line ("about N minutes left · M min S s elapsed"): each
   // segment stands alone when the other fact is missing; no segment renders
@@ -190,17 +167,6 @@ export function TxrRunHeader({
         </div>
       ) : null}
       <div style={FOOTER_ROW}>
-        {predictionsReady ? (
-          <Link
-            data-testid="txr-run-see-results"
-            className="txr-run-see-results"
-            to={resultsPath(runId)}
-            onClick={onSeeResults}
-            style={SEE_RESULTS}
-          >
-            See the results
-          </Link>
-        ) : null}
         <div data-testid="txr-run-notice" style={NOTICE}>
           {RESEARCH_NOTICE}
         </div>

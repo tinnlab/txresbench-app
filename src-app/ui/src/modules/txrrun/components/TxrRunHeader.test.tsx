@@ -1,23 +1,24 @@
-// @vitest-environment jsdom
+ // @vitest-environment jsdom
 /**
  * TEST-RUN-18 — the F header (`components/TxrRunHeader.tsx`, ITEM-9;
- * PROV-UI-RUN-5, INV-2, CONS-UI-RUN-15, DEC-4/11/12): the title's count
+ * PROV-UI-RUN-5, INV-2, CONS-UI-RUN-15, DEC-4/11): the title's count
  * from the run's rows, the time-left/elapsed line (each segment omitted
  * when unknown, the board's "·"-joined sentence), the concurrency line
  * ("N run at a time on M CPUs" — the memory segment is absent per DEC-4/
- * OWNER-1, the bare "N run at a time" when the run detected no CPU count), the
- * "See the results" link (exactly when the run is results-readable —
- * DEC-12's effective readiness; target via `txrresults`' own
- * `resultsPath(runId)` builder, never a URL literal) and the research-use
- * caption (DEC-11 — one constant with E's bar).
+ * OWNER-1, the bare "N run at a time" when the run detected no CPU count)
+ * and the research-use caption (DEC-11 — one constant with E's bar).
+ *
+ * app-shell ITEM-2 — the "See the results" affordance MOVED to the page's
+ * fixed bottom bar (the audit route table's "Stop all / See results" row);
+ * DEC-12's readiness rule and the board's link tone are now pinned by the
+ * page suite (`RunningPage.test.tsx`), which renders the bar.
  *
  * Every expected string is built from the fixture's own synthetic numbers;
  * the board's example values are design examples, never data (INV-6).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { resultsPath } from '@/modules/txrresults/routes'
 import { RESEARCH_NOTICE } from '../lib/format'
 import { formatRunTitle, TxrRunHeader, type TxrRunHeaderProps } from './TxrRunHeader'
 
@@ -34,9 +35,6 @@ function propsOf(overrides: Partial<TxrRunHeaderProps> = {}): TxrRunHeaderProps 
     estimateWord: 'measured estimate',
     atATime: 3,
     cpus: 4,
-    predictionsReady: false,
-    runId: 'run-1',
-    onSeeResults: () => undefined,
     ...overrides,
   }
 }
@@ -138,29 +136,13 @@ describe('TxrRunHeader (F header, TEST-RUN-18)', () => {
     expect(screen.queryByTestId('txr-run-concurrency')).toBeNull()
   })
 
-  it('shows the See-the-results link exactly when the page says results are ready, pointing at the results builder', () => {
-    const onSeeResults = vi.fn()
-    renderHeader({ predictionsReady: true, onSeeResults })
-    const link = screen.getByTestId('txr-run-see-results')
-    expect(link.textContent).toBe('See the results')
-    expect(link.getAttribute('href')).toBe(resultsPath('run-1'))
-    fireEvent.click(link)
-    expect(onSeeResults).toHaveBeenCalledTimes(1)
-
-    cleanup()
-    renderHeader({ predictionsReady: false })
-    expect(screen.queryByTestId('txr-run-see-results')).toBeNull()
-  })
-
-  it('the See-results link reads in the board\'s link tone — a link, not a bold caption (RP-8)', () => {
-    renderHeader({ predictionsReady: true })
-    const link = screen.getByTestId('txr-run-see-results')
-    expect(link.style.color).toBe('var(--txr-brand)')
-    expect(link.style.fontWeight).toBe('400')
-  })
-
   it('renders the research-use caption on the F header (DEC-11: one constant with E)', () => {
     renderHeader()
     expect(screen.getByTestId('txr-run-notice').textContent).toBe(RESEARCH_NOTICE)
+  })
+
+  it('carries no See-the-results affordance itself (ITEM-2: the page\'s bottom bar owns it)', () => {
+    renderHeader()
+    expect(screen.queryByTestId('txr-run-see-results')).toBeNull()
   })
 })

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from 'zustand'
 import { ApiClient } from '@/api-client'
@@ -18,6 +18,13 @@ import {
 } from '@/modules/txrlist'
 import { Alert, Button, message, Skeleton } from '@ziee/kit'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
+import { useShortShell } from '../lib/useNarrow'
+import {
+  PageFrame,
+} from '@/modules/txrshell/components/PageFrame'
+import {
+  ScrollRegion,
+} from '@/modules/txrshell/components/ScrollRegion'
 import {
   droppedNotice,
   RUN_ALREADY_ACTIVE_LINE,
@@ -66,26 +73,48 @@ import type { TxrMethodCard } from '@/modules/txrlist'
  * - the create path is unchanged: `buildRunRequest` → `Txr.createRun`, the
  *   202 → `runningPath`, the 404/409 resolutions, the one-create-in-flight
  *   guard (see the ITEM-8 notes carried in the git history).
+ *
+ * app-shell ITEM-2 — the frame byte (the audit's route table): the fixed
+ * top holds the step/title, the files summary, the settings card and the
+ * picker TOOLBAR (the picker's own `layout` split keeps its state local),
+ * the method list is ONE ScrollRegion (the sections' sticky headers stick
+ * to ITS top — the audit's "the list is the scroll region with sticky
+ * section headers"), the run bar is pinned in the frame's bottom slot, and
+ * the page itself never scrolls. The `layout` callback renders the WHOLE
+ * PageFrame because the picker owns the toolbar/list seam.
  */
 
 const PAGE_OUTER: CSSProperties = {
-  flexGrow: 1,
-  height: 'calc(100dvh - 56px)',
+  height: '100%',
   minHeight: 0,
   display: 'flex',
   flexDirection: 'column',
   minWidth: 0,
 }
 
-const PAGE_MAIN: CSSProperties = {
-  flexGrow: 1,
-  minHeight: 0,
-  overflowY: 'auto',
-  boxSizing: 'border-box',
-  padding: '24px 36px',
+/** The fixed top's own padding (the frame's page chrome). */
+const PAGE_TOP: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 12,
+  padding: '24px 36px 0',
+  minWidth: 0,
+}
+
+/** The picker's fixed-toolbar slot (the picker's split wrapper). */
+const PICKER_SPLIT: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 14,
+  minWidth: 0,
+}
+
+/** The list region's content padding (the region scrolls, the padding rides). */
+const REGION_CONTENT: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 14,
+  padding: '12px 36px 24px',
   minWidth: 0,
 }
 
@@ -187,6 +216,7 @@ function TxrMethodPickerFrame({
   onCards,
   onChangeFiles,
   onChangeSettings,
+  layout,
 }: {
   inventory: InventoryEligibilityRequest
   selected: ReadonlySet<string>
@@ -194,6 +224,7 @@ function TxrMethodPickerFrame({
   onCards(cards: TxrMethodCard[]): void
   onChangeFiles(): void
   onChangeSettings(): void
+  layout: NonNullable<Parameters<typeof TxrMethodPicker>[0]['layout']>
 }) {
   const { cards, loading, error, refetch } = useMethodRows(inventory)
   // The user's own selection change (a manual tick or a preset) turns the
@@ -252,6 +283,7 @@ function TxrMethodPickerFrame({
       onSelectionChange={changeSelection}
       onChangeFiles={onChangeFiles}
       onChangeSettings={onChangeSettings}
+      layout={layout}
     />
   )
 }
@@ -266,6 +298,10 @@ export function ChooseMethodsPage() {
   const creating = useRef(false)
   const settingsAnchor = useRef<HTMLDivElement | null>(null)
   useDocumentTitle('Choose the methods and settings')
+  /** A short shell window collapses the summary + settings cards by
+   *  default (the expanded chrome cannot share a 720/768 px shell window
+   *  with the list — the audit's fixed-top byte, ITEM-2). */
+  const short = useShortShell()
   const mode = useStore(useTxrIntakeStore, s => s.mode)
   const patients = useStore(useTxrIntakeStore, s => s.patients)
   const measurements = useStore(useTxrIntakeStore, s => s.measurements)
@@ -407,105 +443,158 @@ export function ChooseMethodsPage() {
   if (missing !== null) {
     return (
       <main data-testid="txr-run" className="txr-run-page" style={PAGE_OUTER}>
-        <div style={PAGE_MAIN}>
-          <div style={STEP_LINE}>Step 4 of 4</div>
-          <h1 style={TITLE}>Choose the methods and settings</h1>
-          <TxrRunEmptyState missing={missing} onStartNew={() => navigate('/')} />
+        <PageFrame
+          top={
+            <div style={PAGE_TOP}>
+              <div style={STEP_LINE}>Step 4 of 4</div>
+              <h1 style={TITLE}>Choose the methods and settings</h1>
+            </div>
+          }
+          body={
+            <ScrollRegion label="Methods to choose">
+              <div style={REGION_CONTENT}>
+                <TxrRunEmptyState missing={missing} onStartNew={() => navigate('/')} />
+              </div>
+            </ScrollRegion>
+          }
+        />
+      </main>
+    )
+  }
+
+  /** The fixed top's page chrome (the picker's toolbar joins it when the
+   *  picker is mounted — the toolbar state stays inside the picker). */
+  const top = (toolbar: ReactNode | null): ReactNode => (
+    <div className="txr-run-top" style={PAGE_TOP}>
+      <div style={STEP_LINE}>Step 4 of 4</div>
+      <h1 style={TITLE}>Choose the methods and settings</h1>
+      <p data-testid="txr-run-intro" style={INTRO}>
+        Run these methods on your patients. Checked against your files;
+        each learns from your {inventory !== null ? inventory.patients : 0}{' '}
+        patients, then predicts.
+      </p>
+      <TxrFilesSummary
+        line={filesSummary.line}
+        markerNames={filesSummary.markerNames}
+        details={filesSummary.details}
+        onChangeFiles={() => setChangeOpen(true)}
+        collapsed={short}
+      />
+      <div ref={settingsAnchor}>
+        {runConfig.loading ? (
+          <Skeleton data-testid="txr-run-settings-loading" style={SETTINGS_SKELETON} />
+        ) : (
+          <>
+            {runConfig.error !== null ? (
+              <Alert
+                tone="warning"
+                data-testid="txr-run-settings-error"
+                title={runConfig.error}
+              >
+                <Button
+                  variant="outline"
+                  data-testid="txr-run-settings-retry"
+                  onClick={runConfig.retry}
+                >
+                  Retry
+                </Button>
+              </Alert>
+            ) : null}
+            <TxrSettingsBlock
+              value={settings}
+              covariates={covariates}
+              onChange={change}
+              onMoreSettings={next => change({ ...settings, ...next })}
+              collapsed={short}
+            />
+          </>
+        )}
+      </div>
+      {runError !== null ? (
+        <Alert tone="error" data-testid="txr-run-create-error" title={runError} />
+      ) : null}
+      {runNotice !== null ? (
+        <Alert tone="warning" data-testid="txr-run-create-notice" title={runNotice} />
+      ) : null}
+      {toolbar !== null ? (
+        <div data-testid="txr-method-picker" style={PICKER_SPLIT}>
+          {toolbar}
         </div>
+      ) : null}
+    </div>
+  )
+
+  /** The list region (the ONE scroll container of the page). */
+  const body = (list: ReactNode): ReactNode => (
+    <ScrollRegion label="Methods to choose" className="txr-run-methods-region">
+      <div className="txr-run-methods-content" style={REGION_CONTENT}>{list}</div>
+    </ScrollRegion>
+  )
+
+  const runBar =
+    inventory !== null ? (
+      <TxrRunBar
+        selectedCount={countSelected(selected, cards)}
+        timeText={formatRunBarTime(estimate.scheduleSeconds, settings.at_a_time, settings.cpus)}
+        atATime={settings.at_a_time}
+        saveModels={{
+          checked: settings.save_models,
+          onChange: value => change({ ...settings, save_models: value }),
+        }}
+        onRun={opts => {
+          // The bar reports the OPTIONS; the keys are the selection minus
+          // the cards this page can see are disabled (the rule set the
+          // shared selection helpers compute on the D/I screens).
+          const disabled = new Set(cards.filter(card => card.run.disabled).map(card => card.key))
+          const keys = [...selected].filter(key => !disabled.has(key))
+          void createRun(keys, opts)
+        }}
+      />
+    ) : null
+
+  if (settingsInventory === null) {
+    return (
+      <main data-testid="txr-run" className="txr-run-page" style={PAGE_OUTER}>
+        <PageFrame
+          top={top(null)}
+          body={body(
+            <div data-testid="txr-run-list-pending" style={PENDING_BLOCK}>
+              <p style={PENDING_LINE}>{PENDING_REFRESH_LINE}</p>
+            </div>,
+          )}
+          bottom={runBar}
+        />
+        <TxrChangeFilesDialog
+          mode={mode}
+          open={changeOpen}
+          onOpenChange={setChangeOpen}
+        />
       </main>
     )
   }
 
   return (
-    <main data-testid="txr-run" className="txr-run-page" style={PAGE_OUTER}>
-      <div style={PAGE_MAIN}>
-        <div style={STEP_LINE}>Step 4 of 4</div>
-        <h1 style={TITLE}>Choose the methods and settings</h1>
-        <p data-testid="txr-run-intro" style={INTRO}>
-          Run these methods on your patients. Checked against your files;
-          each learns from your {inventory !== null ? inventory.patients : 0}{' '}
-          patients, then predicts.
-        </p>
-        <TxrFilesSummary
-          line={filesSummary.line}
-          markerNames={filesSummary.markerNames}
-          details={filesSummary.details}
-          onChangeFiles={() => setChangeOpen(true)}
-        />
-        <div ref={settingsAnchor}>
-          {runConfig.loading ? (
-            <Skeleton data-testid="txr-run-settings-loading" style={SETTINGS_SKELETON} />
-          ) : (
-            <>
-              {runConfig.error !== null ? (
-                <Alert
-                  tone="warning"
-                  data-testid="txr-run-settings-error"
-                  title={runConfig.error}
-                >
-                  <Button
-                    variant="outline"
-                    data-testid="txr-run-settings-retry"
-                    onClick={runConfig.retry}
-                  >
-                    Retry
-                  </Button>
-                </Alert>
-              ) : null}
-              <TxrSettingsBlock
-                value={settings}
-                covariates={covariates}
-                onChange={change}
-                onMoreSettings={next => change({ ...settings, ...next })}
-              />
-            </>
-          )}
-        </div>
-        {runError !== null ? (
-          <Alert tone="error" data-testid="txr-run-create-error" title={runError} />
-        ) : null}
-        {runNotice !== null ? (
-          <Alert tone="warning" data-testid="txr-run-create-notice" title={runNotice} />
-        ) : null}
-        {settingsInventory !== null ? (
-          <TxrMethodPickerFrame
-            inventory={settingsInventory}
-            selected={selected}
-            onSelectionChange={setSelected}
-            onCards={setCards}
-            onChangeFiles={() => setChangeOpen(true)}
-            onChangeSettings={onChangeSettings}
+    <TxrMethodPickerFrame
+      inventory={settingsInventory}
+      selected={selected}
+      onSelectionChange={setSelected}
+      onCards={setCards}
+      onChangeFiles={() => setChangeOpen(true)}
+      onChangeSettings={onChangeSettings}
+      layout={pickerParts => (
+        <main data-testid="txr-run" className="txr-run-page" style={PAGE_OUTER}>
+          <PageFrame
+            top={top(pickerParts.toolbar)}
+            body={body(pickerParts.list)}
+            bottom={runBar}
           />
-        ) : (
-          <div data-testid="txr-run-list-pending" style={PENDING_BLOCK}>
-            <p style={PENDING_LINE}>{PENDING_REFRESH_LINE}</p>
-          </div>
-        )}
-      </div>
-      {inventory !== null ? (
-        <TxrRunBar
-          selectedCount={countSelected(selected, cards)}
-          timeText={formatRunBarTime(estimate.scheduleSeconds, settings.at_a_time, settings.cpus)}
-          atATime={settings.at_a_time}
-          saveModels={{
-            checked: settings.save_models,
-            onChange: value => change({ ...settings, save_models: value }),
-          }}
-          onRun={opts => {
-            // The bar reports the OPTIONS; the keys are the selection minus
-            // the cards this page can see are disabled (the rule set the
-            // shared selection helpers compute on the D/I screens).
-            const disabled = new Set(cards.filter(card => card.run.disabled).map(card => card.key))
-            const keys = [...selected].filter(key => !disabled.has(key))
-            void createRun(keys, opts)
-          }}
-        />
-      ) : null}
-      <TxrChangeFilesDialog
-        mode={mode}
-        open={changeOpen}
-        onOpenChange={setChangeOpen}
-      />
-    </main>
+          <TxrChangeFilesDialog
+            mode={mode}
+            open={changeOpen}
+            onOpenChange={setChangeOpen}
+          />
+        </main>
+      )}
+    />
   )
 }

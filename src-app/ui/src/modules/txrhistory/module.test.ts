@@ -373,7 +373,16 @@ describe('txrhistory module (TEST-HIST-1)', () => {
           p !== 'src-app/server/src/modules/history_store/types.rs',
       ),
     ).toEqual([])
-    expect(touched.filter(p => p.startsWith('src-app/desktop/'))).toEqual([])
+    // app-shell ITEM-1 (its DRIFT-1): the desktop window's minimum size — the one
+    // desktop file the item touches (the window config lives in the crate, not
+    // the Tauri conf JSON).
+    expect(
+      touched.filter(
+        p =>
+          p.startsWith('src-app/desktop/') &&
+          p !== 'src-app/desktop/tauri/src/lib.rs',
+      ),
+    ).toEqual([])
     // The sanctioned exceptions: the `/history` route handoff itself
     // (`txrshell/module.tsx`, pinned separately below), the scaffold
     // `ShellPage.tsx` the `/help` handoff removes, the sibling module
@@ -428,6 +437,14 @@ describe('txrhistory module (TEST-HIST-1)', () => {
           p !== 'src-app/ui/src/modules/txrshell/lib/document-title.test.ts' &&
           p !== 'src-app/ui/src/modules/txrshell/pages/NotFoundPage.tsx' &&
           p !== 'src-app/ui/src/modules/txrshell/pages/NotFoundPage.test.tsx' &&
+          // app-shell ITEM-1 (its DRIFT-1): the shell's layout primitives —
+          // the components dir + the two new lib modules (the rewritten
+          // TxrLayout/TxrThemeToggle/gallery files are the entries above).
+          !p.startsWith('src-app/ui/src/modules/txrshell/components/') &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/shellMode.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/shellMode.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/scrollCache.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/scrollCache.test.ts' &&
 
     // qa-fixes ITEM-7 (X3): the session guard's loading/failure
     // surface is tokenized with the pages (its own ink was a

@@ -64,6 +64,7 @@ import {
   type SpecialRoute,
 } from '@ziee/gallery'
 import { useTxrIntakeStore } from '@/modules/txrintake'
+import { AppShell } from '@/modules/txrshell/components/AppShell'
 import { emitSaveModels, emitSaveOneModel } from '@/modules/txrresults/events'
 import { TXR_PREDICTIONS, TXR_RUNS } from '@/modules/txrresults/fixtures'
 import { TXRLIST_METHODS } from '@/modules/txrlist/fixtures'
@@ -568,6 +569,47 @@ function ErrorStoryView() {
   )
 }
 
+// ── the app-shell ITEM-3 route surfaces (the real page INSIDE the real
+//    shell — the audit section-4 legs of `txr-shell-routes.spec.ts`) ────────
+
+/** The D route: the shared list's layout split inside the shell frame. */
+function ShellDStoryView() {
+  return (
+    <SeedGate seed={seedDStory}>
+      <AppShell>
+        <Routes>
+          <Route path="/pretrained-models" element={<PretrainedModelsPage />} />
+          <Route path="/analysis/:runId/running" element={<LandingLine path="running" />} />
+        </Routes>
+      </AppShell>
+      <RunResultLine />
+      <RequestSeam />
+    </SeedGate>
+  )
+}
+
+/** The I route: the saved-models groups inside the shell frame. */
+function ShellIStoryView() {
+  return (
+    <SeedGate seed={seedIStory}>
+      <AppShell>
+        <SavedModelsPage />
+      </AppShell>
+    </SeedGate>
+  )
+}
+
+/** The J route: the inventory table inside the shell frame. */
+function ShellJStoryView() {
+  return (
+    <SeedGate seed={seedJStory}>
+      <AppShell>
+        <ModelsPage />
+      </AppShell>
+    </SeedGate>
+  )
+}
+
 // ── the module's gallery seed ────────────────────────────────────────────────
 
 /** The module's cassette: the JSON operations this node consumes and no
@@ -670,6 +712,30 @@ export const gallery: ModuleGallery = {
         Promise.resolve({ default: () => <JStoryView narrow /> }),
       ),
       fullHeight: true,
+    },
+    {
+      slug: 'txr-shell-route-models',
+      title: 'Your models (screen J) inside the shell',
+      note: 'The app-shell ITEM-3 route byte: the title + search + import + the set-focus banner fixed, the inventory table in the ONE region (its sticky thead pins to the region), the stored-in + deletion footnotes pinned in the fixed bottom bar. The audit section-4 legs (test: `txr-shell-routes.spec.ts`).',
+      path: '/models',
+      initialPath: '/models',
+      component: lazy(() => Promise.resolve({ default: ShellJStoryView })),
+    },
+    {
+      slug: 'txr-shell-route-saved-models',
+      title: 'Choose the saved models (screen I) inside the shell',
+      note: 'The app-shell ITEM-3 route byte: the step + title + checked line + use-example + the shared list\'s toolbar fixed, the grouped rows in the ONE region (the shared list\'s layout split — the region is the row stream\'s scrollport), the counters + Run pinned in the fixed bottom bar.',
+      path: '/saved-models',
+      initialPath: '/saved-models',
+      component: lazy(() => Promise.resolve({ default: ShellIStoryView })),
+    },
+    {
+      slug: 'txr-shell-route-pretrained-models',
+      title: 'Choose the models to run (screen D) inside the shell',
+      note: 'The app-shell ITEM-3 route byte: the step + title + checked line + totals + the shared list\'s toolbar (and the downloads strip) fixed, the catalogue rows in the ONE region (the shared list\'s layout split), the counters + research notice + Run pinned in the fixed bottom bar.',
+      path: '/*',
+      initialPath: '/pretrained-models',
+      component: lazy(() => Promise.resolve({ default: ShellDStoryView })),
     },
     {
       slug: 'txr-models-l',

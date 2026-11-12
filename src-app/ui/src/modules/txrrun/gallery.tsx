@@ -26,6 +26,13 @@
  * - `txr-run-f-narrow-390` / `txr-run-f-not-found` — the 390 px layout and
  *   the not-found state.
  *
+ * Since app-shell ITEM-2 the E/F screens are FRAME pages (fixed top, ONE
+ * region, pinned bar) whose only real host is the shell, so the story's
+ * layout byte lives on the `txr-shell-route-*` surfaces (same page,
+ * `AppShell` host — the route spec drives the audit's legs over them);
+ * these story surfaces keep the page without the shell so the CONTENT walk
+ * (rows, toggles, states) stays measured against the page alone.
+ *
  * Mock wiring (the registered keys' ONE-owner rule):
  *
  * - `Txr.getRun` / `Txr.listRunLogs` are owned by `txrresults`' cassette, so
@@ -57,6 +64,7 @@ import {
   type SpecialRoute,
 } from '@ziee/gallery'
 import { TxrIntake } from '@/modules/txrintake'
+import { AppShell } from '../txrshell/components/AppShell'
 import { TXR_LOGS, TXR_RUNS } from '../txrresults/fixtures'
 import { ChooseMethodsPage } from './pages/ChooseMethodsPage'
 import { RunningPage } from './pages/RunningPage'
@@ -104,8 +112,8 @@ function SeedGate({ seed, children }: { seed: () => void; children: ReactNode })
 function EStoryView() {
   return (
     <SeedGate seed={txrrunSeedValidatedIntake}>
-      <ChooseMethodsPage />
-    </SeedGate>
+        <ChooseMethodsPage />
+      </SeedGate>
   )
 }
 
@@ -124,8 +132,8 @@ function ENarrowStoryView() {
 function EEmptyStoryView() {
   return (
     <SeedGate seed={() => TxrIntake.reset()}>
-      <ChooseMethodsPage />
-    </SeedGate>
+        <ChooseMethodsPage />
+      </SeedGate>
   )
 }
 
@@ -149,8 +157,8 @@ function seedEligibilityFailure(): void {
 function EErrorStoryView() {
   return (
     <SeedGate seed={seedEligibilityFailure}>
-      <ChooseMethodsPage />
-    </SeedGate>
+        <ChooseMethodsPage />
+      </SeedGate>
   )
 }
 
@@ -199,6 +207,13 @@ function FStoryView({ runId, narrow = false }: { runId: string; narrow?: boolean
   )
 }
 
+/** The app-shell ITEM-2 route story host: the real page INSIDE the real
+ *  shell (the ITEM-2 layout byte — the same frame a clinician sees; the
+ *  spec drives the audit section-4 legs over these surfaces). */
+function ShellRouteView({ children }: { children: ReactNode }) {
+  return <AppShell>{children}</AppShell>
+}
+
 /**
  * The small-method E story's seed: the validated intake + a session-scoped
  * cassette extension that answers the catalogue, the eligibility and the
@@ -228,8 +243,8 @@ function seedSmallMethods(): void {
 function ESmallStoryView() {
   return (
     <SeedGate seed={seedSmallMethods}>
-      <ChooseMethodsPage />
-    </SeedGate>
+        <ChooseMethodsPage />
+      </SeedGate>
   )
 }
 
@@ -262,8 +277,8 @@ function seedRecheckMethods(): void {
 function ERecheckStoryView() {
   return (
     <SeedGate seed={seedRecheckMethods}>
-      <ChooseMethodsPage />
-    </SeedGate>
+        <ChooseMethodsPage />
+      </SeedGate>
   )
 }
 
@@ -320,7 +335,7 @@ export const gallery: ModuleGallery = {
     {
       slug: 'txr-run-e-small',
       title: 'Screen E — six runnable methods',
-      note: 'The ITEM-1 measured story: six runnable methods across the four families (the page stays under 1,500 px at 1440 and the Run button is visible without scrolling), the recommended selection ticked on arrival.',
+      note: 'The small-method story: six runnable methods across the four families (the bar counts the six, the estimate packs to the fixture total), the recommended selection ticked on arrival — the measurable set the ITEM-1 height byte was built on (that byte now lives on the shell-route surface).',
       path: '/choose-methods',
       initialPath: '/choose-methods',
       component: lazy(() => Promise.resolve({ default: ESmallStoryView })),
@@ -409,6 +424,44 @@ export const gallery: ModuleGallery = {
       path: '/analysis/:runId/running',
       initialPath: '/analysis/run-not-found/running',
       component: lazy(() => Promise.resolve({ default: () => <FStoryView runId="run-not-found" /> })),
+    },
+    // app-shell ITEM-2 — the route byte: each page inside the REAL shell
+    // (the audit section-4 legs over these surfaces: `txr-shell-routes.spec.ts`).
+    {
+      slug: 'txr-shell-route-choose-methods',
+      title: 'Choose the methods (screen E) inside the shell',
+      note: 'The ITEM-2 route byte: the step/title/summary/settings + the picker toolbar fixed, the method list ONE region (the sections\' sticky headers stick to its top), the run bar pinned in the bottom slot — the page itself never scrolls.',
+      path: '/choose-methods',
+      initialPath: '/choose-methods',
+      component: lazy(() =>
+        Promise.resolve({
+          default: () => (
+            <ShellRouteView>
+              <SeedGate seed={txrrunSeedValidatedIntake}>
+                <ChooseMethodsPage />
+              </SeedGate>
+            </ShellRouteView>
+          ),
+        }),
+      ),
+    },
+    {
+      slug: 'txr-shell-route-running',
+      title: 'Running (screen F) inside the shell',
+      note: 'The ITEM-2 route byte: the run summary + tabs fixed, the per-method table region (sticky header) and the log\'s own region side by side at 1024+, Stop all + See the results pinned in the bottom bar. The mid-run fixture keeps the run live (no terminal redirect).',
+      path: '/analysis/:runId/running',
+      initialPath: '/analysis/run-f-working/running',
+      component: lazy(() =>
+        Promise.resolve({
+          default: () => (
+            <ShellRouteView>
+              <SeedGate seed={() => seedRunStory('run-f-working')}>
+                <RunningPage />
+              </SeedGate>
+            </ShellRouteView>
+          ),
+        }),
+      ),
     },
   ],
 }

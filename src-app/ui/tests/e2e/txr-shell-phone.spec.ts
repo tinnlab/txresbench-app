@@ -55,31 +55,35 @@ test.describe('txr-shell — the real app at phone width (TEST-QF-7 full-app leg
       )
       .toBe('none')
 
-    // Every destination is REACHABLE inside the viewport (X2's History/Help
-    // fall-off-screen bug; qa-fixes3 ITEM-6: the header is ONE row and the
-    // nav is a scrollable strip under 640 px — focusing a destination
-    // scrolls the strip to it, exactly like Tab does) — the same needle as
-    // the shell gallery story, now under the real app.
+    // app-shell ITEM-1: under 700 px the nav is a MENU — every destination
+    // is REACHABLE through it (X2's History/Help fall-off-screen bug, the
+    // menu byte), keyboard and screen-reader complete. The loop asserts the
+    // menu items, and the one-row byte below (brand + menu + theme switch).
+    const menuTrigger = page.getByTestId('txr-shell-nav-menu-trigger')
+    await expect(menuTrigger).toBeVisible()
+    await menuTrigger.click()
+    const items = page.locator('.txr-shell-nav-menu-item')
+    await expect(items).toHaveCount(4)
     for (const label of ['New analysis', 'Models', 'History', 'Help']) {
-      const link = page.locator('.txr-shell a', { hasText: label }).first()
-      await expect(link).toBeVisible()
-      await link.focus()
-      const box = await link.boundingBox()
+      const item = items.filter({ hasText: label }).first()
+      await expect(item).toBeVisible()
+      const box = await item.boundingBox()
       expect(box, `${label} must be reachable`).not.toBeNull()
       expect(box!.x, `${label} starts inside`).toBeGreaterThanOrEqual(0)
       expect(box!.x + box!.width, `${label} ends inside`).toBeLessThanOrEqual(390 + 1)
     }
-    // ONE header row (ITEM-6 c): the brand, the nav and the theme switch
-    // share one centre line, in a single 56 px row.
+    await page.keyboard.press('Escape')
+    // ONE header row (ITEM-6 c's byte, kept by ITEM-1): the brand, the menu
+    // button and the theme switch share one centre line, in a single 56 px row.
     const row = await page.evaluate(() => {
       const header = document.querySelector<HTMLElement>('.txr-shell-header')!
       const brand = header.querySelector<HTMLElement>('.txr-shell-brand')!
-      const nav = document.querySelector<HTMLElement>('.txr-shell-nav')!
+      const menu = document.querySelector<HTMLElement>('.txr-shell-nav-menu')!
       const toggle = document.querySelector<HTMLElement>('[data-testid="txr-theme-toggle"]')!
       const r = (el: Element) => el.getBoundingClientRect()
       return {
         headerHeight: r(header).height,
-        centres: [r(brand), r(nav), r(toggle)].map(box => box.y + box.height / 2),
+        centres: [r(brand), r(menu), r(toggle)].map(box => box.y + box.height / 2),
       }
     })
     expect(row.headerHeight, 'one 56 px header row').toBeLessThanOrEqual(60)

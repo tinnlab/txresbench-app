@@ -18,8 +18,11 @@ import { TxrRun, useTxrRun } from '../stores/TxrRun.store'
 import { TxrCountsStrip } from '../components/TxrCountsStrip'
 import { formatRunTitle, TxrRunHeader } from '../components/TxrRunHeader'
 import { TxrLogPanel } from '../components/TxrLogPanel'
-import { TxrRunTable } from '../components/TxrRunTable'
+import { TxrRunStopAllControl, TxrRunTable } from '../components/TxrRunTable'
 import type { TxrRunRowAction } from '../components/TxrRunRow'
+import { PageFrame } from '@/modules/txrshell/components/PageFrame'
+import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
+import { PageFooterBar } from '@/modules/txrshell/components/PageFooterBar'
 
 /**
  * Screen F — Running (board `BusyRunning.dc.html`): one analysis run's live
@@ -65,39 +68,54 @@ import type { TxrRunRowAction } from '../components/TxrRunRow'
  */
 const TERMINAL_RUN_STATUSES: ReadonlySet<string> = new Set(['finished', 'failed', 'stopped'])
 
-/** The page's definite height (the shell header is 56px — CM-2's frame). */
-const PAGE_MAIN: CSSProperties = {
-  flexGrow: 1,
-  height: 'calc(100dvh - 56px)',
+/** The page's frame host (the shell's routed area, one definite height). */
+const PAGE_OUTER: CSSProperties = {
+  height: '100%',
   minHeight: 0,
   minWidth: 0,
-  overflowY: 'auto',
   display: 'flex',
-  flexWrap: 'wrap',
-  alignItems: 'stretch',
+  flexDirection: 'column',
 }
 
-/** The board's main content column (flex-basis ordering = board: content
- *  first, log panel second — the log panel column joins at ITEM-11). The
- *  column scrolls INSIDE itself (the bounded page; the table and the log
- *  panel are never pushed down a 22,000 px document). */
-const CONTENT: CSSProperties = {
-  flex: '3 1 600px',
+/** The fixed top's own padding. */
+const PAGE_TOP: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 10,
+  padding: '20px 32px 0',
   minWidth: 0,
+}
+
+/** The two-region body row (the CSS `txr-shell-regions-row` byte: columns in
+ *  shell mode ≥1024 px, stacked below and in flow mode). */
+const BODY_ROW: CSSProperties = {
+  flex: 1,
   minHeight: 0,
-  boxSizing: 'border-box',
-  padding: '26px 32px',
+  minWidth: 0,
+  display: 'flex',
+  padding: '0 32px',
+}
+
+/** The table region's content (the page chrome inside the scroll). */
+const TABLE_REGION_CONTENT: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 14,
-  overflowY: 'auto',
+  padding: '14px 0 24px',
+  minWidth: 0,
 }
-
-/** The resumed notice's full-width row (the page's flex-wrap layout). */
-const NOTICE_ROW: CSSProperties = { flexBasis: '100%' }
 
 /** The DEC-18 one-line notice (the 409 resolution's handoff line). */
 const RESUMED_NOTICE_LINE = 'A run was already active — you are watching it now.'
+
+/** The bottom bar's See-the-results link (the board's link tone — wants
+ *  clickable parity with the old header link: same bytes, new slot). */
+const SEE_RESULTS: CSSProperties = {
+  fontSize: 14,
+  fontWeight: 400,
+  color: 'var(--txr-brand)',
+  textDecoration: 'none',
+}
 
 /** The tab chips' row (the board's tab row above the method table; the
  *  at-a-time control lives in the table section's footer row — ITEM-10's
@@ -171,63 +189,81 @@ const TABS: ReadonlyArray<{ id: TxrRunBucket; label: string; definition?: string
 
 function LoadingRun() {
   return (
-    <main data-testid="txr-run" style={PAGE_MAIN}>
-      <div data-testid="txr-run-loading" style={STATE_BLOCK}>
-        <Skeleton style={{ width: 320, height: 26 }} />
-        <Skeleton style={{ width: 520, height: 16 }} />
-        <Skeleton style={{ height: 180, width: '100%' }} />
-      </div>
+    <main data-testid="txr-run" style={PAGE_OUTER}>
+      <PageFrame
+        body={
+          <ScrollRegion label="Run">
+            <div data-testid="txr-run-loading" style={STATE_BLOCK}>
+              <Skeleton style={{ width: 320, height: 26 }} />
+              <Skeleton style={{ width: 520, height: 16 }} />
+              <Skeleton style={{ height: 180, width: '100%' }} />
+            </div>
+          </ScrollRegion>
+        }
+      />
     </main>
   )
 }
 
 function NotFoundRun({ history }: { history: string }) {
   return (
-    <main data-testid="txr-run" style={PAGE_MAIN}>
-      <div style={STATE_BLOCK}>
-        <Result
-          status="404"
-          data-testid="txr-run-not-found"
-          title="This analysis run could not be found"
-          subtitle="It may have been removed, or the link is outdated."
-          extra={
-            <Link data-testid="txr-run-history" to={history}>
-              History
-            </Link>
-          }
-        />
-      </div>
+    <main data-testid="txr-run" style={PAGE_OUTER}>
+      <PageFrame
+        body={
+          <ScrollRegion label="Run">
+            <div style={STATE_BLOCK}>
+              <Result
+                status="404"
+                data-testid="txr-run-not-found"
+                title="This analysis run could not be found"
+                subtitle="It may have been removed, or the link is outdated."
+                extra={
+                  <Link data-testid="txr-run-history" to={history}>
+                    History
+                  </Link>
+                }
+              />
+            </div>
+          </ScrollRegion>
+        }
+      />
     </main>
   )
 }
 
 function NetworkErrorRun({ history, onRetry }: { history: string; onRetry: () => void }) {
   return (
-    <main data-testid="txr-run" style={PAGE_MAIN}>
-      <div style={STATE_BLOCK}>
-        <Result
-          status="error"
-          data-testid="txr-run-load-error"
-          title="The run could not be loaded"
-          subtitle="Check that the app is running, then try again."
-          extra={
-            <>
-              <Button
-                data-testid="txr-run-retry"
-                variant="outline"
-                className="rounded-lg font-semibold"
-                style={{ padding: '8px 16px' }}
-                onClick={onRetry}
-              >
-                Try again
-              </Button>
-              <Link data-testid="txr-run-history" to={history}>
-                History
-              </Link>
-            </>
-          }
-        />
-      </div>
+    <main data-testid="txr-run" style={PAGE_OUTER}>
+      <PageFrame
+        body={
+          <ScrollRegion label="Run">
+            <div style={STATE_BLOCK}>
+              <Result
+                status="error"
+                data-testid="txr-run-load-error"
+                title="The run could not be loaded"
+                subtitle="Check that the app is running, then try again."
+                extra={
+                  <>
+                    <Button
+                      data-testid="txr-run-retry"
+                      variant="outline"
+                      className="rounded-lg font-semibold"
+                      style={{ padding: '8px 16px' }}
+                      onClick={onRetry}
+                    >
+                      Try again
+                    </Button>
+                    <Link data-testid="txr-run-history" to={history}>
+                      History
+                    </Link>
+                  </>
+                }
+              />
+            </div>
+          </ScrollRegion>
+        }
+      />
     </main>
   )
 }
@@ -408,101 +444,132 @@ export function RunningPage() {
   }
 
   return (
-    <main data-testid="txr-run" style={PAGE_MAIN}>
-      {resumed ? (
-        <div style={NOTICE_ROW}>
-          <Alert
-            data-testid="txr-run-resumed-notice"
-            tone="info"
-            title={RESUMED_NOTICE_LINE}
-          />
-        </div>
-      ) : null}
-      <section style={CONTENT}>
-        <TxrRunHeader
-          title={title}
-          timeLeft={timeLeft}
-          elapsed={elapsed}
-          estimateWord={estimateWord}
-          atATime={state.atATime ?? run.config.at_a_time ?? null}
-          cpus={run.cpus ?? null}
-          predictionsReady={predictionsReady}
-          runId={run.id}
-          onSeeResults={() => navigate(resultsPath(run.id))}
-        />
-        <TxrCountsStrip counts={run.counts} />
-        <div data-testid="txr-run-tabs" style={TAB_ROW}>
-          {TABS.map(entry => (
-            <Button
-              key={entry.id}
-              data-testid={`txr-run-tab-${entry.id}`}
-              variant="outline"
-              className="rounded-full font-normal"
-              style={tab === entry.id ? ACTIVE_TAB : TAB_CHIP}
-              aria-pressed={tab === entry.id}
-              title={entry.definition}
-              onClick={() => TxrRun.setTab(entry.id)}
-            >
-              {entry.label} {bucketCounts[entry.id]}
-            </Button>
-          ))}
-          <span style={{ flexGrow: 1 }} />
-          {tab === 'working' ? (
-            <span
-              data-testid="txr-run-tab-working-definition"
-              style={{ fontSize: 12.5, color: 'var(--txr-muted)' }}
-            >
-              {TABS.find(t => t.id === 'working')?.definition}
-            </span>
-          ) : null}
-          {!state.logOpen ? (
-            <Button
-              data-testid="txr-run-log-open"
-              variant="link"
-              style={{ fontSize: 14, fontWeight: 500 }}
-              onClick={() => {
-                TxrRun.setLogOpen(true)
-                TxrRun.setLogFilter(null)
-              }}
-            >
-              Show the log
-            </Button>
-          ) : null}
-        </div>
-        <TxrRunTable
-          rows={visibleRows}
-          perMethod={state.perMethod}
-          rowErrors={state.rowErrors}
-          onAction={handleAction}
-          atATime={state.atATime}
-          onAtATime={n => void TxrRun.setAtATime(n)}
-          atATimeError={state.atATimeError}
-          onStopAll={() => void TxrRun.stopAll()}
-          stopping={state.stopping}
-          terminal={terminal}
-          actionError={state.actionError}
-          nowMs={liveElapsedSecs === null ? null : Date.now()}
-        />
-        {!terminal ? (
-          <div data-testid="txr-run-leave-note" style={LEAVE_NOTE}>
-            {LEAVE_AND_CONTINUE_NOTE}
+    <main data-testid="txr-run" style={PAGE_OUTER}>
+      <PageFrame
+        top={
+          <div className="txr-run-top" style={PAGE_TOP}>
+            {resumed ? (
+              <Alert
+                data-testid="txr-run-resumed-notice"
+                tone="info"
+                title={RESUMED_NOTICE_LINE}
+              />
+            ) : null}
+            <TxrRunHeader
+              title={title}
+              timeLeft={timeLeft}
+              elapsed={elapsed}
+              estimateWord={estimateWord}
+              atATime={state.atATime ?? run.config.at_a_time ?? null}
+              cpus={run.cpus ?? null}
+            />
+            <TxrCountsStrip counts={run.counts} />
+            <div data-testid="txr-run-tabs" style={TAB_ROW}>
+              {TABS.map(entry => (
+                <Button
+                  key={entry.id}
+                  data-testid={`txr-run-tab-${entry.id}`}
+                  variant="outline"
+                  className="rounded-full font-normal"
+                  style={tab === entry.id ? ACTIVE_TAB : TAB_CHIP}
+                  aria-pressed={tab === entry.id}
+                  title={entry.definition}
+                  onClick={() => TxrRun.setTab(entry.id)}
+                >
+                  {entry.label} {bucketCounts[entry.id]}
+                </Button>
+              ))}
+              <span style={{ flexGrow: 1 }} />
+              {tab === 'working' ? (
+                <span
+                  data-testid="txr-run-tab-working-definition"
+                  style={{ fontSize: 12.5, color: 'var(--txr-muted)' }}
+                >
+                  {TABS.find(t => t.id === 'working')?.definition}
+                </span>
+              ) : null}
+              {!state.logOpen ? (
+                <Button
+                  data-testid="txr-run-log-open"
+                  variant="link"
+                  style={{ fontSize: 14, fontWeight: 500 }}
+                  onClick={() => {
+                    TxrRun.setLogOpen(true)
+                    TxrRun.setLogFilter(null)
+                  }}
+                >
+                  Show the log
+                </Button>
+              ) : null}
+            </div>
           </div>
-        ) : null}
-      </section>
-      {state.logOpen ? (
-        <TxrLogPanel
-          lines={state.liveLogs}
-          total={state.logTotal}
-          methods={run.methods}
-          filter={state.logFilter}
-          onFilter={id => TxrRun.setLogFilter(id)}
-          follow={state.logFollow}
-          onFollow={v => TxrRun.setLogFollow(v)}
-          open={state.logOpen}
-          onOpenChange={v => TxrRun.setLogOpen(v)}
-          onBackfill={backfillLogs}
-        />
-      ) : null}
+        }
+        body={
+          <div className="txr-shell-regions-row txr-run-regions" style={BODY_ROW}>
+            <ScrollRegion
+              label="Methods"
+              className="txr-run-table-region"
+            >
+              <div style={TABLE_REGION_CONTENT}>
+                <TxrRunTable
+                  rows={visibleRows}
+                  perMethod={state.perMethod}
+                  rowErrors={state.rowErrors}
+                  onAction={handleAction}
+                  atATime={state.atATime}
+                  onAtATime={n => void TxrRun.setAtATime(n)}
+                  atATimeError={state.atATimeError}
+                  terminal={terminal}
+                  nowMs={liveElapsedSecs === null ? null : Date.now()}
+                />
+                {!terminal ? (
+                  <div data-testid="txr-run-leave-note" style={LEAVE_NOTE}>
+                    {LEAVE_AND_CONTINUE_NOTE}
+                  </div>
+                ) : null}
+              </div>
+            </ScrollRegion>
+            {state.logOpen ? (
+              <ScrollRegion label="Log" className="txr-run-log-region">
+                <TxrLogPanel
+                  lines={state.liveLogs}
+                  total={state.logTotal}
+                  methods={run.methods}
+                  filter={state.logFilter}
+                  onFilter={id => TxrRun.setLogFilter(id)}
+                  follow={state.logFollow}
+                  onFollow={v => TxrRun.setLogFollow(v)}
+                  open={state.logOpen}
+                  onOpenChange={v => TxrRun.setLogOpen(v)}
+                  onBackfill={backfillLogs}
+                />
+              </ScrollRegion>
+            ) : null}
+          </div>
+        }
+        bottom={
+          <PageFooterBar>
+            <TxrRunStopAllControl
+              onStopAll={() => void TxrRun.stopAll()}
+              stopping={state.stopping}
+              terminal={terminal}
+              actionError={state.actionError}
+            />
+            <span style={{ flexGrow: 1 }} />
+            {predictionsReady ? (
+              <Link
+                data-testid="txr-run-see-results"
+                className="txr-run-see-results"
+                to={resultsPath(run.id)}
+                onClick={() => navigate(resultsPath(run.id))}
+                style={SEE_RESULTS}
+              >
+                See the results
+              </Link>
+            ) : null}
+          </PageFooterBar>
+        }
+      />
     </main>
   )
 }

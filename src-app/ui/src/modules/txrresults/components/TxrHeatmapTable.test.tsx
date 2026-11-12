@@ -274,21 +274,23 @@ describe('heatmapWindowOf (TEST-UR-5 — the bounded row window)', () => {
 // ── The board's visibility contract, at scale (EXAMPLE-UR-2 geometry) ────────
 
 describe('TxrHeatmapTable (TEST-UR-5 — pinned column + sticky header)', () => {
-  it('renders the board scroll box: overflow auto, the 470 px cap, the hairline border', () => {
+  it('renders the table card with no inner scrollport (ITEM-3: the region scrolls)', () => {
     const { view } = smallView()
-    render(<TxrHeatmapTable view={view} onShowAll={() => {}} />)
+    render(<TxrHeatmapTable view={view} />)
     const box = BOX()
-    expect(box.style.overflow).toBe('auto')
-    // RES-07: the box budget is the viewport-adaptive cap (never less than
-    // the board's 470 px floor) — the hard 470 px wasted the desktop screen.
-    expect(box.style.maxHeight).toBe('max(470px, calc(100dvh - 300px))')
+    // app-shell ITEM-3: the card sits in the page's ScrollRegion — the
+    // REGION is the two-axis scrollport, so the box itself declares no
+    // overflow and no capped height (an inner bounded scroller would nest —
+    // DEC-3; the RES-07 viewport-adaptive budget was the old box byte).
+    expect(box.style.overflow).not.toBe('auto')
+    expect(box.style.maxHeight).toBe('')
     expect(box.getAttribute('style')).toContain('border-radius: 10px')
     expect(box.querySelector('table')).not.toBeNull()
   })
 
   it('pins the patient column left and the header top, under vertical AND horizontal scroll', () => {
     const { view } = smallView()
-    render(<TxrHeatmapTable view={view} onShowAll={() => {}} />)
+    render(<TxrHeatmapTable view={view} />)
     const corner = screen.getByRole('columnheader', { name: 'Patient' })
     // averageBy 'recomputed' names the scope (RES-04: the Average is over
     // the methods shown — never a silent disagreement with the run's API line).
@@ -333,7 +335,7 @@ describe('TxrHeatmapTable (TEST-UR-5 — pinned column + sticky header)', () => 
 
   it('colors each chance cell with the live alpha and its label percent', () => {
     const { view } = smallView()
-    render(<TxrHeatmapTable view={view} onShowAll={() => {}} />)
+    render(<TxrHeatmapTable view={view} />)
     const row = screen.getByTestId('txr-heatmap-row-S0000')
     const cell = within(row).getByTestId('txr-heatmap-cell-method-1')
     expect(cell.textContent).toBe('33%')
@@ -356,7 +358,7 @@ describe('TxrHeatmapTable (TEST-UR-5 — pinned column + sticky header)', () => 
 
   it('renders the average column bold, right-aligned, tabular; a null average renders empty', () => {
     const { view } = smallView()
-    render(<TxrHeatmapTable view={view} onShowAll={() => {}} />)
+    render(<TxrHeatmapTable view={view} />)
     const row = screen.getByTestId('txr-heatmap-row-S0000')
     const averageCell = within(row).getAllByRole('cell')[0]
     expect(averageCell.textContent).toBe('44%')
@@ -372,7 +374,7 @@ describe('TxrHeatmapTable (TEST-UR-5 — pinned column + sticky header)', () => 
   // the board's visible dash; the noteless abstain stays bare.
   it('renders a dash for an abstain cell with its note in a tooltip; a noteless abstain stays bare', async () => {
     const { view } = smallView()
-    render(<TxrHeatmapTable view={view} onShowAll={() => {}} />)
+    render(<TxrHeatmapTable view={view} />)
     const cell = within(screen.getByTestId('txr-heatmap-row-S0002')).getByTestId(
       'txr-heatmap-cell-method-1',
     )
@@ -400,7 +402,7 @@ describe('TxrHeatmapTable (TEST-UR-5 — pinned column + sticky header)', () => 
 
   it('renders the mono method id + group sublabel headers with the id as the title', () => {
     const { view } = smallView()
-    render(<TxrHeatmapTable view={view} onShowAll={() => {}} />)
+    render(<TxrHeatmapTable view={view} />)
     const header = screen.getByTestId('txr-heatmap-header-method-1')
     expect(header.getAttribute('title')).toBe('method-1')
     expect(header.textContent).toContain('method-1')
@@ -412,7 +414,7 @@ describe('TxrHeatmapTable (TEST-UR-5 — pinned column + sticky header)', () => 
 
   it('renders the mono patient id column and the fixed 36 px row pitch', () => {
     const { view } = smallView()
-    render(<TxrHeatmapTable view={view} onShowAll={() => {}} />)
+    render(<TxrHeatmapTable view={view} />)
     const row = screen.getByTestId('txr-heatmap-row-S0000')
     expect(within(row).getByRole('rowheader').textContent).toBe('S0000')
     expect(row.style.height).toBe(`${HEATMAP_ROW_HEIGHT}px`)
@@ -427,7 +429,7 @@ describe('TxrHeatmapTable (TEST-UR-5 — pinned column + sticky header)', () => 
 describe('TxrHeatmapTable windowing (TEST-UR-5 — bounded DOM, no 500-row render)', () => {
   it('mounts only the row window at 500 rows and pads the rest with spacer rows', () => {
     const { view } = largeView(500, 24)
-    render(<TxrHeatmapTable view={view} onShowAll={() => {}} />)
+    render(<TxrHeatmapTable view={view} />)
     const rows = mountedRows()
     expect(rows.length).toBe(HEATMAP_WINDOW_ROWS)
     expect(rowId('S0000')).not.toBeNull()
@@ -440,7 +442,7 @@ describe('TxrHeatmapTable windowing (TEST-UR-5 — bounded DOM, no 500-row rende
 
   it('scrolls to the middle window: the offset rows appear, the top rows un-mount', () => {
     const { view } = largeView(500, 24)
-    render(<TxrHeatmapTable view={view} onShowAll={() => {}} />)
+    render(<TxrHeatmapTable view={view} />)
     scrollBoxTo(3600)
     const firstVisible = Math.floor(3600 / HEATMAP_ROW_HEIGHT)
     expect(rowId(`S${String(firstVisible).padStart(4, '0')}`)).not.toBeNull()
@@ -456,7 +458,7 @@ describe('TxrHeatmapTable windowing (TEST-UR-5 — bounded DOM, no 500-row rende
 
   it('scrolls to the bottom: the last window mounts and stays bounded', () => {
     const { view } = largeView(500, 24)
-    render(<TxrHeatmapTable view={view} onShowAll={() => {}} />)
+    render(<TxrHeatmapTable view={view} />)
     scrollBoxTo(500 * HEATMAP_ROW_HEIGHT)
     expect(rowId('S0499')).not.toBeNull()
     expect(rowId('S0000')).toBeNull()
@@ -470,7 +472,7 @@ describe('TxrHeatmapTable windowing (TEST-UR-5 — bounded DOM, no 500-row rende
 
   it('scrolls back up: the top window returns (the window follows both directions)', () => {
     const { view } = largeView(500, 24)
-    render(<TxrHeatmapTable view={view} onShowAll={() => {}} />)
+    render(<TxrHeatmapTable view={view} />)
     scrollBoxTo(3600)
     expect(rowId('S0000')).toBeNull()
     scrollBoxTo(0)
@@ -480,7 +482,7 @@ describe('TxrHeatmapTable windowing (TEST-UR-5 — bounded DOM, no 500-row rende
 
   it('keeps the window bounded with 100+ methods — the pinned geometry holds', () => {
     const { view } = largeView(500, 120)
-    render(<TxrHeatmapTable view={view} onShowAll={() => {}} />)
+    render(<TxrHeatmapTable view={view} />)
     expect(mountedRows().length).toBe(HEATMAP_WINDOW_ROWS)
     const lastHeader = screen.getByTestId('txr-heatmap-header-method-120')
     expect(lastHeader.textContent).toContain('method-120')
@@ -494,40 +496,13 @@ describe('TxrHeatmapTable windowing (TEST-UR-5 — bounded DOM, no 500-row rende
   })
 })
 
-// ── The "Showing N of M … Show all M" footer ─────────────────────────────────
+// ── The windowing at scale (the bounded DOM byte) ───────────────────────────
 
-describe('TxrHeatmapTable footer (TEST-UR-5 — showing counts + show-all)', () => {
-  it('renders the board sentence and the Show all link while the window is capped', () => {
-    const { view } = largeView(24, 4)
-    const capped = viewFixture(view.columns, view.rows, 100, 500)
-    render(<TxrHeatmapTable view={capped} onShowAll={() => {}} />)
-    const footer = screen.getByText('Showing 100 of 500 patients.')
-    expect(footer).not.toBeNull()
-    const link = screen.getByTestId('txr-heatmap-show-more')
-    expect(link.textContent).toBe('Show all 500')
-    expect(link.tagName).toBe('BUTTON')
-  })
-
-  it('reports Show all through onShowAll — the host raises the limit', () => {
-    const onShowAll = vi.fn()
-    const { view } = largeView(24, 4)
-    const capped = viewFixture(view.columns, view.rows, 100, 500)
-    render(<TxrHeatmapTable view={capped} onShowAll={onShowAll} />)
-    fireEvent.click(screen.getByTestId('txr-heatmap-show-more'))
-    expect(onShowAll).toHaveBeenCalledTimes(1)
-  })
-
-  it('hides the Show all link once every row is shown (no dead action)', () => {
-    const { view } = largeView(24, 4)
-    render(<TxrHeatmapTable view={view} onShowAll={() => {}} />)
-    expect(screen.queryByTestId('txr-heatmap-show-more')).toBeNull()
-    expect(screen.getByText('Showing 24 of 24 patients.')).not.toBeNull()
-  })
-
-  it('keeps the DOM bounded after Show all — the windowing still applies at 500 rows', () => {
+describe('TxrHeatmapTable windowing (TEST-UR-5 — bounded DOM at any row count)', () => {
+  it('keeps the DOM bounded with every row shown — the windowing still applies at 500 rows', () => {
     const { view } = largeView(500, 24)
     const allShown = viewFixture(view.columns, view.rows, 500, 500)
-    render(<TxrHeatmapTable view={allShown} onShowAll={() => {}} />)
+    render(<TxrHeatmapTable view={allShown} />)
     expect(mountedRows().length).toBe(HEATMAP_WINDOW_ROWS)
     expect(rowId('S0499')).toBeNull()
     scrollBoxTo(500 * HEATMAP_ROW_HEIGHT)
@@ -542,7 +517,7 @@ describe('TxrHeatmapTable qa-fixes ITEM-4 (RES-03/06/07/08)', () => {
   it('names the average scope: "Average" only when the provider value is trusted (RES-04)', () => {
     const { view } = smallView()
     const trusted = viewFixture(view.columns, view.rows, view.shownCount, view.totalCount)
-    render(<TxrHeatmapTable view={{ ...trusted, averageBy: 'provider' }} onShowAll={() => {}} />)
+    render(<TxrHeatmapTable view={{ ...trusted, averageBy: 'provider' }} />)
     expect(screen.getByRole('columnheader', { name: 'Average' })).not.toBeNull()
   })
 
@@ -551,7 +526,6 @@ describe('TxrHeatmapTable qa-fixes ITEM-4 (RES-03/06/07/08)', () => {
     render(
       <TxrHeatmapTable
         view={{ ...view, rows: [], shownCount: 0, totalCount: 0 }}
-        onShowAll={() => {}}
       />,
     )
     const box = BOX()
@@ -560,12 +534,11 @@ describe('TxrHeatmapTable qa-fixes ITEM-4 (RES-03/06/07/08)', () => {
       'No patient matches your search.',
     )
     expect(screen.getByTestId('txr-heatmap-footer').textContent).toBe('')
-    expect(screen.queryByTestId('txr-heatmap-show-more')).toBeNull()
   })
 
   it('renders a visible dash for an abstain cell that carries a note (RES-08)', () => {
     const { view } = smallView()
-    render(<TxrHeatmapTable view={view} onShowAll={() => {}} />)
+    render(<TxrHeatmapTable view={view} />)
     const cell = within(screen.getByTestId('txr-heatmap-row-S0002')).getByTestId(
       'txr-heatmap-cell-method-1',
     )
@@ -582,7 +555,7 @@ describe('TxrHeatmapTable qa-fixes2 ITEM-7 (R2-11 — Average only for 2+ method
       { patientId: 'S0000', cells: [0.33], average: 33 },
       { patientId: 'S0001', cells: [0.52], average: 52 },
     ]
-    render(<TxrHeatmapTable view={viewFixture(columns, rows)} onShowAll={() => {}} />)
+    render(<TxrHeatmapTable view={viewFixture(columns, rows)} />)
     expect(screen.queryByRole('columnheader', { name: /Average/ })).toBeNull()
     const row = screen.getByTestId('txr-heatmap-row-S0000')
     // Patient header, then the single method cell — no average cell in between.
@@ -599,7 +572,7 @@ describe('TxrHeatmapTable qa-fixes2 ITEM-7 (R2-11 — Average only for 2+ method
   it('keeps the Average column for two or more methods (the board shape)', () => {
     const columns = [methodCol(0, 'Dynamic risk'), methodCol(1, 'Static risk')]
     const rows: GivenRow[] = [{ patientId: 'S0000', cells: [0.33, 0.52], average: 42 }]
-    render(<TxrHeatmapTable view={viewFixture(columns, rows)} onShowAll={() => {}} />)
+    render(<TxrHeatmapTable view={viewFixture(columns, rows)} />)
     expect(
       screen.getByRole('columnheader', { name: 'Average (methods shown)' }),
     ).not.toBeNull()

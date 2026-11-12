@@ -62,13 +62,18 @@ const SIBLING_OWNED_KEYS = [
 
 /** The plan's nine slate of slugs (PROV-UI-MODELS-6's enumeration) plus
  *  the ITEM-5 J phone-width story (RES-16 — the inventory's own 390 px
- *  story, same frame as the D narrow one). */
+ *  story, same frame as the D narrow one) plus the three app-shell
+ *  ITEM-3 shell-route surfaces (the real pages inside the real shell —
+ *  TEST-AS-2's part-2 half). */
 const STORY_SLUGS = [
   'txr-models-d',
   'txr-models-d-narrow-390',
   'txr-models-i',
   'txr-models-j',
   'txr-models-j-narrow-390',
+  'txr-shell-route-models',
+  'txr-shell-route-saved-models',
+  'txr-shell-route-pretrained-models',
   'txr-models-l',
   'txr-models-l2',
   'txr-models-l3',

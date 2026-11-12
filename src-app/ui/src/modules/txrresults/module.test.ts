@@ -254,6 +254,14 @@ describe('txrresults module (TEST-UR-13)', () => {
           p !== 'src-app/ui/src/modules/txrshell/lib/document-title.ts' &&
           p !== 'src-app/ui/src/modules/txrshell/lib/document-title.test.ts' &&
           p !== 'src-app/ui/src/modules/txrshell/pages/NotFoundPage.tsx' &&
+                    // app-shell ITEM-1 (its DRIFT-1): the shell's layout primitives —
+          // the components dir + the two new lib modules (the rewritten
+          // TxrLayout/TxrThemeToggle/gallery files are the entries above).
+          !p.startsWith('src-app/ui/src/modules/txrshell/components/') &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/shellMode.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/shellMode.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/scrollCache.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/scrollCache.test.ts' &&
           p !== 'src-app/ui/src/modules/txrshell/pages/NotFoundPage.test.tsx' ,
 
       ),

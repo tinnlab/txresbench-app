@@ -4,6 +4,9 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useStore } from 'zustand'
 import { Button, Checkbox, Select, Skeleton } from '@ziee/kit'
 import { useDocumentTitle } from '@/modules/txrshell/lib/document-title'
+import { PageFrame } from '@/modules/txrshell/components/PageFrame'
+import { ScrollRegion } from '@/modules/txrshell/components/ScrollRegion'
+import { PageFooterBar } from '@/modules/txrshell/components/PageFooterBar'
 import { useTxrIntakeStore } from '../stores/TxrIntake.store'
 import { useMarkers } from '../data/useMarkers'
 import { useStudyPreview } from '../data/useStudyPreview'
@@ -50,41 +53,43 @@ import type { DiseaseId, OutcomeId, TreatmentId } from '../types'
 const FILES_ROUTE = '/files'
 const PREDICT_FILES_ROUTE = '/predict-files'
 
-const PAGE_CONTAINER: CSSProperties = {
-  flexGrow: 1,
+/** The page's frame host (the shell's routed area). */
+const PAGE_ROOT: CSSProperties = {
+  height: '100%',
+  minHeight: 0,
+  minWidth: 0,
+  display: 'flex',
+  flexDirection: 'column',
+}
+
+/** The fixed top's content (the page's heading block). */
+const PAGE_TOP: CSSProperties = {
   boxSizing: 'border-box',
-  padding: '40px 48px',
+  padding: '40px 48px 10px',
   maxWidth: 1280,
   margin: '0 auto',
   width: '100%',
 }
 
-/** The board's two-column main (left questions, right grey panel column). */
-const COLUMNS: CSSProperties = {
-  display: 'flex',
-  flexWrap: 'wrap',
-  alignItems: 'flex-start',
-}
-
-const LEFT_COLUMN: CSSProperties = {
-  flex: '1 1 560px',
+/** The two-region body row (the CSS `txr-shell-regions-row` byte: columns in
+ *  shell mode ≥1024 px, stacked below and in flow mode). */
+const BODY_ROW: CSSProperties = {
+  flex: 1,
+  minHeight: 0,
   minWidth: 0,
   boxSizing: 'border-box',
-  paddingRight: 36,
   display: 'flex',
-  flexDirection: 'column',
+  padding: '0 48px',
+  gap: 28,
 }
 
-const PANEL_COLUMN: CSSProperties = {
-  flex: '1 1 460px',
-  minWidth: 0,
-  boxSizing: 'border-box',
-  padding: '24px 32px',
-  borderRadius: 12,
-  background: 'var(--txr-bg)',
+/** One region's content wrapper (the page chrome inside the scroll). */
+const REGION_CONTENT: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 16,
+  padding: '0 0 28px',
+  minWidth: 0,
 }
 
 const STEP_LINE: CSSProperties = {
@@ -327,13 +332,13 @@ export function StudyPage() {
   return (
     <div
       role="main"
-      style={PAGE_CONTAINER}
-      className="txr-intake-page"
+      style={PAGE_ROOT}
+      className="txr-intake-page txr-intake-study-page"
       data-testid="txr-intake-study"
     >
-      <div style={COLUMNS}>
-        <section style={LEFT_COLUMN}>
-          <div>
+      <PageFrame
+        top={
+          <div className="txr-intake-top txr-intake-page-top" style={PAGE_TOP}>
             <div style={STEP_LINE}>Step 2 of 4</div>
             <h1 style={TITLE}>Tell us about your study</h1>
             <p style={INTRO}>
@@ -341,246 +346,258 @@ export function StudyPage() {
               any question and we check your files instead.
             </p>
           </div>
-
-          <div style={QUESTION_GROUP}>
-            <div style={QUESTION_LABEL}>Patients</div>
-            <div style={FIELD_ROW}>
-              <div style={FIELD}>
-                <span style={FIELD_LABEL}>Disease</span>
-                <Select
-                  id="txr-intake-study-disease"
-                  data-testid="txr-intake-study-disease"
-                  aria-label="Disease"
-                  value={study.disease ?? undefined}
-                  onChange={v => patchStudy({ disease: v as DiseaseId })}
-                  placeholder="Choose a disease…"
-                  options={DISEASE_OPTIONS.map(o => ({ label: o.label, value: o.value }))}
-                />
-              </div>
-              <div style={FIELD}>
-                <span style={FIELD_LABEL}>Treatment</span>
-                <Select
-                  id="txr-intake-study-treatment"
-                  data-testid="txr-intake-study-treatment"
-                  aria-label="Treatment"
-                  value={study.treatment ?? undefined}
-                  onChange={v => patchStudy({ treatment: v as TreatmentId })}
-                  placeholder="Choose a treatment…"
-                  options={TREATMENT_OPTIONS.map(o => ({ label: o.label, value: o.value }))}
-                />
-              </div>
-            </div>
-          </div>
-
-          <div style={QUESTION_GROUP}>
-            <div style={QUESTION_LABEL}>What you want to predict</div>
-            <div style={PILLS} className="txr-intake-pills" role="group" aria-label="What you want to predict">
-              {OUTCOME_OPTIONS.map(option => {
-                const selected = study.outcome === option.value
-                return (
-                  <Button
-                    key={option.value}
-                    data-testid={`txr-intake-study-outcome-${option.value}`}
-                    variant="outline"
-                    aria-pressed={selected}
-                    style={selected ? PILL_SELECTED : PILL}
-                    onClick={() =>
-                      patchStudy({ outcome: selected ? null : (option.value as OutcomeId) })
-                    }
-                  >
-                    {option.label}
-                  </Button>
-                )
-              })}
-            </div>
-          </div>
-
-          <div style={QUESTION_GROUP}>
-            <div style={QUESTION_LABEL}>Blood markers you measured</div>
-            {groupsLoading ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <Skeleton style={{ width: 300, height: 18 }} />
-                <Skeleton style={{ width: 260, height: 18 }} />
-                <Skeleton style={{ width: 280, height: 18 }} />
-              </div>
-            ) : groupsError !== null ? (
-              <div role="alert" style={PANEL_ERROR}>
-                {groupsError}
-              </div>
-            ) : (
-              groups.map(group => (
-                <div key={group.id} style={GROUP_CHECKBOX}>
-                  <Checkbox
-                    data-testid={`txr-intake-study-group-${group.id}`}
-                    label={group.display_name}
-                    checked={study.markerGroups?.[group.id] === true}
-                    onCheckedChange={checked => setGroup(group.id, checked)}
-                  />
+        }
+        body={
+          <div className="txr-shell-regions-row" style={BODY_ROW}>
+            <ScrollRegion label="Study questions" className="txr-study-questions-region">
+              <div className="txr-intake-page-body" style={REGION_CONTENT}>
+                <div style={QUESTION_GROUP}>
+                  <div style={QUESTION_LABEL}>Patients</div>
+                  <div style={FIELD_ROW}>
+                    <div style={FIELD}>
+                      <span style={FIELD_LABEL}>Disease</span>
+                      <Select
+                        id="txr-intake-study-disease"
+                        data-testid="txr-intake-study-disease"
+                        aria-label="Disease"
+                        value={study.disease ?? undefined}
+                        onChange={v => patchStudy({ disease: v as DiseaseId })}
+                        placeholder="Choose a disease…"
+                        options={DISEASE_OPTIONS.map(o => ({ label: o.label, value: o.value }))}
+                      />
+                    </div>
+                    <div style={FIELD}>
+                      <span style={FIELD_LABEL}>Treatment</span>
+                      <Select
+                        id="txr-intake-study-treatment"
+                        data-testid="txr-intake-study-treatment"
+                        aria-label="Treatment"
+                        value={study.treatment ?? undefined}
+                        onChange={v => patchStudy({ treatment: v as TreatmentId })}
+                        placeholder="Choose a treatment…"
+                        options={TREATMENT_OPTIONS.map(o => ({ label: o.label, value: o.value }))}
+                      />
+                    </div>
+                  </div>
                 </div>
-              ))
-            )}
-          </div>
 
-          <div style={QUESTION_GROUP}>
-            <div style={QUESTION_LABEL}>When you drew blood</div>
-            <div style={FIELD_ROW}>
-              <div style={FIELD}>
-                <span style={FIELD_LABEL}>Before treatment</span>
-                <Select
-                  id="txr-intake-study-before"
-                  data-testid="txr-intake-study-before"
-                  aria-label="Before treatment"
-                  value={study.beforeTreatment ?? undefined}
-                  onChange={v =>
-                    patchStudy({ beforeTreatment: v as 'always' | 'sometimes' })
-                  }
-                  placeholder="Choose…"
-                  options={BEFORE_TREATMENT_OPTIONS.map(o => ({ label: o.label, value: o.value }))}
-                />
-              </div>
-              <div style={FIELD}>
-                <span style={FIELD_LABEL}>Draws during treatment</span>
-                <Select
-                  id="txr-intake-study-draws"
-                  data-testid="txr-intake-study-draws"
-                  aria-label="Draws during treatment"
-                  value={study.drawsDuringTreatment !== null ? String(study.drawsDuringTreatment) : undefined}
-                  onChange={v => patchStudy({ drawsDuringTreatment: Number(v) as 1 | 2 | 4 })}
-                  placeholder="Choose…"
-                  options={DRAWS_OPTIONS.map(o => ({ label: o.label, value: String(o.value) }))}
-                />
-              </div>
-              <div style={FIELD}>
-                <span style={FIELD_LABEL}>Last draw you will use</span>
-                <Select
-                  id="txr-intake-study-last-draw"
-                  data-testid="txr-intake-study-last-draw"
-                  aria-label="Last draw you will use"
-                  value={study.lastDrawDay !== null ? String(study.lastDrawDay) : undefined}
-                  onChange={setLastDrawDay}
-                  placeholder="Choose…"
-                  options={LAST_DRAW_OPTIONS.map(o => ({ label: o.label, value: String(o.value) }))}
-                />
-              </div>
-            </div>
-          </div>
+                <div style={QUESTION_GROUP}>
+                  <div style={QUESTION_LABEL}>What you want to predict</div>
+                  <div style={PILLS} className="txr-intake-pills" role="group" aria-label="What you want to predict">
+                    {OUTCOME_OPTIONS.map(option => {
+                      const selected = study.outcome === option.value
+                      return (
+                        <Button
+                          key={option.value}
+                          data-testid={`txr-intake-study-outcome-${option.value}`}
+                          variant="outline"
+                          aria-pressed={selected}
+                          style={selected ? PILL_SELECTED : PILL}
+                          onClick={() =>
+                            patchStudy({ outcome: selected ? null : (option.value as OutcomeId) })
+                          }
+                        >
+                          {option.label}
+                        </Button>
+                      )
+                    })}
+                  </div>
+                </div>
 
-          <div style={BUTTON_ROW}>
-            <Button
-              data-testid="txr-intake-study-continue"
-              style={PRIMARY_BUTTON}
-              onClick={continueFlow}
-            >
-              Continue to the files
-            </Button>
-            <Button
-              data-testid="txr-intake-study-skip"
-              style={OUTLINE_BUTTON}
-              onClick={continueFlow}
-            >
-              Skip the questions
-            </Button>
-            {/* qa-fixes3 ITEM-4: one click fills every answer consistently
-                with the example family and lands on the files step with the
-                example tables adopted (the step's own flow validates them). */}
-            <TxrUseExampleButton path="train" onDone={() => navigate(FILES_ROUTE)} />
-          </div>
-        </section>
-
-        <aside style={PANEL_COLUMN} data-testid="txr-intake-panel">
-          <div>
-            {answered ? (
-              <>
-                <div style={PANEL_COUNT} data-testid="txr-intake-panel-fit-count">
-                  {panel.fit !== null ? (
-                    <span style={{ fontWeight: 600 }}>{panel.fit.fit}</span>
+                <div style={QUESTION_GROUP}>
+                  <div style={QUESTION_LABEL}>Blood markers you measured</div>
+                  {groupsLoading ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <Skeleton style={{ width: 300, height: 18 }} />
+                      <Skeleton style={{ width: 260, height: 18 }} />
+                      <Skeleton style={{ width: 280, height: 18 }} />
+                    </div>
+                  ) : groupsError !== null ? (
+                    <div role="alert" style={PANEL_ERROR}>
+                      {groupsError}
+                    </div>
                   ) : (
-                    <span style={{ fontWeight: 600, color: 'var(--txr-muted)' }}>…</span>
+                    groups.map(group => (
+                      <div key={group.id} style={GROUP_CHECKBOX}>
+                        <Checkbox
+                          data-testid={`txr-intake-study-group-${group.id}`}
+                          label={group.display_name}
+                          checked={study.markerGroups?.[group.id] === true}
+                          onCheckedChange={checked => setGroup(group.id, checked)}
+                        />
+                      </div>
+                    ))
                   )}
-                  <span style={PANEL_SUFFIX}>
-                    {panel.fit !== null ? ` of ${panel.fit.total} methods fit` : ' methods fit'}
-                  </span>
                 </div>
-                <p style={PANEL_SENTENCE} data-testid="txr-intake-panel-sentence">
-                  {descriptiveSentence(study)}
-                </p>
-              </>
-            ) : (
-              <p style={PANEL_SENTENCE} data-testid="txr-intake-panel-sentence">
-                {PREVIEW_ANSWER_INVITE}
-              </p>
-            )}
-          </div>
 
-          {answered && panel.fit !== null && panel.fit.noEnv > 0 ? (
-            <p data-testid="txr-intake-panel-no-env" style={PANEL_NO_ENV}>
-              {formatNoEnvLine(panel.fit.noEnv, panel.fit.total)}
-            </p>
-          ) : null}
+                <div style={QUESTION_GROUP}>
+                  <div style={QUESTION_LABEL}>When you drew blood</div>
+                  <div style={FIELD_ROW}>
+                    <div style={FIELD}>
+                      <span style={FIELD_LABEL}>Before treatment</span>
+                      <Select
+                        id="txr-intake-study-before"
+                        data-testid="txr-intake-study-before"
+                        aria-label="Before treatment"
+                        value={study.beforeTreatment ?? undefined}
+                        onChange={v =>
+                          patchStudy({ beforeTreatment: v as 'always' | 'sometimes' })
+                        }
+                        placeholder="Choose…"
+                        options={BEFORE_TREATMENT_OPTIONS.map(o => ({ label: o.label, value: o.value }))}
+                      />
+                    </div>
+                    <div style={FIELD}>
+                      <span style={FIELD_LABEL}>Draws during treatment</span>
+                      <Select
+                        id="txr-intake-study-draws"
+                        data-testid="txr-intake-study-draws"
+                        aria-label="Draws during treatment"
+                        value={study.drawsDuringTreatment !== null ? String(study.drawsDuringTreatment) : undefined}
+                        onChange={v => patchStudy({ drawsDuringTreatment: Number(v) as 1 | 2 | 4 })}
+                        placeholder="Choose…"
+                        options={DRAWS_OPTIONS.map(o => ({ label: o.label, value: String(o.value) }))}
+                      />
+                    </div>
+                    <div style={FIELD}>
+                      <span style={FIELD_LABEL}>Last draw you will use</span>
+                      <Select
+                        id="txr-intake-study-last-draw"
+                        data-testid="txr-intake-study-last-draw"
+                        aria-label="Last draw you will use"
+                        value={study.lastDrawDay !== null ? String(study.lastDrawDay) : undefined}
+                        onChange={setLastDrawDay}
+                        placeholder="Choose…"
+                        options={LAST_DRAW_OPTIONS.map(o => ({ label: o.label, value: String(o.value) }))}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </ScrollRegion>
 
-          {answered && panel.fit !== null && panel.fit.some > 0 ? (
-            <p style={PANEL_SOME_LINE} data-testid="txr-intake-panel-some">
-              {someFitLine(panel.fit)}
-            </p>
-          ) : null}
+            <ScrollRegion label="Methods that fit your answers" className="txr-study-panel-region">
+              <div className="txr-intake-page-body" style={REGION_CONTENT} data-testid="txr-intake-panel">
+                <div>
+                  {answered ? (
+                    <>
+                      <div style={PANEL_COUNT} data-testid="txr-intake-panel-fit-count">
+                        {panel.fit !== null ? (
+                          <span style={{ fontWeight: 600 }}>{panel.fit.fit}</span>
+                        ) : (
+                          <span style={{ fontWeight: 600, color: 'var(--txr-muted)' }}>…</span>
+                        )}
+                        <span style={PANEL_SUFFIX}>
+                          {panel.fit !== null ? ` of ${panel.fit.total} methods fit` : ' methods fit'}
+                        </span>
+                      </div>
+                      <p style={PANEL_SENTENCE} data-testid="txr-intake-panel-sentence">
+                        {descriptiveSentence(study)}
+                      </p>
+                    </>
+                  ) : (
+                    <p style={PANEL_SENTENCE} data-testid="txr-intake-panel-sentence">
+                      {PREVIEW_ANSWER_INVITE}
+                    </p>
+                  )}
+                </div>
 
-          {panel.error !== null ? (
-            <div role="alert" style={PANEL_ERROR}>
-              {panel.error}
-            </div>
-          ) : null}
+                {answered && panel.fit !== null && panel.fit.noEnv > 0 ? (
+                  <p data-testid="txr-intake-panel-no-env" style={PANEL_NO_ENV}>
+                    {formatNoEnvLine(panel.fit.noEnv, panel.fit.total)}
+                  </p>
+                ) : null}
 
-          <div style={UPLOAD_BOX}>
-            <div style={UPLOAD_TITLE}>What you will upload</div>
-            <ul style={UPLOAD_LIST}>
-              <li>
-                <b>Patients</b>: one row per patient, with the time and whether progression or
-                death happened
-              </li>
-              <li>
-                <b>Measurements</b>: one row per marker per blood draw (day, marker, value)
-              </li>
-            </ul>
-            <Link style={LINK} to={mode === 'predict' ? PREDICT_FILES_ROUTE : FILES_ROUTE}>
-              See example files
-            </Link>
-          </div>
+                {answered && panel.fit !== null && panel.fit.some > 0 ? (
+                  <p style={PANEL_SOME_LINE} data-testid="txr-intake-panel-some">
+                    {someFitLine(panel.fit)}
+                  </p>
+                ) : null}
 
-          <div data-testid="txr-intake-panel-excluded">
-            <div style={EXCLUDED_HEADING}>
-              {panel.fit !== null ? leftOutHeading(panel.fit) : 'Methods are left out'}
-            </div>
-            {!answered ? (
-              <div style={{ color: 'var(--txr-muted)', fontSize: 13.5 }}>…</div>
-            ) : panel.fit !== null ? (
-              shownExcluded.length > 0 ? (
-                <ul style={EXCLUDED_LIST}>
-                  {shownExcluded.map(method => (
-                    <li key={method.id} style={EXCLUDED_LI} className="txr-intake-excluded-row">
-                      <span style={EXCLUDED_ID}>{method.id}</span>
-                      <span style={EXCLUDED_REASON}>{method.reasonText}</span>
+                {panel.error !== null ? (
+                  <div role="alert" style={PANEL_ERROR}>
+                    {panel.error}
+                  </div>
+                ) : null}
+
+                <div style={UPLOAD_BOX}>
+                  <div style={UPLOAD_TITLE}>What you will upload</div>
+                  <ul style={UPLOAD_LIST}>
+                    <li>
+                      <b>Patients</b>: one row per patient, with the time and whether progression or
+                      death happened
                     </li>
-                  ))}
-                </ul>
-              ) : (
-                <div style={{ color: 'var(--txr-muted)', fontSize: 13.5 }}>None</div>
-              )
-            ) : (
-              <div style={{ color: 'var(--txr-muted)', fontSize: 13.5 }}>…</div>
-            )}
-            {hasMoreExcluded ? (
-              <Button
-                data-testid="txr-intake-excluded-show-all"
-                variant="link"
-                style={LINK}
-                onClick={() => setShowAllExcluded(show => !show)}
-              >
-                {showAllExcluded ? 'Show fewer' : `Show all ${excluded.length}`}
-              </Button>
-            ) : null}
+                    <li>
+                      <b>Measurements</b>: one row per marker per blood draw (day, marker, value)
+                    </li>
+                  </ul>
+                  <Link style={LINK} to={mode === 'predict' ? PREDICT_FILES_ROUTE : FILES_ROUTE}>
+                    See example files
+                  </Link>
+                </div>
+
+                <div data-testid="txr-intake-panel-excluded">
+                  <div style={EXCLUDED_HEADING}>
+                    {panel.fit !== null ? leftOutHeading(panel.fit) : 'Methods are left out'}
+                  </div>
+                  {!answered ? (
+                    <div style={{ color: 'var(--txr-muted)', fontSize: 13.5 }}>…</div>
+                  ) : panel.fit !== null ? (
+                    shownExcluded.length > 0 ? (
+                      <ul style={EXCLUDED_LIST}>
+                        {shownExcluded.map(method => (
+                          <li key={method.id} style={EXCLUDED_LI} className="txr-intake-excluded-row">
+                            <span style={EXCLUDED_ID}>{method.id}</span>
+                            <span style={EXCLUDED_REASON}>{method.reasonText}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <div style={{ color: 'var(--txr-muted)', fontSize: 13.5 }}>None</div>
+                    )
+                  ) : (
+                    <div style={{ color: 'var(--txr-muted)', fontSize: 13.5 }}>…</div>
+                  )}
+                  {hasMoreExcluded ? (
+                    <Button
+                      data-testid="txr-intake-excluded-show-all"
+                      variant="link"
+                      style={LINK}
+                      onClick={() => setShowAllExcluded(show => !show)}
+                    >
+                      {showAllExcluded ? 'Show fewer' : `Show all ${excluded.length}`}
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            </ScrollRegion>
           </div>
-        </aside>
-      </div>
+        }
+        bottom={
+          <PageFooterBar className="txr-study-footer">
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 14 }}>
+              <Button
+                data-testid="txr-intake-study-continue"
+                style={PRIMARY_BUTTON}
+                onClick={continueFlow}
+              >
+                Continue to the files
+              </Button>
+              <Button
+                data-testid="txr-intake-study-skip"
+                style={OUTLINE_BUTTON}
+                onClick={continueFlow}
+              >
+                Skip the questions
+              </Button>
+              {/* qa-fixes3 ITEM-4: one click fills every answer consistently
+                  with the example family and lands on the files step with the
+                  example tables adopted (the step's own flow validates them). */}
+              <TxrUseExampleButton path="train" onDone={() => navigate(FILES_ROUTE)} />
+            </div>
+          </PageFooterBar>
+        }
+      />
     </div>
   )
 }

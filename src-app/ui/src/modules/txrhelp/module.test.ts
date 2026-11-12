@@ -334,7 +334,16 @@ describe('txrhelp module (TEST-HELP-4)', () => {
           p !== 'src-app/server/src/modules/history_store/types.rs',
       ),
     ).toEqual([])
-    expect(touched.filter(p => p.startsWith('src-app/desktop/'))).toEqual([])
+    // app-shell ITEM-1 (its DRIFT-1): the desktop window's minimum size — the one
+    // desktop file the item touches (the window config lives in the crate, not
+    // the Tauri conf JSON).
+    expect(
+      touched.filter(
+        p =>
+          p.startsWith('src-app/desktop/') &&
+          p !== 'src-app/desktop/tauri/src/lib.rs',
+      ),
+    ).toEqual([])
     // The SANCTIONED exceptions (this item's own list, the txrhistory
     // precedent): the `/help` route handoff itself (`txrshell/module.tsx`
     // + the scaffold `ShellPage.tsx` it no longer references), the
@@ -392,6 +401,14 @@ describe('txrhelp module (TEST-HELP-4)', () => {
           p !== 'src-app/ui/src/modules/txrshell/lib/document-title.test.ts' &&
           p !== 'src-app/ui/src/modules/txrshell/pages/NotFoundPage.tsx' &&
           p !== 'src-app/ui/src/modules/txrshell/pages/NotFoundPage.test.tsx' &&
+          // app-shell ITEM-1 (its DRIFT-1): the shell's layout primitives —
+          // the components dir + the two new lib modules (the rewritten
+          // TxrLayout/TxrThemeToggle/gallery files are the entries above).
+          !p.startsWith('src-app/ui/src/modules/txrshell/components/') &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/shellMode.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/shellMode.test.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/scrollCache.ts' &&
+          p !== 'src-app/ui/src/modules/txrshell/lib/scrollCache.test.ts' &&
 
     // qa-fixes ITEM-7 (X3): the session guard's loading/failure
     // surface is tokenized with the pages (its own ink was a
@@ -487,6 +504,18 @@ describe('txrhelp module (TEST-HELP-4)', () => {
       // the next step (TEST-QF3-3's browser leg; the story answers the
       // example-family cassette + the ITEM-3 ready set).
       'src-app/ui/tests/gallery-e2e/txr-use-example.spec.ts',
+      // The app-shell ITEM-1 spec (its own DRIFT-1): the primitives' browser
+      // tier — the fixed document, the stationary header, the sticky table
+      // header, the scroll restore, the breakpoint switch, the focus order
+      // (TEST-AS-1's browser half).
+      'src-app/ui/tests/gallery-e2e/txr-shell-primitives.spec.ts',
+      // The app-shell ITEM-2 spec (its own DRIFT-1): the six part-1 pages'
+      // measured routes — per route at 1440x900 / 1280x720 / 1024x768 the
+      // routed area fits, ONE-TWO regions, the header never moves, the
+      // sticky bytes (E section headers, F thead, the preview tables), the
+      // pinned bars, PageDown scrolls, and the 390x844 flow leg
+      // (TEST-AS-2's browser half).
+      'src-app/ui/tests/gallery-e2e/txr-shell-routes.spec.ts',
     ])
     expect(testsTouched.length).toBeLessThanOrEqual(sanctionedTests.size)
     for (const file of testsTouched) {

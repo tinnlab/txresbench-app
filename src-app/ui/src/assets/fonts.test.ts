@@ -97,9 +97,12 @@ describe('the local font bundle (TEST-QF-7, X1)', () => {
     expect(index).toMatch(
       /@layer base\s*\{[\s\S]{0,900}?font-family:\s*'Source Sans 3', system-ui, sans-serif;/,
     )
-    // The shell's own declaration stays the same face (one truth, two sites).
+    // The shell's own declaration stays the same face (one truth, two
+    // sites). app-shell ITEM-1 moved the shell from `TxrLayout.tsx` to
+    // `components/AppShell.tsx` — the pin follows the declaration (the
+    // unit tier runs ITEM-4's, so the re-pin is verified here).
     const shell = readFileSync(
-      join(UI, 'src', 'modules', 'txrshell', 'TxrLayout.tsx'),
+      join(UI, 'src', 'modules', 'txrshell', 'components', 'AppShell.tsx'),
       'utf8',
     )
     expect(shell).toContain("fontFamily: \"'Source Sans 3', system-ui, sans-serif\"")

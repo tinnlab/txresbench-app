@@ -67,6 +67,11 @@ export const TXR_H_SHOWN = 8
 export const TXR_H_DURATION_SECS = 3 * 60 + 10
 /** The H-few run's patient count. */
 export const TXR_HFEW_PATIENTS = 12
+/** The ITEM-4 long-table fixture counts (the audit's 300-row heatmap and
+ *  95-row compare table — the matrix the boards' own fixture numbers never
+ *  reach; generated the same spread, so the fixture rules are unchanged). */
+export const TXR_G_LONG_PATIENTS = 300
+export const TXR_H_LONG_PATIENTS = 95
 
 // ── the fixture value spread (a deterministic formula, never the boards' numbers) ──
 
@@ -261,8 +266,8 @@ export function fxGPredictions(runId: string, count: number, patientCount = TXR_
 }
 
 /** The predictions of the H run (two columns, the board's correlated pair). */
-export function fxHPredictions(runId: string): TxrPredictionsResponse {
-  const patients = fxPatients(TXR_H_PATIENTS)
+export function fxHPredictions(runId: string, patientCount = TXR_H_PATIENTS): TxrPredictionsResponse {
+  const patients = fxPatients(patientCount)
   const methods = TXR_H_SPECS.map((spec, m) => fxColumn(spec, m, patients, fxHChance))
   const average = patients.map((_, i) => meanOf(methods.map((_, m) => fxHChance(i + 1, m))))
   return {
@@ -537,8 +542,39 @@ export const TXR_RUN_NOCHANCE: TxrRunDetail = runDetail({
   ],
 })
 
-/** The empty run: no finished method (the 409 PREDICTIONS_UNAVAILABLE state). */
-export const TXR_RUN_EMPTY: TxrRunDetail = runDetail({
+/** The long-G run: the G shape at 300 patients (the ITEM-4 300-row matrix
+ *  fixture — same method mix, the spread over 300 rows). */
+export const TXR_RUN_G_LONG: TxrRunDetail = runDetail({
+  id: 'run-g-long',
+  dir: 'Documents/TxResBench/analysis-fx-1011',
+  status: 'finished',
+  elapsed_secs: TXR_G_DURATION_SECS,
+  finished_at: '2026-09-03T09:01:20Z',
+  methods: TXR_G_SPECS.map((spec, m) =>
+    methodRow(spec, 'finished', {
+      coverage: { scored: TXR_G_LONG_PATIENTS, eligible: TXR_G_LONG_PATIENTS, fraction: 1 },
+      elapsed_secs: 40 + m,
+    }),
+  ),
+})
+
+/** The long-H run: the H shape at 95 patients (the ITEM-4 95-row matrix
+ *  fixture for the compare and one-method views). */
+export const TXR_RUN_H_LONG: TxrRunDetail = runDetail({
+  id: 'run-h-long',
+  dir: 'Documents/TxResBench/analysis-fx-1012',
+  status: 'finished',
+  elapsed_secs: TXR_H_DURATION_SECS,
+  finished_at: '2026-09-03T09:03:50Z',
+  methods: TXR_H_SPECS.map(spec =>
+    methodRow(spec, 'finished', {
+      coverage: { scored: TXR_H_LONG_PATIENTS, eligible: TXR_H_LONG_PATIENTS, fraction: 1 },
+    }),
+  ),
+  models: TXR_H_SPECS.map(spec => modelOf(spec.methodId, TXR_TRAINED_ON)),
+})
+
+/** The empty run: no finished method (the 409 PREDICTIONS_UNAVAILABLE state). */export const TXR_RUN_EMPTY: TxrRunDetail = runDetail({
   id: 'run-empty',
   dir: 'Documents/TxResBench/analysis-fx-1006',
   status: 'running',
@@ -562,6 +598,8 @@ export const TXR_RUNS: Record<string, TxrRunDetail> = {
   [TXR_RUN_HFEW.id]: TXR_RUN_HFEW,
   [TXR_RUN_NOCHANCE.id]: TXR_RUN_NOCHANCE,
   [TXR_RUN_EMPTY.id]: TXR_RUN_EMPTY,
+  [TXR_RUN_G_LONG.id]: TXR_RUN_G_LONG,
+  [TXR_RUN_H_LONG.id]: TXR_RUN_H_LONG,
 }
 
 /** Every cassette-served predictions response, keyed by run id. */
@@ -573,6 +611,8 @@ export const TXR_PREDICTIONS: Record<string, TxrPredictionsResponse> = {
   [TXR_RUN_H.id]: fxHPredictions(TXR_RUN_H.id),
   [TXR_RUN_HFEW.id]: fxHfewPredictions(TXR_RUN_HFEW.id),
   [TXR_RUN_NOCHANCE.id]: fxNochancePredictions(TXR_RUN_NOCHANCE.id),
+  [TXR_RUN_G_LONG.id]: fxGPredictions(TXR_RUN_G_LONG.id, TXR_G_METHODS, TXR_G_LONG_PATIENTS),
+  [TXR_RUN_H_LONG.id]: fxHPredictions(TXR_RUN_H_LONG.id, TXR_H_LONG_PATIENTS),
 }
 
 /** The grown twin of the running story: the 12th column is present. */
@@ -624,6 +664,8 @@ export const TXR_LOGS: Record<string, TxrRunLogsResponse> = {
   [TXR_RUN_H.id]: { lines: TXR_LOGS_H, next_seq: 2, total: 2 },
   [TXR_RUN_HFEW.id]: { lines: TXR_LOGS_H, next_seq: 2, total: 2 },
   [TXR_RUN_EMPTY.id]: { lines: [{ seq: 0, stream: 'engine', content: '2 methods waiting for lanes', created_at: '2026-09-03T08:50:30Z' }], next_seq: 1, total: 1 },
+  [TXR_RUN_G_LONG.id]: { lines: TXR_LOGS_G, next_seq: 3, total: 3 },
+  [TXR_RUN_H_LONG.id]: { lines: TXR_LOGS_H, next_seq: 2, total: 2 },
 }
 
 // ── the CSV fixture (the download's byte passthrough — a plausible 6-decimal table) ──
@@ -718,6 +760,10 @@ export function txrStreamFrames(runId: string): TxrFixtureFrame[] {
       return FRAMES_NOCHANCE
     case TXR_RUN_EMPTY.id:
       return FRAMES_EMPTY
+    case TXR_RUN_G_LONG.id:
+      return FRAMES_G
+    case TXR_RUN_H_LONG.id:
+      return FRAMES_H
     default:
       return []
   }

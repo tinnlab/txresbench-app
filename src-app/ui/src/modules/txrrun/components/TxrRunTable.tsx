@@ -30,6 +30,17 @@
  * either; the sibling G screen's table (txrresults' `TxrHeatmapTable`)
  * hand-rolls its rows for the same reason. Every CONTROL in this section
  * stays a kit control (`Button`, `Confirm`, `Segmented`).
+ *
+ * app-shell ITEM-2 — the frame byte: the table sits in the page's
+ * ScrollRegion (the region is the scrollport for BOTH axes — the old
+ * `overflowX` box is gone so the sticky header sticks to the REGION top,
+ * never to an inner box), the header cells stick with the opaque surface
+ * (the same per-cell sticky byte the shell's DataTable uses), and Stop all
+ * MOVES to the page's fixed bottom bar (`TxrRunStopAllControl` — the same
+ * Confirm gate, same testids) per the audit route table's "Stop all / See
+ * results" row. The table's own footer keeps the at-a-time lane row
+ * (ITEM-10's recorded placement; the run-level action it depends on no
+ * longer lives here).
  */
 import type { CSSProperties } from 'react'
 import { Button, Confirm } from '@ziee/kit'
@@ -38,15 +49,19 @@ import type { TxrRunPerMethod } from '../stores/TxrRun.store'
 import { TxrAtATimeControl } from './TxrAtATimeControl'
 import { TxrRunRow, type TxrRunRowAction } from './TxrRunRow'
 
-/** The board's table card (rounded, hairline border; horizontal scroll on a narrow screen). */
+/** The board's table card (hairline border; the REGION scrolls it). */
 const TABLE_BOX: CSSProperties = {
   border: '1px solid var(--txr-border)',
   borderRadius: 10,
-  overflowX: 'auto',
   background: 'var(--txr-surface)',
 }
 
-const TABLE: CSSProperties = { width: '100%', borderCollapse: 'collapse', fontSize: 14 }
+const TABLE: CSSProperties = {
+  width: '100%',
+  borderCollapse: 'separate',
+  borderSpacing: 0,
+  fontSize: 14,
+}
 
 const HEADER_LOOK: CSSProperties = {
   padding: '8px 12px',
@@ -56,6 +71,12 @@ const HEADER_LOOK: CSSProperties = {
   color: 'var(--txr-text-2)',
   background: 'var(--txr-surface-dim)',
   whiteSpace: 'nowrap',
+  // app-shell ITEM-2: the header sticks to the REGION's top (the region is
+  // the scrollport; the opaque surface is the header token, DEC-1's
+  // header-stays-put byte for the table itself).
+  position: 'sticky',
+  top: 0,
+  zIndex: 2,
 }
 
 /** The board's screen-reader-only "Actions" header (a real column, a hidden label). */
@@ -116,16 +137,11 @@ export interface TxrRunTableProps {
   onAtATime: (n: number) => void
   /** The lane pick's typed failure line (the store's `atATimeError`). */
   atATimeError: string | null
-  /** Stop all's host call — fired ONLY after the confirmation (DEC-10). */
-  onStopAll: () => void
-  /** A run-level action in flight (Stop all's own call): button busy, at-a-time disabled. */
-  stopping: boolean
-  /** The run is over (terminal status): Stop all and the lane pick are
-   *  disabled — a finished run's controls must not claim a live run
-   *  (qa-fixes ITEM-3, RP-1). */
+  /** The run is over (terminal status): the lane pick is disabled — a
+   *  finished run's controls must not claim a live run (qa-fixes ITEM-3,
+   *  RP-1). The Stop-all control lives on the page's fixed bottom bar
+   *  (IT-2's audit byte). */
   terminal: boolean
-  /** Stop all's failure line (the run-level action error). */
-  actionError: string | null
   /** The page's wall clock (null while the run has no elapsed anchor) — the
    *  rows' live elapsed reads it against each row's `started_at` (R2-4; the
    *  page's one-second tick re-renders the rows). */
@@ -140,10 +156,7 @@ export function TxrRunTable({
   atATime,
   onAtATime,
   atATimeError,
-  onStopAll,
-  stopping,
   terminal,
-  actionError,
   nowMs = null,
 }: TxrRunTableProps) {
   return (
@@ -192,38 +205,67 @@ export function TxrRunTable({
         </table>
       </div>
       <div style={FOOTER}>
-        <Confirm
-          data-testid="txr-run-stop-all-confirm"
-          title="Stop all running methods?"
-          okText="Stop all"
-          cancelText="Cancel"
-          danger
-          onConfirm={() => onStopAll()}
-        >
-          <Button
-            data-testid="txr-run-stop-all"
-            variant="outline"
-            className="rounded-lg"
-            style={STOP_ALL}
-            loading={stopping}
-            disabled={terminal}
-          >
-            Stop all
-          </Button>
-        </Confirm>
-        {actionError !== null ? (
-          <span data-testid="txr-run-action-error" style={ACTION_ERROR} role="status" aria-live="polite">
-            {actionError}
-          </span>
-        ) : null}
         <span style={SPACER} />
         <TxrAtATimeControl
           value={atATime}
           onChange={onAtATime}
-          busy={stopping || terminal}
+          busy={terminal}
           error={atATimeError}
         />
       </div>
     </section>
+  )
+}
+
+/**
+ * The Stop-all control (app-shell ITEM-2 — moved from the table's footer to
+ * the page's fixed bottom bar per the audit route table's "Stop all / See
+ * results" row). The DEC-10 gate is unchanged: the engine's 409-informed
+ * row errors stay per-row; aborting several sandboxes at once gets the
+ * confirmation. The same testids travel so the page and the table rows keep
+ * one vocabulary.
+ */
+export function TxrRunStopAllControl({
+  onStopAll,
+  stopping,
+  terminal,
+  actionError,
+}: {
+  /** The host call — fired ONLY after the confirmation (DEC-10). */
+  onStopAll: () => void
+  /** A run-level action in flight (Stop all's own call): button busy. */
+  stopping: boolean
+  /** The run is over (terminal status): disabled. */
+  terminal: boolean
+  /** Stop all's failure line (the run-level action error). */
+  actionError: string | null
+}) {
+  return (
+    <>
+      <Confirm
+        data-testid="txr-run-stop-all-confirm"
+        title="Stop all running methods?"
+        okText="Stop all"
+        cancelText="Cancel"
+        danger
+        onConfirm={() => onStopAll()}
+      >
+        <Button
+          data-testid="txr-run-stop-all"
+          variant="outline"
+          className="rounded-lg"
+          style={STOP_ALL}
+          loading={stopping}
+          disabled={terminal}
+        >
+          Stop all
+        </Button>
+      </Confirm>
+      {actionError !== null ? (
+        <span data-testid="txr-run-action-error" style={ACTION_ERROR} role="status" aria-live="polite">
+          {actionError}
+        </span>
+      ) : null}
+    </>
   )
 }

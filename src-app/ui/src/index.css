@@ -139,64 +139,251 @@ html.dark .os-theme-dark {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent);
 }
 
-/* QA-fixes ITEM-7 (X2) + qa-fixes3 ITEM-6 (c): the shell header at narrow
- * width. The board's header is ONE 56 px row; at 390 px the old stack put
- * "Help" alone on the second row beside the theme icon (the owner-side
- * review). Below 900 px the tagline yields (the brand stays — the tagline is
- * the least-needed byte and the longest); below 640 px the header STAYS a
- * single row: the nav becomes the flexible MIDDLE of that row — a
- * horizontally scrollable strip (no wrap, no painted scrollbar; Tab reaches
- * every destination and the browser scrolls the strip to the focused link)
- * — while the brand and the theme switch never shrink and the switch
- * collapses to its icon (the same yield rule as the tagline; the icon
- * carries the state, the tooltip/accessible name the action). The desktop
- * look above those widths is untouched (the inline styles carry it). */
+/* app-shell ITEM-1 (DEC-1/DEC-2): the shell's TWO modes by window size.
+ * The document rules follow the `txr-shell-mode-*` class the AppShell puts
+ * on <html> — the same media expression the shell's own hook follows
+ * (`lib/shellMode.ts`): in SHELL mode (>=768x520) the document never
+ * scrolls — html/body/#root are height 100% and overflow hidden, the
+ * header is a fixed 56 px bar and pages scroll inside their own regions
+ * (the routed area is the ONE scroller until the pages own their regions,
+ * ITEM-2/3). In FLOW mode (below the bounds — phones, the web demo on a
+ * phone) the document scrolls normally and the header is sticky.
+ *
+ * The class leaves the document when the shell unmounts, so routes that
+ * are not under the shell (the framework's settings screens) keep their
+ * own document behaviour. */
+html.txr-shell-mode-shell,
+html.txr-shell-mode-shell body {
+  height: 100%;
+  overflow: hidden;
+}
+html.txr-shell-mode-shell #root {
+  height: 100%;
+  overflow: hidden;
+}
+.txr-app-shell-shell {
+  height: 100%;
+  overflow: hidden;
+}
+.txr-app-shell-flow {
+  min-height: 100dvh;
+}
+.txr-app-shell-flow .txr-shell-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+.txr-app-shell-shell .txr-app-shell-body {
+  overflow: auto;
+}
+
+/* app-shell ITEM-3 (the audit's /help row): the PRINT byte — the shell's
+ * fixed document and the pages' own regions are for the SCREEN; a printed
+ * Help page must be the whole article. The mode-class rules above (height
+ * 100% + overflow hidden) are unset here and the regions' inline
+ * height/overflow yield to the printer (the `!important` is what beats an
+ * inline style, and the class-scoped selectors beat the mode rules at
+ * equal specificity by coming later). */
+@media print {
+  html.txr-shell-mode-shell,
+  html.txr-shell-mode-shell body,
+  html.txr-shell-mode-shell #root {
+    height: auto !important;
+    overflow: visible !important;
+  }
+  .txr-app-shell-shell,
+  .txr-app-shell-shell .txr-app-shell-body {
+    height: auto !important;
+    overflow: visible !important;
+  }
+  .txr-page-frame {
+    height: auto !important;
+  }
+  .txr-scroll-region-frame,
+  .txr-scroll-region {
+    height: auto !important;
+    overflow: visible !important;
+  }
+}
+
+/* QA-fixes ITEM-7 (X2) + app-shell ITEM-1: the shell header at narrow
+ * width. The board's header is ONE 56 px row; below 900 px the tagline
+ * yields (the brand stays — the tagline is the least-needed byte and the
+ * longest). Below 700 px the nav row is REPLACED by a menu button (the
+ * app-shell ITEM-1 byte — the qa-fixes3 scrollable strip's successor): the
+ * header stays a single row with the brand left and the menu button +
+ * theme switch right; the menu carries the four destinations with full
+ * keyboard (Base UI menu: arrows, Escape, focus return) and screen-reader
+ * (menubar/menu/menuitem) semantics; the theme switch is an icon-only
+ * button (its accessible name carries the visible state text — the label
+ * that just collapsed). The desktop look above those widths is untouched
+ * (the inline styles carry it). */
 @media (max-width: 900px) {
   .txr-shell-tagline {
     display: none !important;
   }
 }
-@media (max-width: 640px) {
+@media (max-width: 700px) {
   .txr-shell-header {
-    flex-wrap: nowrap !important;
     padding: 0 12px !important;
     gap: 8px !important;
-    /* ITEM-6: ONE row at every width — the board's 56 px header byte. */
     height: 56px !important;
   }
   .txr-shell-actions {
-    flex: 1 1 auto !important;
-    min-width: 0 !important;
     gap: 8px !important;
   }
   .txr-shell-nav {
-    flex-wrap: nowrap !important;
-    overflow-x: auto !important;
-    overflow-y: hidden !important;
-    min-width: 0 !important;
-    /* The 3 px kit focus ring must not be clipped by the overflow — the
-     * strip pads the links by the ring's width. */
-    padding: 3px;
-    /* The strip scrolls; it does not paint a bar (the destinations are the
-     * scroll affordance's own focus order — Tab scrolls it). */
-    scrollbar-width: none;
-    -webkit-overflow-scrolling: touch;
+    display: none !important;
   }
-  .txr-shell-nav::-webkit-scrollbar {
-    display: none;
+  .txr-shell-nav-menu {
+    display: inline-flex !important;
   }
-  .txr-shell-nav a {
-    flex-shrink: 0 !important;
-  }
-  .txr-shell-actions .txr-theme-toggle {
-    flex-shrink: 0 !important;
-  }
-  /* qa-fixes2 ITEM-1: the switch keeps its icon and collapses its state
-   * label (the same yield rule as the tagline — the icon carries the state,
-   * the tooltip/accessible name the action). The switch itself stays on
-   * screen; the four destinations' on-screen sweep is above. */
   .txr-theme-toggle .txr-theme-toggle-label {
     display: none;
+  }
+}
+.txr-shell-nav-menu {
+  display: none;
+}
+@media (min-width: 701px) {
+  .txr-shell-nav-menu {
+    display: none !important;
+  }
+}
+
+/* app-shell ITEM-1: the shell's skip link — the FIRST tab stop of the
+ * document (it precedes the brand in the DOM). Parked off-screen left;
+ * keyboard focus brings it into view (the Help page's skip-link pattern,
+ * the same ring the kit controls paint). It targets the routed area
+ * (`#txr-main`), so a keyboard user never tabs through the header to
+ * reach content. */
+.txr-shell-skip-link {
+  position: fixed;
+  top: 0;
+  left: -9999px;
+  z-index: 100;
+  padding: 8px 14px;
+  border-radius: 6px;
+  background: var(--txr-brand);
+  color: var(--txr-on-brand);
+  font-size: 14px;
+  text-decoration: none;
+}
+.txr-shell-skip-link:focus-visible {
+  left: 12px;
+  top: 12px;
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent);
+}
+
+/* app-shell ITEM-1 — the DataTable byte: the app's ONE table. The header
+ * row and the sticky first column are POSITIONED inline (geometry); their
+ * SURFACES are here, because a sticky cell needs an opaque token
+ * background (rows must not show through it) and the row hover/focus
+ * states must repaint it. All token colours — never a literal (RES-25). */
+.txr-data-table {
+  background: var(--txr-surface);
+  color: var(--txr-text);
+  font-size: 13.5px;
+}
+.txr-data-table thead th,
+.txr-data-table [role='columnheader'] {
+  background: var(--txr-surface-dim);
+  border-bottom: 1px solid var(--txr-border);
+  font-weight: 600;
+  font-size: 12.5px;
+  color: var(--txr-text-2);
+  text-align: left;
+  vertical-align: middle;
+}
+.txr-data-table tbody td,
+.txr-data-table [role='cell'] {
+  background: var(--txr-surface);
+  border-bottom: 1px solid var(--txr-border-subtle);
+  vertical-align: middle;
+}
+.txr-data-table .txr-data-table-first-cell {
+  box-shadow: inset -1px 0 0 var(--txr-border-subtle);
+}
+.txr-data-table .txr-data-table-row {
+  outline: none;
+}
+.txr-data-table .txr-data-table-row:hover,
+.txr-data-table .txr-data-table-row:hover > td,
+.txr-data-table .txr-data-table-row:hover > [role='cell'] {
+  background: var(--txr-accent-softer);
+}
+.txr-data-table .txr-data-table-row:focus-visible,
+.txr-data-table .txr-data-table-row:focus-visible > td,
+.txr-data-table .txr-data-table-row:focus-visible > [role='cell'] {
+  background: var(--txr-accent-soft);
+}
+.txr-data-table .txr-data-table-row:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--txr-brand);
+}
+
+/* app-shell ITEM-1 — the ScrollRegion's own focus ring (the region is a
+ * tab stop; the ring is the kit ring, painted on the scroll container so
+ * it never scrolls away with the content). */
+.txr-scroll-region:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--txr-brand);
+}
+
+/* app-shell ITEM-2 — the two-region body rows (the audit's per-route
+ * layout byte: the tile "Fixed top / Scroll regions / Fixed bottom"). The
+ * row is a flex column under 1024 px (the two regions stack, each taking
+ * its proportional share of the body) and a flex row from 1024 px (the
+ * board's side-by-side reading; the audit's three measured sizes are
+ * 1440x900, 1280x720 and 1024x768). The region frames carry the flex
+ * devisions; the page's own inline styles carry the padding/gap. */
+.txr-shell-regions-row {
+  flex-direction: column;
+}
+@media (min-width: 1024px) {
+  .txr-shell-regions-row {
+    flex-direction: row;
+  }
+}
+.txr-study-questions-region,
+.txr-study-panel-region,
+.txr-run-table-region,
+.txr-run-log-region {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+}
+.txr-run-table-region {
+  flex: 3 1 0;
+}
+.txr-run-log-region {
+  flex: 2 1 0;
+}
+
+/* app-shell ITEM-2 — the fixed-top / region-content chrome paddings at the
+ * phone width (the pages now own their frame slots; the OLD page-padding
+ * rules below are replaced by these — the root is the frame host, padding
+ * belongs to the slots). */
+@media (max-width: 640px) {
+  .txr-intake-page .txr-intake-page-top {
+    padding: 24px 16px 8px !important;
+  }
+  .txr-intake-page .txr-intake-page-body {
+    padding: 0 16px 20px !important;
+  }
+  .txr-run-page .txr-run-top {
+    padding: 20px 16px 0 !important;
+  }
+  .txr-run-page .txr-run-methods-content {
+    padding: 12px 16px 20px !important;
+  }
+  .txr-run-page .txr-run-regions {
+    padding: 0 16px !important;
+  }
+  .txr-run-page .txr-run-table-region {
+    flex: 1 1 auto !important;
+  }
+  .txr-run-page .txr-run-log-region {
+    flex: none !important;
   }
 }
 
@@ -376,9 +563,6 @@ html.dark .os-theme-dark {
  * description column can then take the width it needs), the preview table
  * scrolls inside its own box, and the panels stack full-width. */
 @media (max-width: 640px) {
-  .txr-intake-page {
-    padding: 24px 16px !important;
-  }
   .txr-intake-page .txr-intake-role-table {
     width: 100%;
   }
@@ -525,12 +709,17 @@ html.dark .os-theme-dark {
   max-width: 1048px;
   margin: 0 auto;
 }
+/* app-shell ITEM-3 (the audit's /help row): the rail STICKS at the REGION's
+ * top (the article's scrollport — the rail no longer scrolls itself; the
+ * region is the one scroller). In shell mode the region's top edge already
+ * sits below the frame's fixed top, so the offset is 0; in flow mode the
+ * rail runs against the document under the shell's sticky 56 px header. */
 .txr-help-rail {
   position: sticky;
-  top: 20px;
-  max-height: calc(100vh - 40px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  top: 0;
+}
+html.txr-shell-mode-flow .txr-help-rail {
+  top: 64px;
 }
 .txr-help-column {
   min-width: 0;
@@ -616,9 +805,6 @@ html.dark .os-theme-dark {
  * touch targets are at least 44 px. Desktop is untouched (the inline
  * styles carry it). */
 @media (max-width: 640px) {
-  .txr-run-page {
-    padding: 20px 16px !important;
-  }
   .txr-run-page .txr-method-card {
     flex-direction: column;
     align-items: stretch;

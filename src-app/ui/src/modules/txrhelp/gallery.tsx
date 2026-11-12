@@ -22,6 +22,7 @@
 import { lazy, type CSSProperties } from 'react'
 import { Route, Routes } from 'react-router-dom'
 import type { ModuleGallery } from '@ziee/gallery'
+import { AppShell } from '@/modules/txrshell/components/AppShell'
 import { HelpPage } from './pages/HelpPage'
 
 /** The bounded white pane look (the gallery's frame idiom). */
@@ -51,7 +52,12 @@ export const gallery: ModuleGallery = {
           ),
         }),
       ),
-      fullHeight: true,
+      // The app-shell ITEM-3 frame byte: the page is a frame page (fixed
+      // top + ONE region) — the story frame must be BOUNDED (the old
+      // unbounded fullHeight frame made the page's 100% chain resolve auto
+      // and the region never scroll; the app byte's own host is the
+      // txr-shell-route-help surface, and the spec's frame bind measures
+      // the definite chain here too).
     },
     {
       slug: 'txr-help-narrow-390',
@@ -73,7 +79,27 @@ export const gallery: ModuleGallery = {
           ),
         }),
       ),
-      fullHeight: true,
+      // The same frame byte at the phone width (the bounded frame, see the
+      // txr-help entry).
+    },
+    {
+      slug: 'txr-shell-route-help',
+      title: 'Help inside the shell',
+      note: 'The app-shell ITEM-3 route byte: the title + purpose + search fixed, the whole article (quick-start row + the rail/content grid) in the ONE region — the rail sticks at the region\'s top without scrolling itself, the spy follows the region, the anchors land flush at its top (scroll-margin 0 in shell mode) and the print byte prints the full article. The audit section-4 legs (test: `txr-shell-routes.spec.ts`).',
+      path: '/*',
+      initialPath: '/help',
+      component: lazy(() =>
+        Promise.resolve({
+          default: () => (
+            <AppShell>
+              <Routes>
+                <Route path="/help" element={<HelpPage />} />
+                <Route path="*" element={null} />
+              </Routes>
+            </AppShell>
+          ),
+        }),
+      ),
     },
   ],
 }

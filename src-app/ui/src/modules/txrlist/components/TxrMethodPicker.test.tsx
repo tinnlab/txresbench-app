@@ -373,3 +373,83 @@ describe('ITEM-2 — the recompute state and the tab order', () => {
     expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })
+
+describe('app-shell ITEM-2 — the layout split (the E page\'s toolbar-fixed byte)', () => {
+  it('the default layout keeps toolbar and list inline in one column (the pre-ITEM-2 composition)', () => {
+    renderPicker(CARDS)
+    const root = screen.getByTestId('txr-method-picker')
+    expect(root.contains(screen.getByTestId('txr-method-toolbar'))).toBe(true)
+    expect(root.contains(screen.getByTestId('txr-method-sections'))).toBe(true)
+  })
+
+  it('the host layout receives the two pieces and may place them apart (the E page byte)', () => {
+    const parts: { toolbar: unknown; list: unknown } = { toolbar: null, list: null }
+    render(
+      <TxrMethodPicker
+        cards={[...CARDS, ...CANNOT]}
+        loading={false}
+        error={null}
+        onRetry={() => {}}
+        selected={new Set()}
+        onSelectionChange={() => {}}
+        onChangeFiles={() => {}}
+        onChangeSettings={() => {}}
+        layout={p => {
+          parts.toolbar = p.toolbar
+          parts.list = p.list
+          return (
+            <section data-testid="split-root">
+              <div data-testid="split-toolbar">{p.toolbar}</div>
+              <div data-testid="split-list">{p.list}</div>
+            </section>
+          )
+        }}
+      />,
+    )
+    expect(parts.toolbar).not.toBeNull()
+    expect(parts.list).not.toBeNull()
+    expect(
+      document.querySelector(
+        '[data-testid="split-toolbar"] [data-testid="txr-method-toolbar"]',
+      ),
+    ).not.toBeNull()
+    expect(
+      document.querySelector(
+        '[data-testid="split-list"] [data-testid="txr-method-sections"]',
+      ),
+    ).not.toBeNull()
+    expect(
+      document.querySelector(
+        '[data-testid="split-toolbar"] [data-testid="txr-method-cannot-heading"]',
+      ),
+    ).toBeNull()
+  })
+
+  it('the first load and first error states hand a null toolbar (the old early-return byte)', () => {
+    const toolbar: { current: unknown } = { current: 'unset' }
+    render(
+      <TxrMethodPicker
+        cards={[]}
+        loading
+        error={null}
+        onRetry={() => {}}
+        selected={new Set()}
+        onSelectionChange={() => {}}
+        onChangeFiles={() => {}}
+        onChangeSettings={() => {}}
+        layout={p => {
+          toolbar.current = p.toolbar
+          return (
+            <div data-testid="split-root">
+              {p.toolbar}
+              {p.list}
+            </div>
+          )
+        }}
+      />,
+    )
+    expect(toolbar.current).toBeNull()
+    expect(screen.getByTestId('txr-method-loading')).toBeTruthy()
+    expect(screen.queryByTestId('txr-method-toolbar')).toBeNull()
+  })
+})

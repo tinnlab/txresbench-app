@@ -5,7 +5,18 @@
  * live alpha formula, the patient column pinned on the LEFT and the header
  * pinned on TOP under scrolling on both axes, the fixed-height row window
  * (bounded DOM no matter how many patients a run has), and the
- * "Showing N of M patients … Show all M" footer.
+ * "Scroll sideways…" sentence under the box.
+ *
+ * app-shell ITEM-3 — the region byte: the page owns ONE ScrollRegion and
+ * the table lives IN it, so the REGION is the scrollport (the old
+ * `max-height` + `overflow: auto` box is gone — a bounded inner scroller
+ * would nest; DEC-3). The component reads the region element from
+ * `ScrollRegionContext` (the DataTable wiring, txrshell ITEM-1) and
+ * measures/scrolls THAT element; without a region (the module's own gallery
+ * surfaces outside a shell) it falls back to its own box — the same
+ * standalone mode the DataTable has. The sticky header and the pinned
+ * patient column stick to the region's edges (the per-cell sticky byte, the
+ * opaque surfaces in the CSS hooks).
  *
  * DEC-11 — module-local native table, deliberately NOT the kit `Table`:
  * the board's construction is a native table with `position: sticky` on
@@ -14,15 +25,15 @@
  * pinned-LEFT-column API (`sdk/packages/kit/src/kit/table.tsx`) — the grid
  * layout would also fight the per-cell colored backgrounds. The component
  * renders the board's own native-table bytes; H's `TxrBarsTable` is the
- * kit-`Table` twin (a handful of columns, no pinning). A future kit gain
- * (pinned-column support) is the refactor trigger.
+ * table's twin (a handful of columns, the kit grid no longer — ITEM-3).
+ * A future kit gain (pinned-column support) is the refactor trigger.
  *
  * Row windowing (PROV-UR-5, DEC-12): fixed `HEATMAP_ROW_HEIGHT` rows; the
- * box mounts only the viewport row window (constant, board box 470 px at
- * the 36 px row pitch, ± the overscan) and the rows outside the window are
- * replaced by invisible spacer rows — the native-table shape of the window:
- * a transformed overlay (translateY) inside a table breaks the sticky
- * cells, the spacer keeps the table's own row flow AND the two-axis
+ * box mounts only the viewport row window (constant, the board's 470 px box
+ * budget at the 36 px row pitch, ± the overscan) and the rows outside the
+ * window are replaced by invisible spacer rows — the native-table shape of
+ * the window: a transformed overlay (translateY) inside a table breaks the
+ * sticky cells, the spacer keeps the table's own row flow AND the two-axis
  * pinning intact. The window never grows with the row count ("Show all M"
  * still renders a bounded DOM).
  *
@@ -47,14 +58,17 @@
  * host raises the store's patient limit; `viewOf` re-windows the rows and
  * this component re-renders them — it never filters or sorts itself).
  *
- * Copy facts (board-verbatim): the footer sentence "Showing N of M
- * patients. Scroll sideways for more methods, down for more patients; the
- * first columns stay in view." and the "Show all M" link; the board's
- * example numbers are never data (INV-5) — every count here is the view's.
+ * Copy facts (board-verbatim): the footer sentence "Scroll sideways for
+ * more methods, down for more patients; the first columns stay in view"
+ * (the "Showing N of M patients." sentence moved to the page's fixed
+ * bottom bar next to its actions — ITEM-3, the audit route table) and the
+ * "Show all M" link in the same bar; the board's example numbers are never
+ * data (INV-5) — every count here is the view's.
  */
 import type { CSSProperties } from 'react'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { Button, Tooltip } from '@ziee/kit'
+import { useScrollRegionElement } from '@/modules/txrshell/components/ScrollRegionContext'
 import type { TxrHeatmapRow, TxrHeatmapView } from '../types'
 import { formatPct } from '../lib/format'
 
@@ -177,11 +191,11 @@ export function chanceStyleOf(value01: number): { background: string; color: str
 
 const MONO_FONT = "'Source Code Pro', ui-monospace, monospace"
 
+/** The table card (the region scrolls it — no inner scrollport, ITEM-3). */
 const SCROLL_BOX: CSSProperties = {
-  overflow: 'auto',
   border: '1px solid var(--txr-border)',
   borderRadius: 10,
-  maxHeight: HEATMAP_BOX_BUDGET_CSS,
+  minWidth: 0,
 }
 
 const TABLE: CSSProperties = {
@@ -355,33 +369,39 @@ function HeatmapRow({
 export interface TxrHeatmapTableProps {
   /** The ready projection (ITEM-4's `viewOf`): columns + rows + the showing counts. */
   view: TxrHeatmapView
-  /** "Show all M" — the host raises the store's patient limit (`setPatientLimit(-1)`). */
-  onShowAll: () => void
 }
 
-export function TxrHeatmapTable({ view, onShowAll }: TxrHeatmapTableProps) {
-  const { columns, rows, shownCount, totalCount, averageBy } = view
+export function TxrHeatmapTable({ view }: TxrHeatmapTableProps) {
+  const { columns, rows, totalCount, averageBy } = view
   const [scrollTop, setScrollTop] = useState(0)
   const [columnsOverflow, setColumnsOverflow] = useState(false)
   const [rowsOverflow, setRowsOverflow] = useState(false)
   const boxRef = useRef<HTMLDivElement | null>(null)
-  // The footer's "Scroll sideways for more methods" / "down for more
-  // patients" claims are measured (RES-07): the board's sentence renders only
-  // when the method columns really do overflow, and the down-scroll sentence
-  // only when the rows do — a view that fits its box is never told to scroll.
-  // One ResizeObserver (re-laid-out boxes change the fit).
+  const region = useScrollRegionElement()
+  // The scrollport the windowing and the overflow sentences measure: the
+  // hosting ScrollRegion (ITEM-3 — the page's ONE scroll container), else
+  // the table's own card (the standalone mode: the module's stories, a
+  // dialog host). The effect re-attaches when the region publishes its
+  // element (the context value's identity changes with the node).
   useLayoutEffect(() => {
-    const box = boxRef.current
-    if (box === null) return
+    const el = region?.current ?? boxRef.current
+    if (el === null || el === undefined) return
     const measure = () => {
-      setColumnsOverflow(box.scrollWidth > box.clientWidth)
-      setRowsOverflow(box.scrollHeight > box.clientHeight)
+      setColumnsOverflow(el.scrollWidth > el.clientWidth + 1)
+      setRowsOverflow(el.scrollHeight > el.clientHeight + 1)
     }
     measure()
+    const onScroll = () => {
+      setScrollTop(el.scrollTop)
+    }
+    el.addEventListener('scroll', onScroll)
     const observer = new ResizeObserver(measure)
-    observer.observe(box)
-    return () => observer.disconnect()
-  }, [])
+    observer.observe(el)
+    return () => {
+      el.removeEventListener('scroll', onScroll)
+      observer.disconnect()
+    }
+  }, [region])
   const windowed = heatmapWindowOf(scrollTop, rows.length)
   const visibleRows = rows.slice(windowed.start, windowed.end)
   // R2-11: the Average column is redundant when ONE method column is shown
@@ -399,11 +419,10 @@ export function TxrHeatmapTable({ view, onShowAll }: TxrHeatmapTableProps) {
         ref={boxRef}
         data-testid="txr-heatmap"
         style={SCROLL_BOX}
-        onScroll={event => setScrollTop(event.currentTarget.scrollTop)}
       >
         {totalCount === 0 ? (
           // RES-06: a search with no match is its own message, never a bare
-          // empty table plus the "Showing 0 of 0 patients" scroll sentence.
+          // empty table.
           <div
             data-testid="txr-heatmap-empty"
             style={{ padding: '18px 16px', fontSize: 13.5, color: 'var(--txr-text-2)' }}
@@ -447,28 +466,20 @@ export function TxrHeatmapTable({ view, onShowAll }: TxrHeatmapTableProps) {
         )}
       </div>
       <div style={FOOTER}>
+        {/* The "Showing N of M patients." sentence and the "Show all M"
+            window control live in the page's fixed bottom bar (ITEM-3 — the
+            audit route table's "/analysis/:id/results" row); this footer
+            carries only the table's own scroll guidance — measured (RES-07):
+            it renders only when the direction it names really overflows. */}
         <span data-testid="txr-heatmap-footer">
-          {totalCount === 0
-            ? ''
-            : `Showing ${shownCount} of ${totalCount} patients.`}
           {totalCount > 0
             ? columnsOverflow
-              ? ' Scroll sideways for more methods, down for more patients; the first columns stay in view.'
+              ? 'Scroll sideways for more methods, down for more patients; the first columns stay in view.'
               : rowsOverflow
-                ? ' Scroll down for more patients.'
+                ? 'Scroll down for more patients.'
                 : ''
             : ''}
         </span>
-        {shownCount < totalCount ? (
-          <Button
-            data-testid="txr-heatmap-show-more"
-            variant="link"
-            className="p-0"
-            onClick={onShowAll}
-          >
-            {`Show all ${totalCount}`}
-          </Button>
-        ) : null}
       </div>
     </div>
   )

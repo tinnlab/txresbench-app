@@ -225,7 +225,9 @@ test.describe('txr-results-g — the populated heatmap (TEST-UR-14 + TEST-UR-15)
     await expect(patientHeader).toBeVisible()
 
     // The corner (top-left) + header (top) + patient column (left) pins,
-    // re-asserted AFTER a real two-axis scroll inside the scroll box.
+    // re-asserted AFTER a real two-axis scroll inside the REGION (ITEM-3:
+    // the page's ONE ScrollRegion is the scrollport — the heatmap card is a
+    // plain bordered div, the native table is the two-axis byte).
     const box = heatmap.locator('table')
     expect(await stickyFacts(box.locator('thead tr > *').first())).toMatchObject({
       position: 'sticky',
@@ -236,10 +238,16 @@ test.describe('txr-results-g — the populated heatmap (TEST-UR-14 + TEST-UR-15)
     const patientColumn = page.getByTestId('txr-heatmap-row-S0001').locator('th')
     expect(await stickyFacts(patientColumn)).toMatchObject({ position: 'sticky', left: '0px' })
 
-    // (the 8-column table fits the 1280 frame — the scroll box is narrowed
-    // so the board's horizontal overflow is real, then both axes scroll)
+    // The scrollport is the REGION (the card's old inner scroll box is gone):
+    // the 8-column table fits the 1280 frame, so the card is widened until
+    // the region's horizontal overflow is real, then BOTH axes scroll on the
+    // region — the element that actually scrolls (its scrollTop/scrollLeft).
+    const region = page.getByRole('region', { name: 'Patient predictions' })
+    await expect(region).toBeVisible()
     await heatmap.evaluate(el => {
-      el.style.width = '540px'
+      el.style.width = '1600px'
+    })
+    await region.evaluate(el => {
       el.scrollTop = 200
       el.scrollLeft = 240
       el.dispatchEvent(new Event('scroll'))
@@ -254,17 +262,18 @@ test.describe('txr-results-g — the populated heatmap (TEST-UR-14 + TEST-UR-15)
     expect(await stickyFacts(patientColumn)).toMatchObject({ position: 'sticky', left: '0px' })
 
     // The pinned column never moves with the content: after scrolling 240 px
-    // right, all 14 mounted patient columns sit at the same x as before.
-    const before = await patientColumn.boundingBox()
-    const after = await page.getByTestId('txr-heatmap-row-S0001').locator('th').boundingBox()
-    expect(before, 'patient column').not.toBeNull()
-    expect(after, 'patient column after scroll').not.toBeNull()
-    expect(Math.abs(after!.x - before!.x)).toBeLessThanOrEqual(1)
+    // right, the mounted patient column sits at the REGION's left edge (the
+    // scrollport's edge is the sticky pin's reference, never the card's).
+    const regionBox = await region.boundingBox()
+    const pinned = await patientColumn.boundingBox()
+    expect(regionBox, 'region').not.toBeNull()
+    expect(pinned, 'patient column after scroll').not.toBeNull()
+    expect(Math.abs(pinned!.x - regionBox!.x), 'pinned patient column at the region edge').toBeLessThanOrEqual(3)
     // …while a method value moved with the content (the row-scoped value
     // selector: the sticky header th ends with the same column id).
     const firstRow = page.getByTestId('txr-heatmap-row-S0001')
     const valueBefore = await firstRow.locator('td[data-testid$="-direct-on"]').boundingBox()
-    await heatmap.evaluate(el => {
+    await region.evaluate(el => {
       el.scrollLeft = 0
       el.scrollTop = 0
       el.dispatchEvent(new Event('scroll'))
@@ -272,7 +281,7 @@ test.describe('txr-results-g — the populated heatmap (TEST-UR-14 + TEST-UR-15)
     const valueAfter = await firstRow.locator('td[data-testid$="-direct-on"]').boundingBox()
     expect(valueBefore, 'chance value at scroll').not.toBeNull()
     expect(valueAfter, 'chance value at rest').not.toBeNull()
-    expect(Math.abs(valueAfter!.x - valueBefore!.x)).toBeGreaterThan(1)
+    expect(Math.abs(valueAfter!.x - valueBefore!.x)).toBeGreaterThan(200)
 
     // Outcome-tab switching: per-tab column sets (pfs 8 → os 2 → response 2)
     // and the tab labels riding the board's day wording.
